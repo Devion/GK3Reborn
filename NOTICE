@@ -1,0 +1,39 @@
+GK3Reborn
+Copyright (C) 2026 GK3Reborn contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE for the full text.
+
+------------------------------------------------------------------------------
+Attribution
+------------------------------------------------------------------------------
+
+Portions of this project are informed by, and in places adapted from, G-Engine
+by Clark Kromenaker (https://github.com/kromenak/gengine), licensed under the
+GNU General Public License version 3. G-Engine is used as the behavioral oracle
+and file-format reference for GK3Reborn. Files that adapt G-Engine code carry a
+per-file attribution notice.
+
+File-format understanding also draws on GK3 Tools
+(https://sourceforge.net/projects/gk3tools/).
+
+------------------------------------------------------------------------------
+Asset rights
+------------------------------------------------------------------------------
+
+Gabriel Knight 3: Blood of the Sacred, Blood of the Damned is copyright Sierra
+On-Line / Activision. This project ships NO original game assets. It requires a
+legally obtained installation of the game, which it reads locally and never
+modifies.
+
+The source-code license granted here conveys no rights whatsoever to the
+original game's assets, nor to any derivative of them.
+
+------------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------------
+
+Redistributed third-party components and their licenses are listed in
+licenses/THIRD-PARTY.md, generated as part of the release process.

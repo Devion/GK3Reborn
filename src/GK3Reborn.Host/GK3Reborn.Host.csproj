@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>GK3Reborn.Host</RootNamespace>
+    <!-- The shipped executable is named for the game, not for this project. -->
+    <AssemblyName>GK3Reborn</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../GK3Reborn.Engine/GK3Reborn.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

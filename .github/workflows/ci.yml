@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is a target from day one, not a late port. See Plan/04 P1.
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore GK3Reborn.slnx --locked-mode || dotnet restore GK3Reborn.slnx
+
+      - name: Build
+        run: dotnet build GK3Reborn.slnx --configuration Release --no-restore --nologo
+
+      - name: Test
+        shell: bash
+        run: ./build/run-tests.sh Release
+
+      - name: Check for committed game data
+        shell: bash
+        run: |
+          # Belt and braces over .gitignore: original assets must never be committed.
+          if git ls-files | grep -iE '\.(brn|bik|avi|mod|act|anm|yak|mul|bsp|nvc|sif|scn|shp|gas|fon|cur|gk3)$'; then
+            echo "::error::Original game data must never be committed. See CONTRIBUTING.md."
+            exit 1
+          fi

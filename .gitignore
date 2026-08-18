@@ -1,0 +1,39 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+*.user
+.vs/
+.idea/
+.vscode/
+
+# Content workspace: generated content never enters source control.
+# See Plan/02-content-pipeline.md section 3.
+ContentWorkspace/
+content/
+libs/
+
+# Original game data must never be committed. See Plan/README.md item 10.
+*.brn
+*.bik
+*.BIK
+*.avi
+*.mod
+*.act
+*.anm
+*.yak
+*.mul
+*.bsp
+*.nvc
+*.sif
+*.scn
+*.shp
+*.gas
+*.fon
+*.cur
+*.gk3
+
+# Local settings
+*.local.json
+launchSettings.json

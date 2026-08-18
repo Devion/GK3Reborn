@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>GK3Reborn.Tests</RootNamespace>
+    <AssemblyName>GK3Reborn.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/GK3Reborn.Engine/GK3Reborn.Engine.csproj" />
+    <ProjectReference Include="../../tools/GK3Reborn.Tools/GK3Reborn.Tools.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The layering test reads the engine's sources, so it needs to find them
+         at run time regardless of where the test binary was copied. -->
+    <AssemblyMetadata Include="RepositoryRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../'))" />
+  </ItemGroup>
+
+</Project>

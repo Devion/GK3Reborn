@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>GK3Reborn.Tools</RootNamespace>
+    <AssemblyName>GK3Reborn.Tools</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/GK3Reborn.Engine/GK3Reborn.Engine.csproj" />
+  </ItemGroup>
+
+</Project>
