@@ -73,6 +73,10 @@ public static class Program
             case "actions":
                 return Actions(options, diagnostics);
 
+            case "render-model":
+            case "render-scene":
+                return Render(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -83,6 +87,34 @@ public static class Program
                 PrintUsage();
                 return 2;
         }
+    }
+
+    private static int Render(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Model is null)
+        {
+            Console.Error.WriteLine($"{options.Command} requires --source and --model.");
+            return 2;
+        }
+
+        string output = options.Output ?? Path.Combine(
+            Environment.CurrentDirectory, options.Model + ".png");
+
+        bool rendered = options.Command == "render-scene"
+            ? new SceneRenderStage(Console.WriteLine).Run(
+                options.Source,
+                options.Model,
+                options.Timeblock,
+                options.Camera,
+                output,
+                options.Width,
+                options.Height,
+                diagnostics)
+            : new ModelRenderStage(Console.WriteLine).Run(
+                options.Source, options.Model, output, options.Width, options.Height, diagnostics);
+
+        Report(diagnostics);
+        return rendered ? 0 : 3;
     }
 
     private static int ImportVideo(Options options, DiagnosticBag diagnostics)
@@ -432,6 +464,8 @@ public static class Program
               inspect           Inspect converted assets and manifests. (not yet)
               sheep             Disassemble every compiled Sheep script.
               actions           Read the noun/verb/case files and resolve against them.
+              render-model      Render one model from the archives to a PNG.
+              render-scene      Render a scene, its props and its lighting, to a PNG.
 
             options:
               --source <dir>       The game's Data directory. Read only; never modified.
@@ -439,6 +473,12 @@ public static class Program
               --ffmpeg-dir <dir>   Directory containing ffmpeg and ffprobe.
               --force              Redo work even when a cached output is still valid.
               --verify             Decompress and validate without writing anything.
+              --model NAME         Model or scene to render; the extension is optional.
+              --timeblock M|A|E|N  Which time of day render-scene loads.
+              --camera NAME        Which of the scene's room cameras to render from.
+              --output PATH        Where render-model writes its PNG.
+              --width N            Render width (default 1024).
+              --height N           Render height (default 768).
 
             The toolchain never writes to the source installation.
             """);
@@ -453,6 +493,18 @@ public static class Program
 
         public string? FfmpegDirectory { get; init; }
 
+        public string? Model { get; init; }
+
+        public string? Timeblock { get; init; }
+
+        public string? Camera { get; init; }
+
+        public string? Output { get; init; }
+
+        public int Width { get; init; } = 1024;
+
+        public int Height { get; init; } = 768;
+
         public bool Force { get; init; }
 
         public bool Verify { get; init; }
@@ -465,7 +517,9 @@ public static class Program
 
         public static Options Parse(string[] args)
         {
-            string? source = null, workspace = null, ffmpeg = null;
+            string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
+            string? timeblock = null, camera = null;
+            int width = 1024, height = 768;
             bool force = false;
             bool verify = false;
             bool execute = false;
@@ -496,6 +550,24 @@ public static class Program
                     case "--api-returns" when i + 1 < args.Length:
                         apiReturnValue = int.Parse(args[++i], CultureInfo.InvariantCulture);
                         break;
+                    case "--camera" when i + 1 < args.Length:
+                        camera = args[++i];
+                        break;
+                    case "--timeblock" when i + 1 < args.Length:
+                        timeblock = args[++i];
+                        break;
+                    case "--model" when i + 1 < args.Length:
+                        model = args[++i];
+                        break;
+                    case "--output" when i + 1 < args.Length:
+                        output = args[++i];
+                        break;
+                    case "--width" when i + 1 < args.Length:
+                        width = int.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
+                    case "--height" when i + 1 < args.Length:
+                        height = int.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -511,6 +583,12 @@ public static class Program
                 Verify = verify,
                 Execute = execute,
                 ApiReturnValue = apiReturnValue,
+                Model = model,
+                Timeblock = timeblock,
+                Camera = camera,
+                Output = output,
+                Width = width,
+                Height = height,
             };
         }
     }
