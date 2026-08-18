@@ -1,6 +1,6 @@
 # ADR 0002: Derive dynamic light rigs from the original baked lightmaps
 
-- Status: accepted
+- Status: superseded in part by [ADR 0007](0007-authored-light-rigs-from-scene-assets.md)
 - Date: 2026-08-18
 - Supersedes: none
 
@@ -80,3 +80,10 @@ bake isolates the sun. See `docs/formats/lightmaps.md`.
 [ADR 0006](0006-relight-for-modern-range.md): re-light for modern range, with the
 step 6 re-bake comparison demoted from an acceptance gate to a diagnostic, and
 every derived light correctable through an edit layer that survives regeneration.
+
+**Superseded.** The premise that lighting exists only as baked result is false.
+Every scene asset carries the rig the artists authored — 4,109 lights across 222
+of 229 scene assets, with position, direction, colour, cone angles, attenuation,
+intensity and shadow flags. See [ADR 0007](0007-authored-light-rigs-from-scene-assets.md).
+The derivation described here is demoted to a cross-check on those rigs and to a
+fallback for the seven scene assets that declare no lights.

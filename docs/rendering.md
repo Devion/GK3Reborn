@@ -146,9 +146,12 @@ modes look identical. The render tests assert that a meaningful number of pixels
 from the clear colour, and that the vertex colours interpolate the way the shader
 describes — red at the apex, green at the lower right, blue at the lower left.
 
-The offscreen target is `R8G8B8A8Unorm` rather than sRGB, because the shader writes linear
-values and this path reads them straight back; an sRGB target would apply an encoding the
-comparison would then have to undo.
+The offscreen target is `R8G8B8A8Srgb`. Textures decode to linear on sample and shading
+happens in linear space, so the target has to encode on write; writing linear values into
+a UNORM target and calling the result sRGB costs about a gamma, which looks like a
+lighting bug rather than a colour-space one. The triangle bring-up test, which writes
+constant values and reads them straight back, is the one place that reasoning does not
+apply — and it is why the target was UNORM at first.
 
 Tests that need a device skip rather than fail where none exists, so a build agent without
 a GPU still reports a green run while a developer machine gets the real check.
@@ -162,3 +165,92 @@ once this much is known to work.
 
 Viewport and scissor are dynamic state, so a window resize re-records the command buffer
 rather than rebuilding the pipeline.
+
+## Drawing a scene
+
+`SceneGeometry` holds what a scene needs on the GPU — vertex and index buffers, textures,
+the lightmap atlas and per-batch descriptor sets — and knows nothing about where it is
+drawn. `SceneRenderer` renders it offscreen; `VulkanRenderer` renders it into the
+swapchain. Both go through `SceneDraw`, so a regression image and what a player sees
+cannot drift apart.
+
+```bash
+# a still, headless, from one of the scene's own cameras
+GK3Reborn.Tools render-scene --source <GK3>/Data --model R25 --timeblock M --camera SITTINGAREA
+
+# the same scene in a window, with a camera that can be flown around
+GK3Reborn --scene R25 --timeblock M --data <GK3>/Data
+```
+
+### Resources by rate of change
+
+Descriptor sets are split by how often their contents change:
+
+| set | contents | rebuilt |
+| --- | --- | --- |
+| 0 | camera: view-projection, key light direction, eye position | once per frame, one buffer per frame in flight |
+| 1 | a batch's diffuse texture and lightmap | never, after loading |
+| push constants | model transform, shading mode | per draw |
+
+The model transform is a push constant rather than a uniform because per-draw uniform
+buffers must be either reallocated every frame or written while a previous frame may still
+be reading them. Getting that wrong produces flickering that is very hard to attribute.
+
+One trap worth naming: declaring push constants in HLSL as a plain global rather than
+`[[vk::push_constant]] ConstantBuffer<T>` makes glslang treat them as an unbound
+descriptor. Every draw then reads undefined transforms and lands off screen, with no
+validation error and no crash — the picture is simply empty.
+
+### Baked lighting
+
+A scene has one lightmap per surface: R25 has 925 of them totalling 54,040 texels, an
+average of about 7×7 each. Binding each as its own texture would mean a descriptor set,
+a draw call and a device allocation per surface, and drivers guarantee only a few thousand
+allocations in total — a handful of scenes would exhaust them.
+
+They are packed into one atlas instead, and each vertex carries an atlas coordinate
+computed on the CPU as `(uv + surface.offset) * surface.scale`, mapped into the tile and
+clamped. Tiles get a one-texel gutter and their coordinates are inset by half a texel;
+without that, bilinear filtering at a tile's edge reaches into its neighbour and a wall
+picks up the lighting of whatever happened to be packed beside it.
+
+The atlas has no mips and clamps rather than repeats, because both would sample across
+tile boundaries. The diffuse textures do have mips: GK3's textures are small — over three
+thousand are 128 pixels or fewer — and a small texture on a receding surface without mips
+reads as shimmering noise.
+
+Lightmap and texture are multiplied, and the original scales the product by two in gamma
+space. Doing the same multiplication in linear space needs that constant raised to the
+gamma, or a fully lit surface comes out at about 70% of the brightness the game showed.
+
+### Transparency
+
+GK3 keys transparency on magenta rather than on an alpha channel, and the original
+discards it in the fragment shader with a tolerance. That works because it never builds
+mips: the key colour is either sampled exactly or not at all.
+
+With mips it does not. Filtering between a magenta texel and its neighbour produces a
+colour that is neither, and mip generation spreads it further — every window mullion and
+railing ends up ringed in magenta. So the key is converted to alpha *before* upload, and
+the colour of keyed texels is replaced by the nearest opaque colour so filtering has
+something plausible to reach for. The shader tests alpha, which blurs gracefully; the
+colour test stays as a backstop.
+
+### What is hidden
+
+A scene's initialisation file distinguishes three things that look identical in the
+geometry. `prop` and `gasprop` name a model file to load; `scene` and `hittest` name
+objects the BSP already contains. Hit tests are clickable volumes the player never sees,
+made of ordinary textured geometry — nothing about the data itself says to skip them, and
+drawing them puts large flat slabs through the middle of a room.
+
+### Current state
+
+All 110 scenes render headlessly without failure. 71 render from one of their own room
+cameras; the remaining 39 are variant geometry with no initialisation file of their own
+and are framed on their bounds instead.
+
+Shading is still a single directional term with an ambient floor, used for props, plus the
+baked lightmaps for scene geometry. The 4,109 lights the artists authored are parsed (see
+[ADR 0007](adr/0007-authored-light-rigs-from-scene-assets.md)) but not yet evaluated,
+which is why a prop standing in a dark room can be lit as though it were outside.
