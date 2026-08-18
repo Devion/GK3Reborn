@@ -52,6 +52,9 @@ public static class Program
             case "organize":
                 return Organize(options, diagnostics);
 
+            case "classify-models":
+                return ClassifyModels(options, diagnostics);
+
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
@@ -224,6 +227,27 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int ClassifyModels(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("classify-models requires --source and --workspace.");
+            return 2;
+        }
+
+        var stage = new ModelRoleStage(Console.WriteLine);
+        ModelRoleManifest manifest = stage.Run(options.Source, options.Workspace, diagnostics);
+
+        Console.WriteLine();
+        foreach ((string disposition, int count) in manifest.DispositionCounts)
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {disposition,-16} {count,6}"));
+        }
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -251,6 +275,7 @@ public static class Program
               extract-barn      Extract every entry from every Barn archive.
               inventory         Classify every asset and map what references what.
               organize          Lay the corpus out by kind and convert textures to PNG.
+              classify-models   Work out what each model is for, from the scene files.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
