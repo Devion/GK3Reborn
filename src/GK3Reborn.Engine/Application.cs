@@ -1,4 +1,11 @@
+using System.Diagnostics;
+using System.Globalization;
+using GK3Reborn.Content;
 using GK3Reborn.Foundation;
+using GK3Reborn.Foundation.Diagnostics;
+using GK3Reborn.Game;
+using GK3Reborn.Rendering;
+using GK3Reborn.Rendering.Vulkan;
 
 namespace GK3Reborn;
 
@@ -38,6 +45,18 @@ public static class Application
         Console.WriteLine();
         ReportGraphics();
 
+        if (Option(args, "--scene") is { } scene)
+        {
+            return RenderScene(
+                Option(args, "--data") ?? DefaultDataDirectory(),
+                scene,
+                Option(args, "--timeblock"),
+                Option(args, "--camera"),
+                int.TryParse(Option(args, "--frames"), out int frames) ? frames : 0,
+                Option(args, "--screenshot"),
+                args.Contains("--verbose", StringComparer.OrdinalIgnoreCase));
+        }
+
         if (args.Contains("--offscreen", StringComparer.OrdinalIgnoreCase))
         {
             return RenderOffscreen();
@@ -50,6 +69,190 @@ public static class Application
 
         return 0;
     }
+
+    /// <summary>
+    /// Opens a window and shows a scene from the game's own archives.
+    /// </summary>
+    /// <param name="dataDirectory">The game's <c>Data</c> directory.</param>
+    /// <param name="sceneName">Which scene to load.</param>
+    /// <param name="timeblock">Which time of day, or null for whichever exists.</param>
+    /// <param name="cameraName">Which of the scene's cameras to start at.</param>
+    /// <param name="frameLimit">Stop after this many frames, or zero to run until closed.</param>
+    /// <param name="screenshotPath">Where to write the last frame, if anywhere.</param>
+    /// <param name="verbose">Whether to list everything that could not be loaded.</param>
+    /// <returns>Process exit code.</returns>
+    /// <remarks>
+    /// The camera starts at one of the scene's own viewpoints, which is what the player
+    /// would see, and can then be flown around to check the parts a fixed camera never
+    /// shows.
+    /// </remarks>
+    private static int RenderScene(
+        string dataDirectory,
+        string sceneName,
+        string? timeblock,
+        string? cameraName,
+        int frameLimit,
+        string? screenshotPath,
+        bool verbose)
+    {
+        if (!Directory.Exists(dataDirectory))
+        {
+            Console.Error.WriteLine($"No content directory at {dataDirectory}.");
+            Console.Error.WriteLine("Pass --data <dir> pointing at the game's Data directory.");
+            return 2;
+        }
+
+        using GameArchives archives = GameArchives.Open(dataDirectory);
+        Console.WriteLine($"Content: {archives.Count} archives in {dataDirectory}");
+
+        using var window = Platform.SilkGameWindow.Open($"GK3Reborn - {sceneName}");
+        using var renderer = VulkanRenderer.Create(window, window);
+
+        Console.WriteLine($"Renderer: {renderer}");
+
+        window.Resized += (_, _) => renderer.Invalidate();
+
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        var diagnostics = new DiagnosticBag();
+        var loader = new SceneLoader(archives, Console.WriteLine);
+        LoadedScene? scene = loader.Load(geometry, sceneName, timeblock, diagnostics);
+
+        if (scene is null)
+        {
+            foreach (Diagnostic diagnostic in diagnostics.Items)
+            {
+                Console.Error.WriteLine(diagnostic);
+            }
+
+            return 3;
+        }
+
+        Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
+            + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures, "
+            + $"{scene.Lights.Count} authored lights");
+
+        Diagnostic[] problems = diagnostics.Items
+            .Where(d => d.Severity >= DiagnosticSeverity.Warning)
+            .ToArray();
+
+        if (problems.Length > 0)
+        {
+            Console.WriteLine(verbose
+                ? $"{problems.Length} assets could not be loaded:"
+                : $"({problems.Length} assets could not be loaded; --verbose lists them)");
+
+            if (verbose)
+            {
+                foreach (Diagnostic problem in problems)
+                {
+                    Console.WriteLine($"  {problem}");
+                }
+            }
+        }
+
+        int result = FlyScene(window, renderer, geometry, scene, cameraName, frameLimit);
+
+        if (screenshotPath is not null && renderer.Capture() is { } capture)
+        {
+            File.WriteAllBytes(screenshotPath, Formats.Bitmaps.PngWriter.Encode(capture));
+            Console.WriteLine($"Wrote {screenshotPath}");
+        }
+
+        return result;
+    }
+
+    /// <summary>Runs the present loop with a camera the player can move.</summary>
+    private static int FlyScene(
+        Platform.SilkGameWindow window,
+        VulkanRenderer renderer,
+        SceneGeometry geometry,
+        LoadedScene scene,
+        string? cameraName,
+        int frameLimit)
+    {
+        int cameraIndex = Math.Max(
+            0,
+            scene.Cameras.ToList().FindIndex(c => string.Equals(
+                c.Name, cameraName ?? scene.CameraNamed(null)?.Name, StringComparison.OrdinalIgnoreCase)));
+
+        Camera template = SceneLoader.CameraFor(scene, geometry, cameraName);
+
+        var camera = new FreeCamera
+        {
+            Speed = MathF.Max(50f, (geometry.Maximum - geometry.Minimum).Length() * 0.15f),
+        };
+
+        camera.CopyFrom(template);
+
+        Console.WriteLine();
+        Console.WriteLine("WASD to move, E and Q for up and down, drag to look,");
+        Console.WriteLine("Tab for the next camera, R to return to it, Escape to leave.");
+
+        var stopwatch = Stopwatch.StartNew();
+        double previous = 0;
+        int presented = 0;
+
+        while (!window.IsClosing && (frameLimit == 0 || presented < frameLimit))
+        {
+            window.PumpEvents();
+
+            double now = stopwatch.Elapsed.TotalSeconds;
+            float delta = (float)Math.Min(0.1, now - previous);
+            previous = now;
+
+            if (window.WasPressed(Platform.CameraAction.Quit))
+            {
+                break;
+            }
+
+            if (window.WasPressed(Platform.CameraAction.NextCamera) && scene.Cameras.Count > 0)
+            {
+                cameraIndex = (cameraIndex + 1) % scene.Cameras.Count;
+                template = SceneLoader.CameraFor(scene, geometry, scene.Cameras[cameraIndex].Name);
+                camera.CopyFrom(template);
+
+                Console.WriteLine($"camera: {scene.Cameras[cameraIndex].Name}");
+            }
+
+            if (window.WasPressed(Platform.CameraAction.Reset))
+            {
+                camera.CopyFrom(template);
+            }
+
+            camera.Update(window, delta);
+            window.EndFrame();
+
+            renderer.SetScene(geometry, camera.ToCamera(template));
+
+            if (renderer.DrawFrame(0f, 0f, 0f))
+            {
+                presented++;
+            }
+        }
+
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Presented {presented} frames in {stopwatch.Elapsed.TotalSeconds:F1}s "
+            + $"({presented / Math.Max(0.001, stopwatch.Elapsed.TotalSeconds):F0} fps)"));
+
+        return 0;
+    }
+
+    /// <summary>Reads an option's value from the command line.</summary>
+    private static string? Option(string[] args, string name)
+    {
+        int at = Array.FindIndex(args, a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
+        return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+    }
+
+    /// <summary>Where the game is usually installed relative to the repository.</summary>
+    /// <remarks>
+    /// A convenience for development only. Anything shipped reads its content path from
+    /// configuration rather than guessing.
+    /// </remarks>
+    private static string DefaultDataDirectory() =>
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "GK3", "Data"));
 
     /// <summary>
     /// Renders one frame with no window and writes it to a file.

@@ -63,9 +63,21 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private Semaphore[] _renderFinished = [];
     private Fence[] _inFlight = [];
     private int _frame;
+    private uint _lastImageIndex;
+    private bool _presentedAnything;
     private bool _needsRecreate;
     private ShaderCompiler? _shaderCompiler;
     private TrianglePipeline? _triangle;
+
+    private VulkanContext? _context;
+    private MeshPipeline? _meshPipeline;
+    private FrameUniformSet? _frames;
+    private SceneGeometry? _scene;
+    private Camera? _camera;
+
+    private Image _depthImage;
+    private DeviceMemory _depthMemory;
+    private ImageView _depthView;
 
     private VulkanRenderer(Vk vk, IGameWindow window, IVulkanSurfaceSource surfaceSource)
     {
@@ -85,6 +97,32 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     /// <summary>How many images the swapchain holds.</summary>
     public int SwapchainImageCount => _images.Length;
+
+    /// <summary>A context wrapping this renderer's device, for building scene resources.</summary>
+    public VulkanContext Context =>
+        _context ?? throw new VulkanException("The renderer has no device yet.");
+
+    /// <summary>The pipeline scene geometry must be built against.</summary>
+    public MeshPipeline MeshPipeline =>
+        _meshPipeline ?? throw new VulkanException("The renderer has no mesh pipeline yet.");
+
+    /// <summary>Creates geometry this renderer can draw.</summary>
+    /// <returns>Empty scene geometry.</returns>
+    public SceneGeometry CreateGeometry() => SceneGeometry.Create(Context, MeshPipeline);
+
+    /// <summary>Sets what to draw, and from where.</summary>
+    /// <param name="scene">The geometry, or null to draw nothing.</param>
+    /// <param name="camera">Where to look from.</param>
+    /// <remarks>
+    /// The renderer does not take ownership: the caller keeps the geometry alive for as
+    /// long as it is set, and disposes it afterwards.
+    /// </remarks>
+    public void SetScene(SceneGeometry? scene, Camera? camera)
+    {
+        scene?.Finish();
+        _scene = scene;
+        _camera = camera;
+    }
 
     /// <summary>Creates a renderer for a window.</summary>
     /// <param name="window">Window to present into.</param>
@@ -106,6 +144,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             renderer.SelectPhysicalDevice();
             renderer.CreateLogicalDevice();
             renderer.CreateSwapchain();
+            renderer.CreateDepthBuffer();
             renderer.CreateCommandResources();
             renderer.CreateSynchronization();
             renderer.CreatePipelines();
@@ -156,6 +195,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _vk.ResetFences(_device, 1, in fence);
 
         RecordClear(_commandBuffers[_frame], _images[imageIndex], _imageViews[imageIndex], red, green, blue);
+        _lastImageIndex = imageIndex;
 
         Semaphore waitSemaphore = _imageAvailable[_frame];
         Semaphore signalSemaphore = _renderFinished[_frame];
@@ -201,7 +241,91 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
 
         _frame = (_frame + 1) % FramesInFlight;
+        _presentedAnything = true;
         return true;
+    }
+
+    /// <summary>Reads back the last frame that was presented.</summary>
+    /// <returns>The image, or null if nothing has been presented yet.</returns>
+    /// <remarks>
+    /// Copies out of the swapchain image rather than re-rendering, so what comes back is
+    /// exactly what the player saw — including anything a re-render would get differently.
+    /// </remarks>
+    public Formats.Bitmaps.DecodedImage? Capture()
+    {
+        if (!_presentedAnything || _context is null || _lastImageIndex >= (uint)_images.Length)
+        {
+            return null;
+        }
+
+        _vk.DeviceWaitIdle(_device);
+
+        int width = (int)_extent.Width;
+        int height = (int)_extent.Height;
+        Image image = _images[_lastImageIndex];
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = (ulong)(width * height * 4),
+            Usage = BufferUsageFlags.TransferDstBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        _vk.CreateBuffer(_device, in bufferInfo, null, out Silk.NET.Vulkan.Buffer buffer);
+        _vk.GetBufferMemoryRequirements(_device, buffer, out MemoryRequirements requirements);
+
+        DeviceMemory memory = _context.Allocate(
+            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        _vk.BindBufferMemory(_device, buffer, memory, 0);
+
+        try
+        {
+            CommandBuffer command = _context.BeginOneShot();
+
+            _context.Transition(command, image, ImageLayout.PresentSrcKhr, ImageLayout.TransferSrcOptimal);
+
+            var region = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                },
+                ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+            };
+
+            _vk.CmdCopyImageToBuffer(command, image, ImageLayout.TransferSrcOptimal, buffer, 1, in region);
+
+            // Back to where presentation expects it, so the next frame is not drawn into
+            // an image the driver believes is in another layout.
+            _context.Transition(command, image, ImageLayout.TransferSrcOptimal, ImageLayout.PresentSrcKhr);
+
+            _context.EndOneShot(command);
+
+            byte[] pixels = new byte[width * height * 4];
+            void* mapped;
+            _vk.MapMemory(_device, memory, 0, (ulong)pixels.Length, 0, &mapped);
+            new ReadOnlySpan<byte>(mapped, pixels.Length).CopyTo(pixels);
+            _vk.UnmapMemory(_device, memory);
+
+            // Most surfaces hand out a BGRA format; the decoded image is RGBA throughout.
+            if (_format is Format.B8G8R8A8Srgb or Format.B8G8R8A8Unorm)
+            {
+                for (int i = 0; i < pixels.Length; i += 4)
+                {
+                    (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
+                }
+            }
+
+            return new Formats.Bitmaps.DecodedImage(width, height, pixels, HasAlpha: false, "swapchain");
+        }
+        finally
+        {
+            _vk.DestroyBuffer(_device, buffer, null);
+            _vk.FreeMemory(_device, memory, null);
+        }
     }
 
     /// <summary>Marks the swapchain as needing rebuilding, after a resize.</summary>
@@ -213,10 +337,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
         if (_device.Handle != 0)
         {
             _vk.DeviceWaitIdle(_device);
+            _frames?.Dispose();
+            _meshPipeline?.Dispose();
             _triangle?.Dispose();
             _shaderCompiler?.Dispose();
             DestroySynchronization();
             DestroyCommandResources();
+            DestroyDepthBuffer();
             DestroySwapchain();
             _vk.DestroyDevice(_device, null);
         }
@@ -479,7 +606,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
             ImageColorSpace = surfaceFormat.ColorSpace,
             ImageExtent = _extent,
             ImageArrayLayers = 1,
-            ImageUsage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferDstBit,
+            // TransferSrc as well, so a presented frame can be read back for a
+            // screenshot — which is also the only way to prove from a test that the
+            // windowed path draws what the offscreen one does.
+            ImageUsage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferDstBit |
+                         ImageUsageFlags.TransferSrcBit,
             PreTransform = capabilities.CurrentTransform,
             CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,
 
@@ -668,6 +799,16 @@ public sealed unsafe class VulkanRenderer : IDisposable
             ClearValue = new ClearValue(new ClearColorValue(r, g, b, 1f)),
         };
 
+        var depthAttachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _depthView,
+            ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.DontCare,
+            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(1f, 0)),
+        };
+
         var rendering = new RenderingInfo
         {
             SType = StructureType.RenderingInfo,
@@ -675,11 +816,26 @@ public sealed unsafe class VulkanRenderer : IDisposable
             LayerCount = 1,
             ColorAttachmentCount = 1,
             PColorAttachments = &attachment,
+            PDepthAttachment = _depthView.Handle != 0 ? &depthAttachment : null,
         };
 
+        TransitionDepth(buffer);
         _vk.CmdBeginRendering(buffer, in rendering);
 
-        if (_triangle is not null)
+        if (_scene is not null && _camera is not null && _meshPipeline is not null && _frames is not null)
+        {
+            SceneDraw.Record(
+                _vk,
+                buffer,
+                _meshPipeline,
+                _frames,
+                _scene,
+                _frame,
+                (int)_extent.Width,
+                (int)_extent.Height,
+                _camera);
+        }
+        else if (_triangle is not null)
         {
             var viewport = new Viewport
             {
@@ -743,6 +899,149 @@ public sealed unsafe class VulkanRenderer : IDisposable
         // when a shader actually changes.
         _shaderCompiler = new ShaderCompiler(Path.Combine(AppContext.BaseDirectory, "shader-cache"));
         _triangle = TrianglePipeline.Create(_vk, _device, _format, _shaderCompiler);
+
+        _context = VulkanContext.Adopt(
+            _vk, _instance, _physicalDevice, _device, _graphicsQueue, _graphicsFamily,
+            _commandPool, DeviceName);
+
+        _meshPipeline = MeshPipeline.Create(
+            _context, _format, SceneRenderer.DepthFormat, _shaderCompiler);
+
+        _frames = FrameUniformSet.Create(_context, _meshPipeline, FramesInFlight);
+    }
+
+    /// <summary>Creates the depth buffer the swapchain's images are drawn against.</summary>
+    private void CreateDepthBuffer()
+    {
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Format = SceneRenderer.DepthFormat,
+            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+            Usage = ImageUsageFlags.DepthStencilAttachmentBit,
+            InitialLayout = ImageLayout.Undefined,
+        };
+
+        if (_vk.CreateImage(_device, in imageInfo, null, out _depthImage) != Result.Success)
+        {
+            throw new VulkanException("Could not create the depth buffer.");
+        }
+
+        _vk.GetImageMemoryRequirements(_device, _depthImage, out MemoryRequirements requirements);
+        _depthMemory = AllocateDepthMemory(requirements);
+        _vk.BindImageMemory(_device, _depthImage, _depthMemory, 0);
+
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = _depthImage,
+            ViewType = ImageViewType.Type2D,
+            Format = SceneRenderer.DepthFormat,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.DepthBit,
+                LevelCount = 1,
+                LayerCount = 1,
+            },
+        };
+
+        if (_vk.CreateImageView(_device, in viewInfo, null, out _depthView) != Result.Success)
+        {
+            throw new VulkanException("Could not create the depth buffer's view.");
+        }
+    }
+
+    private DeviceMemory AllocateDepthMemory(MemoryRequirements requirements)
+    {
+        _vk.GetPhysicalDeviceMemoryProperties(_physicalDevice, out PhysicalDeviceMemoryProperties properties);
+
+        for (uint i = 0; i < properties.MemoryTypeCount; i++)
+        {
+            bool allowed = (requirements.MemoryTypeBits & (1u << (int)i)) != 0;
+
+            if (allowed &&
+                properties.MemoryTypes[(int)i].PropertyFlags.HasFlag(MemoryPropertyFlags.DeviceLocalBit))
+            {
+                var allocateInfo = new MemoryAllocateInfo
+                {
+                    SType = StructureType.MemoryAllocateInfo,
+                    AllocationSize = requirements.Size,
+                    MemoryTypeIndex = i,
+                };
+
+                if (_vk.AllocateMemory(_device, in allocateInfo, null, out DeviceMemory memory)
+                    != Result.Success)
+                {
+                    throw new VulkanException("Could not allocate the depth buffer's memory.");
+                }
+
+                return memory;
+            }
+        }
+
+        throw new VulkanException("No memory type can back a depth buffer.");
+    }
+
+    private void DestroyDepthBuffer()
+    {
+        if (_depthView.Handle != 0)
+        {
+            _vk.DestroyImageView(_device, _depthView, null);
+            _depthView = default;
+        }
+
+        if (_depthImage.Handle != 0)
+        {
+            _vk.DestroyImage(_device, _depthImage, null);
+            _depthImage = default;
+        }
+
+        if (_depthMemory.Handle != 0)
+        {
+            _vk.FreeMemory(_device, _depthMemory, null);
+            _depthMemory = default;
+        }
+    }
+
+    /// <summary>Puts the depth buffer into the layout rendering expects.</summary>
+    /// <remarks>
+    /// Done every frame rather than once, because the contents are cleared at the start of
+    /// each pass and so the previous layout is never worth preserving.
+    /// </remarks>
+    private void TransitionDepth(CommandBuffer buffer)
+    {
+        if (_depthImage.Handle == 0)
+        {
+            return;
+        }
+
+        var barrier = new ImageMemoryBarrier
+        {
+            SType = StructureType.ImageMemoryBarrier,
+            OldLayout = ImageLayout.Undefined,
+            NewLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            Image = _depthImage,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.DepthBit,
+                LevelCount = 1,
+                LayerCount = 1,
+            },
+            DstAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
+        };
+
+        _vk.CmdPipelineBarrier(
+            buffer,
+            PipelineStageFlags.TopOfPipeBit,
+            PipelineStageFlags.EarlyFragmentTestsBit,
+            0, 0, null, 0, null, 1, in barrier);
     }
 
     private void RecreateSwapchain()
@@ -755,8 +1054,10 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
 
         _vk.DeviceWaitIdle(_device);
+        DestroyDepthBuffer();
         DestroySwapchain();
         CreateSwapchain();
+        CreateDepthBuffer();
         _needsRecreate = false;
     }
 

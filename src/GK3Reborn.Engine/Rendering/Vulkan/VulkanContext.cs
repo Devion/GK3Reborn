@@ -21,9 +21,12 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// </remarks>
 public sealed unsafe class VulkanContext : IDisposable
 {
-    private VulkanContext(Vk vk)
+    private readonly bool _owned;
+
+    private VulkanContext(Vk vk, bool owned = true)
     {
         Api = vk;
+        _owned = owned;
     }
 
     /// <summary>The Vulkan API.</summary>
@@ -69,6 +72,46 @@ public sealed unsafe class VulkanContext : IDisposable
             context.Dispose();
             throw;
         }
+    }
+
+    /// <summary>Wraps a device someone else created and owns.</summary>
+    /// <param name="api">The Vulkan API in use.</param>
+    /// <param name="instance">The instance.</param>
+    /// <param name="physicalDevice">The physical device.</param>
+    /// <param name="device">The logical device.</param>
+    /// <param name="queue">A queue supporting graphics and transfers.</param>
+    /// <param name="queueFamily">That queue's family index.</param>
+    /// <param name="commandPool">A pool for one-shot work on that queue.</param>
+    /// <param name="deviceName">Name of the device, for logs.</param>
+    /// <returns>The context.</returns>
+    /// <remarks>
+    /// The windowed renderer creates its own device because it has to match the surface.
+    /// Wrapping it lets textures, buffers and pipelines be built the same way there as in
+    /// the headless path, rather than through a second set of helpers that drift.
+    /// Disposing an adopted context frees nothing: the caller still owns everything.
+    /// </remarks>
+    public static VulkanContext Adopt(
+        Vk api,
+        Instance instance,
+        PhysicalDevice physicalDevice,
+        Device device,
+        Queue queue,
+        uint queueFamily,
+        CommandPool commandPool,
+        string deviceName = "unknown")
+    {
+        ArgumentNullException.ThrowIfNull(api);
+
+        return new VulkanContext(api, owned: false)
+        {
+            Instance = instance,
+            PhysicalDevice = physicalDevice,
+            Device = device,
+            Queue = queue,
+            QueueFamily = queueFamily,
+            CommandPool = commandPool,
+            DeviceName = deviceName,
+        };
     }
 
     /// <summary>Allocates memory satisfying a resource's requirements.</summary>
@@ -150,7 +193,13 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <param name="image">Image to transition.</param>
     /// <param name="from">Current layout.</param>
     /// <param name="to">Desired layout.</param>
-    public void Transition(CommandBuffer command, Image image, ImageLayout from, ImageLayout to)
+    /// <param name="aspect">Which aspect of the image to transition.</param>
+    public void Transition(
+        CommandBuffer command,
+        Image image,
+        ImageLayout from,
+        ImageLayout to,
+        ImageAspectFlags aspect = ImageAspectFlags.ColorBit)
     {
         var barrier = new ImageMemoryBarrier
         {
@@ -162,7 +211,7 @@ public sealed unsafe class VulkanContext : IDisposable
             Image = image,
             SubresourceRange = new ImageSubresourceRange
             {
-                AspectMask = ImageAspectFlags.ColorBit,
+                AspectMask = aspect,
                 LevelCount = 1,
                 LayerCount = 1,
             },
@@ -182,6 +231,11 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        if (!_owned)
+        {
+            return;
+        }
+
         if (Device.Handle != 0)
         {
             Api.DeviceWaitIdle(Device);

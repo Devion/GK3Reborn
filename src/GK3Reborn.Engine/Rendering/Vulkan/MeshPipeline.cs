@@ -14,73 +14,96 @@ namespace GK3Reborn.Rendering.Vulkan;
 public readonly record struct MeshVertex(
     Vector3 Position, Vector3 Normal, Vector2 TexCoord, Vector2 LightmapCoord);
 
-/// <summary>Per-draw constants.</summary>
-/// <param name="ModelViewProjection">Model to clip space.</param>
-/// <param name="Model">Model to world space, for lighting.</param>
-/// <param name="LightDirection">Direction the light travels, and an unused fourth component.</param>
+/// <summary>Constants shared by every draw of a frame.</summary>
+/// <param name="ViewProjection">World to clip space.</param>
+/// <param name="LightDirection">Direction the fallback key light travels.</param>
+/// <param name="CameraPosition">Where the eye is, in world space.</param>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct FrameUniforms(
+    Matrix4x4 ViewProjection, Vector4 LightDirection, Vector4 CameraPosition);
+
+/// <summary>Constants that change per draw, delivered as push constants.</summary>
+/// <param name="Model">Model to world space.</param>
 /// <param name="Shading">
 /// How to shade: x selects the lightmap over the directional term, y scales the lightmap.
 /// </param>
 [StructLayout(LayoutKind.Sequential)]
-public readonly record struct MeshUniforms(
-    Matrix4x4 ModelViewProjection, Matrix4x4 Model, Vector4 LightDirection, Vector4 Shading);
+public readonly record struct DrawConstants(Matrix4x4 Model, Vector4 Shading);
 
 /// <summary>
 /// A textured, lit mesh pipeline.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The first pipeline that can draw real content: vertex and index buffers, a texture
-/// bound through a descriptor set, and a transform. The lighting is a single directional
-/// term with a fixed ambient floor — not the PBR the plan calls for, but enough to see
-/// the shape of geometry, which is what this stage is for.
+/// Resources are split by how often they change. Set 0 holds the camera and is bound once
+/// a frame. Set 1 holds a batch's two textures and never changes at all, so it is built
+/// when the geometry is loaded and simply rebound. What is left — the model transform and
+/// the shading mode — travels as push constants, which need no buffer, no descriptor and
+/// no synchronisation between frames in flight.
+/// </para>
+/// <para>
+/// That last point is why this shape was worth the trouble. Per-draw uniform buffers have
+/// to be either allocated per frame or written while a previous frame may still be reading
+/// them, and getting that wrong produces flickering that is very hard to attribute.
 /// </para>
 /// <para>
 /// Depth testing is on. GK3's models are solid objects with self-occluding parts, and
-/// without a depth buffer a character renders as an unreadable tangle of surfaces in
-/// draw order.
+/// without a depth buffer a character renders as an unreadable tangle of surfaces in draw
+/// order.
 /// </para>
 /// </remarks>
 public sealed unsafe class MeshPipeline : IDisposable
 {
     private const string Source = """
-        struct Uniforms
+        struct Frame
         {
-            float4x4 modelViewProjection;
-            float4x4 model;
+            float4x4 viewProjection;
             float4   lightDirection;
+            float4   cameraPosition;
+        };
+
+        struct Draw
+        {
+            float4x4 model;
             float4   shading;
         };
 
-        [[vk::binding(0, 0)]] ConstantBuffer<Uniforms> uniforms;
-        [[vk::binding(1, 0)]] Texture2D    baseColor;
-        [[vk::binding(1, 0)]] SamplerState baseColorSampler;
-        [[vk::binding(2, 0)]] Texture2D    lightmap;
-        [[vk::binding(2, 0)]] SamplerState lightmapSampler;
+        [[vk::binding(0, 0)]] ConstantBuffer<Frame> frame;
+
+        [[vk::binding(0, 1)]] Texture2D    baseColor;
+        [[vk::binding(0, 1)]] SamplerState baseColorSampler;
+        [[vk::binding(1, 1)]] Texture2D    lightmap;
+        [[vk::binding(1, 1)]] SamplerState lightmapSampler;
+
+        [[vk::push_constant]] ConstantBuffer<Draw> draw;
 
         struct VertexInput
         {
-            float3 position     : POSITION;
-            float3 normal       : NORMAL;
-            float2 texCoord     : TEXCOORD0;
+            float3 position      : POSITION;
+            float3 normal        : NORMAL;
+            float2 texCoord      : TEXCOORD0;
             float2 lightmapCoord : TEXCOORD1;
         };
 
         struct VertexOutput
         {
-            float4 position     : SV_Position;
-            float3 normal       : NORMAL;
-            float2 texCoord     : TEXCOORD0;
+            float4 position      : SV_Position;
+            float3 normal        : NORMAL;
+            float2 texCoord      : TEXCOORD0;
             float2 lightmapCoord : TEXCOORD1;
         };
 
         VertexOutput VertexMain(VertexInput input)
         {
             VertexOutput output;
-            output.position = mul(uniforms.modelViewProjection, float4(input.position, 1.0));
-            output.normal = normalize(mul((float3x3)uniforms.model, input.normal));
+
+            float4 world = mul(draw.model, float4(input.position, 1.0));
+
+            output.position = mul(frame.viewProjection, world);
+            output.normal = normalize(mul((float3x3)draw.model, input.normal));
             output.texCoord = input.texCoord;
             output.lightmapCoord = input.lightmapCoord;
+
             return output;
         }
 
@@ -89,8 +112,8 @@ public sealed unsafe class MeshPipeline : IDisposable
             float4 sampled = baseColor.Sample(baseColorSampler, input.texCoord);
             float3 albedo = sampled.rgb;
 
-            // GK3 keys transparency on magenta. It is converted to alpha before upload,
-            // so the test here is on alpha — which filters and mips gracefully — with the
+            // GK3 keys transparency on magenta. It is converted to alpha before upload, so
+            // the test here is on alpha — which filters and mips gracefully — with the
             // colour test kept as a backstop for anything the conversion missed.
             if (sampled.a < 0.5 || distance(albedo, float3(1.0, 0.0, 1.0)) < 0.1)
             {
@@ -99,16 +122,14 @@ public sealed unsafe class MeshPipeline : IDisposable
 
             // A single directional term plus an ambient floor, so surfaces facing away
             // stay readable rather than going black.
-            float lambert = saturate(dot(normalize(input.normal), -uniforms.lightDirection.xyz));
+            float lambert = saturate(dot(normalize(input.normal), -frame.lightDirection.xyz));
             float3 directional = albedo * (0.35 + 0.65 * lambert);
 
-            // The original combines lightmap and texture by multiplication with a
-            // multiplier of two, which is what makes a fully lit surface reach the
-            // texture's own brightness rather than half of it.
+            // Baked lighting multiplies into the texture, as the original does.
             float3 baked = albedo * lightmap.Sample(lightmapSampler, input.lightmapCoord).rgb *
-                           uniforms.shading.y;
+                           draw.shading.y;
 
-            float3 lit = lerp(directional, baked, uniforms.shading.x);
+            float3 lit = lerp(directional, baked, draw.shading.x);
 
             return float4(lit, 1.0);
         }
@@ -119,7 +140,8 @@ public sealed unsafe class MeshPipeline : IDisposable
 
     private ShaderModule _vertexModule;
     private ShaderModule _fragmentModule;
-    private DescriptorSetLayout _descriptorLayout;
+    private DescriptorSetLayout _frameLayout;
+    private DescriptorSetLayout _materialLayout;
     private PipelineLayout _layout;
     private Pipeline _pipeline;
 
@@ -132,11 +154,14 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// <summary>The pipeline handle.</summary>
     public Pipeline Handle => _pipeline;
 
-    /// <summary>The pipeline layout, for binding descriptor sets.</summary>
+    /// <summary>The pipeline layout, for binding descriptor sets and push constants.</summary>
     public PipelineLayout Layout => _layout;
 
-    /// <summary>The descriptor set layout this pipeline expects.</summary>
-    public DescriptorSetLayout DescriptorLayout => _descriptorLayout;
+    /// <summary>Layout of set 0: the camera.</summary>
+    public DescriptorSetLayout FrameLayout => _frameLayout;
+
+    /// <summary>Layout of set 1: a batch's textures.</summary>
+    public DescriptorSetLayout MaterialLayout => _materialLayout;
 
     /// <summary>Builds the pipeline.</summary>
     /// <param name="context">Device context.</param>
@@ -160,7 +185,7 @@ public sealed unsafe class MeshPipeline : IDisposable
             pipeline._fragmentModule = pipeline.CreateModule(
                 compiler.Compile(Source, ShaderStage.Fragment, "mesh.frag", "FragmentMain"));
 
-            pipeline.CreateDescriptorLayout();
+            pipeline.CreateDescriptorLayouts();
             pipeline.BuildPipeline(colorFormat, depthFormat);
             return pipeline;
         }
@@ -169,6 +194,22 @@ public sealed unsafe class MeshPipeline : IDisposable
             pipeline.Dispose();
             throw;
         }
+    }
+
+    /// <summary>Sets the per-draw constants.</summary>
+    /// <param name="command">Command buffer to record into.</param>
+    /// <param name="constants">The constants.</param>
+    public void PushConstants(CommandBuffer command, DrawConstants constants)
+    {
+        DrawConstants value = constants;
+
+        _vk.CmdPushConstants(
+            command,
+            _layout,
+            ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+            0,
+            (uint)Marshal.SizeOf<DrawConstants>(),
+            &value);
     }
 
     /// <inheritdoc/>
@@ -184,9 +225,14 @@ public sealed unsafe class MeshPipeline : IDisposable
             _vk.DestroyPipelineLayout(_device, _layout, null);
         }
 
-        if (_descriptorLayout.Handle != 0)
+        if (_materialLayout.Handle != 0)
         {
-            _vk.DestroyDescriptorSetLayout(_device, _descriptorLayout, null);
+            _vk.DestroyDescriptorSetLayout(_device, _materialLayout, null);
+        }
+
+        if (_frameLayout.Handle != 0)
+        {
+            _vk.DestroyDescriptorSetLayout(_device, _frameLayout, null);
         }
 
         if (_vertexModule.Handle != 0)
@@ -220,52 +266,75 @@ public sealed unsafe class MeshPipeline : IDisposable
         }
     }
 
-    private void CreateDescriptorLayout()
+    private void CreateDescriptorLayouts()
     {
-        DescriptorSetLayoutBinding* bindings = stackalloc DescriptorSetLayoutBinding[3];
-        bindings[0] = new DescriptorSetLayoutBinding
+        var frameBinding = new DescriptorSetLayoutBinding
         {
             Binding = 0,
             DescriptorType = DescriptorType.UniformBuffer,
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
         };
-        bindings[1] = new DescriptorSetLayoutBinding
+
+        var frameInfo = new DescriptorSetLayoutCreateInfo
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &frameBinding,
+        };
+
+        if (_vk.CreateDescriptorSetLayout(_device, in frameInfo, null, out _frameLayout) != Result.Success)
+        {
+            throw new VulkanException("Could not create the frame descriptor set layout.");
+        }
+
+        DescriptorSetLayoutBinding* materialBindings = stackalloc DescriptorSetLayoutBinding[2];
+        materialBindings[0] = new DescriptorSetLayoutBinding
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+        materialBindings[1] = new DescriptorSetLayoutBinding
         {
             Binding = 1,
             DescriptorType = DescriptorType.CombinedImageSampler,
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.FragmentBit,
         };
-        bindings[2] = new DescriptorSetLayoutBinding
-        {
-            Binding = 2,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            StageFlags = ShaderStageFlags.FragmentBit,
-        };
 
-        var createInfo = new DescriptorSetLayoutCreateInfo
+        var materialInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
-            PBindings = bindings,
+            BindingCount = 2,
+            PBindings = materialBindings,
         };
 
-        if (_vk.CreateDescriptorSetLayout(_device, in createInfo, null, out _descriptorLayout) != Result.Success)
+        if (_vk.CreateDescriptorSetLayout(_device, in materialInfo, null, out _materialLayout) != Result.Success)
         {
-            throw new VulkanException("Could not create a descriptor set layout.");
+            throw new VulkanException("Could not create the material descriptor set layout.");
         }
     }
 
     private void BuildPipeline(Format colorFormat, Format depthFormat)
     {
-        DescriptorSetLayout layout = _descriptorLayout;
+        DescriptorSetLayout* layouts = stackalloc DescriptorSetLayout[2] { _frameLayout, _materialLayout };
+
+        var pushConstants = new PushConstantRange
+        {
+            StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+            Offset = 0,
+            Size = (uint)Marshal.SizeOf<DrawConstants>(),
+        };
+
         var layoutInfo = new PipelineLayoutCreateInfo
         {
             SType = StructureType.PipelineLayoutCreateInfo,
-            SetLayoutCount = 1,
-            PSetLayouts = &layout,
+            SetLayoutCount = 2,
+            PSetLayouts = layouts,
+            PushConstantRangeCount = 1,
+            PPushConstantRanges = &pushConstants,
         };
 
         if (_vk.CreatePipelineLayout(_device, in layoutInfo, null, out _layout) != Result.Success)

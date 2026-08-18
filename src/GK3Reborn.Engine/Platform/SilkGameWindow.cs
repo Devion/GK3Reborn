@@ -1,3 +1,5 @@
+using System.Numerics;
+using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 
@@ -37,9 +39,30 @@ public interface IVulkanSurfaceSource
 /// wasteful and a source of driver confusion.
 /// </para>
 /// </remarks>
-public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource
+public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInput
 {
+    private static readonly Dictionary<CameraAction, Key[]> Bindings = new()
+    {
+        [CameraAction.Forward] = [Key.W, Key.Up],
+        [CameraAction.Back] = [Key.S, Key.Down],
+        [CameraAction.Left] = [Key.A, Key.Left],
+        [CameraAction.Right] = [Key.D, Key.Right],
+        [CameraAction.Up] = [Key.E, Key.Space],
+        [CameraAction.Down] = [Key.Q, Key.ControlLeft],
+        [CameraAction.Fast] = [Key.ShiftLeft, Key.ShiftRight],
+        [CameraAction.Reset] = [Key.R],
+        [CameraAction.NextCamera] = [Key.Tab],
+        [CameraAction.Quit] = [Key.Escape],
+    };
+
     private readonly IWindow _window;
+    private readonly HashSet<CameraAction> _pressed = [];
+    private IInputContext? _input;
+    private IKeyboard? _keyboard;
+    private IMouse? _mouse;
+    private Vector2 _pointerDelta;
+    private Vector2 _lastPointer;
+    private bool _hasPointer;
 
     private SilkGameWindow(IWindow window)
     {
@@ -125,7 +148,10 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource
         IWindow window = Window.Create(options);
         window.Initialize();
 
-        return new SilkGameWindow(window);
+        var created = new SilkGameWindow(window);
+        created.AttachInput();
+
+        return created;
     }
 
     /// <inheritdoc/>
@@ -142,8 +168,81 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource
     }
 
     /// <inheritdoc/>
-    public void PumpEvents() => _window.DoEvents();
+    public Vector2 PointerDelta => _pointerDelta;
 
     /// <inheritdoc/>
-    public void Dispose() => _window.Dispose();
+    public bool IsDragging =>
+        _mouse is not null &&
+        (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
+
+    /// <inheritdoc/>
+    public bool IsHeld(CameraAction action) =>
+        _keyboard is not null &&
+        Bindings.TryGetValue(action, out Key[]? keys) &&
+        Array.Exists(keys, _keyboard.IsKeyPressed);
+
+    /// <inheritdoc/>
+    public bool WasPressed(CameraAction action) => _pressed.Contains(action);
+
+    /// <inheritdoc/>
+    public void EndFrame()
+    {
+        _pressed.Clear();
+        _pointerDelta = Vector2.Zero;
+    }
+
+    /// <inheritdoc/>
+    public void PumpEvents()
+    {
+        _window.DoEvents();
+
+        // Pointer movement is tracked by difference rather than through the move event,
+        // because raw motion is not delivered on every backend and a difference works the
+        // same everywhere.
+        if (_mouse is not null)
+        {
+            var position = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+
+            if (_hasPointer)
+            {
+                _pointerDelta += position - _lastPointer;
+            }
+
+            _lastPointer = position;
+            _hasPointer = true;
+        }
+    }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        _input?.Dispose();
+        _window.Dispose();
+    }
+
+    /// <summary>Attaches the keyboard and mouse.</summary>
+    /// <remarks>
+    /// Done after the window exists rather than in the constructor, because creating the
+    /// input context requires an initialised window.
+    /// </remarks>
+    private void AttachInput()
+    {
+        _input = _window.CreateInput();
+        _keyboard = _input.Keyboards.Count > 0 ? _input.Keyboards[0] : null;
+        _mouse = _input.Mice.Count > 0 ? _input.Mice[0] : null;
+
+        if (_keyboard is not null)
+        {
+            _keyboard.KeyDown += (_, key, _) =>
+            {
+                foreach ((CameraAction action, Key[] keys) in Bindings)
+                {
+                    if (Array.IndexOf(keys, key) >= 0)
+                    {
+                        _pressed.Add(action);
+                    }
+                }
+            };
+        }
+    }
 }

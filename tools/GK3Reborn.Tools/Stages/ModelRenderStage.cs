@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Foundation.Diagnostics;
@@ -61,7 +62,7 @@ public sealed class ModelRenderStage
             ? modelName
             : modelName + ".MOD";
 
-        using ArchiveSet archives = ArchiveSet.Open(sourceDirectory);
+        using GameArchives archives = GameArchives.Open(sourceDirectory);
 
         byte[]? modelBytes = archives.Read(wanted);
         if (modelBytes is null)
@@ -78,7 +79,8 @@ public sealed class ModelRenderStage
         using VulkanContext context = VulkanContext.CreateHeadless();
         _log($"device: {context.DeviceName}");
 
-        using var renderer = ModelRenderer.Create(context);
+        using var renderer = SceneRenderer.Create(context);
+        using SceneGeometry geometry = renderer.CreateGeometry();
 
         foreach (string texture in model.Meshes
                      .SelectMany(m => m.Submeshes)
@@ -97,12 +99,12 @@ public sealed class ModelRenderStage
                 continue;
             }
 
-            renderer.AddTexture(texture, BitmapDecoder.Decode(bytes, texture));
+            geometry.AddTexture(texture, BitmapDecoder.Decode(bytes, texture));
         }
 
-        renderer.Add(model);
+        geometry.Add(model);
 
-        if (renderer.TriangleCount == 0)
+        if (geometry.TriangleCount == 0)
         {
             diagnostics.Add(new Diagnostic(
                 "RENDER003", DiagnosticSeverity.Error, $"{wanted} has no drawable geometry."));
@@ -110,20 +112,20 @@ public sealed class ModelRenderStage
             return false;
         }
 
-        Vector3 minimum = renderer.Minimum;
-        Vector3 maximum = renderer.Maximum;
+        Vector3 minimum = geometry.Minimum;
+        Vector3 maximum = geometry.Maximum;
 
         _log(string.Create(
             CultureInfo.InvariantCulture,
             $"bounds: ({minimum.X:F1}, {minimum.Y:F1}, {minimum.Z:F1}) .. " +
             $"({maximum.X:F1}, {maximum.Y:F1}, {maximum.Z:F1})"));
 
-        _log($"textures: {renderer.TextureCount}, triangles: {renderer.TriangleCount}");
+        _log($"textures: {geometry.TextureCount}, triangles: {geometry.TriangleCount}");
 
         // GK3 is Y-up: model bounds are consistently tallest on Y, and every sun direction
         // recovered from the lightmaps points down that axis.
         DecodedImage image = renderer.Render(
-            width, height, Camera.Framing(minimum, maximum, Vector3.UnitY));
+            geometry, width, height, Camera.Framing(minimum, maximum, Vector3.UnitY));
 
         string? directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
         if (directory is not null)
