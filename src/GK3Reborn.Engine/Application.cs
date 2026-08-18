@@ -38,6 +38,56 @@ public static class Application
         Console.WriteLine();
         ReportGraphics();
 
+        if (args.Contains("--render", StringComparer.OrdinalIgnoreCase))
+        {
+            return RenderFrames(args.Contains("--headless-frames", StringComparer.OrdinalIgnoreCase) ? 60 : 0);
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Opens a window and presents frames.
+    /// </summary>
+    /// <param name="frameLimit">Stop after this many frames, or zero to run until closed.</param>
+    /// <returns>Process exit code.</returns>
+    /// <remarks>
+    /// A frame limit makes this usable as a smoke test: it proves a device, swapchain and
+    /// present loop work on a machine without needing anyone to close a window.
+    /// </remarks>
+    private static int RenderFrames(int frameLimit)
+    {
+        using var window = Platform.SilkGameWindow.Open("GK3Reborn");
+        using var renderer = Rendering.Vulkan.VulkanRenderer.Create(window, window);
+
+        Console.WriteLine($"Renderer: {renderer}");
+
+        window.Resized += (_, _) => renderer.Invalidate();
+
+        int presented = 0;
+        int attempts = 0;
+
+        while (!window.IsClosing && (frameLimit == 0 || presented < frameLimit))
+        {
+            window.PumpEvents();
+
+            // The clear colour walks so the window visibly animates rather than looking
+            // like a still image that might be a frozen first frame.
+            float t = presented / 120f;
+            if (renderer.DrawFrame(0.05f + (0.05f * MathF.Sin(t)), 0.06f, 0.09f))
+            {
+                presented++;
+            }
+
+            if (++attempts > 100_000)
+            {
+                break;
+            }
+        }
+
+        Console.WriteLine($"Presented {presented} frames at {renderer.SwapchainSize.Width}x"
+            + $"{renderer.SwapchainSize.Height} across {renderer.SwapchainImageCount} swapchain images");
+
         return 0;
     }
 
