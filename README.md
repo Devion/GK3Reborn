@@ -11,9 +11,10 @@ original data into modern formats.
 **This project ships no original game assets.** It requires an installation you
 own, which it reads and never modifies.
 
-Status: **scaffold**. The solution builds, the test suite passes, and the video
-import stage is implemented. Every other subsystem is a contract awaiting its
-phase. See [`../Plan`](../Plan) for the full program plan.
+Status: **early**. The solution builds and the test suite passes. The content
+pipeline can read the original archives and convert the cinematics; the runtime
+subsystems are still contracts awaiting their phase. See [`../Plan`](../Plan)
+for the full program plan.
 
 ## Requirements
 
@@ -44,10 +45,22 @@ directory outside both the installation and this repository. The installation is
 never written to.
 
 ```bash
+# Extract every entry from every Barn archive.
+dotnet run --project tools/GK3Reborn.Tools -- extract-barn \
+    --source    "path/to/GK3/Data" \
+    --workspace "path/to/ContentWorkspace"
+
+# Convert the cinematics.
 dotnet run --project tools/GK3Reborn.Tools -- import-video \
     --source    "path/to/GK3/Data" \
     --workspace "path/to/ContentWorkspace"
 ```
+
+`extract-barn --verify` decompresses and validates everything without writing a
+byte, which is the quick way to check an installation. Against the reference
+install it reports 36,957 entries extracted, 20,991 pointers into other archives,
+and 0 failures. The format, its quirks and how the result was validated are
+documented in [docs/formats/barn.md](docs/formats/barn.md).
 
 The video stage converts the BIK and AVI cinematics to MP4 / H.264 + AAC,
 preserving frame size, frame rate and duration exactly, and writes
