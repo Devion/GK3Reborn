@@ -69,6 +69,13 @@ archives look like they hold 2,775 file types but hold about a dozen, because mo
 audio assets carry a dialogue code where the extension goes. They also contain the
 original team's design documents for Sheep, SIF, NVC and persistence.
 
+`organize` produces the tree you actually work in: assets grouped by what they
+are, textures converted to PNG, animations grouped by the character prefix their
+names carry, and scene assets grouped by GK3's three-letter location codes — so
+`scenes/LBY/` holds the lobby's geometry and all its timeblock variants together.
+The raw extraction is left untouched; this is a derived view and re-running it is
+always safe. See [docs/formats/textures.md](docs/formats/textures.md).
+
 The video stage converts the BIK and AVI cinematics to MP4 / H.264 + AAC,
 preserving frame size, frame rate and duration exactly, and writes
 `manifests/video.json` recording source and output hashes, probe results,

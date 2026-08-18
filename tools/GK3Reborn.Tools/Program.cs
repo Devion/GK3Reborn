@@ -49,6 +49,9 @@ public static class Program
             case "inventory":
                 return Inventory(options, diagnostics);
 
+            case "organize":
+                return Organize(options, diagnostics);
+
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
@@ -182,6 +185,45 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int Organize(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("organize requires --source and --workspace.");
+            return 2;
+        }
+
+        if (!Directory.Exists(options.Source))
+        {
+            Console.Error.WriteLine($"Source directory does not exist: {options.Source}");
+            return 2;
+        }
+
+        Console.WriteLine($"source: {options.Source}");
+        Console.WriteLine($"workspace: {options.Workspace}");
+        Console.WriteLine();
+
+        var stage = new OrganizeStage(Console.WriteLine);
+        OrganizedManifest manifest = stage.Run(options.Source, options.Workspace, diagnostics);
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {manifest.Summary.Assets} assets placed, {manifest.Summary.Converted} converted, "
+            + $"{manifest.Summary.Failed} failed"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {manifest.Summary.SourceBytes / 1_048_576.0:F0} MB in, "
+            + $"{manifest.Summary.OutputBytes / 1_048_576.0:F0} MB out"));
+        Console.WriteLine();
+
+        foreach ((string directory, int count) in manifest.DirectoryCounts)
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {directory,-20} {count,6}"));
+        }
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -208,6 +250,7 @@ public static class Program
             commands:
               extract-barn      Extract every entry from every Barn archive.
               inventory         Classify every asset and map what references what.
+              organize          Lay the corpus out by kind and convert textures to PNG.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
