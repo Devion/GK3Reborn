@@ -33,6 +33,13 @@ public sealed record SceneCamera(string Name, Vector3 Position, float Yaw, float
 /// <param name="Hidden">Whether it starts hidden.</param>
 public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hidden);
 
+/// <summary>A spot in the scene the player or an actor can stand.</summary>
+/// <param name="Name">Its name.</param>
+/// <param name="Position">Where it is, in scene space.</param>
+/// <param name="Heading">Which way whoever stands there faces, in radians about the up axis.</param>
+/// <param name="Camera">The room camera that goes with it, if any.</param>
+public sealed record ScenePosition(string Name, Vector3 Position, float Heading, string? Camera);
+
 /// <summary>An actor the scene places.</summary>
 /// <param name="Name">Model name.</param>
 /// <param name="Noun">The noun it answers to.</param>
@@ -159,6 +166,34 @@ public sealed class SceneInitFile
             .Where(l => l.Value("model") is { Length: > 0 })
             .Select(l => new SceneActor(l.Value("model")!, l.Value("noun"), l.HasFlag("ego")))
             .ToList();
+
+    /// <summary>The spots the scene defines.</summary>
+    /// <param name="includeConditional">Whether to include conditional sections.</param>
+    /// <returns>The positions, in file order.</returns>
+    public List<ScenePosition> Positions(bool includeConditional = true) =>
+        _document.LinesOf("POSITIONS", includeConditional)
+            .Where(l => l.Vector("pos") is not null)
+            .Select(l => new ScenePosition(
+                l.Head.Key,
+                l.Vector("pos")!.Value,
+                float.DegreesToRadians(l.Number("heading") ?? 0f),
+                l.Value("camera")))
+            .ToList();
+
+    /// <summary>Where the player starts.</summary>
+    /// <returns>The spot named START, the first one, or null.</returns>
+    /// <remarks>
+    /// Every scene in the corpus names its entry point START, but a few also arrive from
+    /// elsewhere depending on the story, so this is a default rather than the only answer.
+    /// </remarks>
+    public ScenePosition? StartPosition()
+    {
+        List<ScenePosition> positions = Positions();
+
+        return positions.Find(p =>
+            string.Equals(p.Name, "START", StringComparison.OrdinalIgnoreCase))
+            ?? (positions.Count > 0 ? positions[0] : null);
+    }
 
     private List<SceneCamera> CamerasIn(string section, bool includeConditional)
     {

@@ -119,6 +119,7 @@ public sealed class SceneLoader
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init));
 
         int placed = PlaceModels(geometry, asset, init, diagnostics);
+        placed += PlaceActors(geometry, init, diagnostics);
         _log?.Invoke($"models: {placed} placed, textures: {geometry.TextureCount}");
 
         return new LoadedScene(scene, init, asset, lightmaps, placed);
@@ -314,6 +315,62 @@ public sealed class SceneLoader
                 diagnostics);
 
             geometry.Add(parsed);
+            placed++;
+        }
+
+        return placed;
+    }
+
+    /// <summary>Puts the scene's actors where the scene says they stand.</summary>
+    /// <remarks>
+    /// <para>
+    /// The models are in their bind pose. Actors are animated by GAS scripts driving ACT
+    /// animations against a skeleton, none of which exists yet, so an actor standing here
+    /// is standing exactly as the artist modelled them rather than idling.
+    /// </para>
+    /// <para>
+    /// Only the ego is placed. The rest are positioned by script when the story puts them
+    /// somewhere, and guessing a spot for them would put characters in rooms they are not
+    /// supposed to be in.
+    /// </para>
+    /// </remarks>
+    private int PlaceActors(ISceneSink geometry, SceneInitFile? init, DiagnosticBag diagnostics)
+    {
+        if (init?.StartPosition() is not { } start)
+        {
+            return 0;
+        }
+
+        int placed = 0;
+
+        foreach (SceneActor actor in init.Actors().Where(a => a.IsEgo))
+        {
+            byte[]? bytes = _archives.Read(actor.Name + ".MOD");
+            if (bytes is null)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE008",
+                    DiagnosticSeverity.Warning,
+                    $"The scene's ego is {actor.Name}, which no archive contains."));
+
+                continue;
+            }
+
+            ModFile model = ModFile.Parse(bytes, actor.Name + ".MOD");
+
+            LoadTextures(
+                geometry,
+                model.Meshes.SelectMany(m => m.Submeshes).Select(s => s.TextureName),
+                actor.Name,
+                diagnostics);
+
+            // Heading turns about the up axis; the model's own origin is at its feet, so
+            // the position needs no vertical adjustment.
+            geometry.Add(
+                model,
+                Matrix4x4.CreateRotationY(start.Heading) * Matrix4x4.CreateTranslation(start.Position));
+
+            _log?.Invoke($"actor: {actor.Name} ({actor.Noun}) at {start.Name}");
             placed++;
         }
 
