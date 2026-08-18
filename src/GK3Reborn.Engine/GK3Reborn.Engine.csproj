@@ -6,6 +6,10 @@
     <OutputType>Library</OutputType>
     <RootNamespace>GK3Reborn</RootNamespace>
     <AssemblyName>GK3Reborn.Engine</AssemblyName>
+
+    <!-- Vulkan is a pointer-based API and Silk.NET surfaces it as one. Unsafe code is
+         confined to Rendering/Vulkan, which the layering tests enforce. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

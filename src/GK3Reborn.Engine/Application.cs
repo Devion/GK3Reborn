@@ -35,6 +35,47 @@ public static class Application
         Console.WriteLine($"Clock: tick {clock.Tick}, sim {clock.SimulationTimeSeconds:F3}s");
         Console.WriteLine($"RNG seed 0x{random.Seed:X}: first draw {random.NextUInt64():X16}");
 
+        Console.WriteLine();
+        ReportGraphics();
+
         return 0;
+    }
+
+    /// <summary>
+    /// Prints what the machine's graphics hardware can do.
+    /// </summary>
+    /// <remarks>
+    /// Runs before any window exists, so it doubles as a diagnostic on a machine that
+    /// cannot run the game at all. A device that cannot present is reported rather than
+    /// treated as an error, because saying why is more useful than failing.
+    /// </remarks>
+    private static void ReportGraphics()
+    {
+        Rendering.Vulkan.VulkanDeviceReport report = Rendering.Vulkan.VulkanDeviceSelector.Survey();
+
+        if (!report.VulkanAvailable)
+        {
+            Console.WriteLine($"Vulkan unavailable: {report.Unavailable}");
+            return;
+        }
+
+        Console.WriteLine($"Vulkan: {report.Devices.Count} device(s), "
+            + $"validation layers {(report.ValidationAvailable ? "available" : "not installed")}");
+
+        foreach (Rendering.Vulkan.VulkanDeviceInfo device in report.Devices)
+        {
+            bool selected = ReferenceEquals(device, report.Selected);
+            Console.WriteLine($"  {(selected ? "*" : " ")} {device}");
+
+            foreach (string note in device.TierNotes)
+            {
+                Console.WriteLine($"      {note}");
+            }
+        }
+
+        if (report.Selected is null)
+        {
+            Console.WriteLine("  no device can present; the game cannot render here");
+        }
     }
 }
