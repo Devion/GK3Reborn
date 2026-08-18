@@ -32,18 +32,40 @@ public sealed unsafe class SceneRenderer : IDisposable
     private readonly ShaderCompiler _compiler;
     private readonly MeshPipeline _pipeline;
     private readonly FrameUniformSet _frames;
+    private readonly MeshPipeline? _rayTraced;
+    private readonly FrameUniformSet? _rayTracedFrames;
 
     private SceneRenderer(
-        VulkanContext context, ShaderCompiler compiler, MeshPipeline pipeline, FrameUniformSet frames)
+        VulkanContext context,
+        ShaderCompiler compiler,
+        MeshPipeline pipeline,
+        FrameUniformSet frames,
+        MeshPipeline? rayTraced,
+        FrameUniformSet? rayTracedFrames)
     {
         _context = context;
         _compiler = compiler;
         _pipeline = pipeline;
         _frames = frames;
+        _rayTraced = rayTraced;
+        _rayTracedFrames = rayTracedFrames;
     }
 
     /// <summary>The pipeline, for building geometry that matches it.</summary>
     public MeshPipeline Pipeline => _pipeline;
+
+    /// <summary>Whether a ray-traced pipeline was built.</summary>
+    public bool SupportsRayTracing => _rayTraced is not null;
+
+    /// <summary>How much ray tracing to do.</summary>
+    /// <remarks>
+    /// Changing this costs nothing: both pipelines exist from the start, and every level
+    /// above <see cref="RayTracingQuality.None"/> differs only in numbers the shader
+    /// reads from a uniform. Only <see cref="RayTracingQuality.None"/> switches pipeline,
+    /// and it does so to avoid the ray-tracing shader's cost entirely rather than because
+    /// it would give a different picture.
+    /// </remarks>
+    public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
 
     /// <summary>Creates a renderer.</summary>
     /// <param name="context">Device context.</param>
@@ -58,7 +80,19 @@ public sealed unsafe class SceneRenderer : IDisposable
         {
             MeshPipeline pipeline = MeshPipeline.Create(context, ColorFormat, DepthFormat, compiler);
             FrameUniformSet frames = FrameUniformSet.Create(context, pipeline, 1);
-            return new SceneRenderer(context, compiler, pipeline, frames);
+
+            MeshPipeline? rayTraced = null;
+            FrameUniformSet? rayTracedFrames = null;
+
+            if (context.SupportsRayTracing)
+            {
+                rayTraced = MeshPipeline.Create(
+                    context, ColorFormat, DepthFormat, compiler, rayTracing: true);
+
+                rayTracedFrames = FrameUniformSet.Create(context, rayTraced, 1);
+            }
+
+            return new SceneRenderer(context, compiler, pipeline, frames, rayTraced, rayTracedFrames);
         }
         catch
         {
@@ -73,8 +107,11 @@ public sealed unsafe class SceneRenderer : IDisposable
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
-    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights) =>
+    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights)
+    {
         _frames.SetLights(lights);
+        _rayTracedFrames?.SetLights(lights);
+    }
 
     /// <summary>Renders geometry and returns the image.</summary>
     /// <param name="geometry">What to draw.</param>
@@ -90,6 +127,20 @@ public sealed unsafe class SceneRenderer : IDisposable
         ArgumentNullException.ThrowIfNull(camera);
 
         geometry.Finish();
+
+        bool tracing = Quality != RayTracingQuality.None &&
+                       _rayTraced is not null &&
+                       _rayTracedFrames is not null &&
+                       geometry.RayTracing is not null;
+
+        MeshPipeline pipeline = tracing ? _rayTraced! : _pipeline;
+        FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
+
+        if (tracing)
+        {
+            frames.SetScene(geometry.RayTracing!);
+            frames.Settings = RayTracingSettings.For(Quality);
+        }
 
         (Image color, DeviceMemory colorMemory, ImageView colorView) = CreateTarget(
             width, height, ColorFormat,
@@ -115,7 +166,7 @@ public sealed unsafe class SceneRenderer : IDisposable
                 _context.Api, command, colorView, depthView, width, height, camera.Background);
 
             SceneDraw.Record(
-                _context.Api, command, _pipeline, _frames, geometry, 0, width, height, camera);
+                _context.Api, command, pipeline, frames, geometry, 0, width, height, camera);
 
             _context.Api.CmdEndRendering(command);
 
@@ -139,6 +190,8 @@ public sealed unsafe class SceneRenderer : IDisposable
     public void Dispose()
     {
         _context.Api.DeviceWaitIdle(_context.Device);
+        _rayTracedFrames?.Dispose();
+        _rayTraced?.Dispose();
         _frames.Dispose();
         _pipeline.Dispose();
         _compiler.Dispose();
@@ -338,6 +391,6 @@ public static unsafe class SceneDraw
         vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, pipeline.Handle);
 
         frames.Bind(command, pipeline, frame, camera, (float)width / height);
-        geometry.Record(command);
+        geometry.Record(command, pipeline);
     }
 }

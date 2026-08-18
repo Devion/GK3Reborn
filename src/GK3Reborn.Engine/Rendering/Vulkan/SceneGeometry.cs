@@ -41,6 +41,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private readonly VulkanTexture _fallbackTexture;
     private readonly VulkanTexture _whiteTexture;
 
+    private readonly HashSet<string> _keyedTextures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<RayTracingMesh> _traceable = [];
+
+    private RayTracingScene? _rayTracing;
     private VulkanTexture? _lightmap;
     private IReadOnlyList<Vector4>? _lightmapRegions;
     private DescriptorPool _descriptorPool;
@@ -69,6 +73,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>Distinct textures uploaded.</summary>
     public int TextureCount => _textures.Count;
+
+    /// <summary>The scene as rays see it, once <see cref="Finish"/> has built it.</summary>
+    public RayTracingScene? RayTracing => _rayTracing;
+
+    /// <summary>How many triangles are in the ray-traced representation.</summary>
+    /// <remarks>
+    /// Lower than <see cref="TriangleCount"/>, because alpha-tested geometry is left out;
+    /// the gap is a useful measure of how much of a scene casts no shadow.
+    /// </remarks>
+    public int TraceableTriangleCount => _traceable.Sum(m => m.Indices.Length / 3);
 
     /// <summary>Lower corner of everything loaded, in world space.</summary>
     public Vector3 Minimum => _batches.Count > 0 ? _minimum : Vector3.Zero;
@@ -99,7 +113,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             // Keying happens before upload so that mip generation never sees the key
             // colour; see TextureKeying.
-            _textures[name] = VulkanTexture.Create(_context, TextureKeying.Apply(image));
+            DecodedImage keyed = TextureKeying.Apply(image);
+
+            if (keyed.HasAlpha)
+            {
+                // Remembered so the geometry using it can be kept out of the acceleration
+                // structure: without an any-hit shader, a keyed surface would cast a solid
+                // shadow from the parts of it that are holes.
+                _keyedTextures.Add(name);
+            }
+
+            _textures[name] = VulkanTexture.Create(_context, keyed);
         }
     }
 
@@ -124,6 +148,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 }
 
                 MeshVertex[] vertices = new MeshVertex[submesh.Positions.Length];
+                var world = new Vector3[submesh.Positions.Length];
 
                 for (int i = 0; i < vertices.Length; i++)
                 {
@@ -133,8 +158,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                         i < submesh.TexCoords.Length ? submesh.TexCoords[i] : Vector2.Zero,
                         Vector2.Zero);
 
-                    Grow(Vector3.Transform(submesh.Positions[i], meshToWorld));
+                    world[i] = Vector3.Transform(submesh.Positions[i], meshToWorld);
+                    Grow(world[i]);
                 }
+
+                RecordTraceable(submesh.TextureName, world, submesh.Indices);
 
                 AddBatch(
                     vertices,
@@ -237,6 +265,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             if (indices.Count > 0)
             {
+                RecordTraceable(
+                    texture,
+                    vertices.Select(v => v.Position).ToArray(),
+                    CollectionsMarshal.AsSpan(indices));
+
                 // Scene batches routinely pass 65,535 vertices: a single wall texture in
                 // the larger scenes covers more geometry than a 16-bit index can address.
                 AddBatch(
@@ -252,10 +285,34 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
-    /// <summary>Builds the descriptor sets the loaded batches need.</summary>
+    /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
+    private void RecordTraceable(string texture, Vector3[] positions, ReadOnlySpan<ushort> indices)
+    {
+        var widened = new uint[indices.Length];
+
+        for (int i = 0; i < indices.Length; i++)
+        {
+            widened[i] = indices[i];
+        }
+
+        RecordTraceable(texture, positions, widened);
+    }
+
+    /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
+    private void RecordTraceable(string texture, Vector3[] positions, ReadOnlySpan<uint> indices)
+    {
+        if (!_context.SupportsRayTracing || _keyedTextures.Contains(texture))
+        {
+            return;
+        }
+
+        _traceable.Add(new RayTracingMesh(positions, indices.ToArray()));
+    }
+
+    /// <summary>Builds the descriptor sets and acceleration structure the batches need.</summary>
     /// <remarks>
-    /// Called once, after loading and before the first draw. The sets are immutable
-    /// afterwards, so nothing has to be rebuilt or synchronised per frame.
+    /// Called once, after loading and before the first draw. Everything it builds is
+    /// immutable afterwards, so nothing has to be rebuilt or synchronised per frame.
     /// </remarks>
     public void Finish()
     {
@@ -263,6 +320,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             return;
         }
+
+        _rayTracing ??= RayTracingScene.Build(_context, _traceable);
 
         var size = new DescriptorPoolSize
         {
@@ -299,12 +358,25 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>Records the draws for every loaded batch.</summary>
     /// <param name="command">Command buffer, inside an active rendering scope.</param>
+    /// <param name="pipeline">The pipeline currently bound.</param>
     /// <remarks>
+    /// <para>
     /// The caller binds the pipeline, the viewport and the frame's descriptor set first;
     /// this only issues what varies per batch.
+    /// </para>
+    /// <para>
+    /// The pipeline is passed in rather than taken from the geometry, because the raster
+    /// and ray-traced variants have different set 0 layouts and therefore incompatible
+    /// pipeline layouts. Binding a descriptor set or pushing constants through the wrong
+    /// one is not an error Vulkan reports: the vertex shader simply reads a garbage
+    /// transform and the geometry lands outside the frustum, which looks exactly like
+    /// drawing nothing at all.
+    /// </para>
     /// </remarks>
-    public void Record(CommandBuffer command)
+    public void Record(CommandBuffer command, MeshPipeline pipeline)
     {
+        ArgumentNullException.ThrowIfNull(pipeline);
+
         Vk vk = _context.Api;
 
         foreach (Batch batch in _batches)
@@ -316,9 +388,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             DescriptorSet material = batch.Material;
             vk.CmdBindDescriptorSets(
-                command, PipelineBindPoint.Graphics, _pipeline.Layout, 1, 1, in material, 0, null);
+                command, PipelineBindPoint.Graphics, pipeline.Layout, 1, 1, in material, 0, null);
 
-            _pipeline.PushConstants(command, new DrawConstants(
+            pipeline.PushConstants(command, new DrawConstants(
                 batch.Transform,
                 new Vector4(
                     _lightmap is not null && batch.UseLightmap ? 1f : 0f, LightmapMultiplier, 0, 0)));
@@ -360,6 +432,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         _whiteTexture.Dispose();
         _lightmap?.Dispose();
         _lightmap = null;
+        _rayTracing?.Dispose();
+        _rayTracing = null;
+        _traceable.Clear();
     }
 
     /// <summary>Maps a surface's diffuse UV into the lightmap atlas.</summary>

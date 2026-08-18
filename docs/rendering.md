@@ -119,8 +119,10 @@ renderer does.
 
 ## Shaders
 
-Shaders are HLSL, as `Plan/01-architecture.md` section 1 chose. The compiler is **not**
-DXC, which that section named: DXC ships with the Vulkan SDK, and requiring the SDK to
+Shaders were HLSL, as `Plan/01-architecture.md` section 1 chose; the mesh shaders are now
+GLSL, because glslang implements inline ray tracing only in its GLSL front end. See
+[ADR 0008](adr/0008-glsl-for-ray-traced-shading.md). The compiler is **not** DXC, which
+that section named: DXC ships with the Vulkan SDK, and requiring the SDK to
 build the project at all is a real barrier for a contributor who only wants to change
 gameplay code. `shaderc` compiles HLSL to SPIR-V just as well and arrives as a NuGet
 package, so the toolchain installs itself with the rest of the dependencies.
@@ -246,11 +248,12 @@ drawing them puts large flat slabs through the middle of a room.
 
 ### Current state
 
-All 110 scenes render headlessly without failure. 71 render from one of their own room
-cameras; the remaining 39 are variant geometry with no initialisation file of their own
-and are framed on their bounds instead.
+All 110 scenes render headlessly without failure, with and without ray tracing. 71 render
+from one of their own room cameras; the remaining 39 are variant geometry with no
+initialisation file of their own and are framed on their bounds instead.
 
-Shading is still a single directional term with an ambient floor, used for props, plus the
-baked lightmaps for scene geometry. The 4,109 lights the artists authored are parsed (see
-[ADR 0007](adr/0007-authored-light-rigs-from-scene-assets.md)) but not yet evaluated,
-which is why a prop standing in a dark room can be lit as though it were outside.
+Scene geometry is lit by the baked lightmaps, and everything else by the rig the artists
+authored (see [ADR 0007](adr/0007-authored-light-rigs-from-scene-assets.md)). Ray-traced
+shadows and occlusion are available on hardware that supports them — see
+[ray-tracing.md](ray-tracing.md) for the quality ladder and what it does and does not
+compute yet.

@@ -31,6 +31,13 @@ public static class Program
     // Kept out of Main so that resolving GK3Reborn.App does not happen until after
     // the resolver above is installed.
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int Launch(string[] args) =>
-        GK3Reborn.Application.Run(args, NativeLibraryLocator.LibsRoot);
+    private static int Launch(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            args = [""];
+        }
+
+        return GK3Reborn.Application.Run(args, NativeLibraryLocator.LibsRoot);
+    }
 }

@@ -72,9 +72,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private VulkanContext? _context;
     private MeshPipeline? _meshPipeline;
     private FrameUniformSet? _frames;
+    private MeshPipeline? _rayTracedPipeline;
+    private FrameUniformSet? _rayTracedFrames;
     private SceneGeometry? _scene;
     private Camera? _camera;
 
+    private bool _rayTracingEnabled;
     private Image _depthImage;
     private DeviceMemory _depthMemory;
     private ImageView _depthView;
@@ -110,10 +113,19 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <returns>Empty scene geometry.</returns>
     public SceneGeometry CreateGeometry() => SceneGeometry.Create(Context, MeshPipeline);
 
+    /// <summary>Whether a ray-traced pipeline was built.</summary>
+    public bool SupportsRayTracing => _rayTracedPipeline is not null;
+
+    /// <summary>How much ray tracing to do.</summary>
+    public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
+
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
-    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights) =>
+    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights)
+    {
         _frames?.SetLights(lights);
+        _rayTracedFrames?.SetLights(lights);
+    }
 
     /// <summary>Sets what to draw, and from where.</summary>
     /// <param name="scene">The geometry, or null to draw nothing.</param>
@@ -125,6 +137,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
     public void SetScene(SceneGeometry? scene, Camera? camera)
     {
         scene?.Finish();
+
+        if (scene?.RayTracing is not null)
+        {
+            _rayTracedFrames?.SetScene(scene.RayTracing);
+        }
+
         _scene = scene;
         _camera = camera;
     }
@@ -342,6 +360,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
         if (_device.Handle != 0)
         {
             _vk.DeviceWaitIdle(_device);
+            _rayTracedFrames?.Dispose();
+            _rayTracedPipeline?.Dispose();
             _frames?.Dispose();
             _meshPipeline?.Dispose();
             _triangle?.Dispose();
@@ -542,7 +562,16 @@ public sealed unsafe class VulkanRenderer : IDisposable
             };
         }
 
-        nint extensionNames = SilkMarshal.StringArrayToPtr([KhrSwapchain.ExtensionName]);
+        // Ray tracing is enabled wherever the device offers it. Doing so costs nothing
+        // while no rays are traced, and the alternative — recreating the device when the
+        // quality setting changes — would mean rebuilding every resource with it.
+        _rayTracingEnabled = VulkanContext.CanRayTrace(_vk, _physicalDevice);
+
+        string[] names = _rayTracingEnabled
+            ? [KhrSwapchain.ExtensionName, .. VulkanContext.RayTracingExtensions]
+            : [KhrSwapchain.ExtensionName];
+
+        nint extensionNames = SilkMarshal.StringArrayToPtr(names);
 
         // Dynamic rendering removes the need for render pass and framebuffer objects,
         // which is a large amount of boilerplate the render graph would otherwise have to
@@ -552,6 +581,33 @@ public sealed unsafe class VulkanRenderer : IDisposable
             SType = StructureType.PhysicalDeviceDynamicRenderingFeatures,
             DynamicRendering = true,
         };
+
+        var rayQuery = new PhysicalDeviceRayQueryFeaturesKHR
+        {
+            SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+            RayQuery = true,
+        };
+
+        var accelerationStructure = new PhysicalDeviceAccelerationStructureFeaturesKHR
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+            AccelerationStructure = true,
+            PNext = &rayQuery,
+        };
+
+        var addresses = new PhysicalDeviceBufferDeviceAddressFeatures
+        {
+            SType = StructureType.PhysicalDeviceBufferDeviceAddressFeatures,
+            BufferDeviceAddress = true,
+            PNext = &accelerationStructure,
+        };
+
+        if (_rayTracingEnabled)
+        {
+            dynamicRendering.PNext = &addresses;
+        }
+
+        var features = new PhysicalDeviceFeatures { SamplerAnisotropy = true };
 
         try
         {
@@ -563,8 +619,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
                     PNext = &dynamicRendering,
                     QueueCreateInfoCount = (uint)queues.Length,
                     PQueueCreateInfos = queuePointer,
-                    EnabledExtensionCount = 1,
+                    EnabledExtensionCount = (uint)names.Length,
                     PpEnabledExtensionNames = (byte**)extensionNames,
+                    PEnabledFeatures = &features,
                 };
 
                 if (_vk.CreateDevice(_physicalDevice, in createInfo, null, out _device) != Result.Success)
@@ -829,11 +886,24 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         if (_scene is not null && _camera is not null && _meshPipeline is not null && _frames is not null)
         {
+            bool tracing = Quality != RayTracingQuality.None &&
+                           _rayTracedPipeline is not null &&
+                           _rayTracedFrames is not null &&
+                           _scene.RayTracing is not null;
+
+            MeshPipeline pipeline = tracing ? _rayTracedPipeline! : _meshPipeline;
+            FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
+
+            if (tracing)
+            {
+                frames.Settings = RayTracingSettings.For(Quality);
+            }
+
             SceneDraw.Record(
                 _vk,
                 buffer,
-                _meshPipeline,
-                _frames,
+                pipeline,
+                frames,
                 _scene,
                 _frame,
                 (int)_extent.Width,
@@ -907,12 +977,20 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         _context = VulkanContext.Adopt(
             _vk, _instance, _physicalDevice, _device, _graphicsQueue, _graphicsFamily,
-            _commandPool, DeviceName);
+            _commandPool, DeviceName, _rayTracingEnabled);
 
         _meshPipeline = MeshPipeline.Create(
             _context, _format, SceneRenderer.DepthFormat, _shaderCompiler);
 
         _frames = FrameUniformSet.Create(_context, _meshPipeline, FramesInFlight);
+
+        if (_context.SupportsRayTracing)
+        {
+            _rayTracedPipeline = MeshPipeline.Create(
+                _context, _format, SceneRenderer.DepthFormat, _shaderCompiler, rayTracing: true);
+
+            _rayTracedFrames = FrameUniformSet.Create(_context, _rayTracedPipeline, FramesInFlight);
+        }
     }
 
     /// <summary>Creates the depth buffer the swapchain's images are drawn against.</summary>

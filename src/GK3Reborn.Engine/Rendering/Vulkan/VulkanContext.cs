@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 
@@ -53,8 +54,56 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <summary>Name of the device in use.</summary>
     public string DeviceName { get; private set; } = "unknown";
 
+    /// <summary>Whether acceleration structures and ray queries are available.</summary>
+    public bool SupportsRayTracing { get; private set; }
+
+    /// <summary>The extensions ray tracing needs, in the order they must be requested.</summary>
+    /// <remarks>
+    /// Ray query itself has no host-side functions — it exists only inside shaders — so
+    /// only its name is needed. Acceleration structures bring in deferred host operations
+    /// as a hard dependency; requesting one without the other is a validation error rather
+    /// than a silent downgrade.
+    /// </remarks>
+    public static IReadOnlyList<string> RayTracingExtensions { get; } =
+    [
+        "VK_KHR_acceleration_structure",
+        "VK_KHR_ray_query",
+        "VK_KHR_deferred_host_operations",
+    ];
+
+    /// <summary>Whether a device offers everything ray tracing needs.</summary>
+    /// <param name="api">The Vulkan API.</param>
+    /// <param name="device">The device to check.</param>
+    /// <returns>True if every required extension is present.</returns>
+    public static unsafe bool CanRayTrace(Vk api, PhysicalDevice device)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+
+        uint count = 0;
+        api.EnumerateDeviceExtensionProperties(device, (byte*)null, ref count, null);
+
+        var properties = new ExtensionProperties[count];
+        fixed (ExtensionProperties* pointer = properties)
+        {
+            api.EnumerateDeviceExtensionProperties(device, (byte*)null, ref count, pointer);
+        }
+
+        var available = new HashSet<string>(StringComparer.Ordinal);
+        foreach (ExtensionProperties property in properties)
+        {
+            available.Add(Marshal.PtrToStringAnsi((nint)property.ExtensionName) ?? string.Empty);
+        }
+
+        return RayTracingExtensions.All(available.Contains);
+    }
+
     /// <summary>Creates a headless context, with no surface and no presentation.</summary>
     /// <returns>The context.</returns>
+    /// <remarks>
+    /// Ray tracing is enabled where the device offers it. Doing so costs nothing when no
+    /// rays are traced, and deciding at device-creation time avoids having to tear the
+    /// device down again when the quality setting changes.
+    /// </remarks>
     public static VulkanContext CreateHeadless()
     {
         var context = new VulkanContext(Vk.GetApi());
@@ -83,6 +132,7 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <param name="queueFamily">That queue's family index.</param>
     /// <param name="commandPool">A pool for one-shot work on that queue.</param>
     /// <param name="deviceName">Name of the device, for logs.</param>
+    /// <param name="rayTracing">Whether the caller enabled the ray-tracing extensions.</param>
     /// <returns>The context.</returns>
     /// <remarks>
     /// The windowed renderer creates its own device because it has to match the surface.
@@ -98,7 +148,8 @@ public sealed unsafe class VulkanContext : IDisposable
         Queue queue,
         uint queueFamily,
         CommandPool commandPool,
-        string deviceName = "unknown")
+        string deviceName = "unknown",
+        bool rayTracing = false)
     {
         ArgumentNullException.ThrowIfNull(api);
 
@@ -111,14 +162,24 @@ public sealed unsafe class VulkanContext : IDisposable
             QueueFamily = queueFamily,
             CommandPool = commandPool,
             DeviceName = deviceName,
+
+            // Reported rather than detected: whether the extensions are usable depends on
+            // whether the caller asked for them when it created the device, not on what
+            // the hardware could have offered.
+            SupportsRayTracing = rayTracing,
         };
     }
 
     /// <summary>Allocates memory satisfying a resource's requirements.</summary>
     /// <param name="requirements">What the resource needs.</param>
     /// <param name="flags">Properties the memory must have.</param>
+    /// <param name="deviceAddress">
+    /// Whether the buffer it backs will be asked for its device address, as everything
+    /// feeding an acceleration structure build is.
+    /// </param>
     /// <returns>The allocation.</returns>
-    public DeviceMemory Allocate(MemoryRequirements requirements, MemoryPropertyFlags flags)
+    public DeviceMemory Allocate(
+        MemoryRequirements requirements, MemoryPropertyFlags flags, bool deviceAddress = false)
     {
         Api.GetPhysicalDeviceMemoryProperties(PhysicalDevice, out PhysicalDeviceMemoryProperties properties);
 
@@ -127,11 +188,21 @@ public sealed unsafe class VulkanContext : IDisposable
             bool allowed = (requirements.MemoryTypeBits & (1u << (int)i)) != 0;
             if (allowed && properties.MemoryTypes[(int)i].PropertyFlags.HasFlag(flags))
             {
+                var flagsInfo = new MemoryAllocateFlagsInfo
+                {
+                    SType = StructureType.MemoryAllocateFlagsInfo,
+                    Flags = MemoryAllocateFlags.DeviceAddressBit,
+                };
+
                 var allocateInfo = new MemoryAllocateInfo
                 {
                     SType = StructureType.MemoryAllocateInfo,
                     AllocationSize = requirements.Size,
                     MemoryTypeIndex = i,
+
+                    // Memory backing a buffer whose address is taken has to say so when it
+                    // is allocated; asking afterwards is too late.
+                    PNext = deviceAddress ? &flagsInfo : null,
                 };
 
                 if (Api.AllocateMemory(Device, in allocateInfo, null, out DeviceMemory memory) != Result.Success)
@@ -370,6 +441,33 @@ public sealed unsafe class VulkanContext : IDisposable
             DynamicRendering = true,
         };
 
+        SupportsRayTracing = CanRayTrace(Api, PhysicalDevice);
+
+        var rayQuery = new PhysicalDeviceRayQueryFeaturesKHR
+        {
+            SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+            RayQuery = true,
+        };
+
+        var accelerationStructure = new PhysicalDeviceAccelerationStructureFeaturesKHR
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+            AccelerationStructure = true,
+            PNext = &rayQuery,
+        };
+
+        var addresses = new PhysicalDeviceBufferDeviceAddressFeatures
+        {
+            SType = StructureType.PhysicalDeviceBufferDeviceAddressFeatures,
+            BufferDeviceAddress = true,
+            PNext = &accelerationStructure,
+        };
+
+        if (SupportsRayTracing)
+        {
+            dynamicRendering.PNext = &addresses;
+        }
+
         // Anisotropic filtering matters for GK3's textures: they are small and viewed at
         // grazing angles across floors and walls, where trilinear alone smears badly.
         var features = new PhysicalDeviceFeatures { SamplerAnisotropy = true };
@@ -383,12 +481,33 @@ public sealed unsafe class VulkanContext : IDisposable
             PEnabledFeatures = &features,
         };
 
-        if (Api.CreateDevice(PhysicalDevice, in createInfo, null, out Device device) != Result.Success)
+        nint extensions = SupportsRayTracing
+            ? SilkMarshal.StringArrayToPtr(RayTracingExtensions.ToArray())
+            : 0;
+
+        try
         {
-            throw new VulkanException("Could not create a logical device.");
+            if (SupportsRayTracing)
+            {
+                createInfo.EnabledExtensionCount = (uint)RayTracingExtensions.Count;
+                createInfo.PpEnabledExtensionNames = (byte**)extensions;
+            }
+
+            if (Api.CreateDevice(PhysicalDevice, in createInfo, null, out Device device) != Result.Success)
+            {
+                throw new VulkanException("Could not create a logical device.");
+            }
+
+            Device = device;
+        }
+        finally
+        {
+            if (extensions != 0)
+            {
+                SilkMarshal.Free(extensions);
+            }
         }
 
-        Device = device;
         Api.GetDeviceQueue(Device, QueueFamily, 0, out Queue queue);
         Queue = queue;
     }

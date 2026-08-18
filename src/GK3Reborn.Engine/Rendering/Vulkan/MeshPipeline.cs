@@ -18,185 +18,46 @@ public readonly record struct MeshVertex(
 /// <param name="ViewProjection">World to clip space.</param>
 /// <param name="LightDirection">Direction the fallback key light travels.</param>
 /// <param name="CameraPosition">Where the eye is, in world space.</param>
+/// <param name="Rays">
+/// Shadowed light count, occlusion rays, rays per shadow, and how much the bake counts.
+/// </param>
+/// <param name="Tuning">Occlusion radius, frame counter, and two spare components.</param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
-    Matrix4x4 ViewProjection, Vector4 LightDirection, Vector4 CameraPosition);
+    Matrix4x4 ViewProjection,
+    Vector4 LightDirection,
+    Vector4 CameraPosition,
+    Vector4 Rays,
+    Vector4 Tuning);
 
 /// <summary>Constants that change per draw, delivered as push constants.</summary>
 /// <param name="Model">Model to world space.</param>
 /// <param name="Shading">
-/// How to shade: x selects the lightmap over the directional term, y scales the lightmap.
+/// How to shade: x selects the lightmap over the rig, y scales the lightmap.
 /// </param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct DrawConstants(Matrix4x4 Model, Vector4 Shading);
 
 /// <summary>
-/// A textured, lit mesh pipeline.
+/// A textured, lit mesh pipeline, optionally with ray tracing compiled in.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Resources are split by how often they change. Set 0 holds the camera and is bound once
-/// a frame. Set 1 holds a batch's two textures and never changes at all, so it is built
-/// when the geometry is loaded and simply rebound. What is left — the model transform and
-/// the shading mode — travels as push constants, which need no buffer, no descriptor and
-/// no synchronisation between frames in flight.
+/// Resources are split by how often they change. Set 0 holds the camera, the light rig
+/// and — in the ray-traced variant — the acceleration structure, and is bound once a
+/// frame. Set 1 holds a batch's two textures and never changes at all. What is left, the
+/// model transform and the shading mode, travels as push constants, which need no buffer,
+/// no descriptor and no synchronisation between frames in flight.
 /// </para>
 /// <para>
-/// That last point is why this shape was worth the trouble. Per-draw uniform buffers have
-/// to be either allocated per frame or written while a previous frame may still be reading
-/// them, and getting that wrong produces flickering that is very hard to attribute.
-/// </para>
-/// <para>
-/// Depth testing is on. GK3's models are solid objects with self-occluding parts, and
-/// without a depth buffer a character renders as an unreadable tangle of surfaces in draw
-/// order.
+/// The two variants exist rather than one shader that branches, because Vulkan requires
+/// every statically used binding to point at something valid whether its branch runs or
+/// not. A device with no ray-tracing extensions cannot supply an acceleration structure,
+/// so its shader must not mention one.
 /// </para>
 /// </remarks>
 public sealed unsafe class MeshPipeline : IDisposable
 {
-    private const string Source = """
-        struct Frame
-        {
-            float4x4 viewProjection;
-            float4   lightDirection;
-            float4   cameraPosition;
-        };
-
-        struct Light
-        {
-            float4 positionAndStart;
-            float4 colorAndIntensity;
-            float4 directionAndEnd;
-            float4 cone;
-        };
-
-        struct Rig
-        {
-            // x holds how many of the array are in use; the rest is spare.
-            float4 counts;
-            Light  lights[64];
-        };
-
-        struct Draw
-        {
-            float4x4 model;
-            float4   shading;
-        };
-
-        [[vk::binding(0, 0)]] ConstantBuffer<Frame> frame;
-        [[vk::binding(1, 0)]] ConstantBuffer<Rig>   rig;
-
-        [[vk::binding(0, 1)]] Texture2D    baseColor;
-        [[vk::binding(0, 1)]] SamplerState baseColorSampler;
-        [[vk::binding(1, 1)]] Texture2D    lightmap;
-        [[vk::binding(1, 1)]] SamplerState lightmapSampler;
-
-        [[vk::push_constant]] ConstantBuffer<Draw> draw;
-
-        struct VertexInput
-        {
-            float3 position      : POSITION;
-            float3 normal        : NORMAL;
-            float2 texCoord      : TEXCOORD0;
-            float2 lightmapCoord : TEXCOORD1;
-        };
-
-        struct VertexOutput
-        {
-            float4 position      : SV_Position;
-            float3 normal        : NORMAL;
-            float2 texCoord      : TEXCOORD0;
-            float2 lightmapCoord : TEXCOORD1;
-            float3 world         : TEXCOORD2;
-        };
-
-        // Evaluates the artists' rig at a point. Falloff is linear between the light's
-        // start and end distances, which is what 3ds Max's linear decay did and what the
-        // stored values were tuned against; inverse-square would darken every room.
-        float3 EvaluateRig(float3 position, float3 normal)
-        {
-            float3 total = float3(0.0, 0.0, 0.0);
-            int count = (int)rig.counts.x;
-
-            for (int i = 0; i < count; i++)
-            {
-                Light light = rig.lights[i];
-
-                float3 toLight = light.positionAndStart.xyz - position;
-                float distance = length(toLight);
-                float3 direction = toLight / max(distance, 0.0001);
-
-                float start = light.positionAndStart.w;
-                float end = light.directionAndEnd.w;
-                float attenuation = saturate((end - distance) / max(end - start, 0.001));
-
-                float cone = 1.0;
-                if (light.cone.z > 0.5)
-                {
-                    float aligned = dot(-direction, light.directionAndEnd.xyz);
-                    cone = smoothstep(light.cone.y, light.cone.x, aligned);
-                }
-
-                float lambert = saturate(dot(normal, direction));
-
-                total += light.colorAndIntensity.rgb * light.colorAndIntensity.w *
-                         attenuation * cone * lambert;
-            }
-
-            return total;
-        }
-
-        VertexOutput VertexMain(VertexInput input)
-        {
-            VertexOutput output;
-
-            float4 world = mul(draw.model, float4(input.position, 1.0));
-
-            output.position = mul(frame.viewProjection, world);
-            output.normal = normalize(mul((float3x3)draw.model, input.normal));
-            output.texCoord = input.texCoord;
-            output.lightmapCoord = input.lightmapCoord;
-            output.world = world.xyz;
-
-            return output;
-        }
-
-        float4 FragmentMain(VertexOutput input) : SV_Target
-        {
-            float4 sampled = baseColor.Sample(baseColorSampler, input.texCoord);
-            float3 albedo = sampled.rgb;
-
-            // GK3 keys transparency on magenta. It is converted to alpha before upload, so
-            // the test here is on alpha — which filters and mips gracefully — with the
-            // colour test kept as a backstop for anything the conversion missed.
-            if (sampled.a < 0.5 || distance(albedo, float3(1.0, 0.0, 1.0)) < 0.1)
-            {
-                discard;
-            }
-
-            float3 normal = normalize(input.normal);
-
-            // Anything not carrying a lightmap — props, characters — is lit by the rig
-            // the artists authored for this time of day. The ambient floor matches the
-            // original's, so a surface no light reaches is dim rather than black.
-            float3 ambient = float3(0.06, 0.08, 0.06);
-            float3 direct = rig.counts.x > 0.5
-                ? EvaluateRig(input.world, normal)
-                : float3(0.35, 0.35, 0.35) +
-                  (0.65 * saturate(dot(normal, -frame.lightDirection.xyz)));
-
-            float3 directional = albedo * (ambient + direct);
-
-            // Baked lighting multiplies into the texture, as the original does.
-            float3 baked = albedo * lightmap.Sample(lightmapSampler, input.lightmapCoord).rgb *
-                           draw.shading.y;
-
-            float3 lit = lerp(directional, baked, draw.shading.x);
-
-            return float4(lit, 1.0);
-        }
-        """;
-
     private readonly Vk _vk;
     private readonly Device _device;
 
@@ -207,11 +68,15 @@ public sealed unsafe class MeshPipeline : IDisposable
     private PipelineLayout _layout;
     private Pipeline _pipeline;
 
-    private MeshPipeline(Vk vk, Device device)
+    private MeshPipeline(Vk vk, Device device, bool rayTracing)
     {
         _vk = vk;
         _device = device;
+        RayTracing = rayTracing;
     }
+
+    /// <summary>Whether this variant can trace rays.</summary>
+    public bool RayTracing { get; }
 
     /// <summary>The pipeline handle.</summary>
     public Pipeline Handle => _pipeline;
@@ -219,7 +84,7 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// <summary>The pipeline layout, for binding descriptor sets and push constants.</summary>
     public PipelineLayout Layout => _layout;
 
-    /// <summary>Layout of set 0: the camera.</summary>
+    /// <summary>Layout of set 0: the camera, the rig, and the scene rays see.</summary>
     public DescriptorSetLayout FrameLayout => _frameLayout;
 
     /// <summary>Layout of set 1: a batch's textures.</summary>
@@ -230,22 +95,35 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// <param name="colorFormat">Colour target format.</param>
     /// <param name="depthFormat">Depth target format.</param>
     /// <param name="compiler">Shader compiler.</param>
+    /// <param name="rayTracing">Whether to compile the ray-tracing paths in.</param>
     /// <returns>The pipeline.</returns>
     public static MeshPipeline Create(
-        VulkanContext context, Format colorFormat, Format depthFormat, ShaderCompiler compiler)
+        VulkanContext context,
+        Format colorFormat,
+        Format depthFormat,
+        ShaderCompiler compiler,
+        bool rayTracing = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(compiler);
 
-        var pipeline = new MeshPipeline(context.Api, context.Device);
+        var pipeline = new MeshPipeline(context.Api, context.Device, rayTracing);
 
         try
         {
-            pipeline._vertexModule = pipeline.CreateModule(
-                compiler.Compile(Source, ShaderStage.Vertex, "mesh.vert", "VertexMain"));
+            pipeline._vertexModule = pipeline.CreateModule(compiler.Compile(
+                MeshShaders.Compose(fragment: false, rayTracing),
+                ShaderStage.Vertex,
+                "mesh.vert",
+                "main",
+                ShaderLanguage.Glsl));
 
-            pipeline._fragmentModule = pipeline.CreateModule(
-                compiler.Compile(Source, ShaderStage.Fragment, "mesh.frag", "FragmentMain"));
+            pipeline._fragmentModule = pipeline.CreateModule(compiler.Compile(
+                MeshShaders.Compose(fragment: true, rayTracing),
+                ShaderStage.Fragment,
+                "mesh.frag",
+                "main",
+                ShaderLanguage.Glsl));
 
             pipeline.CreateDescriptorLayouts();
             pipeline.BuildPipeline(colorFormat, depthFormat);
@@ -330,7 +208,7 @@ public sealed unsafe class MeshPipeline : IDisposable
 
     private void CreateDescriptorLayouts()
     {
-        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[2];
+        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[3];
         frameBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
@@ -345,11 +223,18 @@ public sealed unsafe class MeshPipeline : IDisposable
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.FragmentBit,
         };
+        frameBindings[2] = new DescriptorSetLayoutBinding
+        {
+            Binding = 2,
+            DescriptorType = DescriptorType.AccelerationStructureKhr,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
 
         var frameInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
+            BindingCount = RayTracing ? 3u : 2u,
             PBindings = frameBindings,
         };
 
@@ -412,8 +297,7 @@ public sealed unsafe class MeshPipeline : IDisposable
             throw new VulkanException("Could not create a pipeline layout.");
         }
 
-        nint vertexEntry = SilkMarshal.StringToPtr("VertexMain");
-        nint fragmentEntry = SilkMarshal.StringToPtr("FragmentMain");
+        nint entryPoint = SilkMarshal.StringToPtr("main");
 
         try
         {
@@ -423,14 +307,14 @@ public sealed unsafe class MeshPipeline : IDisposable
                 SType = StructureType.PipelineShaderStageCreateInfo,
                 Stage = ShaderStageFlags.VertexBit,
                 Module = _vertexModule,
-                PName = (byte*)vertexEntry,
+                PName = (byte*)entryPoint,
             };
             stages[1] = new PipelineShaderStageCreateInfo
             {
                 SType = StructureType.PipelineShaderStageCreateInfo,
                 Stage = ShaderStageFlags.FragmentBit,
                 Module = _fragmentModule,
-                PName = (byte*)fragmentEntry,
+                PName = (byte*)entryPoint,
             };
 
             var binding = new VertexInputBindingDescription
@@ -566,8 +450,7 @@ public sealed unsafe class MeshPipeline : IDisposable
         }
         finally
         {
-            SilkMarshal.Free(vertexEntry);
-            SilkMarshal.Free(fragmentEntry);
+            SilkMarshal.Free(entryPoint);
         }
     }
 }

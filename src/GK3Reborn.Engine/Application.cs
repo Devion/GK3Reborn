@@ -54,7 +54,8 @@ public static class Application
                 Option(args, "--camera"),
                 int.TryParse(Option(args, "--frames"), out int frames) ? frames : 0,
                 Option(args, "--screenshot"),
-                args.Contains("--verbose", StringComparer.OrdinalIgnoreCase));
+                args.Contains("--verbose", StringComparer.OrdinalIgnoreCase),
+                RayTracingSettings.Parse(Option(args, "--rt")) ?? RayTracingQuality.None);
         }
 
         if (args.Contains("--offscreen", StringComparer.OrdinalIgnoreCase))
@@ -80,6 +81,7 @@ public static class Application
     /// <param name="frameLimit">Stop after this many frames, or zero to run until closed.</param>
     /// <param name="screenshotPath">Where to write the last frame, if anywhere.</param>
     /// <param name="verbose">Whether to list everything that could not be loaded.</param>
+    /// <param name="quality">How much ray tracing to start with.</param>
     /// <returns>Process exit code.</returns>
     /// <remarks>
     /// The camera starts at one of the scene's own viewpoints, which is what the player
@@ -93,7 +95,8 @@ public static class Application
         string? cameraName,
         int frameLimit,
         string? screenshotPath,
-        bool verbose)
+        bool verbose,
+        RayTracingQuality quality)
     {
         if (!Directory.Exists(dataDirectory))
         {
@@ -129,6 +132,12 @@ public static class Application
         }
 
         renderer.SetLights(scene.Lights);
+        renderer.Quality = renderer.SupportsRayTracing ? quality : RayTracingQuality.None;
+
+        Console.WriteLine(renderer.SupportsRayTracing
+            ? $"Ray tracing: {renderer.Quality} ({geometry.TraceableTriangleCount} opaque "
+              + "triangles traced)"
+            : "Ray tracing: unavailable on this device");
 
         Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
             + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures, "
@@ -189,7 +198,8 @@ public static class Application
 
         Console.WriteLine();
         Console.WriteLine("WASD to move, E and Q for up and down, drag to look,");
-        Console.WriteLine("Tab for the next camera, R to return to it, Escape to leave.");
+        Console.WriteLine("Tab for the next camera, R to return to it, F2 for ray tracing,");
+        Console.WriteLine("Escape to leave.");
 
         var stopwatch = Stopwatch.StartNew();
         double previous = 0;
@@ -220,6 +230,14 @@ public static class Application
             if (window.WasPressed(Platform.CameraAction.Reset))
             {
                 camera.CopyFrom(template);
+            }
+
+            if (window.WasPressed(Platform.CameraAction.CycleRayTracing) && renderer.SupportsRayTracing)
+            {
+                RayTracingQuality[] levels = Enum.GetValues<RayTracingQuality>();
+
+                renderer.Quality = levels[(Array.IndexOf(levels, renderer.Quality) + 1) % levels.Length];
+                Console.WriteLine($"ray tracing: {renderer.Quality}");
             }
 
             camera.Update(window, delta);

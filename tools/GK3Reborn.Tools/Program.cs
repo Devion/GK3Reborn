@@ -106,6 +106,7 @@ public static class Program
                 options.Model,
                 options.Timeblock,
                 options.Camera,
+                options.RayTracing,
                 output,
                 options.Width,
                 options.Height,
@@ -476,6 +477,7 @@ public static class Program
               --model NAME         Model or scene to render; the extension is optional.
               --timeblock M|A|E|N  Which time of day render-scene loads.
               --camera NAME        Which of the scene's room cameras to render from.
+              --rt none|low|med|high  How much ray tracing render-scene does.
               --output PATH        Where render-model writes its PNG.
               --width N            Render width (default 1024).
               --height N           Render height (default 768).
@@ -499,6 +501,8 @@ public static class Program
 
         public string? Camera { get; init; }
 
+        public string? RayTracing { get; init; }
+
         public string? Output { get; init; }
 
         public int Width { get; init; } = 1024;
@@ -518,7 +522,7 @@ public static class Program
         public static Options Parse(string[] args)
         {
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
-            string? timeblock = null, camera = null;
+            string? timeblock = null, camera = null, rayTracing = null;
             int width = 1024, height = 768;
             bool force = false;
             bool verify = false;
@@ -549,6 +553,9 @@ public static class Program
                         break;
                     case "--api-returns" when i + 1 < args.Length:
                         apiReturnValue = int.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
+                    case "--rt" when i + 1 < args.Length:
+                        rayTracing = args[++i];
                         break;
                     case "--camera" when i + 1 < args.Length:
                         camera = args[++i];
@@ -586,6 +593,7 @@ public static class Program
                 Model = model,
                 Timeblock = timeblock,
                 Camera = camera,
+                RayTracing = rayTracing,
                 Output = output,
                 Width = width,
                 Height = height,

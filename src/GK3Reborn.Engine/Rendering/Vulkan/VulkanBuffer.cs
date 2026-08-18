@@ -35,6 +35,28 @@ public sealed unsafe class VulkanBuffer : IDisposable
     /// <summary>Size in bytes.</summary>
     public ulong Size { get; }
 
+    /// <summary>This buffer's address on the device.</summary>
+    /// <remarks>
+    /// Acceleration structure builds take their inputs by address rather than by handle,
+    /// so any buffer feeding one must have been created with
+    /// <see cref="BufferUsageFlags.ShaderDeviceAddressBit"/> and backed by memory
+    /// allocated for addressing. Asking otherwise returns zero and the build silently
+    /// reads nothing.
+    /// </remarks>
+    public ulong DeviceAddress
+    {
+        get
+        {
+            var info = new BufferDeviceAddressInfo
+            {
+                SType = StructureType.BufferDeviceAddressInfo,
+                Buffer = Handle,
+            };
+
+            return _context.Api.GetBufferDeviceAddress(_context.Device, in info);
+        }
+    }
+
     /// <summary>Creates a device-local buffer holding a copy of some data.</summary>
     /// <typeparam name="T">Element type.</typeparam>
     /// <param name="context">Device context.</param>
@@ -46,6 +68,14 @@ public sealed unsafe class VulkanBuffer : IDisposable
         where T : unmanaged
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        // Every device-local buffer is addressable where the device supports it. Vertex
+        // and index buffers become acceleration structure inputs, and finding out after
+        // the fact would mean uploading them twice.
+        if (context.SupportsRayTracing)
+        {
+            usage |= BufferUsageFlags.ShaderDeviceAddressBit;
+        }
 
         ulong size = (ulong)(data.Length * Marshal.SizeOf<T>());
         if (size == 0)
@@ -68,7 +98,8 @@ public sealed unsafe class VulkanBuffer : IDisposable
             (Buffer device, DeviceMemory deviceMemory) = Create(
                 context, size,
                 usage | BufferUsageFlags.TransferDstBit,
-                MemoryPropertyFlags.DeviceLocalBit);
+                MemoryPropertyFlags.DeviceLocalBit,
+                context.SupportsRayTracing);
 
             CommandBuffer command = context.BeginOneShot();
             var region = new BufferCopy { Size = size };
@@ -88,18 +119,53 @@ public sealed unsafe class VulkanBuffer : IDisposable
     /// <param name="context">Device context.</param>
     /// <param name="size">Size in bytes.</param>
     /// <param name="usage">What the buffer will be used for.</param>
+    /// <param name="addressable">Whether its device address will be taken.</param>
     /// <returns>The buffer.</returns>
     /// <remarks>
     /// Used for per-draw uniforms, which change every frame and are small enough that the
-    /// slower memory costs less than a staging copy would.
+    /// slower memory costs less than a staging copy would, and for the instance
+    /// descriptions an acceleration structure build reads.
     /// </remarks>
-    public static VulkanBuffer CreateHostVisible(VulkanContext context, ulong size, BufferUsageFlags usage)
+    public static VulkanBuffer CreateHostVisible(
+        VulkanContext context, ulong size, BufferUsageFlags usage, bool addressable = false)
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        if (addressable)
+        {
+            usage |= BufferUsageFlags.ShaderDeviceAddressBit;
+        }
+
         (Buffer handle, DeviceMemory memory) = Create(
             context, size, usage,
-            MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+            MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+            addressable);
+
+        return new VulkanBuffer(context, handle, memory, size);
+    }
+
+    /// <summary>Creates an uninitialised device-local buffer.</summary>
+    /// <param name="context">Device context.</param>
+    /// <param name="size">Size in bytes.</param>
+    /// <param name="usage">What the buffer will be used for.</param>
+    /// <param name="addressable">Whether its device address will be taken.</param>
+    /// <returns>The buffer.</returns>
+    /// <remarks>
+    /// For memory the GPU fills itself — acceleration structure storage and the scratch
+    /// space a build needs — where uploading anything would be wasted work.
+    /// </remarks>
+    public static VulkanBuffer CreateEmpty(
+        VulkanContext context, ulong size, BufferUsageFlags usage, bool addressable = false)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (addressable)
+        {
+            usage |= BufferUsageFlags.ShaderDeviceAddressBit;
+        }
+
+        (Buffer handle, DeviceMemory memory) = Create(
+            context, size, usage, MemoryPropertyFlags.DeviceLocalBit, addressable);
 
         return new VulkanBuffer(context, handle, memory, size);
     }
@@ -130,7 +196,11 @@ public sealed unsafe class VulkanBuffer : IDisposable
     }
 
     private static (Buffer Buffer, DeviceMemory Memory) Create(
-        VulkanContext context, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
+        VulkanContext context,
+        ulong size,
+        BufferUsageFlags usage,
+        MemoryPropertyFlags properties,
+        bool addressable = false)
     {
         var createInfo = new BufferCreateInfo
         {
@@ -146,7 +216,7 @@ public sealed unsafe class VulkanBuffer : IDisposable
         }
 
         context.Api.GetBufferMemoryRequirements(context.Device, buffer, out MemoryRequirements requirements);
-        DeviceMemory memory = context.Allocate(requirements, properties);
+        DeviceMemory memory = context.Allocate(requirements, properties, addressable);
         context.Api.BindBufferMemory(context.Device, buffer, memory, 0);
 
         return (buffer, memory);

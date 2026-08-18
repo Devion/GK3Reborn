@@ -36,6 +36,9 @@ public enum CameraAction
     /// <summary>Step to the scene's next camera.</summary>
     NextCamera,
 
+    /// <summary>Step through the ray-tracing quality levels.</summary>
+    CycleRayTracing,
+
     /// <summary>Leave.</summary>
     Quit,
 }

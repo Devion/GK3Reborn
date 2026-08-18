@@ -52,6 +52,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         [CameraAction.Fast] = [Key.ShiftLeft, Key.ShiftRight],
         [CameraAction.Reset] = [Key.R],
         [CameraAction.NextCamera] = [Key.Tab],
+        [CameraAction.CycleRayTracing] = [Key.F2],
         [CameraAction.Quit] = [Key.Escape],
     };
 

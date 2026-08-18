@@ -21,21 +21,28 @@ public sealed unsafe class FrameUniformSet : IDisposable
     private readonly VulkanBuffer[] _buffers;
     private readonly VulkanBuffer _rig;
     private readonly DescriptorSet[] _sets;
+    private readonly bool _rayTracing;
     private DescriptorPool _pool;
+    private int _frameCounter;
 
     private FrameUniformSet(
         VulkanContext context,
         VulkanBuffer[] buffers,
         VulkanBuffer rig,
         DescriptorSet[] sets,
-        DescriptorPool pool)
+        DescriptorPool pool,
+        bool rayTracing)
     {
         _context = context;
         _buffers = buffers;
         _rig = rig;
         _sets = sets;
         _pool = pool;
+        _rayTracing = rayTracing;
     }
+
+    /// <summary>How much ray tracing the shader is asked to do.</summary>
+    public RayTracingSettings Settings { get; set; } = RayTracingSettings.For(RayTracingQuality.None);
 
     /// <summary>How many frames it covers.</summary>
     public int Count => _sets.Length;
@@ -47,6 +54,11 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// <returns>The set.</returns>
     public static FrameUniformSet Create(VulkanContext context, MeshPipeline pipeline, int frames)
     {
+        return CreateFor(context, pipeline, frames);
+    }
+
+    private static FrameUniformSet CreateFor(VulkanContext context, MeshPipeline pipeline, int frames)
+    {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frames);
@@ -57,11 +69,19 @@ public sealed unsafe class FrameUniformSet : IDisposable
             DescriptorCount = (uint)(frames * 2),
         };
 
+        DescriptorPoolSize* sizes = stackalloc DescriptorPoolSize[2];
+        sizes[0] = size;
+        sizes[1] = new DescriptorPoolSize
+        {
+            Type = DescriptorType.AccelerationStructureKhr,
+            DescriptorCount = (uint)frames,
+        };
+
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            PoolSizeCount = 1,
-            PPoolSizes = &size,
+            PoolSizeCount = pipeline.RayTracing ? 2u : 1u,
+            PPoolSizes = sizes,
             MaxSets = (uint)frames,
         };
 
@@ -139,7 +159,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
             context.Api.UpdateDescriptorSets(context.Device, 2, writes, 0, null);
         }
 
-        var created = new FrameUniformSet(context, buffers, rig, sets, pool);
+        var created = new FrameUniformSet(context, buffers, rig, sets, pool, pipeline.RayTracing);
         created.SetLights([]);
 
         return created;
@@ -169,6 +189,48 @@ public sealed unsafe class FrameUniformSet : IDisposable
         _rig.Write<byte>(bytes);
     }
 
+    /// <summary>Points the ray-tracing paths at the scene they trace against.</summary>
+    /// <param name="scene">The acceleration structure.</param>
+    /// <remarks>
+    /// Must be called before the first draw of a ray-tracing pipeline. Vulkan requires
+    /// every statically used binding to be valid whether its branch runs or not, so an
+    /// unwritten acceleration structure is undefined behaviour even at quality
+    /// <see cref="RayTracingQuality.None"/>, where no ray is ever traced.
+    /// </remarks>
+    public void SetScene(RayTracingScene scene)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+
+        if (!_rayTracing)
+        {
+            return;
+        }
+
+        AccelerationStructureKHR handle = scene.Handle;
+
+        foreach (DescriptorSet set in _sets)
+        {
+            var structureInfo = new WriteDescriptorSetAccelerationStructureKHR
+            {
+                SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
+                AccelerationStructureCount = 1,
+                PAccelerationStructures = &handle,
+            };
+
+            var write = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                PNext = &structureInfo,
+                DstSet = set,
+                DstBinding = 2,
+                DescriptorType = DescriptorType.AccelerationStructureKhr,
+                DescriptorCount = 1,
+            };
+
+            _context.Api.UpdateDescriptorSets(_context.Device, 1, in write, 0, null);
+        }
+    }
+
     /// <summary>Writes a frame's camera and binds its descriptor set.</summary>
     /// <param name="command">Command buffer to record into.</param>
     /// <param name="pipeline">Pipeline whose layout to bind against.</param>
@@ -183,10 +245,23 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
         int index = frame % _sets.Length;
 
+        RayTracingSettings settings = _rayTracing
+            ? Settings
+            : RayTracingSettings.For(RayTracingQuality.None);
+
         var uniforms = new FrameUniforms(
             camera.View * camera.Projection(aspect),
             new Vector4(Vector3.Normalize(camera.LightDirection), 0),
-            new Vector4(camera.Position, 1));
+            new Vector4(camera.Position, 1),
+            new Vector4(
+                settings.ShadowLights,
+                settings.AmbientOcclusionRays,
+                settings.ShadowSamples,
+                settings.LightmapIndirect),
+
+            // The frame counter decorrelates the sampling noise between frames, so a still
+            // image is grainy but a moving one is not stuck with the same grain.
+            new Vector4(settings.AmbientOcclusionRadius, _frameCounter++ % 64, 0, 0));
 
         _buffers[index].Write<FrameUniforms>([uniforms]);
 

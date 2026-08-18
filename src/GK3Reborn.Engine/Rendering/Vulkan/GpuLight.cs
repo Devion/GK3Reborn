@@ -66,25 +66,30 @@ public readonly record struct GpuLight(
             new Vector4(light.Position, start),
             new Vector4(light.Color, light.Intensity),
             new Vector4(light.Direction, MathF.Max(end, start + 1f)),
-            new Vector4(MathF.Cos(hot), MathF.Cos(falloff), spot ? 1f : 0f, 0f));
+            // The emitter radius rides in the spare component: soft shadows jitter their
+            // rays across it, so a two-unit bulb and a twenty-unit window behave
+            // differently without needing another buffer.
+            new Vector4(MathF.Cos(hot), MathF.Cos(falloff), spot ? 1f : 0f, MathF.Max(light.Radius, 0.01f)));
     }
 
     /// <summary>Chooses which lights to upload when a scene declares more than fit.</summary>
     /// <param name="lights">Every light the scene declares.</param>
     /// <returns>At most <see cref="Capacity"/> of them.</returns>
     /// <remarks>
-    /// Brightest and longest-reaching first, which is the least bad choice without knowing
+    /// <para>
+    /// Brightest and longest-reaching first, which is the least bad order without knowing
     /// where the lit object is. Proper per-object culling replaces this once anything
     /// moves through a scene large enough to need it.
+    /// </para>
+    /// <para>
+    /// Sorted even when everything fits, because the shader shadows the first few lights
+    /// of the array rather than all of them. Leaving a short rig in file order would mean
+    /// the shadowed ones were whichever the artist happened to place first.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<AuthoredLight> Choose(IReadOnlyList<AuthoredLight> lights)
     {
         ArgumentNullException.ThrowIfNull(lights);
-
-        if (lights.Count <= Capacity)
-        {
-            return lights;
-        }
 
         return lights
             .OrderByDescending(l => l.Intensity * MathF.Max(1f, l.AttenuationEnd))

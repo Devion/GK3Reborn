@@ -34,6 +34,7 @@ public sealed class SceneRenderStage
     /// <param name="sceneName">Scene name, such as <c>R25</c>.</param>
     /// <param name="timeblock">Time of day: <c>M</c>, <c>A</c>, <c>E</c> or <c>N</c>.</param>
     /// <param name="cameraName">Which room camera to use; null takes the scene's default.</param>
+    /// <param name="rayTracing">Quality level: none, low, med or high.</param>
     /// <param name="outputPath">Where to write the PNG.</param>
     /// <param name="width">Image width.</param>
     /// <param name="height">Image height.</param>
@@ -44,6 +45,7 @@ public sealed class SceneRenderStage
         string sceneName,
         string? timeblock,
         string? cameraName,
+        string? rayTracing,
         string outputPath,
         int width,
         int height,
@@ -60,6 +62,29 @@ public sealed class SceneRenderStage
         _log($"device: {context.DeviceName}");
 
         using var renderer = SceneRenderer.Create(context);
+
+        if (RayTracingSettings.Parse(rayTracing) is { } quality)
+        {
+            if (!renderer.SupportsRayTracing && quality != RayTracingQuality.None)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE009",
+                    DiagnosticSeverity.Warning,
+                    $"{context.DeviceName} offers no ray tracing; rendering without it."));
+            }
+
+            renderer.Quality = quality;
+        }
+        else if (rayTracing is not null)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE010",
+                DiagnosticSeverity.Error,
+                $"Unknown ray tracing quality '{rayTracing}'; expected none, low, med or high."));
+
+            return false;
+        }
+
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         var loader = new SceneLoader(archives, _log);
@@ -83,6 +108,15 @@ public sealed class SceneRenderStage
             $"({camera.Position.X:F1}, {camera.Position.Y:F1}, {camera.Position.Z:F1})"));
 
         _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches");
+
+        if (renderer.Quality != RayTracingQuality.None)
+        {
+            RayTracingSettings settings = RayTracingSettings.For(renderer.Quality);
+
+            _log($"ray tracing {renderer.Quality}: {geometry.TraceableTriangleCount} opaque " +
+                 $"triangles traced, {settings.ShadowLights} shadowed lights at " +
+                 $"{settings.ShadowSamples} ray(s), {settings.AmbientOcclusionRays} occlusion rays");
+        }
 
         DecodedImage image = renderer.Render(geometry, width, height, camera);
 

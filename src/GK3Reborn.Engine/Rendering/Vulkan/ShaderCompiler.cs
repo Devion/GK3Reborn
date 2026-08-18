@@ -18,8 +18,20 @@ public enum ShaderStage
     Compute,
 }
 
+/// <summary>Which language a shader is written in.</summary>
+public enum ShaderLanguage
+{
+    /// <summary>HLSL, as the plan chose for the raster shaders.</summary>
+    Hlsl,
+
+    /// <summary>
+    /// GLSL, which is the only one of the two shaderc can express inline ray tracing in.
+    /// </summary>
+    Glsl,
+}
+
 /// <summary>
-/// Compiles HLSL to SPIR-V.
+/// Compiles HLSL and GLSL to SPIR-V.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -28,6 +40,14 @@ public enum ShaderStage
 /// prerequisite for building the project at all — a real barrier for contributors who
 /// only want to change gameplay code. shaderc compiles HLSL to SPIR-V just as well and
 /// arrives as a NuGet package, so the toolchain installs itself.
+/// </para>
+/// <para>
+/// GLSL is accepted as well, for one reason: glslang — which is what shaderc uses for
+/// both languages — implements ray query only in its GLSL front end. Its HLSL front end
+/// does not know <c>RaytracingAccelerationStructure</c> at all and fails at the
+/// declaration. Ray-traced shading therefore has to be GLSL unless DXC is adopted, and
+/// adopting DXC brings back exactly the Vulkan SDK prerequisite this class exists to
+/// avoid. See ADR 0008.
 /// </para>
 /// <para>
 /// Results are cached on disk by a hash of the source, entry point and stage. After the
@@ -54,23 +74,37 @@ public sealed class ShaderCompiler : IDisposable
     }
 
     /// <summary>Compiles a shader.</summary>
-    /// <param name="source">HLSL source.</param>
+    /// <param name="source">Shader source.</param>
     /// <param name="stage">Which stage to compile for.</param>
     /// <param name="name">Name used in error messages.</param>
     /// <param name="entryPoint">Entry point function.</param>
+    /// <param name="language">Which language the source is written in.</param>
     /// <returns>SPIR-V words as bytes.</returns>
     /// <exception cref="VulkanException">The shader did not compile.</exception>
     public unsafe byte[] Compile(
-        string source, ShaderStage stage, string name = "shader", string entryPoint = "main")
+        string source,
+        ShaderStage stage,
+        string name = "shader",
+        string entryPoint = "main",
+        ShaderLanguage language = ShaderLanguage.Hlsl)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(entryPoint);
 
-        string? cachePath = CachePathFor(source, stage, entryPoint);
+        string? cachePath = CachePathFor(source, stage, entryPoint, language);
         if (cachePath is not null && File.Exists(cachePath))
         {
-            return File.ReadAllBytes(cachePath);
+            try
+            {
+                return File.ReadAllBytes(cachePath);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Another thread is replacing this entry right now — on Windows the
+                // rename fails the reader rather than swapping underneath it. Compiling
+                // it again costs a few milliseconds and always succeeds.
+            }
         }
 
         Compiler* compiler = _shaderc.CompilerInitialize();
@@ -78,7 +112,9 @@ public sealed class ShaderCompiler : IDisposable
 
         try
         {
-            _shaderc.CompileOptionsSetSourceLanguage(options, SourceLanguage.Hlsl);
+            _shaderc.CompileOptionsSetSourceLanguage(
+                options,
+                language == ShaderLanguage.Glsl ? SourceLanguage.Glsl : SourceLanguage.Hlsl);
             _shaderc.CompileOptionsSetTargetEnv(options, TargetEnv.Vulkan, (uint)EnvVersion.Vulkan13);
             _shaderc.CompileOptionsSetOptimizationLevel(options, OptimizationLevel.Performance);
 
@@ -124,11 +160,37 @@ public sealed class ShaderCompiler : IDisposable
 
                 if (cachePath is not null)
                 {
-                    // Written through the atomic helper so a crash mid-write cannot leave
-                    // a truncated module that would later be loaded as valid.
+                    // Written to a uniquely named temporary first, so a crash mid-write
+                    // cannot leave a truncated module that would later load as valid. The
+                    // name has to be unique rather than the destination plus a suffix:
+                    // two threads compiling the same shader would otherwise collide on
+                    // the temporary, and one of them would fail on a file the other still
+                    // has open.
                     Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
-                    File.WriteAllBytes(cachePath + ".tmp", spirv);
-                    File.Move(cachePath + ".tmp", cachePath, overwrite: true);
+
+                    string temporary = $"{cachePath}.{Environment.CurrentManagedThreadId}.tmp";
+
+                    try
+                    {
+                        File.WriteAllBytes(temporary, spirv);
+                        File.Move(temporary, cachePath, overwrite: true);
+                    }
+                    catch (Exception exception)
+                        when (exception is IOException or UnauthorizedAccessException)
+                    {
+                        // Another thread or process got there first, and Windows reports
+                        // that as either a sharing violation or an access denial depending
+                        // on which side of the replace collided. Its bytes are the same
+                        // bytes, so the only thing lost is this copy of the work.
+                        try
+                        {
+                            File.Delete(temporary);
+                        }
+                        catch (IOException)
+                        {
+                            // Nothing further to do: a stale temporary is harmless.
+                        }
+                    }
                 }
 
                 return spirv;
@@ -148,7 +210,8 @@ public sealed class ShaderCompiler : IDisposable
     /// <inheritdoc/>
     public void Dispose() => _shaderc.Dispose();
 
-    private string? CachePathFor(string source, ShaderStage stage, string entryPoint)
+    private string? CachePathFor(
+        string source, ShaderStage stage, string entryPoint, ShaderLanguage language)
     {
         if (_cacheDirectory is null)
         {
@@ -157,7 +220,8 @@ public sealed class ShaderCompiler : IDisposable
 
         // The key covers everything that changes the output, so a shader edit invalidates
         // its own entry and nothing else.
-        byte[] key = SHA256.HashData(Encoding.UTF8.GetBytes($"{stage}|{entryPoint}|{source}"));
+        byte[] key = SHA256.HashData(
+            Encoding.UTF8.GetBytes($"{language}|{stage}|{entryPoint}|{source}"));
         return Path.Combine(_cacheDirectory, Convert.ToHexStringLower(key)[..32] + ".spv");
     }
 }
