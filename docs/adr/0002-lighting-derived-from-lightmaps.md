@@ -68,6 +68,13 @@ weak, overlapping sources will cluster badly. Expect a meaningful fraction to
 fall through to manual authoring — the plan must budget for that rather than
 assume the generator handles everything.
 
+**Amended.** The corpus turned out to hold *several* bakes per room, not one:
+lightmap sets carry morning, afternoon, evening and night suffixes, and 51 scenes have
+more than one variant. So the unit of derivation is a rig per scene **and timeblock**,
+not per scene, and the extractor should difference the variants rather than cluster a
+single bake — a night bake shows only artificial light, so subtracting it from a morning
+bake isolates the sun. See `docs/formats/lightmaps.md`.
+
 **Resolved.** The art-direction question left open here — reproduce the original
 1999 mood exactly, or re-light for modern dynamic range — is answered by
 [ADR 0006](0006-relight-for-modern-range.md): re-light for modern range, with the

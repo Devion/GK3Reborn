@@ -5,6 +5,7 @@ using GK3Reborn.Formats;
 using GK3Reborn.Formats.Barn;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
+using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation;
 using GK3Reborn.Foundation.Diagnostics;
@@ -120,6 +121,33 @@ public sealed class OrganizeStage
                         outputName = Path.ChangeExtension(outputName, ".png");
                         conversion = $"{image.SourceFormat} -> png"
                             + (image.HasAlpha ? " (magenta keyed to transparent)" : string.Empty);
+                        converted++;
+                    }
+                    catch (FormatParseException ex)
+                    {
+                        diagnostics.Add(ex.Diagnostic);
+                        failed++;
+                    }
+                }
+                else if (classification.Kind == AssetKind.Lightmap)
+                {
+                    try
+                    {
+                        MulFile lightmaps = MulFile.Parse(data, entry.Name);
+                        string stem = Path.GetFileNameWithoutExtension(entry.Name);
+                        string lightmapDirectory = Path.Combine(root, directory, "lightmaps", stem);
+                        Directory.CreateDirectory(lightmapDirectory);
+
+                        for (int i = 0; i < lightmaps.Lightmaps.Count; i++)
+                        {
+                            File.WriteAllBytes(
+                                Path.Combine(lightmapDirectory, string.Create(
+                                    CultureInfo.InvariantCulture, $"{stem}_{i:D4}.png")),
+                                PngWriter.Encode(lightmaps.Lightmaps[i]));
+                        }
+
+                        conversion = string.Create(CultureInfo.InvariantCulture,
+                            $"mul -> {lightmaps.Lightmaps.Count} png ({lightmaps.TotalPixels} pixels)");
                         converted++;
                     }
                     catch (FormatParseException ex)

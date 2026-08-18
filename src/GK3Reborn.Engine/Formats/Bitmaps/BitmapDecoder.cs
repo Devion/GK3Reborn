@@ -45,7 +45,7 @@ public static class BitmapDecoder
 {
     /// <summary>Identifies whether a buffer is a bitmap this decoder handles.</summary>
     /// <param name="data">The asset's bytes.</param>
-    /// <returns>True when <see cref="Decode"/> will succeed.</returns>
+    /// <returns>True when <see cref="Decode(System.ReadOnlySpan{byte}, string)"/> will succeed.</returns>
     public static bool CanDecode(ReadOnlySpan<byte> data) =>
         IsGk3(data) || IsWindows(data);
 
@@ -54,17 +54,39 @@ public static class BitmapDecoder
     /// <param name="name">Name used in diagnostics.</param>
     /// <returns>The decoded image.</returns>
     /// <exception cref="FormatParseException">The data is not a supported bitmap.</exception>
-    public static DecodedImage Decode(ReadOnlySpan<byte> data, string name = "<memory>")
+    public static DecodedImage Decode(ReadOnlySpan<byte> data, string name = "<memory>") =>
+        Decode(data, out _, name);
+
+    /// <summary>Decodes a bitmap and reports how many bytes it occupied.</summary>
+    /// <param name="data">Buffer positioned at the start of a bitmap.</param>
+    /// <param name="bytesConsumed">Receives the encoded length.</param>
+    /// <param name="name">Name used in diagnostics.</param>
+    /// <returns>The decoded image.</returns>
+    /// <remarks>
+    /// Lightmap files pack many bitmaps back to back with no offset table, so decoding
+    /// the second one requires knowing exactly where the first ended.
+    /// </remarks>
+    public static DecodedImage Decode(ReadOnlySpan<byte> data, out int bytesConsumed, string name = "<memory>")
     {
         if (IsGk3(data))
         {
-            return DecodeGk3(data, name);
+            DecodedImage image = DecodeGk3(data, name);
+            int stride = image.Width + (image.Width % 2);
+            bytesConsumed = 8 + (stride * image.Height * 2);
+            return image;
         }
 
         if (IsWindows(data))
         {
-            return DecodeWindows(data, name);
+            DecodedImage image = DecodeWindows(data, name);
+            uint dataOffset = BinaryPrimitives.ReadUInt32LittleEndian(data[10..]);
+            int bitsPerPixel = BinaryPrimitives.ReadUInt16LittleEndian(data[28..]);
+            int stride = ((image.Width * bitsPerPixel / 8) + 3) & ~3;
+            bytesConsumed = (int)dataOffset + (stride * image.Height);
+            return image;
         }
+
+        bytesConsumed = 0;
 
         throw new FormatParseException(new Diagnostic(
             "GK3R1030", DiagnosticSeverity.Error,
