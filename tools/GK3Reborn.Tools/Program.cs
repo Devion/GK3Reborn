@@ -1,6 +1,7 @@
 using System.Globalization;
 using GK3Reborn.Content.Manifests;
 using GK3Reborn.Foundation.Diagnostics;
+using GK3Reborn.Formats.Barn;
 using GK3Reborn.Tools.Media;
 using GK3Reborn.Tools.Stages;
 
@@ -42,6 +43,9 @@ public static class Program
 
         switch (options.Command)
         {
+            case "extract-barn":
+                return ExtractBarn(options, diagnostics);
+
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
@@ -97,6 +101,39 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int ExtractBarn(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("extract-barn requires --source and --workspace.");
+            return 2;
+        }
+
+        if (!Directory.Exists(options.Source))
+        {
+            Console.Error.WriteLine($"Source directory does not exist: {options.Source}");
+            return 2;
+        }
+
+        Console.WriteLine($"source: {options.Source}");
+        Console.WriteLine($"workspace: {options.Workspace}");
+        Console.WriteLine(options.Verify ? "mode: verify only (nothing written)" : "mode: extract");
+        Console.WriteLine();
+
+        var stage = new BarnExtractStage(Console.WriteLine);
+        BarnManifest manifest = stage.Run(
+            options.Source, options.Workspace, writeFiles: !options.Verify, diagnostics);
+
+        Console.WriteLine();
+        foreach ((string key, int count) in manifest.Summary.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {key,-24} {count}"));
+        }
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -121,6 +158,7 @@ public static class Program
               GK3Reborn.Tools <command> [options]
 
             commands:
+              extract-barn      Extract every entry from every Barn archive.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
@@ -131,6 +169,7 @@ public static class Program
               --workspace <dir>    Content workspace root. Outputs go to build/.
               --ffmpeg-dir <dir>   Directory containing ffmpeg and ffprobe.
               --force              Redo work even when a cached output is still valid.
+              --verify             Decompress and validate without writing anything.
 
             The toolchain never writes to the source installation.
             """);
@@ -147,12 +186,15 @@ public static class Program
 
         public bool Force { get; init; }
 
+        public bool Verify { get; init; }
+
         public string? Error { get; init; }
 
         public static Options Parse(string[] args)
         {
             string? source = null, workspace = null, ffmpeg = null;
             bool force = false;
+            bool verify = false;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -170,6 +212,9 @@ public static class Program
                     case "--force":
                         force = true;
                         break;
+                    case "--verify":
+                        verify = true;
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -182,6 +227,7 @@ public static class Program
                 Workspace = workspace,
                 FfmpegDirectory = ffmpeg,
                 Force = force,
+                Verify = verify,
             };
         }
     }
