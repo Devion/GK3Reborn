@@ -339,6 +339,22 @@ public static class Program
             return 2;
         }
 
+        if (options.Execute)
+        {
+            var runner = new SheepExecuteStage(Console.WriteLine);
+            SheepExecutionSummary run = runner.Run(options.Source, diagnostics, options.ApiReturnValue);
+
+            Console.WriteLine();
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {run.Scripts} scripts, {run.Functions} functions executed, {run.Calls} API calls"));
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {run.Completed} completed, {run.Halted} halted, {run.Blocked} suspended, "
+                + $"{run.Faulted} faulted"));
+
+            Report(diagnostics);
+            return diagnostics.HasErrors ? 1 : 0;
+        }
+
         var stage = new SheepDisassembleStage(Console.WriteLine);
         SheepDisassemblySummary summary = stage.Run(options.Source, options.Workspace, diagnostics);
 
@@ -414,6 +430,10 @@ public static class Program
 
         public bool Verify { get; init; }
 
+        public bool Execute { get; init; }
+
+        public int ApiReturnValue { get; init; }
+
         public string? Error { get; init; }
 
         public static Options Parse(string[] args)
@@ -421,6 +441,8 @@ public static class Program
             string? source = null, workspace = null, ffmpeg = null;
             bool force = false;
             bool verify = false;
+            bool execute = false;
+            int apiReturnValue = 0;
 
             for (int i = 1; i < args.Length; i++)
             {
@@ -441,6 +463,12 @@ public static class Program
                     case "--verify":
                         verify = true;
                         break;
+                    case "--execute":
+                        execute = true;
+                        break;
+                    case "--api-returns" when i + 1 < args.Length:
+                        apiReturnValue = int.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -454,6 +482,8 @@ public static class Program
                 FfmpegDirectory = ffmpeg,
                 Force = force,
                 Verify = verify,
+                Execute = execute,
+                ApiReturnValue = apiReturnValue,
             };
         }
     }

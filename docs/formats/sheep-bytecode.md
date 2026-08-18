@@ -102,3 +102,53 @@ tables so a call shows the function it invokes and a push shows the string it pu
 
 User-defined functions carry the `$` suffix the language requires, and the wait block is
 the `wait { … }` construct from the grammar.
+
+## The virtual machine
+
+`SheepVirtualMachine` executes the bytecode. It is a stack machine matching the
+original's conventions rather than improving on them.
+
+**Calling convention.** Arguments are pushed in order, then their count. A call pops the
+count, takes that many arguments and pushes a result — *including void calls*, because
+the original compiler emits a `Pop` after every one. A VM that pushed nothing for void
+would drift the stack by one per call and fail somewhere unrelated.
+
+**Waiting is a resumable state, not a blocked thread.** `EndWait` suspends the thread
+only if something waitable was called inside the block; the caller resumes it when those
+calls report completion. That is what Plan/01 section 6 requires — `wait` must be a
+suspension the game thread can schedule around, not an operation that stops the engine.
+
+**Execution is bounded.** These scripts come from data the project does not control, so a
+runaway loop faults rather than hanging the caller. Division by zero yields zero for the
+same reason.
+
+## Running the whole corpus
+
+```bash
+GK3Reborn.Tools sheep --execute --source <GK3 Data> --workspace <dir> [--api-returns <n>]
+```
+
+Every function of every script runs against a stub API that records calls and returns a
+constant. Results with the stub returning zero:
+
+| | |
+|---|---:|
+| Functions executed | 1,481 |
+| Completed normally | 1,464 |
+| Faulted | 17 |
+| API calls made | 454,280 |
+
+**All 17 faults are the instruction limit** — not unknown opcodes, not stack imbalance,
+not bad branch targets, not bad import indices. None of the structural fault codes appear
+at all.
+
+That points at the stub rather than the machine, and `--api-returns` settles it. With the
+stub returning 1 instead of 0, faults drop to **12** and calls to 338,415: the failures
+move when the answers move, which is what a condition-driven loop does and what a VM
+defect does not. A script polling `IsWalkingActorNear` never terminates when the answer is
+always the same.
+
+So the sweep says the instruction set, operand sizes, calling convention and control flow
+survive 147,223 instructions of code written for a different engine — while saying nothing
+yet about whether the *game* behaves correctly, which needs the real API and the
+differential harness.
