@@ -244,6 +244,38 @@ public static class BitmapDecoder
         return true;
     }
 
+    /// <summary>
+    /// Reports the single colour of a flat texture, or null when it has real detail.
+    /// </summary>
+    /// <remarks>
+    /// 280 of the game's textures are one or two colours - including character skin,
+    /// which is a solid tone rather than a painted map. Enlarging those produces a bigger
+    /// flat colour and nothing else, so they belong in a material as a base-colour factor.
+    /// </remarks>
+    /// <param name="image">The decoded image.</param>
+    /// <returns>The colour, or null.</returns>
+    public static (byte R, byte G, byte B)? FlatColorOf(DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image.Pixels);
+
+        if (image.Pixels.Length < 4)
+        {
+            return null;
+        }
+
+        HashSet<int> distinct = [];
+        for (int i = 0; i < image.Pixels.Length; i += 4)
+        {
+            distinct.Add((image.Pixels[i] << 16) | (image.Pixels[i + 1] << 8) | image.Pixels[i + 2]);
+            if (distinct.Count > 2)
+            {
+                return null;
+            }
+        }
+
+        return (image.Pixels[0], image.Pixels[1], image.Pixels[2]);
+    }
+
     private static bool IsMagenta(byte[] pixels, int at) =>
         pixels[at] == 255 && pixels[at + 1] == 0 && pixels[at + 2] == 255;
 

@@ -55,6 +55,9 @@ public static class Program
             case "classify-models":
                 return ClassifyModels(options, diagnostics);
 
+            case "texture-plan":
+                return TexturePlan(options, diagnostics);
+
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
@@ -248,6 +251,29 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int TexturePlan(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("texture-plan requires --source and --workspace.");
+            return 2;
+        }
+
+        var stage = new TexturePlanStage(Console.WriteLine);
+        TexturePlanManifest manifest = stage.Run(options.Source, options.Workspace, diagnostics);
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {manifest.Textures.Count} textures, {manifest.TotalMegapixels} megapixels total"));
+        foreach ((string tier, int count) in manifest.TierCounts)
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {tier,-8} {count,6}"));
+        }
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -276,6 +302,7 @@ public static class Program
               inventory         Classify every asset and map what references what.
               organize          Lay the corpus out by kind and convert textures to PNG.
               classify-models   Work out what each model is for, from the scene files.
+              texture-plan      Rank textures by how visible they are, for enhancement.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
