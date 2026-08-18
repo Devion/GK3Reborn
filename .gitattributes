@@ -1,0 +1,15 @@
+# Normalize line endings so a Windows and a Linux checkout produce identical
+# builds. The .editorconfig asks for LF; this makes git agree.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.ps1  text eol=lf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+*.png  binary
+*.jpg  binary
+*.ktx2 binary
+*.spv  binary
+*.ttf  binary
+*.otf  binary
