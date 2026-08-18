@@ -62,6 +62,13 @@ install it reports 36,957 entries extracted, 20,991 pointers into other archives
 and 0 failures. The format, its quirks and how the result was validated are
 documented in [docs/formats/barn.md](docs/formats/barn.md).
 
+`inventory` classifies every asset by its contents and resolves the references
+between them, writing `manifests/corpus.json`. It is worth reading
+[docs/formats/corpus.md](docs/formats/corpus.md) before working with the data: the
+archives look like they hold 2,775 file types but hold about a dozen, because most
+audio assets carry a dialogue code where the extension goes. They also contain the
+original team's design documents for Sheep, SIF, NVC and persistence.
+
 The video stage converts the BIK and AVI cinematics to MP4 / H.264 + AAC,
 preserving frame size, frame rate and duration exactly, and writes
 `manifests/video.json` recording source and output hashes, probe results,

@@ -46,6 +46,9 @@ public static class Program
             case "extract-barn":
                 return ExtractBarn(options, diagnostics);
 
+            case "inventory":
+                return Inventory(options, diagnostics);
+
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
@@ -134,6 +137,51 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int Inventory(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("inventory requires --source and --workspace.");
+            return 2;
+        }
+
+        if (!Directory.Exists(options.Source))
+        {
+            Console.Error.WriteLine($"Source directory does not exist: {options.Source}");
+            return 2;
+        }
+
+        Console.WriteLine($"source: {options.Source}");
+        Console.WriteLine($"workspace: {options.Workspace}");
+        Console.WriteLine();
+
+        var stage = new CorpusInventoryStage(Console.WriteLine);
+        CorpusManifest manifest = stage.Run(options.Source, options.Workspace, diagnostics);
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {manifest.Summary.Assets} assets, {manifest.Summary.TotalBytes / 1_048_576.0:F0} MB, "
+            + $"{manifest.Summary.DistinctExtensions} distinct extensions"));
+        Console.WriteLine();
+        Console.WriteLine("  kind                  count        MB   extensions");
+
+        foreach ((string kind, int count) in manifest.KindCounts)
+        {
+            long bytes = manifest.KindBytes.GetValueOrDefault(kind);
+            int extensions = manifest.ExtensionsByKind.GetValueOrDefault(kind);
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {kind,-20} {count,6} {bytes / 1_048_576.0,9:F1}   {extensions,6}"));
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  references: {manifest.Summary.ReferencesResolved} resolved, "
+            + $"{manifest.Summary.ReferencesDangling} dangling"));
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -159,6 +207,7 @@ public static class Program
 
             commands:
               extract-barn      Extract every entry from every Barn archive.
+              inventory         Classify every asset and map what references what.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
