@@ -173,6 +173,28 @@ public sealed class SheepVirtualMachine
         return Resume(started);
     }
 
+    /// <summary>
+    /// Tells a blocked thread that everything it waited on has finished.
+    /// </summary>
+    /// <remarks>
+    /// The scheduler owns this: the VM suspends a thread and takes no view on when the
+    /// animation, walk or timer it waited for actually completes. Calling this makes the
+    /// thread runnable again; it does not run it.
+    /// </remarks>
+    /// <param name="thread">The blocked thread.</param>
+    public static void NotifyWaitsCompleted(SheepThread thread)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+
+        thread.PendingWaits = 0;
+        thread.InWaitBlock = false;
+
+        if (thread.State == SheepThreadState.Blocked)
+        {
+            thread.State = SheepThreadState.Yielded;
+        }
+    }
+
     /// <summary>Runs a thread until it stops.</summary>
     /// <param name="thread">The thread to run.</param>
     /// <returns>The same thread.</returns>

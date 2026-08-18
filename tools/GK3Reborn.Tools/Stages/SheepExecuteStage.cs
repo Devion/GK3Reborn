@@ -2,6 +2,7 @@ using System.Globalization;
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Barn;
 using GK3Reborn.Foundation.Diagnostics;
+using GK3Reborn.Game;
 using GK3Reborn.Sheep;
 
 namespace GK3Reborn.Tools.Stages;
@@ -56,8 +57,10 @@ public sealed class SheepExecuteStage
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
 
-        var api = new RecordingApi(apiReturnValue);
+        var state = new GameState { Location = "LBY" };
+        var api = new Gk3SheepApi(state);
         var vm = new SheepVirtualMachine(api, instructionLimit: 200_000);
+        _ = apiReturnValue;
 
         int scripts = 0;
         int functions = 0;
@@ -113,6 +116,18 @@ public sealed class SheepExecuteStage
                 foreach ((string name, int _) in script.Functions)
                 {
                     SheepThread thread = vm.Execute(script, name);
+
+                    // The sweep assumes every waited call finishes at once, so a function
+                    // that suspends is resumed rather than left hanging. That is not how
+                    // the game behaves, but it is what lets a whole function be traced.
+                    int resumes = 0;
+                    while (thread.State is SheepThreadState.Blocked or SheepThreadState.Yielded
+                           && resumes++ < 1000)
+                    {
+                        SheepVirtualMachine.NotifyWaitsCompleted(thread);
+                        vm.Resume(thread);
+                    }
+
                     functions++;
                     calls += thread.Calls.Count;
 
@@ -147,7 +162,16 @@ public sealed class SheepExecuteStage
         }
 
         _log(string.Create(CultureInfo.InvariantCulture,
-            $"    {api.DistinctFunctions} distinct API functions invoked"));
+            $"    {api.Events.Count} presentation calls recorded"));
+        _log(string.Create(CultureInfo.InvariantCulture,
+            $"    {api.UnknownFunctions.Count} functions still unimplemented"));
+
+        foreach (string unknown in api.UnknownFunctions.OrderBy(u => u, StringComparer.Ordinal).Take(20))
+        {
+            _log($"      {unknown}");
+        }
+
+        _log($"    final state hash: {state.ComputeHash()[..16]}");
 
         if (faulted > 0)
         {
@@ -162,28 +186,4 @@ public sealed class SheepExecuteStage
         return new SheepExecutionSummary(scripts, functions, completed, halted, blocked, faulted, calls);
     }
 
-    /// <summary>
-    /// An API host that records calls and returns nothing useful.
-    /// </summary>
-    /// <remarks>
-    /// Every call returns the same constant, so conditionals take whichever branch that
-    /// constant implies and this sweep does not explore both sides of a test. It exercises
-    /// the machine, not the game.
-    /// </remarks>
-    private sealed class RecordingApi(int returnValue) : ISheepApi
-    {
-        private readonly HashSet<string> _seen = new(StringComparer.OrdinalIgnoreCase);
-
-        public int DistinctFunctions => _seen.Count;
-
-        public SheepValue Invoke(string name, IReadOnlyList<SheepValue> arguments)
-        {
-            _seen.Add(name);
-            return SheepValue.FromInt(returnValue);
-        }
-
-        // Without the specification's behaviour classification loaded, nothing is
-        // treated as waitable, so wait blocks fall through rather than suspending.
-        public bool IsWaitable(string name) => false;
-    }
 }

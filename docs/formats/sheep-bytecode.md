@@ -152,3 +152,56 @@ So the sweep says the instruction set, operand sizes, calling convention and con
 survive 147,223 instructions of code written for a different engine — while saying nothing
 yet about whether the *game* behaves correctly, which needs the real API and the
 differential harness.
+
+## The API surface
+
+`Gk3SheepApi` binds the virtual machine to game state. The ~130 gameplay functions divide
+by what they do, not by how often they are called:
+
+**State functions are implemented.** Flags, game variables, noun/verb counts, topic
+counts, score, timeblock, location and actor placement. These decide whether the story can
+progress, and they are what a differential comparison between engines must agree on. GK3
+gates a great deal of dialogue on noun/verb counts — the second time you ask about
+something you get a different answer — so those counts are state, not statistics.
+
+**Presentation functions are recorded.** `CutToCameraAngle` is called 2,235 times across
+the corpus and `StartAnimation` 2,067, but neither changes what the game permits, and
+neither can be performed before the renderer exists. Recording keeps the trace honest: the
+call happened, in that order, with those arguments, and nothing was faked.
+
+**Anything unregistered is reported once, then recorded.** Silence would let a missing
+function look like a working one. 80 remain unimplemented.
+
+### Running the corpus against real state
+
+```bash
+GK3Reborn.Tools sheep --execute --source <GK3 Data> --workspace <dir>
+```
+
+| | |
+|---|---:|
+| Functions executed | 1,481 |
+| Completed | 1,469 |
+| Still suspended | 8 |
+| Faulted | 4 |
+| API calls | 143,777 |
+| Presentation calls recorded | 67,362 |
+
+Wait handling is doing real work here. Before the API knew which functions were waitable,
+nothing suspended; with the specification's classification wired in, **1,154 functions
+suspend on a wait block** — which is what GK3 scripts do, since most are
+`wait { WalkTo(…); StartAnimation(…); }`. The sweep then resumes them on the assumption
+that every waited call finishes at once, which is not how the game behaves but is what
+lets a whole function be traced.
+
+The remaining 4 faults are still the instruction limit, and shrank from 17 as state
+functions began returning real answers — polling loops terminate once the thing they poll
+can change.
+
+### Determinism
+
+The sweep ends by hashing the game state, and the hash is byte-identical across runs
+(`d0a2267c9950a1e2`, 143,777 calls, twice). That is the property the differential harness
+depends on: a state hash that varied between runs of the same build could not detect a
+divergence between two builds. Ordering is made explicit before hashing rather than
+relying on dictionary enumeration order.
