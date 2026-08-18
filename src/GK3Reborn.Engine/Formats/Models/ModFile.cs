@@ -71,6 +71,19 @@ public sealed class ModFile
         Meshes = meshes;
     }
 
+    /// <summary>
+    /// Builds a model from meshes that did not come from a MOD file.
+    /// </summary>
+    /// <remarks>
+    /// Lets the scene exporter present a room as meshes and reuse the glTF writer,
+    /// rather than duplicating accessor and buffer handling for a second format.
+    /// </remarks>
+    /// <param name="name">Name for the produced model.</param>
+    /// <param name="meshes">The meshes.</param>
+    /// <returns>A model wrapping those meshes.</returns>
+    public static ModFile FromMeshes(string name, IReadOnlyList<ModMesh> meshes) =>
+        new(name, billboard: false, meshes);
+
     /// <summary>Name this model was read under.</summary>
     public string Name { get; }
 

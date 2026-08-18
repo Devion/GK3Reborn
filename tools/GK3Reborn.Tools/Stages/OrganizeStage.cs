@@ -5,6 +5,7 @@ using GK3Reborn.Formats;
 using GK3Reborn.Formats.Barn;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
+using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -119,6 +120,24 @@ public sealed class OrganizeStage
                         outputName = Path.ChangeExtension(outputName, ".png");
                         conversion = $"{image.SourceFormat} -> png"
                             + (image.HasAlpha ? " (magenta keyed to transparent)" : string.Empty);
+                        converted++;
+                    }
+                    catch (FormatParseException ex)
+                    {
+                        diagnostics.Add(ex.Diagnostic);
+                        failed++;
+                    }
+                }
+                else if (classification.Kind == AssetKind.SceneGeometry)
+                {
+                    try
+                    {
+                        BspFile scene = BspFile.Parse(data, entry.Name);
+                        output = SceneGlbWriter.Encode(scene);
+                        outputName = Path.ChangeExtension(outputName, ".glb");
+                        conversion = string.Create(CultureInfo.InvariantCulture,
+                            $"bsp -> glb ({scene.ObjectNames.Count} objects, "
+                            + $"{scene.Vertices.Length} vertices, {scene.TriangleCount} triangles)");
                         converted++;
                     }
                     catch (FormatParseException ex)
