@@ -70,7 +70,7 @@ audio assets carry a dialogue code where the extension goes. They also contain t
 original team's design documents for Sheep, SIF, NVC and persistence.
 
 `organize` produces the tree you actually work in: assets grouped by what they
-are, textures converted to PNG, animations grouped by the character prefix their
+are, textures converted to PNG, models converted to glTF, animations grouped by the character prefix their
 names carry, and scene assets grouped by GK3's three-letter location codes — so
 `scenes/LBY/` holds the lobby's geometry and all its timeblock variants together.
 The raw extraction is left untouched; this is a derived view and re-running it is

@@ -4,6 +4,7 @@ using GK3Reborn.Content.Manifests;
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Barn;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Models;
 using GK3Reborn.Foundation;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -118,6 +119,24 @@ public sealed class OrganizeStage
                         outputName = Path.ChangeExtension(outputName, ".png");
                         conversion = $"{image.SourceFormat} -> png"
                             + (image.HasAlpha ? " (magenta keyed to transparent)" : string.Empty);
+                        converted++;
+                    }
+                    catch (FormatParseException ex)
+                    {
+                        diagnostics.Add(ex.Diagnostic);
+                        failed++;
+                    }
+                }
+                else if (classification.Kind == AssetKind.Model)
+                {
+                    try
+                    {
+                        ModFile mod = ModFile.Parse(data, entry.Name);
+                        output = GlbWriter.Encode(mod);
+                        outputName = Path.ChangeExtension(outputName, ".glb");
+                        conversion = string.Create(CultureInfo.InvariantCulture,
+                            $"mod -> glb ({mod.Meshes.Count} meshes, {mod.VertexCount} vertices, "
+                            + $"{mod.TriangleCount} triangles)");
                         converted++;
                     }
                     catch (FormatParseException ex)
