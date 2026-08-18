@@ -1,0 +1,209 @@
+using GK3Reborn.Formats;
+using GK3Reborn.Formats.Actions;
+using GK3Reborn.Foundation.Diagnostics;
+using GK3Reborn.Sheep;
+using GK3Reborn.UI.Interaction;
+
+namespace GK3Reborn.Game;
+
+/// <summary>
+/// Decides what the player can do to something right now.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is the hinge between the original data and the modern interaction model. The
+/// game's action files list every noun, verb and the condition under which that pairing
+/// applies; the original engine used the same information to decide which verbs to put on
+/// its verb wheel. Asking it for one noun's currently valid verbs is the same query,
+/// answered for a different interface.
+/// </para>
+/// <para>
+/// <c>Plan/03-gameplay-ui-audio.md</c> section 2.3 requires that modernising input must
+/// not change what an action does, so this resolver only ever *selects*: the script it
+/// returns is the original script, unchanged, and execution still goes through Sheep.
+/// </para>
+/// <para>
+/// It also never mutates state. A resolver that evaluated a condition by trying the
+/// action would corrupt the save just by hovering the cursor.
+/// </para>
+/// </remarks>
+public sealed class ActionResolver
+{
+    private readonly List<NvcFile> _files = [];
+    private readonly ISheepApi _api;
+
+    /// <summary>Creates a resolver.</summary>
+    /// <param name="api">Host used to evaluate case conditions.</param>
+    public ActionResolver(ISheepApi api)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        _api = api;
+    }
+
+    /// <summary>Diagnostics raised while resolving.</summary>
+    public DiagnosticBag Diagnostics { get; } = new();
+
+    /// <summary>Adds an action file to the set in scope.</summary>
+    /// <param name="file">The file.</param>
+    /// <remarks>
+    /// Several files are usually in scope at once — one for the location, one for the
+    /// timeblock, one shared across a day — and their rules combine.
+    /// </remarks>
+    public void Add(NvcFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        _files.Add(file);
+    }
+
+    /// <summary>Every noun any loaded file mentions.</summary>
+    public IReadOnlyCollection<string> Nouns =>
+        [.. _files.SelectMany(f => f.Actions).Select(a => a.Noun).Distinct(StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>
+    /// Finds the actions currently valid for a noun.
+    /// </summary>
+    /// <param name="noun">The thing being looked at.</param>
+    /// <param name="ego">Who the player currently is, for the ego-specific built-in cases.</param>
+    /// <returns>Valid actions, inspect first, then in file order.</returns>
+    public IReadOnlyList<AvailableAction> Resolve(string noun, string ego = "GABRIEL")
+    {
+        ArgumentNullException.ThrowIfNull(noun);
+
+        List<AvailableAction> result = [];
+        HashSet<string> seenVerbs = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (NvcFile file in _files)
+        {
+            foreach (NvcAction action in file.Actions)
+            {
+                if (!string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!IsCaseSatisfied(file, action.Case, ego, action.Noun, action.Verb))
+                {
+                    continue;
+                }
+
+                // The first matching rule for a verb wins, which is how the original data
+                // is layered: a timeblock file overrides the shared one.
+                if (!seenVerbs.Add(action.Verb))
+                {
+                    continue;
+                }
+
+                result.Add(new AvailableAction
+                {
+                    ActionId = $"{action.Noun}:{action.Verb}",
+                    NvcProvenance = action.Source,
+                    LocalizedVerb = action.Verb,
+                    IconSemantic = IconFor(action.Verb),
+                    Category = CategoryFor(action.Verb),
+                    Enabled = true,
+                });
+            }
+        }
+
+        // Inspect first, so left click always has something predictable to do.
+        return [.. result
+            .OrderBy(a => a.Category == ActionCategory.Inspect ? 0 : 1)
+            .ThenBy(a => result.IndexOf(a))];
+    }
+
+    /// <summary>Evaluates whether a named case currently holds.</summary>
+    /// <param name="file">File the case belongs to.</param>
+    /// <param name="caseName">Case name.</param>
+    /// <param name="ego">Who the player currently is.</param>
+    /// <returns>True when the case applies.</returns>
+    /// <param name="noun">Noun under evaluation, bound to <c>n$</c>.</param>
+    /// <param name="verb">Verb under evaluation, bound to <c>v$</c>.</param>
+    public bool IsCaseSatisfied(
+        NvcFile file, string caseName, string ego, string noun = "", string verb = "")
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentNullException.ThrowIfNull(caseName);
+
+        if (NvcFile.BuiltInCases.Contains(caseName))
+        {
+            return caseName.ToUpperInvariant() switch
+            {
+                "ALL" or "DEFAULT" => true,
+                "GABE_ALL" => IsGabriel(ego),
+                "GRACE_ALL" => !IsGabriel(ego),
+                "NOT_GABE_ALL" => !IsGabriel(ego),
+                "NOT_GRACE_ALL" => IsGabriel(ego),
+                _ => true,
+            };
+        }
+
+        if (!file.Cases.TryGetValue(caseName, out string? expression))
+        {
+            // A case defined in another file in scope is common, so look wider before
+            // giving up.
+            foreach (NvcFile other in _files)
+            {
+                if (other.Cases.TryGetValue(caseName, out expression))
+                {
+                    break;
+                }
+            }
+        }
+
+        if (expression is null)
+        {
+            Diagnostics.Add(new Diagnostic(
+                "GK3R3301", DiagnosticSeverity.Warning,
+                $"Case '{caseName}' is not defined in any loaded action file.",
+                file.Name, null, "a case in a logic section or a built-in", caseName,
+                "The action is treated as unavailable. Another file may define it."));
+            return false;
+        }
+
+        try
+        {
+            Dictionary<string, SheepValue> variables = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["n$"] = SheepValue.FromString(noun),
+                ["v$"] = SheepValue.FromString(verb),
+            };
+
+            return SheepExpression.IsTrue(expression, _api, variables);
+        }
+        catch (FormatParseException ex)
+        {
+            Diagnostics.Add(ex.Diagnostic);
+            return false;
+        }
+    }
+
+    private static bool IsGabriel(string ego) =>
+        ego.StartsWith("GAB", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Classifies a verb for presentation.
+    /// </summary>
+    /// <remarks>
+    /// Only inspection is singled out, because the brief fixes left click to it. Marking
+    /// anything else as the primary action is a design decision the resolver should not
+    /// be making on its own; <c>Plan/03</c> section 2.1 requires that no puzzle action
+    /// fires because the engine guessed.
+    /// </remarks>
+    private static ActionCategory CategoryFor(string verb) =>
+        verb.Equals("LOOK", StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals("INSPECT", StringComparison.OrdinalIgnoreCase)
+            ? ActionCategory.Inspect
+            : ActionCategory.Primary;
+
+    private static string IconFor(string verb) => verb.ToUpperInvariant() switch
+    {
+        "LOOK" or "INSPECT" => "eye",
+        "TALK" => "speech",
+        "PICKUP" or "TAKE" => "hand",
+        "OPEN" => "open",
+        "CLOSE" => "close",
+        "PUSH" or "PRESS" => "press",
+        "GO_UP" or "GO_DOWN" or "EXIT" or "ENTER" => "move",
+        _ => "action",
+    };
+}

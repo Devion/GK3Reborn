@@ -70,6 +70,9 @@ public static class Program
             case "sheep":
                 return Sheep(options, diagnostics);
 
+            case "actions":
+                return Actions(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -370,6 +373,29 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int Actions(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("actions requires --source.");
+            return 2;
+        }
+
+        var stage = new ActionSurveyStage(Console.WriteLine);
+        ActionSurveySummary summary = stage.Run(options.Source, diagnostics);
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.Files} files, {summary.Actions} actions, {summary.Nouns} nouns, {summary.Verbs} verbs"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.Cases} named conditions, {summary.CasesEvaluated} evaluated, {summary.CasesFailed} failed"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.UnreadableLines} unreadable lines"));
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -405,6 +431,7 @@ public static class Program
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
               sheep             Disassemble every compiled Sheep script.
+              actions           Read the noun/verb/case files and resolve against them.
 
             options:
               --source <dir>       The game's Data directory. Read only; never modified.
