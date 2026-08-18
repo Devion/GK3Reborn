@@ -71,6 +71,11 @@ public sealed unsafe class SceneRenderer : IDisposable
     /// <returns>Empty scene geometry.</returns>
     public SceneGeometry CreateGeometry() => SceneGeometry.Create(_context, _pipeline);
 
+    /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
+    /// <param name="lights">The rig the scene was authored with.</param>
+    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights) =>
+        _frames.SetLights(lights);
+
     /// <summary>Renders geometry and returns the image.</summary>
     /// <param name="geometry">What to draw.</param>
     /// <param name="width">Image width.</param>

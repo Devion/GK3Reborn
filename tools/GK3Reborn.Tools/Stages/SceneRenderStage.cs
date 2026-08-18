@@ -70,6 +70,8 @@ public sealed class SceneRenderStage
             return false;
         }
 
+        renderer.SetLights(scene.Lights);
+
         _log($"lights: {scene.Lights.Count} authored " +
              $"({scene.Lights.Count(l => l.CastsShadows)} casting shadows in the bake)");
 

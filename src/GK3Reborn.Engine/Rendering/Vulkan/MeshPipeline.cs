@@ -62,6 +62,21 @@ public sealed unsafe class MeshPipeline : IDisposable
             float4   cameraPosition;
         };
 
+        struct Light
+        {
+            float4 positionAndStart;
+            float4 colorAndIntensity;
+            float4 directionAndEnd;
+            float4 cone;
+        };
+
+        struct Rig
+        {
+            // x holds how many of the array are in use; the rest is spare.
+            float4 counts;
+            Light  lights[64];
+        };
+
         struct Draw
         {
             float4x4 model;
@@ -69,6 +84,7 @@ public sealed unsafe class MeshPipeline : IDisposable
         };
 
         [[vk::binding(0, 0)]] ConstantBuffer<Frame> frame;
+        [[vk::binding(1, 0)]] ConstantBuffer<Rig>   rig;
 
         [[vk::binding(0, 1)]] Texture2D    baseColor;
         [[vk::binding(0, 1)]] SamplerState baseColorSampler;
@@ -91,7 +107,44 @@ public sealed unsafe class MeshPipeline : IDisposable
             float3 normal        : NORMAL;
             float2 texCoord      : TEXCOORD0;
             float2 lightmapCoord : TEXCOORD1;
+            float3 world         : TEXCOORD2;
         };
+
+        // Evaluates the artists' rig at a point. Falloff is linear between the light's
+        // start and end distances, which is what 3ds Max's linear decay did and what the
+        // stored values were tuned against; inverse-square would darken every room.
+        float3 EvaluateRig(float3 position, float3 normal)
+        {
+            float3 total = float3(0.0, 0.0, 0.0);
+            int count = (int)rig.counts.x;
+
+            for (int i = 0; i < count; i++)
+            {
+                Light light = rig.lights[i];
+
+                float3 toLight = light.positionAndStart.xyz - position;
+                float distance = length(toLight);
+                float3 direction = toLight / max(distance, 0.0001);
+
+                float start = light.positionAndStart.w;
+                float end = light.directionAndEnd.w;
+                float attenuation = saturate((end - distance) / max(end - start, 0.001));
+
+                float cone = 1.0;
+                if (light.cone.z > 0.5)
+                {
+                    float aligned = dot(-direction, light.directionAndEnd.xyz);
+                    cone = smoothstep(light.cone.y, light.cone.x, aligned);
+                }
+
+                float lambert = saturate(dot(normal, direction));
+
+                total += light.colorAndIntensity.rgb * light.colorAndIntensity.w *
+                         attenuation * cone * lambert;
+            }
+
+            return total;
+        }
 
         VertexOutput VertexMain(VertexInput input)
         {
@@ -103,6 +156,7 @@ public sealed unsafe class MeshPipeline : IDisposable
             output.normal = normalize(mul((float3x3)draw.model, input.normal));
             output.texCoord = input.texCoord;
             output.lightmapCoord = input.lightmapCoord;
+            output.world = world.xyz;
 
             return output;
         }
@@ -120,10 +174,18 @@ public sealed unsafe class MeshPipeline : IDisposable
                 discard;
             }
 
-            // A single directional term plus an ambient floor, so surfaces facing away
-            // stay readable rather than going black.
-            float lambert = saturate(dot(normalize(input.normal), -frame.lightDirection.xyz));
-            float3 directional = albedo * (0.35 + 0.65 * lambert);
+            float3 normal = normalize(input.normal);
+
+            // Anything not carrying a lightmap — props, characters — is lit by the rig
+            // the artists authored for this time of day. The ambient floor matches the
+            // original's, so a surface no light reaches is dim rather than black.
+            float3 ambient = float3(0.06, 0.08, 0.06);
+            float3 direct = rig.counts.x > 0.5
+                ? EvaluateRig(input.world, normal)
+                : float3(0.35, 0.35, 0.35) +
+                  (0.65 * saturate(dot(normal, -frame.lightDirection.xyz)));
+
+            float3 directional = albedo * (ambient + direct);
 
             // Baked lighting multiplies into the texture, as the original does.
             float3 baked = albedo * lightmap.Sample(lightmapSampler, input.lightmapCoord).rgb *
@@ -268,19 +330,27 @@ public sealed unsafe class MeshPipeline : IDisposable
 
     private void CreateDescriptorLayouts()
     {
-        var frameBinding = new DescriptorSetLayoutBinding
+        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[2];
+        frameBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
             DescriptorType = DescriptorType.UniformBuffer,
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
         };
+        frameBindings[1] = new DescriptorSetLayoutBinding
+        {
+            Binding = 1,
+            DescriptorType = DescriptorType.UniformBuffer,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
 
         var frameInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 1,
-            PBindings = &frameBinding,
+            BindingCount = 2,
+            PBindings = frameBindings,
         };
 
         if (_vk.CreateDescriptorSetLayout(_device, in frameInfo, null, out _frameLayout) != Result.Success)

@@ -128,6 +128,8 @@ public static class Application
             return 3;
         }
 
+        renderer.SetLights(scene.Lights);
+
         Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
             + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures, "
             + $"{scene.Lights.Count} authored lights");

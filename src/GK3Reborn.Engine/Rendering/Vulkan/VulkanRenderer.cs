@@ -110,6 +110,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <returns>Empty scene geometry.</returns>
     public SceneGeometry CreateGeometry() => SceneGeometry.Create(Context, MeshPipeline);
 
+    /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
+    /// <param name="lights">The rig the scene was authored with.</param>
+    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights) =>
+        _frames?.SetLights(lights);
+
     /// <summary>Sets what to draw, and from where.</summary>
     /// <param name="scene">The geometry, or null to draw nothing.</param>
     /// <param name="camera">Where to look from.</param>

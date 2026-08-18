@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using GK3Reborn.Formats.Scenes;
 using Silk.NET.Vulkan;
 
 namespace GK3Reborn.Rendering.Vulkan;
@@ -18,14 +19,20 @@ public sealed unsafe class FrameUniformSet : IDisposable
 {
     private readonly VulkanContext _context;
     private readonly VulkanBuffer[] _buffers;
+    private readonly VulkanBuffer _rig;
     private readonly DescriptorSet[] _sets;
     private DescriptorPool _pool;
 
     private FrameUniformSet(
-        VulkanContext context, VulkanBuffer[] buffers, DescriptorSet[] sets, DescriptorPool pool)
+        VulkanContext context,
+        VulkanBuffer[] buffers,
+        VulkanBuffer rig,
+        DescriptorSet[] sets,
+        DescriptorPool pool)
     {
         _context = context;
         _buffers = buffers;
+        _rig = rig;
         _sets = sets;
         _pool = pool;
     }
@@ -47,7 +54,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
         var size = new DescriptorPoolSize
         {
             Type = DescriptorType.UniformBuffer,
-            DescriptorCount = (uint)frames,
+            DescriptorCount = (uint)(frames * 2),
         };
 
         var poolInfo = new DescriptorPoolCreateInfo
@@ -66,7 +73,17 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
         var buffers = new VulkanBuffer[frames];
         var sets = new DescriptorSet[frames];
+
+        // Allocated once outside the loop: a stackalloc inside one grows the frame with
+        // every iteration.
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[2];
         ulong bufferSize = (ulong)Marshal.SizeOf<FrameUniforms>();
+
+        // One rig for every frame: the lights are fixed for as long as a scene is loaded,
+        // so there is nothing for a later frame to race against.
+        ulong rigSize = (ulong)(16 + (GpuLight.Capacity * Marshal.SizeOf<GpuLight>()));
+        VulkanBuffer rig = VulkanBuffer.CreateHostVisible(
+            context, rigSize, BufferUsageFlags.UniformBufferBit);
 
         for (int i = 0; i < frames; i++)
         {
@@ -94,7 +111,13 @@ public sealed unsafe class FrameUniformSet : IDisposable
                 Range = bufferSize,
             };
 
-            var write = new WriteDescriptorSet
+            var rigInfo = new DescriptorBufferInfo
+            {
+                Buffer = rig.Handle,
+                Range = rigSize,
+            };
+
+            writes[0] = new WriteDescriptorSet
             {
                 SType = StructureType.WriteDescriptorSet,
                 DstSet = sets[i],
@@ -103,11 +126,47 @@ public sealed unsafe class FrameUniformSet : IDisposable
                 DescriptorCount = 1,
                 PBufferInfo = &bufferInfo,
             };
+            writes[1] = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = sets[i],
+                DstBinding = 1,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &rigInfo,
+            };
 
-            context.Api.UpdateDescriptorSets(context.Device, 1, in write, 0, null);
+            context.Api.UpdateDescriptorSets(context.Device, 2, writes, 0, null);
         }
 
-        return new FrameUniformSet(context, buffers, sets, pool);
+        var created = new FrameUniformSet(context, buffers, rig, sets, pool);
+        created.SetLights([]);
+
+        return created;
+    }
+
+    /// <summary>Uploads the lights a scene was authored with.</summary>
+    /// <param name="lights">The rig; more than the shader holds are narrowed down.</param>
+    public void SetLights(IReadOnlyList<AuthoredLight> lights)
+    {
+        ArgumentNullException.ThrowIfNull(lights);
+
+        IReadOnlyList<AuthoredLight> chosen = GpuLight.Choose(lights);
+
+        int stride = Marshal.SizeOf<GpuLight>();
+        byte[] bytes = new byte[16 + (GpuLight.Capacity * stride)];
+
+        // The count leads, padded to a float4 so the array that follows starts on the
+        // 16-byte boundary the standard uniform layout requires.
+        BitConverter.TryWriteBytes(bytes.AsSpan(0, 4), (float)chosen.Count);
+
+        for (int i = 0; i < chosen.Count; i++)
+        {
+            GpuLight light = GpuLight.From(chosen[i]);
+            MemoryMarshal.Write(bytes.AsSpan(16 + (i * stride), stride), in light);
+        }
+
+        _rig.Write<byte>(bytes);
     }
 
     /// <summary>Writes a frame's camera and binds its descriptor set.</summary>
@@ -143,6 +202,8 @@ public sealed unsafe class FrameUniformSet : IDisposable
         {
             buffer.Dispose();
         }
+
+        _rig.Dispose();
 
         if (_pool.Handle != 0)
         {
