@@ -67,9 +67,11 @@ public static class Program
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
+            case "sheep":
+                return Sheep(options, diagnostics);
+
             case "compile-content":
             case "inspect":
-            case "sheep":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
                 return 64;
 
@@ -329,6 +331,29 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int Sheep(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("sheep requires --source and --workspace.");
+            return 2;
+        }
+
+        var stage = new SheepDisassembleStage(Console.WriteLine);
+        SheepDisassemblySummary summary = stage.Run(options.Source, options.Workspace, diagnostics);
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.Scripts} scripts, {summary.Functions} functions, {summary.Instructions} instructions"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.FullyDecoded} decoded completely, {summary.Partial} stopped early, {summary.Failed} failed"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.DistinctImports} distinct API functions called"));
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -363,7 +388,7 @@ public static class Program
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
-              sheep             Compile, disassemble and diff Sheep scripts. (not yet)
+              sheep             Disassemble every compiled Sheep script.
 
             options:
               --source <dir>       The game's Data directory. Read only; never modified.
