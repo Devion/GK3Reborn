@@ -59,8 +59,10 @@ public sealed class SheepExecuteStage
 
         var state = new GameState { Location = "LBY" };
         var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api, instructionLimit: 200_000);
         var vm = new SheepVirtualMachine(api, instructionLimit: 200_000);
         _ = apiReturnValue;
+        List<SheepScriptFile> loaded = [];
 
         int scripts = 0;
         int functions = 0;
@@ -112,6 +114,8 @@ public sealed class SheepExecuteStage
                 }
 
                 scripts++;
+                loaded.Add(script);
+                host.Add(script);
 
                 foreach ((string name, int _) in script.Functions)
                 {
@@ -172,6 +176,24 @@ public sealed class SheepExecuteStage
         }
 
         _log($"    final state hash: {state.ComputeHash()[..16]}");
+
+        // Now that every script is loaded, run one scene's entry point again so calls
+        // between scripts actually resolve rather than warning about missing targets.
+        int before = host.CallStackTrace.Count;
+        foreach (SheepScriptFile script in loaded.Where(s =>
+                     s.Name.StartsWith("LBY", StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach ((string function, int _) in script.Functions)
+            {
+                host.Run(script.Name, function);
+            }
+        }
+
+        _log(string.Create(CultureInfo.InvariantCulture,
+            $"    lobby re-run: {host.CallStackTrace.Count - before} functions entered across scripts"));
+        _log(string.Create(CultureInfo.InvariantCulture,
+            $"    {host.LoadedScripts.Count} scripts callable, "
+            + $"{host.Diagnostics.Items.Count(d => d.Code == "GK3R3400")} calls to missing scripts"));
 
         if (faulted > 0)
         {

@@ -205,3 +205,35 @@ The sweep ends by hashing the game state, and the hash is byte-identical across 
 depends on: a state hash that varied between runs of the same build could not detect a
 divergence between two builds. Ordering is made explicit before hashing rather than
 relying on dictionary enumeration order.
+
+## Scripts calling scripts
+
+`CallSheep` appears 640 times across the corpus and `Call` another 190, so a machine that
+cannot follow a call from one script into another cannot follow the game's control flow.
+`ScriptHost` closes that: a repository of scripts by name plus the API functions that jump
+between them — `CallSheep`, `CallGlobalSheep` and `CallSceneFunction`, the last resolving
+against the current location.
+
+Calls run inline to completion rather than being scheduled. The original waits on them —
+`wait CallSheep(…)` is the usual form — so running the callee immediately produces the
+same observable order for anything that does not depend on real elapsed time. Depth is
+bounded, because the data does call in circles.
+
+With every script loaded, re-running the lobby's entry points enters **186 functions
+across scripts**, and 37 calls name scripts absent from the corpus — recorded rather than
+silently ignored.
+
+## Inventory
+
+Inventory is per character, not global. GK3 switches between Gabriel and Grace, they carry
+different things, and `DoesEgoHaveInvItem` appears in 161 action conditions with
+`DoesGraceHaveInvItem` existing separately for exactly that reason. It forms part of the
+state hash, since which character holds what decides whether puzzles can be solved.
+
+`CombineInvItems` consumes both sources and produces the third. Leaving the sources in
+place would let a player combine the same pair repeatedly, which is a puzzle-semantics
+question rather than a bookkeeping one.
+
+Together these took the unimplemented surface from 80 functions to 71, and faults across
+the whole corpus from 4 to 1 — `CallSheep` doing real work means the loops that poll for
+its effects now terminate.

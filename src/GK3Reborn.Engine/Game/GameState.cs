@@ -27,6 +27,9 @@ public sealed class GameState
     private readonly Dictionary<string, int> _topicCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _actorLocations = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>What each character is carrying.</summary>
+    public Inventory Inventory { get; } = new();
+
     /// <summary>The current timeblock, such as <c>110A</c>.</summary>
     public Timeblock Timeblock { get; set; } = new(1, 10, IsAfternoon: false);
 
@@ -123,6 +126,13 @@ public sealed class GameState
         Append(builder, "actor", _actorLocations
             .OrderBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => (kv.Key, kv.Value)));
+
+        // Inventory is part of the comparable state: which character holds what decides
+        // whether puzzles can be solved.
+        foreach (string owner in Inventory.Owners)
+        {
+            Append(builder, $"inv:{owner}", Inventory.ItemsOf(owner).Select(i => (i, "1")));
+        }
 
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
