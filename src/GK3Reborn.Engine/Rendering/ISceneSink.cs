@@ -49,5 +49,9 @@ public interface ISceneSink
     /// <summary>Adds a scene's geometry and its baked lighting.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">Its lightmaps, in surface order, if any.</param>
-    void AddScene(BspFile scene, MulFile? lightmaps = null);
+    /// <param name="hiddenObjects">
+    /// Names of objects inside the geometry that must not be drawn, such as hit-test
+    /// volumes.
+    /// </param>
+    void AddScene(BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null);
 }

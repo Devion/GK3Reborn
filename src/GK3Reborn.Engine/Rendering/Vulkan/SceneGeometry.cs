@@ -152,13 +152,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Loads a scene's geometry.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">The scene's baked lightmaps, in surface order, if any.</param>
+    /// <param name="hiddenObjects">Names of objects inside it that must not be drawn.</param>
     /// <remarks>
     /// BSP files carry no normals, so each triangle gets the normal of its own plane. Flat
     /// shading is wrong for the few curved surfaces a scene contains and right for the
     /// walls, floors and doorways that make up nearly all of them, and it invents no
     /// smoothing groups the data never had.
     /// </remarks>
-    public void AddScene(BspFile scene, MulFile? lightmaps = null)
+    public void AddScene(
+        BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
@@ -185,6 +187,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             }
 
             BspSurface surface = scene.Surfaces[polygon.SurfaceIndex];
+
+            if (hiddenObjects is { Count: > 0 } &&
+                surface.ObjectIndex >= 0 &&
+                surface.ObjectIndex < scene.ObjectNames.Count &&
+                hiddenObjects.Contains(scene.ObjectNames[surface.ObjectIndex]))
+            {
+                continue;
+            }
 
             Vector4 region = _lightmapRegions is not null && polygon.SurfaceIndex < _lightmapRegions.Count
                 ? _lightmapRegions[polygon.SurfaceIndex]

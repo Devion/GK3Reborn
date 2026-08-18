@@ -116,7 +116,7 @@ public sealed class SceneLoader
         }
 
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
-        geometry.AddScene(bsp, lightmaps);
+        geometry.AddScene(bsp, lightmaps, HiddenObjects(init));
 
         int placed = PlaceModels(geometry, asset, init, diagnostics);
         _log?.Invoke($"models: {placed} placed, textures: {geometry.TextureCount}");
@@ -154,6 +154,41 @@ public sealed class SceneLoader
             FarPlane = reach * 4f,
         };
     }
+
+    /// <summary>Objects baked into the geometry that must not be drawn.</summary>
+    /// <remarks>
+    /// Hit tests are volumes the player can click but never see — a doorway's clickable
+    /// region, the area a note occupies on a desk. They are ordinary geometry inside the
+    /// BSP with an ordinary texture, so nothing about the geometry itself says to skip
+    /// them; only the initialisation file does. Drawing them puts large flat slabs through
+    /// the middle of a room, which is exactly what the lobby showed before this.
+    /// </remarks>
+    private static HashSet<string> HiddenObjects(SceneInitFile? init)
+    {
+        if (init is null)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return init.Models()
+            .Where(m => IsHitTest(m) || (IsBakedIn(m) && m.Hidden))
+            .Select(m => m.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool IsHitTest(SceneModel model) =>
+        string.Equals(model.Type, "hittest", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a model refers to geometry inside the BSP rather than a file.</summary>
+    /// <remarks>
+    /// Only <c>prop</c> and <c>gasprop</c> load a model file; everything else names an
+    /// object the geometry already contains. Loading a file for those draws the same
+    /// furniture twice, in slightly different places, which reads as z-fighting rather
+    /// than as a loading mistake.
+    /// </remarks>
+    private static bool IsBakedIn(SceneModel model) =>
+        !string.Equals(model.Type, "prop", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase);
 
     private SceneInitFile? ReadInit(string scene, DiagnosticBag diagnostics)
     {
@@ -249,55 +284,36 @@ public sealed class SceneLoader
     private int PlaceModels(
         ISceneSink geometry, SceneAssetFile? asset, SceneInitFile? init, DiagnosticBag diagnostics)
     {
-        // A scene asset's model list names the objects inside the BSP, not separate files —
-        // r25couch is geometry the BSP already holds. Only the initialisation file places
-        // actual .MOD props, so a name from the asset is placed only when a model of that
-        // name really exists, and its absence is not a problem.
         IReadOnlyList<SceneModel> declared = init?.Models() ?? [];
-
-        HashSet<string> visible = declared
-            .Where(m => !m.Hidden)
-            .Select(m => m.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        HashSet<string> hidden = declared
-            .Where(m => m.Hidden)
-            .Select(m => m.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
         int placed = 0;
 
-        foreach (string name in visible.Concat(asset?.Models ?? [])
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (SceneModel model in declared)
         {
-            if (hidden.Contains(name))
+            if (model.Hidden || IsBakedIn(model))
             {
                 continue;
             }
 
-            byte[]? bytes = _archives.Read(name + ".MOD");
+            byte[]? bytes = _archives.Read(model.Name + ".MOD");
             if (bytes is null)
             {
-                if (visible.Contains(name))
-                {
-                    diagnostics.Add(new Diagnostic(
-                        "SCENE006",
-                        DiagnosticSeverity.Warning,
-                        $"The scene places {name}, which no archive contains."));
-                }
+                diagnostics.Add(new Diagnostic(
+                    "SCENE006",
+                    DiagnosticSeverity.Warning,
+                    $"The scene places {model.Name}, which no archive contains."));
 
                 continue;
             }
 
-            ModFile model = ModFile.Parse(bytes, name + ".MOD");
+            ModFile parsed = ModFile.Parse(bytes, model.Name + ".MOD");
 
             LoadTextures(
                 geometry,
-                model.Meshes.SelectMany(m => m.Submeshes).Select(s => s.TextureName),
-                name,
+                parsed.Meshes.SelectMany(m => m.Submeshes).Select(s => s.TextureName),
+                model.Name,
                 diagnostics);
 
-            geometry.Add(model);
+            geometry.Add(parsed);
             placed++;
         }
 
