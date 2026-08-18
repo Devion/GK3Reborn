@@ -61,6 +61,9 @@ public static class Program
             case "lighting-analysis":
                 return LightingAnalysis(options, diagnostics);
 
+            case "derive-lighting":
+                return DeriveLighting(options, diagnostics);
+
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
@@ -303,6 +306,29 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int DeriveLighting(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("derive-lighting requires --source and --workspace.");
+            return 2;
+        }
+
+        var stage = new LightRigStage(Console.WriteLine);
+        LightRigSummary summary = stage.Run(options.Source, options.Workspace, diagnostics);
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.Rigs} rigs written, {summary.Lights} lights proposed"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.LowConfidence} lights need review before use"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.ScenesWithoutLights} scenes yielded nothing and need authoring"));
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -333,6 +359,7 @@ public static class Program
               classify-models   Work out what each model is for, from the scene files.
               texture-plan      Rank textures by how visible they are, for enhancement.
               lighting-analysis Measure the baked lighting, as evidence for light rigs.
+              derive-lighting   Propose a light rig per scene and time of day.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
