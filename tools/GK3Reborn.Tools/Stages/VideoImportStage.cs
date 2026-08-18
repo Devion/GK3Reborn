@@ -118,7 +118,7 @@ public sealed class VideoImportStage
         };
 
         string manifestPath = Path.Combine(manifestDirectory, "video.json");
-        WriteAtomic(manifestPath, JsonSerializer.Serialize(manifest, ManifestJson.Options) + "\n");
+        AtomicFile.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, ManifestJson.Options) + "\n");
         _log($"manifest: {manifestPath}");
 
         foreach (VideoEntry e in entries.Where(e => !e.IsPlayable))
@@ -324,13 +324,6 @@ public sealed class VideoImportStage
     {
         using FileStream stream = File.OpenRead(path);
         return System.Convert.ToHexStringLower(SHA256.HashData(stream));
-    }
-
-    private static void WriteAtomic(string path, string content)
-    {
-        string temp = path + ".tmp";
-        File.WriteAllText(temp, content);
-        File.Move(temp, path, overwrite: true);
     }
 
     private static string Normalize(string path) => path.Replace('\\', '/');

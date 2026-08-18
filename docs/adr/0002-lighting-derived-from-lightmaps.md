@@ -68,7 +68,8 @@ weak, overlapping sources will cluster badly. Expect a meaningful fraction to
 fall through to manual authoring — the plan must budget for that rather than
 assume the generator handles everything.
 
-**Open.** Whether to reproduce the original 1999 lighting mood exactly or re-light
-for modern dynamic range is a separate art-direction decision, deliberately not
-made here. It sets the acceptance threshold in step 6, so it must be answered
-before bulk authoring begins.
+**Resolved.** The art-direction question left open here — reproduce the original
+1999 mood exactly, or re-light for modern dynamic range — is answered by
+[ADR 0006](0006-relight-for-modern-range.md): re-light for modern range, with the
+step 6 re-bake comparison demoted from an acceptance gate to a diagnostic, and
+every derived light correctable through an edit layer that survives regeneration.

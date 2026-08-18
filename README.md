@@ -95,6 +95,31 @@ gameplay, audio, video or platform code; `Foundation` depends on nothing above
 it; `Game` never touches the Vulkan backend; only `Rendering/Vulkan` may use
 `Silk.NET.Vulkan`; and no engine code uses ambient randomness.
 
+## Correcting derived content
+
+Lighting rigs and PBR material channels are *derived*: the converter guesses them
+from baked lightmaps and diffuse textures, because the 1999 assets carry nothing
+better. Scenes are re-lit for modern range rather than matched to the original
+([ADR 0006](docs/adr/0006-relight-for-modern-range.md)), so those guesses need
+correcting once scenes can be seen in motion.
+
+Corrections go in a human-owned file beside the generated one, which the
+converter never writes:
+
+```text
+scenes/LBY.lighting.json           generated; regenerated freely
+scenes/LBY.lighting.edits.json     yours; add / modify / remove operations
+materials/LBY.materials.json       generated
+materials/LBY.materials.edits.json yours
+```
+
+A `modify` carries only the fields it changes, so setting `roughness` changes
+roughness and nothing else. Deleting a spurious light, nudging one into the right
+place, adding a light the lightmap never implied, or dialling back a floor that
+reads as wet are all the same mechanism — and none of it is lost when the
+extractor improves and everything is regenerated. An edit whose target no longer
+exists is reported by id and skipped, never fatal.
+
 ## Publishing layout
 
 Release builds keep the install root clean: a single managed executable, with
