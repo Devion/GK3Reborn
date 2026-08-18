@@ -33,9 +33,9 @@ public static class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Launch(string[] args)
     {
-        if (args.Length == 0)
+        if (args == null || args.Length == 0)
         {
-            args = [""];
+            args = ["--scene", "R25", "--timeblock","N", "--camera", "FR_B25", "--rt","high"];
         }
 
         return GK3Reborn.Application.Run(args, NativeLibraryLocator.LibsRoot);
