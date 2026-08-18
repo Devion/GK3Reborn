@@ -58,6 +58,9 @@ public static class Program
             case "texture-plan":
                 return TexturePlan(options, diagnostics);
 
+            case "lighting-analysis":
+                return LightingAnalysis(options, diagnostics);
+
             case "import-video":
                 return ImportVideo(options, diagnostics);
 
@@ -274,6 +277,32 @@ public static class Program
         return diagnostics.HasErrors ? 1 : 0;
     }
 
+    private static int LightingAnalysis(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("lighting-analysis requires --source and --workspace.");
+            return 2;
+        }
+
+        var stage = new LightingAnalysisStage(Console.WriteLine);
+        LightingAnalysisManifest manifest = stage.Run(options.Source, options.Workspace, diagnostics);
+        LightingSummary s = manifest.Summary;
+
+        Console.WriteLine();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {s.Sets} lightmap sets over {s.Scenes} scenes"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {s.ScenesWithTimeblockVariants} scenes have more than one time of day"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  surfaces: {s.DirectionalSurfaces} directional, {s.FlatSurfaces} flat, {s.DarkSurfaces} dark"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {s.DirectionalFraction:P1} of surfaces carry directional information"));
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
     private static void Report(DiagnosticBag diagnostics)
     {
         if (diagnostics.Items.Count == 0)
@@ -303,6 +332,7 @@ public static class Program
               organize          Lay the corpus out by kind and convert textures to PNG.
               classify-models   Work out what each model is for, from the scene files.
               texture-plan      Rank textures by how visible they are, for enhancement.
+              lighting-analysis Measure the baked lighting, as evidence for light rigs.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)

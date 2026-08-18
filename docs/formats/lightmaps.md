@@ -52,3 +52,67 @@ samples rather than from a few detailed ones.
 
 `organize` writes each set to `scenes/<LOCATION>/lightmaps/<SET>/<SET>_NNNN.png`, in
 surface order, so a lightmap can be matched to the surface it belongs to by index.
+
+## Is there enough information to derive light sources?
+
+`GK3Reborn.Tools lighting-analysis` measures this rather than assuming it. Across 221
+lightmap sets covering 106 scenes:
+
+| Measure | Value |
+|---|---:|
+| Surfaces with directional information | 40,801 (23.1%) |
+| Surfaces lit evenly | 132,809 |
+| Surfaces receiving almost no light | 3,063 |
+| Scenes with more than one time of day | 48 |
+
+A surface lit evenly says how much light arrived but not where from. Only a surface with
+a gradient across it constrains a direction — and 23% do.
+
+That is enough, because **a scene needs far fewer lights than it has surfaces**. A
+typical set carries 150 to 165 directional surfaces, which heavily over-constrains the
+handful of sources a room actually has. Only **two of 221 sets** are starved: `GRI_A`
+with 4 directional surfaces and `MCB_N` with 5. Both are very dark scenes — mean
+luminance 0.05 and 0.13 — where there is little light to leave a gradient. Those need
+authoring by hand, which is the small manual fraction ADR 0002 predicted.
+
+The timeblock reading is confirmed by the measurements themselves:
+
+| Timeblock | Sets | Mean luminance |
+|---|---:|---:|
+| M (morning) | 45 | 0.553 |
+| A (afternoon) | 45 | 0.523 |
+| E (evening) | 35 | 0.362 |
+| N (night) | 37 | 0.274 |
+
+A clean daylight curve, which is what the letters were guessed to mean and now
+demonstrably are.
+
+Four sets disagree with their scene on surface count, and five could not be matched to a
+scene at all. Both are recorded rather than smoothed over.
+
+## Do the lightmaps stay?
+
+Not at runtime, once ray tracing is doing the work. Ray traced direct lighting, ambient
+occlusion and bounce replace what the bakes encode, provided the derived rigs recover
+enough real sources — which the measurements above say they do for all but two sets.
+
+Three qualifications:
+
+**The raster tier still needs something baked.** The plan requires every scene to render
+correctly without ray-tracing hardware. That does not mean keeping the 1999 bakes: it
+means re-baking from the *new* rigs, so the compatibility tier gets modern-range lighting
+rather than a fallback to 1999.
+
+**The lightmaps stay as source evidence indefinitely.** They are the only record of what
+the original artists intended, and ADR 0006 requires derivation to stay re-runnable as
+the extractor improves. They live in the workspace, not in the shipped content.
+
+**Some baked light has no source to recover.** 1999 artists painted light that no
+physical object produced — fill on a face, a glow with no lamp. Those have no position to
+derive and become authored lights that never physically existed. The edit layer exists
+precisely for that.
+
+There is also a subtler version of the same problem in the textures: where shading was
+painted into a diffuse map, ray-traced lighting will add a second set of shadows on top
+of the first. That needs catching during texture enhancement, not after — a texture with
+a shadow painted in should have it removed, not upscaled.
