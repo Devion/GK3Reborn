@@ -64,6 +64,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private Fence[] _inFlight = [];
     private int _frame;
     private bool _needsRecreate;
+    private ShaderCompiler? _shaderCompiler;
+    private TrianglePipeline? _triangle;
 
     private VulkanRenderer(Vk vk, IGameWindow window, IVulkanSurfaceSource surfaceSource)
     {
@@ -106,6 +108,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             renderer.CreateSwapchain();
             renderer.CreateCommandResources();
             renderer.CreateSynchronization();
+            renderer.CreatePipelines();
             return renderer;
         }
         catch
@@ -210,6 +213,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
         if (_device.Handle != 0)
         {
             _vk.DeviceWaitIdle(_device);
+            _triangle?.Dispose();
+            _shaderCompiler?.Dispose();
             DestroySynchronization();
             DestroyCommandResources();
             DestroySwapchain();
@@ -673,6 +678,24 @@ public sealed unsafe class VulkanRenderer : IDisposable
         };
 
         _vk.CmdBeginRendering(buffer, in rendering);
+
+        if (_triangle is not null)
+        {
+            var viewport = new Viewport
+            {
+                Width = _extent.Width,
+                Height = _extent.Height,
+                MaxDepth = 1f,
+            };
+
+            var scissor = new Rect2D { Extent = _extent };
+
+            _vk.CmdSetViewport(buffer, 0, 1, in viewport);
+            _vk.CmdSetScissor(buffer, 0, 1, in scissor);
+            _vk.CmdBindPipeline(buffer, PipelineBindPoint.Graphics, _triangle.Handle);
+            _vk.CmdDraw(buffer, 3, 1, 0, 0);
+        }
+
         _vk.CmdEndRendering(buffer);
 
         Transition(buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr);
@@ -712,6 +735,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
             PipelineStageFlags.ColorAttachmentOutputBit,
             PipelineStageFlags.ColorAttachmentOutputBit,
             0, 0, null, 0, null, 1, in barrier);
+    }
+
+    private void CreatePipelines()
+    {
+        // Compiled shaders are cached beside the executable, so the compiler runs only
+        // when a shader actually changes.
+        _shaderCompiler = new ShaderCompiler(Path.Combine(AppContext.BaseDirectory, "shader-cache"));
+        _triangle = TrianglePipeline.Create(_vk, _device, _format, _shaderCompiler);
     }
 
     private void RecreateSwapchain()

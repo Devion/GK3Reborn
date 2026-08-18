@@ -116,3 +116,49 @@ the graphics backend. `IVulkanSurfaceSource` is therefore declared in `Platform`
 of native handles, and `Rendering/Vulkan` consumes it. The layering tests enforce the
 direction, and the reason for it is that a window should not have to change when the
 renderer does.
+
+## Shaders
+
+Shaders are HLSL, as `Plan/01-architecture.md` section 1 chose. The compiler is **not**
+DXC, which that section named: DXC ships with the Vulkan SDK, and requiring the SDK to
+build the project at all is a real barrier for a contributor who only wants to change
+gameplay code. `shaderc` compiles HLSL to SPIR-V just as well and arrives as a NuGet
+package, so the toolchain installs itself with the rest of the dependencies.
+
+Compiled SPIR-V is cached on disk under a hash of source, entry point and stage. After
+the first build compilation is effectively offline — which is what the plan wanted from
+DXC — and the compiler runs only when a shader actually changes. There is a test that a
+source edit produces a second cache entry rather than colliding with the first.
+
+## Offscreen rendering
+
+`OffscreenRenderer` draws with no window, no surface and no swapchain, then copies the
+image back to host memory. That is what P5's headless image tests require, and it runs on
+a machine with no display.
+
+```bash
+dotnet run --project src/GK3Reborn.Host -- --offscreen   # writes offscreen.png
+```
+
+It matters more than it sounds. A windowed run proves the code does not crash; only
+reading the pixels back proves anything was drawn, and from the outside those two failure
+modes look identical. The render tests assert that a meaningful number of pixels differ
+from the clear colour, and that the vertex colours interpolate the way the shader
+describes — red at the apex, green at the lower right, blue at the lower left.
+
+The offscreen target is `R8G8B8A8Unorm` rather than sRGB, because the shader writes linear
+values and this path reads them straight back; an sRGB target would apply an encoding the
+comparison would then have to undo.
+
+Tests that need a device skip rather than fail where none exists, so a build agent without
+a GPU still reports a green run while a developer machine gets the real check.
+
+### First bring-up choices
+
+The triangle's vertices come from `SV_VertexID` rather than a vertex buffer, and culling
+is off. Both are deliberate for a first bring-up: a failure is then a shader, pipeline or
+render-target problem and cannot be a buffer, memory or winding problem. Those come next,
+once this much is known to work.
+
+Viewport and scissor are dynamic state, so a window resize re-records the command buffer
+rather than rebuilding the pipeline.

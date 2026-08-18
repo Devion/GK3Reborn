@@ -16,6 +16,7 @@
     <PackageVersion Include="Silk.NET.Maths" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.OpenAL" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.OpenAL.Extensions.Soft" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Shaderc" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />

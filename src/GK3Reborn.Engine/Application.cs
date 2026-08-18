@@ -38,10 +38,37 @@ public static class Application
         Console.WriteLine();
         ReportGraphics();
 
+        if (args.Contains("--offscreen", StringComparer.OrdinalIgnoreCase))
+        {
+            return RenderOffscreen();
+        }
+
         if (args.Contains("--render", StringComparer.OrdinalIgnoreCase))
         {
             return RenderFrames(args.Contains("--headless-frames", StringComparer.OrdinalIgnoreCase) ? 60 : 0);
         }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Renders one frame with no window and writes it to a file.
+    /// </summary>
+    /// <returns>Process exit code.</returns>
+    /// <remarks>
+    /// A windowed run proves the code does not crash. Only reading the pixels back proves
+    /// something was drawn, and the two failure modes look identical from outside.
+    /// </remarks>
+    private static int RenderOffscreen()
+    {
+        using Rendering.Vulkan.OffscreenRenderer renderer = Rendering.Vulkan.OffscreenRenderer.Create();
+
+        Formats.Bitmaps.DecodedImage image = renderer.RenderTriangle(640, 360, (0.05f, 0.06f, 0.09f));
+        string path = Path.Combine(AppContext.BaseDirectory, "offscreen.png");
+        File.WriteAllBytes(path, Formats.Bitmaps.PngWriter.Encode(image));
+
+        Console.WriteLine($"Rendered {image.Width}x{image.Height} on {renderer.DeviceName}");
+        Console.WriteLine($"Wrote {path}");
 
         return 0;
     }
