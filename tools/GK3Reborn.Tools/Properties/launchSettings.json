@@ -1,0 +1,18 @@
+{
+  "profiles": {
+    "usage": {
+      "commandName": "Project",
+      "workingDirectory": "."
+    },
+    "import-video": {
+      "commandName": "Project",
+      "workingDirectory": ".",
+      "commandLineArgs": "import-video --source ../../../GK3/Data --workspace ../../../ContentWorkspace"
+    },
+    "import-video (force)": {
+      "commandName": "Project",
+      "workingDirectory": ".",
+      "commandLineArgs": "import-video --source ../../../GK3/Data --workspace ../../../ContentWorkspace --force"
+    }
+  }
+}

@@ -5,7 +5,10 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Platforms>x64</Platforms>
+    <!-- PlatformTarget alone forces 64-bit codegen. Declaring <Platforms>x64</Platforms>
+         as well would add a platform dimension the solution has no configuration for,
+         which leaves Visual Studio unable to map "Any CPU" onto any project - the
+         projects then cannot be built or started from the IDE. -->
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
