@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
@@ -160,6 +160,51 @@ public sealed class RayTracingTests
         return MeanLuminance(renderer.Render(geometry, 200, 200, Overlooking()));
     }
 
+    /// <summary>
+    /// A light too faint to change a pixel, but with a reach long enough that the rig
+    /// sorts it ahead of the one that matters.
+    /// </summary>
+    /// <remarks>
+    /// This is what a GK3 scene looks like from indoors: the rig is ordered by brightness
+    /// times reach, so the sun and the streetlights come first and the lamp in the room
+    /// comes last.
+    /// </remarks>
+    private static AuthoredLight DistantLight(int index) => new(
+        $"distant{index}",
+        AuthoredLightKind.Point,
+        new Vector3(20_000 + index, 40_000, 30_000),
+        -Vector3.UnitY,
+        Vector3.One,
+        HotSpot: 0,
+        Falloff: 0,
+        AttenuationStart: 0,
+        AttenuationEnd: 100_000_000,
+        UsesAttenuation: true,
+        CastsShadows: true,
+        Intensity: 0.0005f,
+        Radius: 2f);
+
+    /// <summary>Renders with the useful light buried behind a crowd of useless ones.</summary>
+    private static float RenderBuried(SceneRenderer renderer, RayTracingQuality quality, bool wall)
+    {
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        geometry.AddTexture("white", White());
+        geometry.Add(Floor(400f));
+
+        if (wall)
+        {
+            geometry.Add(Wall(400f, 120f));
+        }
+
+        renderer.SetLights(
+            [.. Enumerable.Range(0, 40).Select(DistantLight), SideLight()]);
+
+        renderer.Quality = quality;
+
+        return MeanLuminance(renderer.Render(geometry, 200, 200, Overlooking()));
+    }
+
     [Fact]
     public void A_device_that_reports_ray_tracing_builds_an_acceleration_structure()
     {
@@ -195,6 +240,27 @@ public sealed class RayTracingTests
         Assert.True(
             blocked < open * 0.8f,
             $"adding an occluder did not darken the floor: {open} to {blocked}");
+    }
+
+    [Fact]
+    public void A_shadow_survives_a_rig_whose_first_lights_are_the_ones_that_do_not_matter()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        float open = RenderBuried(renderer, RayTracingQuality.Low, wall: false);
+        float blocked = RenderBuried(renderer, RayTracingQuality.Low, wall: true);
+
+        Assert.True(open > 20f, $"the floor was not lit to begin with: {open}");
+
+        // Low traces eight lights. Spending them on the first eight of the array spends
+        // them all on lights contributing nothing, and nothing in the picture is shadowed
+        // at all — which is how characters ended up casting no shadow in a hotel room.
+        Assert.True(
+            blocked < open * 0.8f,
+            $"the occluder cast no shadow once the rig was crowded: {open} to {blocked}");
     }
 
     [Fact]

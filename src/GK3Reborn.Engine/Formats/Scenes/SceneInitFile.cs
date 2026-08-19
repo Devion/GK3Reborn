@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Ini;
 
 namespace GK3Reborn.Formats.Scenes;
@@ -30,8 +30,15 @@ public sealed record SceneCamera(string Name, Vector3 Position, float Yaw, float
 /// <param name="Name">Model name, without extension.</param>
 /// <param name="Noun">The noun it answers to, if any.</param>
 /// <param name="Type">Its declared type: <c>scene</c>, <c>prop</c>, <c>hittest</c> and so on.</param>
-/// <param name="Hidden">Whether it starts hidden.</param>
-public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hidden);
+/// <param name="Hidden">Whether every block that declares it hides it.</param>
+public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hidden)
+{
+    /// <summary>
+    /// Whether one block hides it while another shows it, so its visibility depends on
+    /// story state that has not been evaluated.
+    /// </summary>
+    public bool VisibilityDisputed { get; init; }
+}
 
 /// <summary>A spot in the scene the player or an actor can stand.</summary>
 /// <param name="Name">Its name.</param>
@@ -127,9 +134,21 @@ public sealed class SceneInitFile
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The models.</returns>
     /// <remarks>
-    /// The same model appears in several conditional blocks, often visible in one and
-    /// hidden in another. Taking the last occurrence mirrors how the original applies
-    /// blocks in order.
+    /// <para>
+    /// The same model appears in several conditional blocks, and the later ones refine the
+    /// noun and type of the earlier, so those come from the last occurrence.
+    /// </para>
+    /// <para>
+    /// Hiding does not work that way. A pair of blocks under complementary conditions —
+    /// <c>{!IsCurrentTime("202p")}</c> and <c>{IsCurrentTime("202p")}</c> — describes two
+    /// states of the scene, of which exactly one holds; the second is not a correction of
+    /// the first. Until the conditions can be evaluated, taking the last occurrence hides
+    /// whatever any block hides, which is how the hall door in R25 disappeared and left its
+    /// knob behind. So a model is hidden only when every block that declares it agrees, and
+    /// the rest are reported through <see cref="SceneModel.VisibilityDisputed"/>. Erring
+    /// towards drawing matches this reader's treatment of conditionals everywhere else: an
+    /// object that should not be there is a smaller loss than a missing wall or door.
+    /// </para>
     /// </remarks>
     public IReadOnlyList<SceneModel> Models(bool includeConditional = true)
     {
@@ -143,7 +162,9 @@ public sealed class SceneInitFile
                 continue;
             }
 
-            if (!models.ContainsKey(modelName))
+            bool hidden = line.HasFlag("hidden");
+
+            if (!models.TryGetValue(modelName, out SceneModel? seen))
             {
                 order.Add(modelName);
             }
@@ -152,7 +173,12 @@ public sealed class SceneInitFile
                 modelName,
                 line.Value("noun"),
                 line.Value("type"),
-                line.HasFlag("hidden"));
+                hidden && (seen?.Hidden ?? true))
+            {
+                // Carried forward, or a third block agreeing with the second would erase
+                // the disagreement the first one recorded.
+                VisibilityDisputed = seen is not null && (seen.VisibilityDisputed || seen.Hidden != hidden),
+            };
         }
 
         return order.Select(n => models[n]).ToList();

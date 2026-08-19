@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
@@ -117,6 +117,7 @@ public sealed class SceneLoader
 
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init));
+        ReportDisputedVisibility(init, diagnostics);
 
         int placed = PlaceModels(geometry, asset, init, diagnostics);
         placed += PlaceActors(geometry, init, diagnostics);
@@ -175,6 +176,29 @@ public sealed class SceneLoader
             .Where(m => IsHitTest(m) || (IsBakedIn(m) && m.Hidden))
             .Select(m => m.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Notes the models drawn only because their condition could not be decided.</summary>
+    /// <remarks>
+    /// These are shown rather than hidden, so a wrong guess adds an object instead of
+    /// removing one. Naming them is what makes the guess reviewable: without this the only
+    /// evidence is an object that looks out of place, which is hard to trace back here.
+    /// </remarks>
+    private static void ReportDisputedVisibility(SceneInitFile? init, DiagnosticBag diagnostics)
+    {
+        if (init is null)
+        {
+            return;
+        }
+
+        foreach (SceneModel model in init.Models().Where(m => m.VisibilityDisputed && !m.Hidden))
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE009",
+                DiagnosticSeverity.Info,
+                $"{model.Name} is hidden in one conditional block and shown in another; " +
+                "it is drawn, because the conditions need the Sheep virtual machine."));
+        }
     }
 
     private static bool IsHitTest(SceneModel model) =>

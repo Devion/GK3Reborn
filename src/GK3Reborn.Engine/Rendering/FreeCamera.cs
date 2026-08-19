@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Platform;
 
 namespace GK3Reborn.Rendering;
@@ -80,7 +80,12 @@ public sealed class FreeCamera
         }
 
         Vector3 forward = Forward;
-        Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
+
+        // cross(forward, up), not cross(up, forward). Matrix4x4.CreateLookAt is
+        // right-handed, so the basis vector that maps to screen right is
+        // cross(up, position - target) — which is cross(forward, up). The other
+        // order is its negative, and strafes the wrong way.
+        Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
 
         var movement = Vector3.Zero;
 

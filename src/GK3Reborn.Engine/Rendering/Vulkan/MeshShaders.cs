@@ -1,4 +1,4 @@
-namespace GK3Reborn.Rendering.Vulkan;
+﻿namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>
 /// The mesh shaders, in GLSL.
@@ -113,6 +113,11 @@ internal static class MeshShaders
         // clear the surface it came from without floating visibly above it.
         const float kRayBias = 0.75;
 
+        // How much a light has to contribute before its shadow is worth a ray. Below this
+        // the shadow it casts is under a step of an eight-bit channel, so tracing it costs
+        // a ray and changes no pixel.
+        const float kShadowFloor = 0.004;
+
         float Hash(vec3 seed)
         {
             return fract(sin(dot(seed, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -217,6 +222,7 @@ internal static class MeshShaders
         {
             vec3 total = vec3(0.0);
             int count = int(rig.counts.x);
+            int traced = 0;
 
             for (int i = 0; i < count; i++)
             {
@@ -255,17 +261,27 @@ internal static class MeshShaders
                     cone = smoothstep(light.cone.y, light.cone.x, aligned);
                 }
 
+                vec3 contribution = light.colorAndIntensity.rgb * light.colorAndIntensity.w *
+                                    attenuation * cone * lambert;
+
                 float visibility = 1.0;
 
                 #ifdef RAY_TRACING
-                if (i < shadowed)
+                // Spend the ray budget on the lights that are actually lighting this
+                // pixel, not on the first few of the array. A scene's rig is sorted by
+                // brightness times reach, which puts the sun and the streetlights at the
+                // front — and from inside a hotel room every one of them is behind a wall,
+                // so the budget went entirely on rays that returned "occluded" for the
+                // whole image while the lamp overhead, further down the array, was never
+                // tested at all. That is why nothing in a room cast a shadow.
+                if (traced < shadowed && max(contribution.r, max(contribution.g, contribution.b)) > kShadowFloor)
                 {
+                    traced++;
                     visibility = Visibility(position, light, toLight, distance, shadowSamples);
                 }
                 #endif
 
-                total += light.colorAndIntensity.rgb * light.colorAndIntensity.w *
-                         attenuation * cone * lambert * visibility;
+                total += contribution * visibility;
             }
 
             return total;

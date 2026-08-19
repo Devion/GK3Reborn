@@ -1,4 +1,4 @@
-namespace GK3Reborn.Rendering;
+﻿namespace GK3Reborn.Rendering;
 
 /// <summary>How much ray tracing to do.</summary>
 /// <remarks>

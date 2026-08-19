@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Scenes;
 using Xunit;
 
@@ -33,6 +33,12 @@ public sealed class SceneFileTests
         [MODELS={IsCurrentTime("106p")}]
         model=luggageunderbed, noun=SUITCASES, type=scene
         model=RC1_HOTEL_01, type=scene
+
+        [MODELS={!IsCurrentTime("202p")}]
+        model=r25door2hal_scene,             noun=HALL_DOOR,             type=scene
+
+        [MODELS={IsCurrentTime("202p")}]
+        model=r25door2hal_scene,             noun=HALL_DOOR,             type=scene, hidden
 
         [ROOM_CAMERAS]
         START,        angle={-46.97, 0.90}, pos={277.58, 61.70, 50.57}, Default
@@ -133,15 +139,65 @@ public sealed class SceneFileTests
     }
 
     [Fact]
-    public void A_later_block_overrides_an_earlier_one_for_the_same_model()
+    public void A_later_block_refines_the_type_and_noun_of_an_earlier_one()
     {
         SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");
 
-        // Hidden in the unconditional block, visible in the conditional one that follows.
         SceneModel hotel = Assert.Single(init.Models(), m => m.Name == "RC1_HOTEL_01");
 
-        Assert.False(hotel.Hidden);
         Assert.Equal("scene", hotel.Type);
+    }
+
+    [Fact]
+    public void A_block_that_hides_a_model_another_block_shows_does_not_win()
+    {
+        SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");
+
+        // The two blocks are complementary — 202p and not 202p — so one describes the
+        // scene and the other describes a different state of it. Taking the last left
+        // the hall door hidden in every timeblock and only its knob drawn.
+        SceneModel door = Assert.Single(init.Models(), m => m.Name == "r25door2hal_scene");
+
+        Assert.False(door.Hidden);
+        Assert.True(door.VisibilityDisputed);
+    }
+
+    [Fact]
+    public void A_model_every_block_hides_stays_hidden()
+    {
+        SceneInitFile init = SceneInitFile.Parse(
+            """
+            [MODELS={!IsCurrentTime("307a")}]
+            model=r25unmadebed, noun=bed, type=scene, hidden
+
+            [MODELS={IsCurrentTime("307a")}]
+            model=r25unmadebed, noun=bed, type=scene, hidden
+            """,
+            "R25.SIF");
+
+        SceneModel bed = Assert.Single(init.Models());
+
+        Assert.True(bed.Hidden);
+        Assert.False(bed.VisibilityDisputed);
+    }
+
+    [Fact]
+    public void A_disagreement_survives_a_third_block_that_agrees_with_the_second()
+    {
+        SceneInitFile init = SceneInitFile.Parse(
+            """
+            [MODELS]
+            model=lamp, type=scene, hidden
+
+            [MODELS={IsCurrentTime("307a")}]
+            model=lamp, type=scene
+
+            [MODELS={IsCurrentTime("202p")}]
+            model=lamp, type=scene
+            """,
+            "R25.SIF");
+
+        Assert.True(Assert.Single(init.Models()).VisibilityDisputed);
     }
 
     [Fact]

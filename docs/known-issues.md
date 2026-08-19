@@ -4,72 +4,38 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. A and D strafe the wrong way
+## 1. Ray-traced lighting is under-exposed and noisy above Low
 
-**Reported:** 2026-08-19, from the windowed scene viewer.
+**Reported:** 2026-08-19, as a consequence of fixing the shadow budget below.
 
-Pressing `A` moves the camera right and `D` moves it left. Forward and back are
-correct, so the yaw and the forward vector are fine and only the strafe axis is
-wrong.
+Once the ray budget started going to the lights that actually light a pixel, the
+lights that were previously contributing unshadowed fill began to be occluded —
+correctly, and the room lost most of its light with them. `--rt low` looks right;
+`--rt medium` and `--rt high` are markedly darker than `--rt none` and carry heavy
+grain, which matters because the host defaults to `--rt high`.
 
-**Reproduce:** `GK3Reborn.exe --scene R25 --rt high`, then press `A`.
-
-**Lead.** `FreeCamera.Update` builds the strafe axis as
-`Vector3.Cross(Vector3.UnitY, forward)` (`src/GK3Reborn.Engine/Rendering/FreeCamera.cs:83`).
-In a right-handed system with `+Y` up, the viewer's right is `cross(forward, up)`,
-not `cross(up, forward)` — the two differ by sign, which is exactly the symptom.
-Swapping the operands is the likely one-line fix.
-
-Worth a test alongside it: with the camera at the origin looking down `+Z` and up
-`+Y`, holding *right* must increase `Position.X`. Nothing currently asserts the
-handedness of the camera basis, which is why this got through.
-
-## 2. A door renders as its knob only
-
-**Reported:** 2026-08-19.
-
-In a scene with a visible doorway, the door panel is missing and only its knob
-draws — so the two are separate objects and only one of them is being drawn.
-
-**Reproduce:** believed to be `R25`; the hall door is the likely subject. Confirm
-which scene and camera before digging.
+**Reproduce:** `GK3Reborn.exe --scene R25 --timeblock N`, then compare against
+`--rt none` and `--rt low`.
 
 **Leads, in order of suspicion:**
 
-1. **Over-eager hiding.** `SceneLoader.HiddenObjects` hides any BSP-baked model the
-   initialisation file marks `hidden`, and `SceneInitFile.Models` collapses
-   repeated conditional blocks by taking the *last* occurrence of a name. If a
-   door is hidden in a late conditional block and visible in the one that actually
-   applies, it will be wrongly hidden — and a knob declared under a different name
-   would survive. This is the most likely cause and the newest code in the area.
-2. **A missing texture that decodes to fully keyed alpha**, in which case every
-   texel is discarded and the panel vanishes while the knob, with its own texture,
-   remains. `--verbose` lists textures that failed to load.
-3. **The panel is a `prop` whose `.MOD` is missing**, which `--verbose` also
-   reports as `SCENE006`.
+1. **The occlusion radius.** `RayTracingSettings.For` uses 90 units at Medium and
+   140 at High. R25 is about 300 units across, so a 140-unit hemisphere reaches a
+   wall from nearly every point in the room and occlusion sits low everywhere
+   rather than gathering in corners. It multiplies the whole indirect term, so
+   this is the largest single contributor. Raising `LightmapIndirect` was tried
+   and barely moved the image, which points here rather than at the weights.
+2. **The grain is undersampling.** Eight occlusion rays and two shadow samples per
+   light per pixel, with no accumulation across frames and no filter. It was
+   invisible while the direct term was several times over white and swamped it.
+   A temporal accumulator, or a spatial filter on the occlusion term, is the real
+   answer; more rays only moves the threshold.
+3. **The exposure constants were tuned against the broken state.** The lightmap
+   multiplier and the `LightmapIndirect` weights were chosen when every light past
+   the ray budget lit the scene unshadowed. They are worth revisiting once 1 and 2
+   are settled — and again when there is a tone mapper, per the HDR item below.
 
-Running with `--verbose` first will separate 2 and 3 from 1 immediately.
-
-## 3. Z-fighting on the lamp beside the bed
-
-**Reported:** 2026-08-19, in R25.
-
-**Reproduce:** `GK3Reborn.exe --scene R25 --timeblock N`, look at the standing lamp
-next to the bed.
-
-**Lead.** Two coincident surfaces, which in this codebase most often means the same
-geometry drawn twice. The scene asset lists objects baked into the BSP and the
-initialisation file lists models to load; `SceneLoader.PlaceModels` is supposed to
-load a `.MOD` only for `prop` and `gasprop` and leave everything else to the BSP.
-A lamp declared with a type that does not match its actual storage — or declared
-twice under two names — would be drawn from both sources at once.
-
-Check first whether the lamp appears both in the scene asset's `[Models]` list and
-as a placed prop. If it does not, the second possibility is genuinely coincident
-authored geometry (a lamp shade modelled twice), which needs a depth bias or a
-material tweak rather than a loading fix.
-
-## 4. HDR output (feature)
+## 2. HDR output (feature)
 
 **Requested:** 2026-08-19.
 
@@ -109,3 +75,66 @@ the usual way to let someone set them by eye.
 original's gamma-space 2, raised to compensate for linear-space shading. That
 constant is an exposure decision made against an 8-bit target, and it will need
 revisiting once there is a real tone mapper rather than an implicit clip at white.
+
+---
+
+## Closed
+
+### Nothing casts a shadow indoors — fixed 2026-08-19
+
+Characters, props and scene geometry cast no shadow in any room, at any quality
+level. The acceleration structure was never at fault: the geometry was all in it,
+and a character even shadowed himself.
+
+`EvaluateRig` decided which lights got a shadow ray by their position in the
+array — `if (i < shadowed)` — and `GpuLight.Choose` sorts the array by brightness
+times reach. From inside a hotel room that puts the sun and the exterior lights
+first, every one of them behind a wall: at Low all eight rays went to lights that
+returned "occluded" for the entire image, while the lamp overhead, further down
+the array, was never tested. Rendering the raw visibility of the first eight
+lights produced a completely black frame, which is what settled it.
+
+The budget is now spent on the lights whose contribution to the pixel is above a
+floor of one eight-bit step, in rig order, so it goes to the lights that are
+actually lighting the surface. `RayTracingTests` covers it with a rig whose useful
+light is buried behind forty faint far-reaching ones.
+
+### A door renders as its knob only — fixed 2026-08-19
+
+`SceneInitFile.Models` collapsed repeated conditional blocks by taking the last
+occurrence of a name, which meant any block that hid a model hid it outright. R25
+declares `r25door2hal_scene` visible under `{!IsCurrentTime("202p")}` and hidden
+under `{IsCurrentTime("202p")}`; the door vanished in every timeblock and its
+knob, a `prop` under its own name, kept drawing.
+
+Complementary blocks describe alternative states of a scene, not corrections of
+one another, so a model is now hidden only when every block that declares it
+agrees. Where they disagree it is drawn and reported as `SCENE009`, since drawing
+something that should not be there is a smaller loss than losing a wall or a door.
+Deciding it properly needs the Sheep virtual machine.
+
+### A and D strafe the wrong way — fixed 2026-08-19
+
+`FreeCamera.Update` built the strafe axis as `cross(up, forward)`.
+`Matrix4x4.CreateLookAt` is right-handed, so the basis vector that maps to screen
+right is `cross(forward, up)` — the negative of what was there. Tests now derive
+which way is right from the view matrix rather than asserting a sign, so they hold
+whichever handedness the camera ends up using.
+
+### Z-fighting on the lamp beside the bed — not a defect, 2026-08-19
+
+The mottling on the lampshade in R25 is ray-tracing grain, not z-fighting. It is
+absent at `--rt none` and unchanged by either enabling back-face culling or
+dropping the coincident faces, which rules out coincident geometry as the cause.
+
+Worth recording, because the investigation turned up two things that look like
+causes and are not. Both lamps really do carry coincident faces — fourteen pairs
+on `r25lamp2`, thirteen on `r25lamp03` — but every pair is wound in opposite
+directions, which is a double-sided lampshade rather than a duplicate. And the
+BSP's winding is consistent, contrary to the comment on `CullMode` in
+`MeshPipeline`: signed volumes come out positive for every solid prop and negative
+for the room shells, exactly as an outward-wound solid inside an inward-wound room
+should. Culling is therefore switchable on if a reason to appears; it changes
+nothing visible in R25.
+
+The grain itself is tracked as issue 1 above.

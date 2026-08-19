@@ -1,5 +1,6 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Platform;
 using GK3Reborn.Rendering;
 using Xunit;
 
@@ -62,6 +63,57 @@ public sealed class CameraAndKeyingTests
         Assert.True(camera.Position.Y > camera.Target.Y);
     }
 
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(1.1f)]
+    [InlineData(-2.3f)]
+    [InlineData(3.0f)]
+    public void Strafing_right_moves_towards_the_right_of_the_screen(float yaw)
+    {
+        var camera = new FreeCamera { Position = Vector3.Zero, Speed = 100f };
+        Turn(camera, yaw);
+
+        // Taken before the move, so it is the basis the player was looking through
+        // when they pressed the key.
+        Matrix4x4 view = camera.ToCamera(new Camera()).View;
+
+        camera.Update(new HeldInput(CameraAction.Right), 1f);
+
+        // The view matrix's rotation maps a world direction onto the screen axes, so
+        // this asks the projection which way is right rather than assuming a sign.
+        Vector3 onScreen = Vector3.TransformNormal(camera.Position, view);
+
+        Assert.True(onScreen.X > 0f, $"strafing right moved {onScreen.X} along screen X");
+        Assert.True(MathF.Abs(onScreen.Y) < 1e-3f, "strafing should not change height");
+    }
+
+    [Fact]
+    public void Strafing_left_is_the_opposite_of_strafing_right()
+    {
+        var right = new FreeCamera { Position = Vector3.Zero, Speed = 100f };
+        var left = new FreeCamera { Position = Vector3.Zero, Speed = 100f };
+        Turn(right, 0.7f);
+        Turn(left, 0.7f);
+
+        right.Update(new HeldInput(CameraAction.Right), 1f);
+        left.Update(new HeldInput(CameraAction.Left), 1f);
+
+        Assert.Equal(-right.Position.X, left.Position.X, 3);
+        Assert.Equal(-right.Position.Z, left.Position.Z, 3);
+    }
+
+    [Fact]
+    public void Moving_forward_moves_into_the_screen()
+    {
+        var camera = new FreeCamera { Position = Vector3.Zero, Speed = 100f };
+        Matrix4x4 view = camera.ToCamera(new Camera()).View;
+
+        camera.Update(new HeldInput(CameraAction.Forward), 1f);
+
+        // The view looks down its own negative Z, so moving forward has to reduce it.
+        Assert.True(Vector3.TransformNormal(camera.Position, view).Z < 0f);
+    }
+
     [Fact]
     public void Magenta_becomes_transparent_and_stops_being_magenta()
     {
@@ -108,5 +160,32 @@ public sealed class CameraAndKeyingTests
 
         Assert.Equal(0, result.Pixels[3]);
         Assert.Equal(0, result.Pixels[7]);
+    }
+
+    /// <summary>Points a camera at a yaw, since the field behind it is private.</summary>
+    private static void Turn(FreeCamera camera, float yaw)
+    {
+        Vector3 position = camera.Position;
+        camera.CopyFrom(new Camera
+        {
+            Position = position,
+            Target = position + new Vector3(MathF.Sin(yaw), 0, MathF.Cos(yaw)),
+        });
+    }
+
+    /// <summary>Input with one action held down and nothing else happening.</summary>
+    private sealed class HeldInput(CameraAction held) : IGameInput
+    {
+        public Vector2 PointerDelta => Vector2.Zero;
+
+        public bool IsDragging => false;
+
+        public bool IsHeld(CameraAction action) => action == held;
+
+        public bool WasPressed(CameraAction action) => false;
+
+        public void EndFrame()
+        {
+        }
     }
 }
