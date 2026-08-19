@@ -17,7 +17,7 @@ public sealed class CameraAndKeyingTests
         var camera = new Camera { Position = new Vector3(0, 0, -5), Target = Vector3.Zero };
 
         Matrix4x4 projection = camera.Projection(4f / 3f);
-        Matrix4x4 unflipped = Matrix4x4.CreatePerspectiveFieldOfView(
+        Matrix4x4 unflipped = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(
             camera.FieldOfView, 4f / 3f, camera.NearPlane, camera.FarPlane);
 
         Assert.Equal(-unflipped.M22, projection.M22, 5);
@@ -87,6 +87,40 @@ public sealed class CameraAndKeyingTests
         Assert.True(MathF.Abs(onScreen.Y) < 1e-3f, "strafing should not change height");
     }
 
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(1.1f)]
+    [InlineData(-2.3f)]
+    [InlineData(3.0f)]
+    public void Dragging_the_pointer_right_turns_the_view_right(float yaw)
+    {
+        var camera = new FreeCamera { Position = Vector3.Zero };
+        Turn(camera, yaw);
+
+        // The basis the player was looking through when they started the drag.
+        Matrix4x4 view = camera.ToCamera(new Camera()).View;
+
+        camera.Update(new DragInput(new Vector2(20f, 0f)), 1f);
+
+        // Where the new forward lands on the old screen. Asking the view matrix rather
+        // than asserting a sign on the yaw keeps this true whichever handedness the
+        // camera uses, the way the strafe tests do.
+        Vector3 onScreen = Vector3.TransformNormal(camera.Forward, view);
+
+        Assert.True(onScreen.X > 0f, $"dragging right turned the view to screen X {onScreen.X}");
+    }
+
+    [Fact]
+    public void Dragging_the_pointer_down_looks_down()
+    {
+        var camera = new FreeCamera { Position = Vector3.Zero };
+
+        camera.Update(new DragInput(new Vector2(0f, 20f)), 1f);
+
+        // The pointer's Y grows downward, so this is the player pulling the view down.
+        Assert.True(camera.Forward.Y < 0f, $"the view tilted to {camera.Forward.Y}");
+    }
+
     [Fact]
     public void Strafing_left_is_the_opposite_of_strafing_right()
     {
@@ -110,8 +144,22 @@ public sealed class CameraAndKeyingTests
 
         camera.Update(new HeldInput(CameraAction.Forward), 1f);
 
-        // The view looks down its own negative Z, so moving forward has to reduce it.
-        Assert.True(Vector3.TransformNormal(camera.Position, view).Z < 0f);
+        // The view is left-handed, so it looks down its own positive Z and moving
+        // forward has to increase it.
+        Assert.True(Vector3.TransformNormal(camera.Position, view).Z > 0f);
+    }
+
+    [Fact]
+    public void The_view_is_left_handed_like_the_world_it_shows()
+    {
+        // A point to the world's +X, seen from a camera looking along +Z, has to land on
+        // the right of the screen. Through a right-handed view it lands on the left, and
+        // every scene in the game comes out mirrored; see Camera.
+        var camera = new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ };
+
+        Vector3 onScreen = Vector3.TransformNormal(Vector3.UnitX, camera.View);
+
+        Assert.True(onScreen.X > 0f, $"world +X mapped to screen X {onScreen.X}");
     }
 
     [Fact]
@@ -171,6 +219,22 @@ public sealed class CameraAndKeyingTests
             Position = position,
             Target = position + new Vector3(MathF.Sin(yaw), 0, MathF.Cos(yaw)),
         });
+    }
+
+    /// <summary>Input with the pointer being dragged and no key held.</summary>
+    private sealed class DragInput(Vector2 delta) : IGameInput
+    {
+        public Vector2 PointerDelta => delta;
+
+        public bool IsDragging => true;
+
+        public bool IsHeld(CameraAction action) => false;
+
+        public bool WasPressed(CameraAction action) => false;
+
+        public void EndFrame()
+        {
+        }
     }
 
     /// <summary>Input with one action held down and nothing else happening.</summary>

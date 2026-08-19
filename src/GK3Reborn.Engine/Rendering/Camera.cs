@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace GK3Reborn.Rendering;
 
@@ -7,10 +7,20 @@ namespace GK3Reborn.Rendering;
 /// </summary>
 /// <remarks>
 /// <para>
+/// Left-handed, because GK3's world is. Its scenes were authored for Direct3D, where +X is
+/// right, +Y is up and +Z is forward, and the reference implementation builds its view the
+/// same way — see <c>RenderTransforms.h</c>, <c>VIEW_HAND VIEW_LH</c>, and the comment
+/// there that negating the side axis is what would make the world appear right-handed.
+/// Putting that world through a right-handed look-at renders every scene as its own mirror
+/// image. It is nearly invisible — a mirrored room is still a plausible room — until
+/// something in it carries writing, which is why it surfaced as the numbers on the hotel
+/// doors reading backwards.
+/// </para>
+/// <para>
 /// Uses a reversed-Y projection. Vulkan's clip space has Y pointing down, the opposite of
-/// the convention <see cref="Matrix4x4.CreatePerspectiveFieldOfView"/> assumes, so without
-/// the flip everything renders upside down — a mistake easy to misread as a broken model
-/// rather than a broken matrix.
+/// the convention <see cref="Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded"/> assumes,
+/// so without the flip everything renders upside down — a mistake easy to misread as a
+/// broken model rather than a broken matrix.
 /// </para>
 /// <para>
 /// The framing helper exists because GK3's models are in their own units and sit wherever
@@ -46,14 +56,14 @@ public sealed class Camera
     public Vector3 Background { get; init; } = new(0.08f, 0.09f, 0.12f);
 
     /// <summary>The view matrix.</summary>
-    public Matrix4x4 View => Matrix4x4.CreateLookAt(Position, Target, Up);
+    public Matrix4x4 View => Matrix4x4.CreateLookAtLeftHanded(Position, Target, Up);
 
     /// <summary>Builds the projection matrix.</summary>
     /// <param name="aspect">Width divided by height.</param>
     /// <returns>The projection.</returns>
     public Matrix4x4 Projection(float aspect)
     {
-        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(
+        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(
             FieldOfView, aspect, NearPlane, FarPlane);
 
         // Flip Y for Vulkan's clip space.

@@ -75,17 +75,25 @@ public sealed class FreeCamera
 
         if (input.IsDragging)
         {
-            _yaw -= input.PointerDelta.X * LookSensitivity;
+            // Yaw increases toward screen right. Forward is (sin yaw, ., cos yaw), whose
+            // derivative in yaw is (cos yaw, ., -sin yaw) — which is cross(up, forward),
+            // the left-handed right. Dragging the pointer right therefore has to add.
+            // Under the old right-handed view the same two vectors were negatives of each
+            // other and this subtracted, which is why the sign changes with the camera.
+            _yaw += input.PointerDelta.X * LookSensitivity;
+
+            // Pitch is unaffected by any of that: it is a rotation about the screen's own
+            // horizontal axis, and the pointer's Y grows downward, so looking down
+            // subtracts either way.
             _pitch = Math.Clamp(_pitch - (input.PointerDelta.Y * LookSensitivity), -PitchLimit, PitchLimit);
         }
 
         Vector3 forward = Forward;
 
-        // cross(forward, up), not cross(up, forward). Matrix4x4.CreateLookAt is
-        // right-handed, so the basis vector that maps to screen right is
-        // cross(up, position - target) — which is cross(forward, up). The other
-        // order is its negative, and strafes the wrong way.
-        Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
+        // cross(up, forward), the left-handed order, because the view matrix is
+        // left-handed to match GK3's own world; see Camera. The other order is its
+        // negative, and strafes the wrong way.
+        Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
 
         var movement = Vector3.Zero;
 

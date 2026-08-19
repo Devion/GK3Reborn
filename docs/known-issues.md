@@ -49,6 +49,34 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ## Closed
 
+### Every scene rendered as its own mirror image — fixed 2026-08-19
+
+Reported as the numbers on the hotel doors reading backwards. They were: `HAL`'s `27`
+plaque came out as its own reflection, and so did the `STAFF` sign, and so did every
+other piece of writing in the game.
+
+The plaque was innocent. Its texture reads `27`, its UVs address that texture the right
+way round — resampling the render back into texture space reproduces the texture exactly
+— and the geometry faces the corridor. What was reversed was the corridor.
+
+GK3's world is left-handed. It was authored for Direct3D, and G-Engine builds its view
+the same way: `RenderTransforms.h` sets `VIEW_HAND VIEW_LH`, takes the side axis as
+`cross(up, forward)`, and carries a commented-out line noting that negating that axis is
+what would make the world appear right-handed. `Camera` used `Matrix4x4.CreateLookAt` and
+`CreatePerspectiveFieldOfView`, both right-handed, which is exactly that negation — so
+every room, street and corridor was drawn as its own reflection.
+
+It is close to invisible. A mirrored room is still a plausible room; a mirrored painting
+is still a painting. Writing is the one thing that gives it away, and a survey of the
+corpus is what settled it: of 910 triangles carrying a signage texture, 863 share the
+plaques' orientation. Artists notice mirrored text and fix it; they never notice a
+mirrored wallpaper.
+
+The view and projection are now left-handed. `FreeCamera`'s strafe axis goes back to
+`cross(up, forward)` with them — the earlier strafe fix was correct for a right-handed
+view, and inverts with it. Tests derive screen right from the view matrix rather than
+assuming a sign, so they carried over; one more asserts the handedness directly.
+
 ### Ray-traced lighting is under-exposed and noisy above Low — fixed 2026-08-19
 
 Three separate causes, none of them the exposure constants the entry had been blaming.
@@ -136,6 +164,18 @@ something that should not be there is a smaller loss than losing a wall or a doo
 right is `cross(forward, up)` — the negative of what was there. Tests now derive
 which way is right from the view matrix rather than asserting a sign, so they hold
 whichever handedness the camera ends up using.
+
+That last part earned its keep the same day: the right-handed view turned out to be
+the bug behind the mirrored scenes above, and the strafe axis went back to
+`cross(up, forward)` when the view became left-handed. The tests carried over
+untouched.
+
+Mouse look needed the same inversion and did not have a test to catch it, so it
+shipped reversed for one build. Yaw increases toward screen right under a left-handed
+view and toward screen left under a right-handed one, so `_yaw -=` became `_yaw +=`.
+There are tests now, deriving the direction from the view matrix the way the strafe
+ones do. Pitch is unaffected either way — it turns about the screen's own horizontal
+axis, which handedness does not move.
 
 ### Z-fighting on the lamp beside the bed — not a defect, 2026-08-19
 
