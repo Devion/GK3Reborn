@@ -2,12 +2,12 @@
 
 Four quality levels, as the settings screen will expose them:
 
-| level | shadowed lights | rays per shadow | occlusion rays | bake weight |
-| --- | --- | --- | --- | --- |
-| None | – | – | – | 1.0 |
-| Low | 8 | 1 | – | 0.6 |
-| Medium | 16 | 1 | 4 | 0.5 |
-| High | 32 | 2 | 8 | 0.35 |
+| level | shadowed lights | rays per shadow | occlusion rays | occlusion radius | bake weight |
+| --- | --- | --- | --- | --- | --- |
+| None | – | – | – | – | 1.0 |
+| Low | 8 | 1 | – | – | 0.6 |
+| Medium | 16 | 1 | 4 | 45 | 0.5 |
+| High | 32 | 2 | 8 | 45 | 0.35 |
 
 ```bash
 GK3Reborn --scene LBY --rt high --data <GK3>/Data     # F2 cycles the levels live
@@ -38,9 +38,22 @@ matter rather than the ones the artist happened to place first.
 authored emitter radius — a two-unit bulb and a twenty-unit window then behave
 differently, using a number that was already in the data.
 
-**Occlusion.** Cosine-weighted hemisphere rays out to the level's radius,
-modulating the indirect term only. Direct light is already shadowed; applying
-occlusion to it as well would double-count.
+**Occlusion.** Cosine-weighted hemisphere rays out to forty-five units — a little
+over a metre — modulating the indirect term only. Direct light is already shadowed;
+applying occlusion to it as well would double-count. The radius is the same at every
+level because it describes the effect rather than the budget: it is the scale at
+which a surface counts as being in a corner, and only the ray count changes with
+quality. It was ninety at Medium and a hundred and forty at High, which is most of a
+room across, so occlusion sat low everywhere instead of gathering in corners and took
+the whole indirect term down with it.
+
+Both the occlusion and the soft-shadow rays are stratified — elevation stepped once
+through the hemisphere, azimuth advanced by the golden angle, the pair rotated by a
+per-pixel random value — rather than drawn independently. At eight rays that is most
+of the difference between a smooth term and a visibly grainy one, and it costs
+nothing. The random value comes from the pixel rather than the world position: scene
+coordinates run into the hundreds, and a sine of a number that large loses enough
+precision to band into patterns across a wall.
 
 ## What is not traced yet
 
@@ -61,6 +74,14 @@ are left out of the acceleration structure entirely, so they cast no shadow.
 Including them would need an any-hit shader to decide per hit whether a texel is a
 hole, and therefore a full ray-tracing pipeline. A missing shadow under a window
 reads as bright; a solid rectangle of shadow from a pane of glass reads as a bug.
+
+**Light fittings.** Also left out, and for a related reason. The rig puts its
+emitters where the bulb is — inside the shade, behind the pane, under the sconce —
+because the 1999 bake never traced a fitting against its own light. Tracing it now
+seals each of those lights inside its fixture, and a room lit only by lamps goes
+dark. The surfaces are marked in the data: bit 16 of a BSP surface's flags is the
+light fittings, bit 8 the surfaces the bake did not light at all, and bit 64 the
+translucent shadow decals. None of the three occludes.
 
 **Reflections.** Nothing yet.
 
@@ -90,13 +111,15 @@ flatter than the bake it replaces. Squaring concentrates it near the source, whi
 is both closer to how light behaves and closer to what the artists' own bakes look
 like.
 
-**Lights with attenuation switched off get a bounded range anyway** — their stored
-end distance, doubled. Unbounded reach was affordable when the result was baked
-once; it is not when it is evaluated every frame.
-
-Both are guesses that produce a better picture, not measurements. ADR 0006 expects
+That is a guess that produces a better picture, not a measurement. ADR 0006 expects
 this: the 1999 values were tuned for a renderer with no exposure control, and every
 light stays correctable through the edit layer.
+
+**A light with attenuation switched off has none.** The stored end distance is still
+in the file and means nothing once the switch is off, so it is ignored rather than
+used as a soft limit. R25's key light for the afternoon is the sun, fifty thousand
+units from the room, with a stored range of two hundred; honouring that range deleted
+the daylight from every room with a window in it.
 
 Cost, measured at 1920×1080 in the hotel lobby (41 lights, 10,704 opaque triangles)
 on an RTX 5090, as the difference from quality None: roughly 10 ms at Low, 30 ms at

@@ -55,7 +55,8 @@ internal static class MeshShaders
         {
             mat4 model;
 
-            // x selects the lightmap over the rig, y scales the lightmap
+            // x selects the lightmap over the rig, y scales the lightmap,
+            // z marks a surface that carries its own brightness
             vec4 shading;
         } draw;
         """;
@@ -118,8 +119,17 @@ internal static class MeshShaders
         // a ray and changes no pixel.
         const float kShadowFloor = 0.004;
 
-        float Hash(vec3 seed)
+        // The reciprocal of the golden ratio. Advancing an angle by this fraction of a
+        // turn spaces successive samples about as evenly as a sequence can.
+        const float kGolden = 0.6180339887;
+
+        // A random value for this pixel, taken from the pixel rather than from the point
+        // it shades: world coordinates run into the hundreds, and a sine of a number that
+        // large loses enough precision to band into visible patterns across a wall.
+        float PixelNoise(float salt)
         {
+            vec3 seed = vec3(gl_FragCoord.xy, frame.tuning.y + salt);
+
             return fract(sin(dot(seed, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
         }
 
@@ -167,13 +177,14 @@ internal static class MeshShaders
             Basis(toLight / distance, tangent, bitangent);
 
             float radius = light.cone.w;
+            float jitter = PixelNoise(3.0);
+            float turn = PixelNoise(4.0);
             float visible = 0.0;
 
             for (int i = 0; i < samples; i++)
             {
-                float noise = Hash(position + vec3(float(i), frame.tuning.y, 0.0));
-                float angle = 6.2831853 * noise;
-                float offset = radius * sqrt(Hash(position * 1.7 + float(i)));
+                float angle = 6.2831853 * fract(turn + (float(i) * kGolden));
+                float offset = radius * sqrt((float(i) + jitter) / float(samples));
 
                 vec3 target = toLight +
                               (tangent * cos(angle) * offset) +
@@ -192,16 +203,21 @@ internal static class MeshShaders
             vec3 bitangent;
             Basis(normal, tangent, bitangent);
 
+            // Stratified rather than drawn independently: the elevation steps once
+            // through the hemisphere and the azimuth advances by the golden angle, so
+            // eight rays cover the hemisphere evenly instead of clumping and leaving
+            // gaps. At this sample count that is most of the difference between a smooth
+            // occlusion term and the grain the same eight rays used to produce.
+            float jitter = PixelNoise(1.0);
+            float turn = PixelNoise(2.0);
             float open = 0.0;
 
             for (int i = 0; i < samples; i++)
             {
                 // Cosine-weighted, so the samples cluster where they matter most.
-                float u = Hash(position + vec3(float(i), frame.tuning.y, 1.0));
-                float v = Hash(position * 2.3 + vec3(float(i), frame.tuning.y, 2.0));
-
+                float u = (float(i) + jitter) / float(samples);
                 float radial = sqrt(u);
-                float angle = 6.2831853 * v;
+                float angle = 6.2831853 * fract(turn + (float(i) * kGolden));
 
                 vec3 direction = normalize(
                     (tangent * radial * cos(angle)) +
@@ -298,6 +314,16 @@ internal static class MeshShaders
             if (sampled.a < 0.5 || distance(albedo, vec3(1.0, 0.0, 1.0)) < 0.1)
             {
                 discard;
+            }
+
+            // A surface the bake never lit: a bulb, a shade with a lamp inside it, the
+            // painted view through a window. The original binds a white lightmap and a
+            // multiplier of one for these, which comes out as the texture untouched, and
+            // no amount of ray tracing should dim something that is its own light source.
+            if (draw.shading.z > 0.5)
+            {
+                outColor = vec4(albedo, 1.0);
+                return;
             }
 
             vec3 normal = normalize(inNormal);

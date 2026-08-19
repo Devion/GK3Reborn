@@ -63,6 +63,20 @@ public readonly record struct RayTracingSettings(
     /// </remarks>
     public bool BakedOnly => Quality == RayTracingQuality.None;
 
+    /// <summary>
+    /// How far an occlusion ray reaches, in scene units.
+    /// </summary>
+    /// <remarks>
+    /// The same at every quality level, because it describes the effect rather than the
+    /// budget: it is the scale at which a surface counts as being in a corner, and the
+    /// ray count is what changes with quality. Forty-five units is a little over a metre.
+    /// The value was ninety at Medium and a hundred and forty at High, and R25 is only
+    /// three hundred across, so a hemisphere that size reached a wall from anywhere in the
+    /// room; occlusion sat low over every surface instead of gathering where two of them
+    /// meet, and since it multiplies the whole indirect term the room went dark with it.
+    /// </remarks>
+    private const float OcclusionRadius = 45f;
+
     /// <summary>The settings for a quality level.</summary>
     /// <param name="quality">The level.</param>
     /// <returns>Its ray budget.</returns>
@@ -86,8 +100,8 @@ public readonly record struct RayTracingSettings(
     public static RayTracingSettings For(RayTracingQuality quality) => quality switch
     {
         RayTracingQuality.Low => new(quality, 8, 0, 1, 0.6f, 0f),
-        RayTracingQuality.Medium => new(quality, 16, 4, 1, 0.5f, 90f),
-        RayTracingQuality.High => new(quality, 32, 8, 2, 0.35f, 140f),
+        RayTracingQuality.Medium => new(quality, 16, 4, 1, 0.5f, OcclusionRadius),
+        RayTracingQuality.High => new(quality, 32, 8, 2, 0.35f, OcclusionRadius),
         _ => new(RayTracingQuality.None, 0, 0, 1, 1f, 0f),
     };
 

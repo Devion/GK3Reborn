@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Scenes;
 
@@ -27,6 +27,16 @@ public readonly record struct GpuLight(
     Vector4 DirectionAndEnd,
     Vector4 Cone)
 {
+    /// <summary>
+    /// The range given to a light that declares no attenuation.
+    /// </summary>
+    /// <remarks>
+    /// Finite so that the falloff arithmetic stays in range, and far enough out that
+    /// nothing in the corpus reaches it: the most distant light is a sun some fifty
+    /// thousand units from the room it lights.
+    /// </remarks>
+    public const float Unlimited = 1e6f;
+
     /// <summary>How many lights the shader can hold.</summary>
     /// <remarks>
     /// Sized to the corpus rather than to a round number: the median lit scene declares
@@ -43,17 +53,8 @@ public readonly record struct GpuLight(
     {
         ArgumentNullException.ThrowIfNull(light);
 
-        // A 1999 rig with attenuation switched off reached the whole map, which was
-        // affordable when the result was baked once and not when it is evaluated every
-        // frame. The stored range is used as a soft limit regardless, widened where the
-        // light declares no attenuation; see ADR 0006 on re-lighting for modern range.
-        float end = light.AttenuationEnd > 0 ? light.AttenuationEnd : 500f;
-        float start = light.UsesAttenuation ? light.AttenuationStart : end;
-
-        if (!light.UsesAttenuation)
-        {
-            end *= 2f;
-        }
+        float end = RangeOf(light);
+        float start = light.UsesAttenuation ? MathF.Min(light.AttenuationStart, end) : end;
 
         bool spot = light.Kind == AuthoredLightKind.Spot;
 
@@ -70,6 +71,28 @@ public readonly record struct GpuLight(
             // rays across it, so a two-unit bulb and a twenty-unit window behave
             // differently without needing another buffer.
             new Vector4(MathF.Cos(hot), MathF.Cos(falloff), spot ? 1f : 0f, MathF.Max(light.Radius, 0.01f)));
+    }
+
+    /// <summary>How far a light actually reaches.</summary>
+    /// <param name="light">The light as the scene asset declares it.</param>
+    /// <returns>The distance beyond which it contributes nothing.</returns>
+    /// <remarks>
+    /// A light that declares no attenuation has none: 3ds Max's far attenuation was
+    /// switched off and the bake let it reach the whole map. The stored range is still
+    /// there in the file and is meaningless when the switch is off — R25's key light for
+    /// the afternoon is the sun, fifty thousand units away with a range of two hundred, so
+    /// honouring that range deleted the daylight from every room with a window in it.
+    /// </remarks>
+    public static float RangeOf(AuthoredLight light)
+    {
+        ArgumentNullException.ThrowIfNull(light);
+
+        if (!light.UsesAttenuation)
+        {
+            return Unlimited;
+        }
+
+        return light.AttenuationEnd > 0 ? light.AttenuationEnd : 500f;
     }
 
     /// <summary>Chooses which lights to upload when a scene declares more than fit.</summary>
@@ -92,7 +115,7 @@ public readonly record struct GpuLight(
         ArgumentNullException.ThrowIfNull(lights);
 
         return lights
-            .OrderByDescending(l => l.Intensity * MathF.Max(1f, l.AttenuationEnd))
+            .OrderByDescending(l => l.Intensity * MathF.Max(1f, RangeOf(l)))
             .Take(Capacity)
             .ToList();
     }

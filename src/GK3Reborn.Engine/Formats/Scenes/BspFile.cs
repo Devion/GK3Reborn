@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Formats.Scenes;
@@ -19,7 +19,46 @@ public sealed record BspSurface
     public required Vector2 LightmapUvScale { get; init; }
 
     /// <summary>Surface flags. Meanings are only partly known.</summary>
+    /// <remarks>
+    /// Read from the file as-is. Bit 1 appears on walls, ceilings and floors, bit 2 on
+    /// surfaces that are hard to make out, bit 4 on a mixture of light sources and hit
+    /// tests, and bit 32 nowhere in the corpus; the three that carry meaning here are
+    /// named below. Documented from G-Engine's <c>BSPSurface</c>.
+    /// </remarks>
     public required uint Flags { get; init; }
+
+    /// <summary>Bit 8: the surface is not lit by the bake at all.</summary>
+    public const uint IgnoreLightmapFlag = 8;
+
+    /// <summary>Bit 16: the surface is part of a light fitting — a shade, a globe, a sconce.</summary>
+    public const uint LightFixtureFlag = 16;
+
+    /// <summary>Bit 64: the surface is a translucent shadow decal rather than solid geometry.</summary>
+    public const uint ShadowTextureFlag = 64;
+
+    /// <summary>Whether the bake lit this surface, or it carries its own brightness.</summary>
+    /// <remarks>
+    /// The original binds a white lightmap and a multiplier of one for these, which comes
+    /// out as the texture at full brightness: a lit bulb, a glowing shade, the painted
+    /// view through a window. Multiplying them by a bake instead leaves them as dim as
+    /// the room they are supposed to be lighting.
+    /// </remarks>
+    public bool IsSelfLit =>
+        (Flags & IgnoreLightmapFlag) != 0 || (Flags & ShadowTextureFlag) != 0;
+
+    /// <summary>
+    /// Whether this surface should block a ray-traced shadow.
+    /// </summary>
+    /// <remarks>
+    /// Light fittings must not. The rig puts its emitters where the bulb is — inside the
+    /// shade, behind the pane, under the sconce — because the 1999 bake did not trace the
+    /// fitting against its own light. Tracing it now seals every one of those lights
+    /// inside its fixture and the room goes dark, which is what R25's lamps and its window
+    /// showed. The data says which surfaces those are, so they are left out of the
+    /// acceleration structure exactly as alpha-keyed geometry is.
+    /// </remarks>
+    public bool CastsShadows =>
+        (Flags & (IgnoreLightmapFlag | LightFixtureFlag | ShadowTextureFlag)) == 0;
 }
 
 /// <summary>A convex polygon, indexing into the shared vertex-index array.</summary>

@@ -210,6 +210,51 @@ public sealed class SceneFileTests
         Assert.True(actor.IsEgo);
     }
 
+    [Theory]
+    [InlineData(0u, true)]
+    [InlineData(1u, true)]
+    [InlineData(2u, true)]
+    [InlineData(4u, true)]
+    [InlineData(8u, false)]
+    [InlineData(16u, false)]
+    [InlineData(24u, false)]
+    [InlineData(64u, false)]
+    public void Light_fittings_and_self_lit_surfaces_do_not_block_a_ray(uint flags, bool casts)
+    {
+        // R25's lamps are bit 16 and its window backdrop bit 12, and the rig's emitters
+        // sit inside both. Tracing them shuts the lamps inside their shades.
+        var surface = new BspSurface
+        {
+            ObjectIndex = 0,
+            TextureName = "LAMPSHADE",
+            LightmapUvOffset = Vector2.Zero,
+            LightmapUvScale = Vector2.One,
+            Flags = flags,
+        };
+
+        Assert.Equal(casts, surface.CastsShadows);
+    }
+
+    [Theory]
+    [InlineData(0u, false)]
+    [InlineData(16u, false)]
+    [InlineData(8u, true)]
+    [InlineData(12u, true)]
+    [InlineData(64u, true)]
+    public void The_bake_skips_the_surfaces_that_carry_their_own_brightness(uint flags, bool selfLit)
+    {
+        var surface = new BspSurface
+        {
+            ObjectIndex = 0,
+            TextureName = "LIGHTBULB",
+            LightmapUvOffset = Vector2.Zero,
+            LightmapUvScale = Vector2.One,
+            Flags = flags,
+        };
+
+        Assert.Equal(selfLit, surface.IsSelfLit);
+    }
+
     [Fact]
     public void A_scene_asset_names_its_geometry_and_its_models()
     {

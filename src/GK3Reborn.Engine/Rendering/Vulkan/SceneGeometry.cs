@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
@@ -177,6 +177,49 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
+    /// <summary>
+    /// Adds a flat, unlit, single-colour mesh drawn over the scene.
+    /// </summary>
+    /// <param name="name">A name for the colour's texture, unique per colour.</param>
+    /// <param name="positions">World-space vertices.</param>
+    /// <param name="indices">Triangles over them.</param>
+    /// <param name="colour">What to draw it in, each channel from zero to one.</param>
+    /// <remarks>
+    /// For diagnostic overlays — the walk boundary is the first — so it deliberately does
+    /// not participate in anything else: no lightmap, no rig, and nothing in the
+    /// acceleration structure, because an overlay that cast shadows would change the
+    /// picture it exists to check.
+    /// </remarks>
+    public void AddOverlay(
+        string name, ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices, Vector3 colour)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (positions.Length == 0 || indices.Length == 0)
+        {
+            return;
+        }
+
+        AddTexture(name, Solid(colour));
+
+        MeshVertex[] vertices = new MeshVertex[positions.Length];
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            // The middle of a one-pixel texture, so filtering has nothing to blend with.
+            vertices[i] = new MeshVertex(positions[i], Vector3.UnitY, new Vector2(0.5f, 0.5f), Vector2.Zero);
+        }
+
+        AddBatch(
+            vertices,
+            VulkanBuffer.CreateDeviceLocal<uint>(_context, indices, BufferUsageFlags.IndexBufferBit),
+            IndexType.Uint32,
+            (uint)indices.Length,
+            Matrix4x4.Identity,
+            name,
+            useLightmap: false,
+            selfLit: true);
+    }
+
     /// <summary>Loads a scene's geometry.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">The scene's baked lightmaps, in surface order, if any.</param>
@@ -204,8 +247,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _lightmapRegions = atlas.Regions;
         }
 
-        Dictionary<string, (List<MeshVertex> Vertices, List<uint> Indices)> groups =
-            new(StringComparer.OrdinalIgnoreCase);
+        // Keyed by whether the surface lights itself as well as by texture, because one
+        // texture serves both states: LAMPSHADE is on a shade that the bake lit and on
+        // one that glows on its own.
+        Dictionary<(string Texture, bool SelfLit), (List<MeshVertex> Vertices, List<uint> Indices)>
+            groups = [];
+
+        // What a ray can hit, gathered here rather than per batch: the split between
+        // surfaces that block light and surfaces that do not cuts across the texture the
+        // batches are grouped by.
+        List<Vector3> occluders = [];
+        List<uint> occluderIndices = [];
 
         foreach (BspPolygon polygon in scene.Polygons)
         {
@@ -228,11 +280,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 ? _lightmapRegions[polygon.SurfaceIndex]
                 : Vector4.Zero;
 
-            if (!groups.TryGetValue(surface.TextureName, out (List<MeshVertex>, List<uint>) group))
+            (string, bool) key = (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit);
+
+            if (!groups.TryGetValue(key, out (List<MeshVertex>, List<uint>) group))
             {
                 group = ([], []);
-                groups[surface.TextureName] = group;
+                groups[key] = group;
             }
+
+            bool occludes = surface.CastsShadows && !_keyedTextures.Contains(surface.TextureName);
 
             foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
             {
@@ -255,21 +311,33 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 group.Item2.Add(at + 1);
                 group.Item2.Add(at + 2);
 
+                if (occludes)
+                {
+                    occluderIndices.Add((uint)occluders.Count);
+                    occluderIndices.Add((uint)occluders.Count + 1);
+                    occluderIndices.Add((uint)occluders.Count + 2);
+
+                    occluders.Add(pa);
+                    occluders.Add(pb);
+                    occluders.Add(pc);
+                }
+
                 Grow(pa);
                 Grow(pb);
                 Grow(pc);
             }
         }
 
-        foreach ((string texture, (List<MeshVertex> vertices, List<uint> indices)) in groups)
+        if (_context.SupportsRayTracing && occluderIndices.Count > 0)
+        {
+            _traceable.Add(new RayTracingMesh([.. occluders], [.. occluderIndices]));
+        }
+
+        foreach (((string texture, bool selfLit), (List<MeshVertex> vertices, List<uint> indices))
+                 in groups)
         {
             if (indices.Count > 0)
             {
-                RecordTraceable(
-                    texture,
-                    vertices.Select(v => v.Position).ToArray(),
-                    CollectionsMarshal.AsSpan(indices));
-
                 // Scene batches routinely pass 65,535 vertices: a single wall texture in
                 // the larger scenes covers more geometry than a 16-bit index can address.
                 AddBatch(
@@ -280,7 +348,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     (uint)indices.Count,
                     Matrix4x4.Identity,
                     texture,
-                    useLightmap: true);
+                    useLightmap: true,
+                    selfLit: selfLit);
             }
         }
     }
@@ -351,7 +420,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             {
                 Material = CreateMaterialSet(
                     TextureFor(batch.TextureName),
-                    batch.UseLightmap ? _lightmap ?? _whiteTexture : _whiteTexture),
+                    batch.UseLightmap && !batch.SelfLit ? _lightmap ?? _whiteTexture : _whiteTexture),
             };
         }
     }
@@ -393,7 +462,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             pipeline.PushConstants(command, new DrawConstants(
                 batch.Transform,
                 new Vector4(
-                    _lightmap is not null && batch.UseLightmap ? 1f : 0f, LightmapMultiplier, 0, 0)));
+                    _lightmap is not null && batch.UseLightmap ? 1f : 0f,
+                    LightmapMultiplier,
+                    batch.SelfLit ? 1f : 0f,
+                    0)));
 
             ulong offset = 0;
             Silk.NET.Vulkan.Buffer vertices = batch.Vertices.Handle;
@@ -454,6 +526,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private static DecodedImage Solid(byte level) =>
         new(1, 1, [level, level, level, 255], HasAlpha: false, "solid");
 
+    /// <summary>A one-pixel image of a single colour.</summary>
+    private static DecodedImage Solid(Vector3 colour) =>
+        new(
+            1,
+            1,
+            [Channel(colour.X), Channel(colour.Y), Channel(colour.Z), 255],
+            HasAlpha: false,
+            "solid");
+
+    private static byte Channel(float value) => (byte)Math.Clamp(value * 255f, 0f, 255f);
+
     /// <summary>A visibly wrong texture, so a missing one is obvious rather than silent.</summary>
     private static DecodedImage CheckerBoard()
     {
@@ -490,7 +573,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         uint indexCount,
         Matrix4x4 transform,
         string texture,
-        bool useLightmap) =>
+        bool useLightmap,
+        bool selfLit = false) =>
         _batches.Add(new Batch
         {
             Vertices = VulkanBuffer.CreateDeviceLocal<MeshVertex>(
@@ -501,6 +585,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             Transform = transform,
             TextureName = texture,
             UseLightmap = useLightmap,
+            SelfLit = selfLit,
         });
 
     private VulkanTexture TextureFor(string name) =>
@@ -580,6 +665,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         public required string TextureName { get; init; }
 
         public required bool UseLightmap { get; init; }
+
+        /// <summary>The surface carries its own brightness and the bake does not touch it.</summary>
+        public bool SelfLit { get; init; }
 
         public DescriptorSet Material { get; init; }
     }

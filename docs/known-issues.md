@@ -4,38 +4,7 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. Ray-traced lighting is under-exposed and noisy above Low
-
-**Reported:** 2026-08-19, as a consequence of fixing the shadow budget below.
-
-Once the ray budget started going to the lights that actually light a pixel, the
-lights that were previously contributing unshadowed fill began to be occluded —
-correctly, and the room lost most of its light with them. `--rt low` looks right;
-`--rt medium` and `--rt high` are markedly darker than `--rt none` and carry heavy
-grain, which matters because the host defaults to `--rt high`.
-
-**Reproduce:** `GK3Reborn.exe --scene R25 --timeblock N`, then compare against
-`--rt none` and `--rt low`.
-
-**Leads, in order of suspicion:**
-
-1. **The occlusion radius.** `RayTracingSettings.For` uses 90 units at Medium and
-   140 at High. R25 is about 300 units across, so a 140-unit hemisphere reaches a
-   wall from nearly every point in the room and occlusion sits low everywhere
-   rather than gathering in corners. It multiplies the whole indirect term, so
-   this is the largest single contributor. Raising `LightmapIndirect` was tried
-   and barely moved the image, which points here rather than at the weights.
-2. **The grain is undersampling.** Eight occlusion rays and two shadow samples per
-   light per pixel, with no accumulation across frames and no filter. It was
-   invisible while the direct term was several times over white and swamped it.
-   A temporal accumulator, or a spatial filter on the occlusion term, is the real
-   answer; more rays only moves the threshold.
-3. **The exposure constants were tuned against the broken state.** The lightmap
-   multiplier and the `LightmapIndirect` weights were chosen when every light past
-   the ray budget lit the scene unshadowed. They are worth revisiting once 1 and 2
-   are settled — and again when there is a tone mapper, per the HDR item below.
-
-## 2. HDR output (feature)
+## 1. HDR output (feature)
 
 **Requested:** 2026-08-19.
 
@@ -80,6 +49,54 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ## Closed
 
+### Ray-traced lighting is under-exposed and noisy above Low — fixed 2026-08-19
+
+Three separate causes, none of them the exposure constants the entry had been blaming.
+
+**Light fittings sealed in their own lights.** The rig puts each emitter where the bulb
+is: inside the lampshade, behind the window pane, under the sconce. The 1999 bake never
+traced a fitting against its own light, so the artists had no reason to place them
+anywhere else. Tracing them now shut every lamp inside its shade — the shade stayed lit
+and the room around it went black. R25's window was the same fault at room scale: the
+four `window_hot_spot` lights that stand in for daylight sit between the window backdrop
+and the frame, and the backdrop was blocking all four.
+
+The data marks these surfaces. Bit 16 of a BSP surface's flags is light fittings, bit 8
+is the surfaces the bake never lit, bit 64 is translucent shadow decals; none of them
+now enters the acceleration structure, on the same footing as alpha-keyed geometry. Bit
+4 was left alone — it is on a bedsheet in R25 and is too inconsistent to act on.
+
+Bit 8 also fixed a second thing on the way: those surfaces are self-lit, and the original
+binds a white lightmap and a multiplier of one for them. They were being multiplied by a
+bake instead, which left every bulb and glowing shade as dim as the room it was meant to
+be lighting.
+
+**The occlusion radius.** Ninety units at Medium and a hundred and forty at High, in
+rooms about three hundred across, so a hemisphere that size reached a wall from nearly
+anywhere; occlusion sat low over every surface rather than gathering where two of them
+meet, and it multiplies the whole indirect term. Forty-five units now, at both levels,
+since the radius describes the effect and the ray count is what quality changes.
+
+**The grain was clumping, not undersampling.** Eight rays drawn independently leave gaps.
+They are stratified now — elevation stepped once through the hemisphere, azimuth advanced
+by the golden angle, the pair rotated per pixel — and the noise is essentially gone at
+the same eight rays. The per-pixel value comes from `gl_FragCoord` rather than the world
+position, which also removes a banding artefact: scene coordinates run into the hundreds
+and the old hash lost precision at that scale.
+
+Separately, a light that declares no attenuation now has none, rather than being given
+its stored end distance doubled. R25's afternoon key light is the sun, fifty thousand
+units away with a stored range of two hundred, so the old rule deleted the daylight from
+every room with a window in it.
+
+Measured against the bake in R25, mean luminance at High: afternoon 0.126 → 0.292 against
+the bake's 0.300, night 0.126 → 0.210 against 0.166. Night sits above the bake, which is
+the point — the room is lit by lamps that now actually reach it.
+
+Still open behind all of this: there is no gathered bounce, so the bake stands in as the
+indirect term and the exposure constants remain a judgement rather than a measurement.
+That is the HDR entry above, and `docs/ray-tracing.md` records what is not traced.
+
 ### Nothing casts a shadow indoors — fixed 2026-08-19
 
 Characters, props and scene geometry cast no shadow in any room, at any quality
@@ -111,7 +128,6 @@ Complementary blocks describe alternative states of a scene, not corrections of
 one another, so a model is now hidden only when every block that declares it
 agrees. Where they disagree it is drawn and reported as `SCENE009`, since drawing
 something that should not be there is a smaller loss than losing a wall or a door.
-Deciding it properly needs the Sheep virtual machine.
 
 ### A and D strafe the wrong way — fixed 2026-08-19
 
