@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -26,6 +26,8 @@ public sealed class GameState
     private readonly Dictionary<string, int> _nounVerbCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _topicCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _actorLocations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _locationCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _chatCounts = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>What each character is carrying.</summary>
     public Inventory Inventory { get; } = new();
@@ -35,6 +37,14 @@ public sealed class GameState
 
     /// <summary>Three-letter code of the current location.</summary>
     public string Location { get; set; } = string.Empty;
+
+    /// <summary>Three-letter code of the location before this one.</summary>
+    /// <remarks>
+    /// Scenes are built differently depending on where the player came from — which door
+    /// stands open, which backdrop is visible through it — so this is state a scene reads,
+    /// not a breadcrumb.
+    /// </remarks>
+    public string LastLocation { get; private set; } = string.Empty;
 
     /// <summary>Name of the actor the player controls.</summary>
     public string Ego { get; set; } = "GABRIEL";
@@ -100,6 +110,69 @@ public sealed class GameState
     public void SetActorLocation(string actor, string location) =>
         _actorLocations[Key(actor)] = location;
 
+    /// <summary>How many times an actor has been somewhere during this timeblock.</summary>
+    /// <param name="actor">The actor.</param>
+    /// <param name="location">Three-letter location code.</param>
+    /// <returns>The count.</returns>
+    public int GetLocationCount(string actor, string location) =>
+        _locationCounts.GetValueOrDefault(LocationKey(actor, location, Timeblock.ToString()));
+
+    /// <summary>Sets how many times an actor has been somewhere during this timeblock.</summary>
+    /// <param name="actor">The actor.</param>
+    /// <param name="location">Three-letter location code.</param>
+    /// <param name="value">The count.</param>
+    public void SetLocationCount(string actor, string location, int value) =>
+        _locationCounts[LocationKey(actor, location, Timeblock.ToString())] = value;
+
+    /// <summary>Whether an actor has ever been somewhere, in any timeblock.</summary>
+    /// <param name="actor">The actor.</param>
+    /// <param name="location">Three-letter location code.</param>
+    /// <returns>True if the count for any timeblock is above zero.</returns>
+    public bool WasEverInLocation(string actor, string location)
+    {
+        string prefix = LocationKey(actor, location, string.Empty);
+
+        return _locationCounts.Any(
+            kv => kv.Value > 0 && kv.Key.StartsWith(prefix, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Records an actor arriving somewhere, and makes it the current location for ego.
+    /// </summary>
+    /// <param name="actor">The actor arriving.</param>
+    /// <param name="location">Three-letter location code.</param>
+    /// <remarks>
+    /// Call this <em>after</em> the scene has been built, not before. The original does the
+    /// same and says why: a SIF asks <c>GetEgoCurrentLocationCount() &lt; 1</c> to mean "the
+    /// first time here", so while the scene is being assembled the count must still be the
+    /// number of <em>previous</em> visits. Scripts that run once the scene is up check for
+    /// one instead. Incrementing first turns every first visit into a second.
+    /// </remarks>
+    public void EnterLocation(string actor, string location)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        ArgumentNullException.ThrowIfNull(location);
+
+        string key = LocationKey(actor, location, Timeblock.ToString());
+        _locationCounts[key] = _locationCounts.GetValueOrDefault(key) + 1;
+        _actorLocations[Key(actor)] = location;
+
+        if (IsEgo(actor) && !string.Equals(Location, location, StringComparison.OrdinalIgnoreCase))
+        {
+            LastLocation = Location;
+            Location = location;
+        }
+    }
+
+    /// <summary>How many times the player has chatted about a noun.</summary>
+    public int GetChatCount(string noun) => _chatCounts.GetValueOrDefault(Key(noun));
+
+    /// <summary>Sets a chat count.</summary>
+    public void SetChatCount(string noun, int value) => _chatCounts[Key(noun)] = value;
+
+    /// <summary>Adds one to a chat count.</summary>
+    public void IncrementChatCount(string noun) => _chatCounts[Key(noun)] = GetChatCount(noun) + 1;
+
     /// <summary>Adds to the score.</summary>
     public void ChangeScore(int by) => Score += by;
 
@@ -116,6 +189,7 @@ public sealed class GameState
         var builder = new StringBuilder();
         builder.Append(CultureInfo.InvariantCulture, $"timeblock={Timeblock}\n");
         builder.Append(CultureInfo.InvariantCulture, $"location={Location}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"lastlocation={LastLocation}\n");
         builder.Append(CultureInfo.InvariantCulture, $"ego={Ego}\n");
         builder.Append(CultureInfo.InvariantCulture, $"score={Score}\n");
 
@@ -123,6 +197,8 @@ public sealed class GameState
         Append(builder, "var", Ordered(_variables));
         Append(builder, "nounverb", Ordered(_nounVerbCounts));
         Append(builder, "topic", Ordered(_topicCounts));
+        Append(builder, "chat", Ordered(_chatCounts));
+        Append(builder, "visited", Ordered(_locationCounts));
         Append(builder, "actor", _actorLocations
             .OrderBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => (kv.Key, kv.Value)));
@@ -149,7 +225,27 @@ public sealed class GameState
         }
     }
 
+    /// <summary>Whether a name refers to the actor the player is controlling.</summary>
+    /// <remarks>
+    /// Scripts spell ego several ways — <c>GABRIEL</c>, <c>GAB</c>, <c>Gabe</c> — so this
+    /// matches on the prefix the two names share rather than on equality.
+    /// </remarks>
+    private bool IsEgo(string actor) =>
+        Key(actor).StartsWith(Key(Ego)[..Math.Min(3, Key(Ego).Length)], StringComparison.Ordinal);
+
     private static string Key(string name) => name.Trim().ToUpperInvariant();
+
+    /// <summary>
+    /// The key a visit is counted under.
+    /// </summary>
+    /// <remarks>
+    /// Counts are per timeblock, because that is the question the scripts ask: a SIF wants
+    /// to know whether this is the first time here <em>this afternoon</em>, not the first
+    /// time in the game. <see cref="WasEverInLocation"/> is the across-all-timeblocks form
+    /// and matches on the prefix, which is why the timeblock goes last.
+    /// </remarks>
+    private static string LocationKey(string actor, string location, string timeblock) =>
+        $"{Key(actor)}|{Key(location)}|{timeblock}";
 
     private static string Pair(string first, string second) => $"{Key(first)}|{Key(second)}";
 }

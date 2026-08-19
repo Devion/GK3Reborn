@@ -5,37 +5,42 @@ using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
+using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 
 namespace GK3Reborn.Game;
 
 /// <summary>What loading a scene produced, besides its geometry.</summary>
 /// <param name="Name">Scene name.</param>
-/// <param name="Init">Its initialisation file, if it has one.</param>
+/// <param name="Definition">What the scene's initialisation files say it is.</param>
 /// <param name="Asset">The scene asset for the chosen time of day, if it has one.</param>
 /// <param name="Lightmaps">The baked lighting that was applied, if any.</param>
 /// <param name="ModelsPlaced">How many props were placed.</param>
+/// <param name="Walkable">Where actors may stand, if the scene declares a boundary.</param>
+/// <param name="Geometry">
+/// The room's parsed geometry. Kept because several things want to ask questions of it
+/// after loading — where the floor is under a point, what a click landed on — and
+/// re-reading the file to answer them would be silly.
+/// </param>
 public sealed record LoadedScene(
     string Name,
-    SceneInitFile? Init,
+    SceneDefinition Definition,
     SceneAssetFile? Asset,
     MulFile? Lightmaps,
-    int ModelsPlaced)
+    int ModelsPlaced,
+    WalkBoundary? Walkable = null,
+    BspFile? Geometry = null)
 {
     /// <summary>The lights the artists authored for this time of day.</summary>
     public IReadOnlyList<AuthoredLight> Lights => Asset?.Lights ?? [];
 
     /// <summary>Cameras the player's view can occupy.</summary>
-    public IReadOnlyList<SceneCamera> Cameras => Init?.RoomCameras() ?? [];
+    public IReadOnlyList<SceneCamera> Cameras => Definition.RoomCameras();
 
     /// <summary>Finds a camera by name, falling back to the scene's default.</summary>
     /// <param name="name">Camera name, or null for the default.</param>
     /// <returns>The camera, or null if the scene defines none.</returns>
-    public SceneCamera? CameraNamed(string? name) =>
-        name is null
-            ? Init?.DefaultCamera()
-            : Cameras.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
-              ?? Init?.DefaultCamera();
+    public SceneCamera? CameraNamed(string? name) => Definition.CameraNamed(name);
 }
 
 /// <summary>
@@ -78,15 +83,24 @@ public sealed class SceneLoader
     /// <param name="diagnostics">Receives anything that could not be loaded.</param>
     /// <returns>What was loaded, or null if the scene has no geometry at all.</returns>
     public LoadedScene? Load(
-        ISceneSink geometry, string sceneName, string? timeblock, DiagnosticBag diagnostics)
+        ISceneSink geometry, string sceneName, string? timeblock, DiagnosticBag diagnostics) =>
+        Load(geometry, SceneRequest.For(sceneName, timeblock), diagnostics);
+
+    /// <summary>Loads a scene at a point in the story.</summary>
+    /// <param name="geometry">Where to put it.</param>
+    /// <param name="request">What to load, and when in the story.</param>
+    /// <param name="diagnostics">Receives anything that could not be loaded.</param>
+    /// <returns>What was loaded, or null if the scene has no geometry at all.</returns>
+    public LoadedScene? Load(ISceneSink geometry, SceneRequest request, DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(geometry);
-        ArgumentNullException.ThrowIfNull(sceneName);
+        ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(diagnostics);
 
-        string scene = Path.GetFileNameWithoutExtension(sceneName).ToUpperInvariant();
+        string scene = request.Scene;
+        string? timeblock = request.AssetSuffix;
 
-        SceneInitFile? init = ReadInit(scene, diagnostics);
+        SceneDefinition init = ReadDefinition(scene, request, diagnostics);
         SceneAssetFile? asset = ReadAsset(scene, timeblock, init, diagnostics);
 
         string bspName = asset?.BspName ?? scene;
@@ -123,7 +137,8 @@ public sealed class SceneLoader
         placed += PlaceActors(geometry, init, diagnostics);
         _log?.Invoke($"models: {placed} placed, textures: {geometry.TextureCount}");
 
-        return new LoadedScene(scene, init, asset, lightmaps, placed);
+        return new LoadedScene(
+            scene, init, asset, lightmaps, placed, ReadBoundary(init, diagnostics), bsp);
     }
 
     /// <summary>Builds a camera from one of a scene's own viewpoints.</summary>
@@ -165,13 +180,8 @@ public sealed class SceneLoader
     /// them; only the initialisation file does. Drawing them puts large flat slabs through
     /// the middle of a room, which is exactly what the lobby showed before this.
     /// </remarks>
-    private static HashSet<string> HiddenObjects(SceneInitFile? init)
+    private static HashSet<string> HiddenObjects(SceneDefinition init)
     {
-        if (init is null)
-        {
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        }
-
         return init.Models()
             .Where(m => IsHitTest(m) || (IsBakedIn(m) && m.Hidden))
             .Select(m => m.Name)
@@ -184,9 +194,9 @@ public sealed class SceneLoader
     /// removing one. Naming them is what makes the guess reviewable: without this the only
     /// evidence is an object that looks out of place, which is hard to trace back here.
     /// </remarks>
-    private static void ReportDisputedVisibility(SceneInitFile? init, DiagnosticBag diagnostics)
+    private static void ReportDisputedVisibility(SceneDefinition init, DiagnosticBag diagnostics)
     {
-        if (init is null)
+        if (init.ConditionsResolved)
         {
             return;
         }
@@ -215,30 +225,94 @@ public sealed class SceneLoader
         !string.Equals(model.Type, "prop", StringComparison.OrdinalIgnoreCase) &&
         !string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase);
 
-    private SceneInitFile? ReadInit(string scene, DiagnosticBag diagnostics)
+    /// <summary>Reads the bitmap that says where actors may stand.</summary>
+    private WalkBoundary? ReadBoundary(SceneDefinition init, DiagnosticBag diagnostics)
     {
-        string? text = _archives.ReadText(scene + ".SIF");
-        if (text is null)
+        if (init.Boundary() is not { } declared)
+        {
+            return null;
+        }
+
+        byte[]? bitmap = _archives.Read(declared.Texture + ".BMP");
+        if (bitmap is null)
         {
             diagnostics.Add(new Diagnostic(
-                "SCENE002",
+                "SCENE012",
                 DiagnosticSeverity.Warning,
-                $"No {scene}.SIF; the scene has no cameras of its own."));
+                $"The scene's walk boundary is {declared.Texture}.BMP, which no archive " +
+                "contains; nothing constrains where actors may stand."));
 
             return null;
         }
 
-        SceneInitFile init = SceneInitFile.Parse(text, scene + ".SIF");
-        _log?.Invoke($"init: {init.Name}, {init.RoomCameras().Count} room cameras, " +
-                     $"{init.Models().Count} models, {init.Actors().Count} actors");
+        WalkBoundary? boundary = WalkBoundary.From(
+            bitmap, declared.Texture + ".BMP", declared.Size, declared.Offset);
 
-        return init;
+        if (boundary is not null)
+        {
+            _log?.Invoke(
+                $"walkable: {declared.Texture}, {boundary.Width}x{boundary.Height} over " +
+                $"{declared.Size.X:F0}x{declared.Size.Y:F0} units, " +
+                $"{boundary.WalkableTexels()} of {boundary.Width * boundary.Height} texels open");
+        }
+
+        return boundary;
+    }
+
+    /// <summary>Reads the one or two initialisation files that describe a scene.</summary>
+    private SceneDefinition ReadDefinition(
+        string scene, SceneRequest request, DiagnosticBag diagnostics)
+    {
+        SceneInitFile? general = ReadInit(scene, request, diagnostics, required: true);
+
+        // The timeblock file is where the story lives: the actors present, the props they
+        // are holding, the cameras the conversation cuts between. Most location and
+        // timeblock pairs have none, and that is not a problem worth reporting.
+        SceneInitFile? specific = request.TimeblockCode is { Length: > 0 } code
+            ? ReadInit(scene + code, request, diagnostics, required: false)
+            : null;
+
+        var definition = new SceneDefinition(general, specific);
+
+        _log?.Invoke(
+            $"init: {Named(general)}{(specific is null ? string.Empty : " + " + Named(specific))}, " +
+            $"{definition.RoomCameras().Count} room cameras, {definition.Models().Count} models, " +
+            $"{definition.Actors().Count} actors" +
+            (definition.ConditionsResolved ? " for this point in the story" : string.Empty));
+
+        return definition;
+
+        static string Named(SceneInitFile? file) => file?.Name ?? "no SIF";
+    }
+
+    private SceneInitFile? ReadInit(
+        string name, SceneRequest request, DiagnosticBag diagnostics, bool required)
+    {
+        string? text = _archives.ReadText(name + ".SIF");
+        if (text is null)
+        {
+            if (required)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE002",
+                    DiagnosticSeverity.Warning,
+                    $"No {name}.SIF; the scene has no cameras of its own."));
+            }
+
+            return null;
+        }
+
+        return request.Conditions is null
+            ? SceneInitFile.Parse(text, name + ".SIF")
+            : SceneInitFile.Parse(text, name + ".SIF", request.Conditions.Applies);
     }
 
     private SceneAssetFile? ReadAsset(
-        string scene, string? timeblock, SceneInitFile? init, DiagnosticBag diagnostics)
+        string scene, string? timeblock, SceneDefinition init, DiagnosticBag diagnostics)
     {
-        foreach (string candidate in Candidates(scene, timeblock, init?.SceneAsset()))
+        string? declared = init.SceneAsset();
+
+        foreach (string candidate in Candidates(scene, timeblock, declared))
         {
             string? text = _archives.ReadText(candidate + ".SCN");
             if (text is not null)
@@ -307,9 +381,9 @@ public sealed class SceneLoader
     }
 
     private int PlaceModels(
-        ISceneSink geometry, SceneAssetFile? asset, SceneInitFile? init, DiagnosticBag diagnostics)
+        ISceneSink geometry, SceneAssetFile? asset, SceneDefinition init, DiagnosticBag diagnostics)
     {
-        IReadOnlyList<SceneModel> declared = init?.Models() ?? [];
+        IReadOnlyList<SceneModel> declared = init.Models();
         int placed = 0;
 
         foreach (SceneModel model in declared)
@@ -358,24 +432,44 @@ public sealed class SceneLoader
     /// supposed to be in.
     /// </para>
     /// </remarks>
-    private int PlaceActors(ISceneSink geometry, SceneInitFile? init, DiagnosticBag diagnostics)
+    private int PlaceActors(ISceneSink geometry, SceneDefinition init, DiagnosticBag diagnostics)
     {
-        if (init?.StartPosition() is not { } start)
-        {
-            return 0;
-        }
-
         int placed = 0;
 
-        foreach (SceneActor actor in init.Actors().Where(a => a.IsEgo))
+        foreach (SceneActor actor in init.Actors().Where(a => !a.Hidden))
         {
+            // Ego arrives at the scene's entry point; everyone else stands where their own
+            // line says. Both are named spots, and an actor whose spot the scene does not
+            // define has nowhere to be put.
+            ScenePosition? spot = actor.IsEgo
+                ? init.PositionNamed(actor.Position) ?? init.StartPosition()
+                : init.PositionNamed(actor.Position);
+
+            if (spot is null)
+            {
+                // An actor with no spot of their own is placed by a script, which is
+                // ordinary and silent — 206 actor/timeblock pairs in the corpus are like
+                // that. Naming a spot the scene does not define is a different matter, and
+                // happens exactly once: the abbé at MA1 303P.
+                if (actor.IsEgo || actor.Position is { Length: > 0 })
+                {
+                    diagnostics.Add(new Diagnostic(
+                        "SCENE011",
+                        DiagnosticSeverity.Warning,
+                        $"{actor.Name} is placed at '{actor.Position ?? "START"}', which the " +
+                        "scene does not define; the actor is left out."));
+                }
+
+                continue;
+            }
+
             byte[]? bytes = _archives.Read(actor.Name + ".MOD");
             if (bytes is null)
             {
                 diagnostics.Add(new Diagnostic(
                     "SCENE008",
                     DiagnosticSeverity.Warning,
-                    $"The scene's ego is {actor.Name}, which no archive contains."));
+                    $"The scene places {actor.Name}, which no archive contains."));
 
                 continue;
             }
@@ -392,9 +486,11 @@ public sealed class SceneLoader
             // the position needs no vertical adjustment.
             geometry.Add(
                 model,
-                Matrix4x4.CreateRotationY(start.Heading) * Matrix4x4.CreateTranslation(start.Position));
+                Matrix4x4.CreateRotationY(spot.Heading) * Matrix4x4.CreateTranslation(spot.Position));
 
-            _log?.Invoke($"actor: {actor.Name} ({actor.Noun}) at {start.Name}");
+            _log?.Invoke(
+                $"actor: {actor.Name} ({actor.Noun}) at {spot.Name}{(actor.IsEgo ? ", ego" : string.Empty)}");
+
             placed++;
         }
 

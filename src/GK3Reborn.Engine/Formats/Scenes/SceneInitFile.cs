@@ -26,6 +26,12 @@ public sealed record SceneCamera(string Name, Vector3 Position, float Yaw, float
         MathF.Cos(Pitch) * MathF.Cos(Yaw));
 }
 
+/// <summary>Where an actor is allowed to stand, as the scene declares it.</summary>
+/// <param name="Texture">Name of the boundary bitmap, without an extension.</param>
+/// <param name="Size">How much of the world it covers, on X and Z, in scene units.</param>
+/// <param name="Offset">Where the world origin sits within that area.</param>
+public sealed record SceneBoundary(string Texture, Vector2 Size, Vector2 Offset);
+
 /// <summary>A model the scene places.</summary>
 /// <param name="Name">Model name, without extension.</param>
 /// <param name="Noun">The noun it answers to, if any.</param>
@@ -51,7 +57,19 @@ public sealed record ScenePosition(string Name, Vector3 Position, float Heading,
 /// <param name="Name">Model name.</param>
 /// <param name="Noun">The noun it answers to.</param>
 /// <param name="IsEgo">Whether the player controls it.</param>
-public sealed record SceneActor(string Name, string? Noun, bool IsEgo);
+public sealed record SceneActor(string Name, string? Noun, bool IsEgo)
+{
+    /// <summary>Name of the spot the actor stands at, if the line gives one.</summary>
+    /// <remarks>
+    /// Ego has none and starts at <c>START</c>. Everyone else is placed by name —
+    /// <c>pos=GRACE_INIT</c> — which is why the timeblock file that puts Grace in the room
+    /// also defines the spot she stands on.
+    /// </remarks>
+    public string? Position { get; init; }
+
+    /// <summary>Whether the actor is in the scene but not to be drawn.</summary>
+    public bool Hidden { get; init; }
+}
 
 /// <summary>
 /// Reader for scene initialisation files.
@@ -75,10 +93,13 @@ public sealed record SceneActor(string Name, string? Noun, bool IsEgo);
 public sealed class SceneInitFile
 {
     private readonly IniDocument _document;
+    private readonly SectionFilter _applies;
 
-    private SceneInitFile(IniDocument document)
+    private SceneInitFile(IniDocument document, SectionFilter? applies)
     {
         _document = document;
+        _applies = applies ?? IniDocument.EverySection;
+        ConditionsResolved = applies is not null;
     }
 
     /// <summary>Name this file was read under.</summary>
@@ -87,25 +108,100 @@ public sealed class SceneInitFile
     /// <summary>The underlying document, for sections without a typed accessor.</summary>
     public IniDocument Document => _document;
 
+    /// <summary>
+    /// Whether the conditions were decided rather than taken all at once.
+    /// </summary>
+    /// <remarks>
+    /// It changes what a repeated declaration means. Read without deciding, two blocks
+    /// naming the same model are two states of the scene and the reader has to reconcile
+    /// them; read with the conditions decided, at most one of them applies and the later
+    /// declaration simply refines the earlier, which is what the original does.
+    /// </remarks>
+    public bool ConditionsResolved { get; }
+
     /// <summary>Parses a scene initialisation file.</summary>
     /// <param name="text">The file's text.</param>
     /// <param name="name">Name used in diagnostics.</param>
-    /// <returns>The parsed file.</returns>
+    /// <returns>The parsed file, holding every state the scene can be in.</returns>
     public static SceneInitFile Parse(string text, string name = "<memory>") =>
-        new(IniDocument.Parse(text, name));
+        new(IniDocument.Parse(text, name), null);
+
+    /// <summary>Parses a scene initialisation file for one state of the story.</summary>
+    /// <param name="text">The file's text.</param>
+    /// <param name="name">Name used in diagnostics.</param>
+    /// <param name="applies">Decides which of the conditional sections hold.</param>
+    /// <returns>The parsed file, holding the scene as it stands right now.</returns>
+    public static SceneInitFile Parse(string text, string name, SectionFilter applies)
+    {
+        ArgumentNullException.ThrowIfNull(applies);
+        return new SceneInitFile(IniDocument.Parse(text, name), applies);
+    }
+
+    /// <summary>The sections to read, for a caller that asked for the conditional ones.</summary>
+    private SectionFilter Applies(bool includeConditional) =>
+        includeConditional ? _applies : IniDocument.UnconditionalSections;
 
     /// <summary>The scene asset to load, which in turn names the geometry and lights.</summary>
     /// <param name="includeConditional">Whether to consider conditional sections.</param>
     /// <returns>The name, or null if the file does not give one.</returns>
     public string? SceneAsset(bool includeConditional = false) =>
-        _document.LinesOf("GENERAL", includeConditional)
+        _document.LinesOf("GENERAL", Applies(includeConditional))
             .Select(l => l.Value("scene"))
+            .LastOrDefault(v => !string.IsNullOrEmpty(v));
+
+    /// <summary>Where actors may stand.</summary>
+    /// <returns>The declaration, or null if the scene has no boundary.</returns>
+    /// <remarks>
+    /// One line carrying three pairs, and the corpus spells the last two both ways —
+    /// <c>size=</c> in most scenes, <c>Size=</c> in RC1 — so the lookup is
+    /// case-insensitive like every other key.
+    /// </remarks>
+    public SceneBoundary? Boundary()
+    {
+        foreach (IniLine line in _document.LinesOf("GENERAL", Applies(includeConditional: true)).Reverse())
+        {
+            if (line.Value("boundary") is not { Length: > 0 } texture)
+            {
+                continue;
+            }
+
+            float[]? size = line.Find("size")?.AsNumbers(2);
+            float[]? offset = line.Find("offset")?.AsNumbers(2);
+
+            if (size is null)
+            {
+                continue;
+            }
+
+            return new SceneBoundary(
+                texture,
+                new Vector2(size[0], size[1]),
+                offset is null ? Vector2.Zero : new Vector2(offset[0], offset[1]));
+        }
+
+        return null;
+    }
+
+    /// <summary>The object in the geometry that is the floor.</summary>
+    /// <returns>Its name, or null if the scene does not say.</returns>
+    /// <remarks>
+    /// Named so that a point can be dropped onto the ground without testing the whole
+    /// room: the floor is one object among a hundred, and the scene says which.
+    /// </remarks>
+    public string? FloorObject() =>
+        _document.LinesOf("GENERAL", Applies(includeConditional: true))
+            .Select(l => l.Value("floor"))
             .LastOrDefault(v => !string.IsNullOrEmpty(v));
 
     /// <summary>Where the scene's global light sits.</summary>
     /// <returns>The position, or null.</returns>
+    /// <remarks>
+    /// Conditional blocks count. R25 states its unconditional position once and then moves
+    /// the light for each time of day, so reading only the unconditional blocks gives the
+    /// scene its morning sun at midnight.
+    /// </remarks>
     public Vector3? GlobalLight() =>
-        _document.LinesOf("GENERAL")
+        _document.LinesOf("GENERAL", Applies(includeConditional: true))
             .Where(l => string.Equals(l.Head.Key, "globalLight", StringComparison.OrdinalIgnoreCase))
             .Select(l => l.Vector("pos"))
             .LastOrDefault(v => v is not null);
@@ -139,15 +235,21 @@ public sealed class SceneInitFile
     /// noun and type of the earlier, so those come from the last occurrence.
     /// </para>
     /// <para>
-    /// Hiding does not work that way. A pair of blocks under complementary conditions —
-    /// <c>{!IsCurrentTime("202p")}</c> and <c>{IsCurrentTime("202p")}</c> — describes two
-    /// states of the scene, of which exactly one holds; the second is not a correction of
-    /// the first. Until the conditions can be evaluated, taking the last occurrence hides
-    /// whatever any block hides, which is how the hall door in R25 disappeared and left its
-    /// knob behind. So a model is hidden only when every block that declares it agrees, and
-    /// the rest are reported through <see cref="SceneModel.VisibilityDisputed"/>. Erring
-    /// towards drawing matches this reader's treatment of conditionals everywhere else: an
-    /// object that should not be there is a smaller loss than a missing wall or door.
+    /// Hiding does not work that way when the conditions have not been decided. A pair of
+    /// blocks under complementary conditions — <c>{!IsCurrentTime("202p")}</c> and
+    /// <c>{IsCurrentTime("202p")}</c> — describes two states of the scene, of which exactly
+    /// one holds; the second is not a correction of the first. Taking the last occurrence
+    /// would hide whatever any block hides, which is how the hall door in R25 disappeared
+    /// and left its knob behind. So without <see cref="ConditionsResolved"/> a model is
+    /// hidden only when every block that declares it agrees, and the rest are reported
+    /// through <see cref="SceneModel.VisibilityDisputed"/>. Erring towards drawing matches
+    /// this reader's treatment of conditionals everywhere else: an object that should not
+    /// be there is a smaller loss than a missing wall or door.
+    /// </para>
+    /// <para>
+    /// With the conditions decided the question does not arise. Only one of the pair
+    /// applies, so the last declaration wins outright — hiding included — and nothing is
+    /// ever in dispute.
     /// </para>
     /// </remarks>
     public IReadOnlyList<SceneModel> Models(bool includeConditional = true)
@@ -155,7 +257,7 @@ public sealed class SceneInitFile
         Dictionary<string, SceneModel> models = new(StringComparer.OrdinalIgnoreCase);
         List<string> order = [];
 
-        foreach (IniLine line in _document.LinesOf("MODELS", includeConditional))
+        foreach (IniLine line in _document.LinesOf("MODELS", Applies(includeConditional)))
         {
             if (line.Value("model") is not { Length: > 0 } modelName)
             {
@@ -173,11 +275,14 @@ public sealed class SceneInitFile
                 modelName,
                 line.Value("noun"),
                 line.Value("type"),
-                hidden && (seen?.Hidden ?? true))
+                ConditionsResolved ? hidden : hidden && (seen?.Hidden ?? true))
             {
                 // Carried forward, or a third block agreeing with the second would erase
-                // the disagreement the first one recorded.
-                VisibilityDisputed = seen is not null && (seen.VisibilityDisputed || seen.Hidden != hidden),
+                // the disagreement the first one recorded. Nothing to carry once the
+                // conditions are decided: only one of a pair of blocks applies.
+                VisibilityDisputed = !ConditionsResolved &&
+                                     seen is not null &&
+                                     (seen.VisibilityDisputed || seen.Hidden != hidden),
             };
         }
 
@@ -188,16 +293,20 @@ public sealed class SceneInitFile
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The actors.</returns>
     public IReadOnlyList<SceneActor> Actors(bool includeConditional = true) =>
-        _document.LinesOf("ACTORS", includeConditional)
+        _document.LinesOf("ACTORS", Applies(includeConditional))
             .Where(l => l.Value("model") is { Length: > 0 })
-            .Select(l => new SceneActor(l.Value("model")!, l.Value("noun"), l.HasFlag("ego")))
+            .Select(l => new SceneActor(l.Value("model")!, l.Value("noun"), l.HasFlag("ego"))
+            {
+                Position = l.Value("pos"),
+                Hidden = l.HasFlag("hidden"),
+            })
             .ToList();
 
     /// <summary>The spots the scene defines.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The positions, in file order.</returns>
     public List<ScenePosition> Positions(bool includeConditional = true) =>
-        _document.LinesOf("POSITIONS", includeConditional)
+        _document.LinesOf("POSITIONS", Applies(includeConditional))
             .Where(l => l.Vector("pos") is not null)
             .Select(l => new ScenePosition(
                 l.Head.Key,
@@ -205,6 +314,14 @@ public sealed class SceneInitFile
                 float.DegreesToRadians(l.Number("heading") ?? 0f),
                 l.Value("camera")))
             .ToList();
+
+    /// <summary>A named spot, or null if the scene does not define one under that name.</summary>
+    /// <param name="name">The spot's name.</param>
+    /// <returns>The position.</returns>
+    public ScenePosition? PositionNamed(string? name) =>
+        name is null
+            ? null
+            : Positions().Find(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Where the player starts.</summary>
     /// <returns>The spot named START, the first one, or null.</returns>
@@ -225,7 +342,7 @@ public sealed class SceneInitFile
     {
         List<SceneCamera> cameras = [];
 
-        foreach (IniLine line in _document.LinesOf(section, includeConditional))
+        foreach (IniLine line in _document.LinesOf(section, Applies(includeConditional)))
         {
             if (line.Vector("pos") is not { } position ||
                 line.Find("angle")?.AsNumbers(2) is not { } angle)

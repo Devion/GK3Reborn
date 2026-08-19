@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using GK3Reborn.Content;
 using GK3Reborn.Foundation;
@@ -118,8 +118,15 @@ public static class Application
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         var diagnostics = new DiagnosticBag();
+        SceneRequest request = SceneRequest.For(sceneName, timeblock);
+
+        if (request.State is not null)
+        {
+            Console.WriteLine($"Story: {request.State.Timeblock} in {request.State.Location}");
+        }
+
         var loader = new SceneLoader(archives, Console.WriteLine);
-        LoadedScene? scene = loader.Load(geometry, sceneName, timeblock, diagnostics);
+        LoadedScene? scene = loader.Load(geometry, request, diagnostics);
 
         if (scene is null)
         {

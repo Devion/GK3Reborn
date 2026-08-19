@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace GK3Reborn.Game;
 
@@ -42,8 +42,15 @@ public readonly record struct Timeblock(int Day, int Hour, bool IsAfternoon) : I
     }
 
     /// <summary>Renders the original code form.</summary>
+    /// <remarks>
+    /// The hour is two digits, always: the codes are four characters and the game writes
+    /// <c>102P</c> rather than <c>12P</c>. Getting this wrong is quiet and total — scene
+    /// files and scripts ask <c>IsCurrentTime("202p")</c>, which compares against this
+    /// string, so an unpadded hour makes every such condition false and a scene loads in
+    /// whichever state its unconditional block happens to describe.
+    /// </remarks>
     public override string ToString() =>
-        string.Create(CultureInfo.InvariantCulture, $"{Day}{Hour}{(IsAfternoon ? 'P' : 'A')}");
+        string.Create(CultureInfo.InvariantCulture, $"{Day}{Hour:00}{(IsAfternoon ? 'P' : 'A')}");
 
     /// <summary>Orders timeblocks chronologically.</summary>
     public int CompareTo(Timeblock other)

@@ -30,7 +30,9 @@ slightly grey.
 
 ## Windows bitmaps — 328 assets
 
-322 are 8-bit palettised, 6 are 24-bit. Standard layout: 54-byte header, then a palette
+322 are 8-bit palettised, 6 are 24-bit. Some of the palettised ones are data rather than
+pictures — the walk boundaries, where the palette index is the region and the colour is
+incidental — and `BitmapDecoder.DecodeIndexed` reads those as indices instead. Standard layout: 54-byte header, then a palette
 for the 8-bit ones, then bottom-up rows padded to a four-byte stride, with channels in
 blue-green-red order.
 

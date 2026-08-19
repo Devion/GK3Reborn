@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Ini;
+﻿using GK3Reborn.Formats.Ini;
 using Xunit;
 
 namespace GK3Reborn.Tests.Formats;
@@ -158,5 +158,47 @@ public sealed class IniDocumentTests
         string[] names = document.SectionsStartingWith("Light_").Select(s => s.Name).ToArray();
 
         Assert.Equal(["Light_omni01", "Light_moon(key)"], names);
+    }
+
+    [Fact]
+    public void A_section_header_keeps_its_condition_verbatim()
+    {
+        IniDocument document = IniDocument.Parse(
+            "[MODELS={IsCurrentTime(\"202p\") && GetFlag(\"x\")}]\nmodel=door\n", "test.SIF");
+
+        Assert.Equal(
+            "IsCurrentTime(\"202p\") && GetFlag(\"x\")",
+            Assert.Single(document.Sections).Condition);
+    }
+
+    [Fact]
+    public void A_stray_bracket_after_the_condition_is_not_part_of_it()
+    {
+        // CHU.SIF ships one header closed with "}]]". Left attached, the expression
+        // parser sees trailing junk and the condition fails for the whole scene.
+        IniDocument document = IniDocument.Parse(
+            "[MODELS={!DoesGraceHaveInvItem(\"church_pamphlet\")}]]\nmodel=pmphl\n", "CHU.SIF");
+
+        Assert.Equal(
+            "!DoesGraceHaveInvItem(\"church_pamphlet\")",
+            Assert.Single(document.Sections).Condition);
+    }
+
+    [Fact]
+    public void A_filter_decides_which_conditional_sections_are_read()
+    {
+        IniDocument document = IniDocument.Parse(
+            "[MODELS]\nmodel=wall\n[MODELS={day}]\nmodel=sun\n[MODELS={night}]\nmodel=lamp\n",
+            "test.SIF");
+
+        Assert.Equal(
+            ["wall", "sun"],
+            document.LinesOf("MODELS", c => c is null or "day").Select(l => l.Value("model")));
+
+        Assert.Equal(
+            ["wall"],
+            document.LinesOf("MODELS", IniDocument.UnconditionalSections).Select(l => l.Value("model")));
+
+        Assert.Equal(3, document.LinesOf("MODELS", IniDocument.EverySection).Count());
     }
 }

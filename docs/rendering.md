@@ -178,11 +178,24 @@ cannot drift apart.
 
 ```bash
 # a still, headless, from one of the scene's own cameras
-GK3Reborn.Tools render-scene --source <GK3>/Data --model R25 --timeblock M --camera SITTINGAREA
+GK3Reborn.Tools render-scene --source <GK3>/Data --model R25 --timeblock 202P --camera SITTINGAREA
 
 # the same scene in a window, with a camera that can be flown around
-GK3Reborn --scene R25 --timeblock M --data <GK3>/Data
+GK3Reborn --scene R25 --timeblock 202P --data <GK3>/Data
 ```
+
+`--walk-overlay` lays the scene's walk boundary over the floor, each texel at the height
+of the ground beneath it and coloured by region: green for open floor, darkening towards
+the walls, amber for the regions a script opens. It draws through the same self-lit path
+as a light bulb and stays out of the acceleration structure, so an overlay never changes
+the picture it exists to check.
+
+`--timeblock` takes either a point in the story — `202P` — or an asset suffix — `M`, `A`,
+`E`, `N`. The story form decides the scene file's conditions, so the scene comes out in
+one state with the file itself choosing the asset and the bake; the suffix form only
+picks a bake, and leaves the scene as the union of every state it can be in. Naming a
+camera also finds the cinematic ones, which are often the angles worth comparing.
+See `docs/formats/scene-text.md`.
 
 ### Resources by rate of change
 

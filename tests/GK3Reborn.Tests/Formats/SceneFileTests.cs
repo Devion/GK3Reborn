@@ -210,6 +210,76 @@ public sealed class SceneFileTests
         Assert.True(actor.IsEgo);
     }
 
+    [Fact]
+    public void Deciding_the_conditions_leaves_a_scene_in_one_state()
+    {
+        // 202P: the hall door is hidden and the suitcases are not there at all.
+        SceneInitFile init = SceneInitFile.Parse(
+            InitFixture, "R25.SIF", c => Mentions(c, "202p"));
+
+        SceneModel door = Assert.Single(init.Models(), m => m.Name == "r25door2hal_scene");
+
+        Assert.True(init.ConditionsResolved);
+        Assert.True(door.Hidden);
+        Assert.False(door.VisibilityDisputed);
+        Assert.DoesNotContain(init.Models(), m => m.Name == "luggageunderbed");
+    }
+
+    [Fact]
+    public void The_other_side_of_the_same_pair_leaves_the_door_standing()
+    {
+        SceneInitFile init = SceneInitFile.Parse(
+            InitFixture, "R25.SIF", c => Mentions(c, "106p"));
+
+        SceneModel door = Assert.Single(init.Models(), m => m.Name == "r25door2hal_scene");
+
+        Assert.False(door.Hidden);
+
+        // The later block turns the hotel exterior back on, and with one state to reason
+        // about the last declaration simply wins.
+        Assert.False(Assert.Single(init.Models(), m => m.Name == "RC1_HOTEL_01").Hidden);
+    }
+
+    [Fact]
+    public void The_scene_asset_follows_the_conditions_that_hold()
+    {
+        Assert.Equal(
+            "r25_m",
+            SceneInitFile.Parse(InitFixture, "R25.SIF", c => Mentions(c, "110a"))
+                .SceneAsset(includeConditional: true));
+
+        Assert.Equal(
+            "r25_n",
+            SceneInitFile.Parse(InitFixture, "R25.SIF", c => Mentions(c, "202p"))
+                .SceneAsset(includeConditional: true));
+    }
+
+    [Fact]
+    public void Read_without_deciding_a_scene_holds_every_state_at_once()
+    {
+        SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");
+
+        Assert.False(init.ConditionsResolved);
+        Assert.True(Assert.Single(init.Models(), m => m.Name == "r25door2hal_scene").VisibilityDisputed);
+        Assert.Contains(init.Models(), m => m.Name == "luggageunderbed");
+    }
+
+    /// <summary>
+    /// Stands in for the Sheep evaluator: a condition holds when it names this timeblock
+    /// and is not negated. Enough for the fixture, and it keeps the format tests free of
+    /// the game layer.
+    /// </summary>
+    private static bool Mentions(string? condition, string timeblock)
+    {
+        if (condition is null)
+        {
+            return true;
+        }
+
+        bool names = condition.Contains(timeblock, StringComparison.OrdinalIgnoreCase);
+        return condition.TrimStart().StartsWith('!') ? !names : names;
+    }
+
     [Theory]
     [InlineData(0u, true)]
     [InlineData(1u, true)]

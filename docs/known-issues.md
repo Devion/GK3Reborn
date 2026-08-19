@@ -157,6 +157,12 @@ one another, so a model is now hidden only when every block that declares it
 agrees. Where they disagree it is drawn and reported as `SCENE009`, since drawing
 something that should not be there is a smaller loss than losing a wall or a door.
 
+That reconciliation is now the fallback rather than the answer. Given a timeblock,
+the conditions are decided against the game's state and at most one of a pair of
+blocks applies, so the later declaration simply wins and nothing is in dispute;
+`SCENE009` appears only when a scene is read without a story to read it at. See
+`docs/formats/scene-text.md`.
+
 ### A and D strafe the wrong way — fixed 2026-08-19
 
 `FreeCamera.Update` built the strafe axis as `cross(up, forward)`.

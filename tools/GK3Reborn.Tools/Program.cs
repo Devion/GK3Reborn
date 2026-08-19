@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Content.Manifests;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
@@ -110,6 +110,7 @@ public static class Program
                 output,
                 options.Width,
                 options.Height,
+                options.WalkOverlay,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height, diagnostics);
@@ -475,12 +476,18 @@ public static class Program
               --force              Redo work even when a cached output is still valid.
               --verify             Decompress and validate without writing anything.
               --model NAME         Model or scene to render; the extension is optional.
-              --timeblock M|A|E|N  Which time of day render-scene loads.
+              --timeblock <block>  Which time of day render-scene loads. A story
+                                   timeblock such as 202P decides the scene file's
+                                   conditions and so loads the scene in one state;
+                                   M, A, E or N only picks the bake.
               --camera NAME        Which of the scene's room cameras to render from.
               --rt none|low|med|high  How much ray tracing render-scene does.
               --output PATH        Where render-model writes its PNG.
               --width N            Render width (default 1024).
               --height N           Render height (default 768).
+              --walk-overlay       Draw where actors may stand over the floor, shaded
+                                   by region: green is open ground, darkening towards
+                                   the walls, amber for the regions scripts open.
 
             The toolchain never writes to the source installation.
             """);
@@ -509,6 +516,8 @@ public static class Program
 
         public int Height { get; init; } = 768;
 
+        public bool WalkOverlay { get; init; }
+
         public bool Force { get; init; }
 
         public bool Verify { get; init; }
@@ -524,6 +533,7 @@ public static class Program
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
             string? timeblock = null, camera = null, rayTracing = null;
             int width = 1024, height = 768;
+            bool walkOverlay = false;
             bool force = false;
             bool verify = false;
             bool execute = false;
@@ -575,6 +585,9 @@ public static class Program
                     case "--height" when i + 1 < args.Length:
                         height = int.Parse(args[++i], CultureInfo.InvariantCulture);
                         break;
+                    case "--walk-overlay":
+                        walkOverlay = true;
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -597,6 +610,7 @@ public static class Program
                 Output = output,
                 Width = width,
                 Height = height,
+                WalkOverlay = walkOverlay,
             };
         }
     }

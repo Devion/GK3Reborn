@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Sheep;
 
@@ -182,11 +182,56 @@ public sealed class Gk3SheepApi : ISheepApi
         });
         Register("GetActorLocation", a => SheepValue.FromString(State.GetActorLocation(Arg(a, 0))));
 
+        Register("IsActorAtLocation", a => SheepValue.FromInt(
+            string.Equals(State.GetActorLocation(Arg(a, 0)), Arg(a, 1), StringComparison.OrdinalIgnoreCase)
+                ? 1
+                : 0));
+
+        Register("WasLastLocation", a => SheepValue.FromInt(
+            string.Equals(State.LastLocation, Arg(a, 0), StringComparison.OrdinalIgnoreCase) ? 1 : 0));
+
+        // Counts are per timeblock and count previous visits; see GameState.EnterLocation
+        // for why the current one is not among them.
+        Register("GetEgoCurrentLocationCount", _ =>
+            SheepValue.FromInt(State.GetLocationCount(State.Ego, State.Location)));
+
+        Register("GetEgoLocationCount", a =>
+            SheepValue.FromInt(State.GetLocationCount(State.Ego, Arg(a, 0))));
+
+        Register("SetEgoLocationCount", a =>
+        {
+            State.SetLocationCount(State.Ego, Arg(a, 0), Int(a, 1));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("WasEgoEverInLocation", a =>
+            SheepValue.FromInt(State.WasEverInLocation(State.Ego, Arg(a, 0)) ? 1 : 0));
+
+        Register("GetChatCount", a => SheepValue.FromInt(State.GetChatCount(Arg(a, 0))));
+        Register("SetChatCount", a =>
+        {
+            State.SetChatCount(Arg(a, 0), Int(a, 1));
+            return SheepValue.FromInt(0);
+        });
+        Register("IncChatCount", a =>
+        {
+            State.IncrementChatCount(Arg(a, 0));
+            return SheepValue.FromInt(0);
+        });
+
+        // Inventory is asked about by name rather than by a parameter, so the two leads
+        // get a function each, and ego gets a third that follows whoever is being played.
+        Register("DoesGabeHaveInvItem", a =>
+            SheepValue.FromInt(State.Inventory.Has("GABRIEL", Arg(a, 0)) ? 1 : 0));
+        Register("DoesGraceHaveInvItem", a =>
+            SheepValue.FromInt(State.Inventory.Has("GRACE", Arg(a, 0)) ? 1 : 0));
+        Register("DoesEgoHaveInvItem", a =>
+            SheepValue.FromInt(State.Inventory.Has(State.Ego, Arg(a, 0)) ? 1 : 0));
+
         // Explicitly answered rather than left unknown: scripts poll these constantly and
         // an unregistered warning for each would drown everything else.
         Register("IsActorNear", Zero);
         Register("IsWalkingActorNear", Zero);
-        Register("IsActorAtLocation", Zero);
     }
 
     /// <summary>

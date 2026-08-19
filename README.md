@@ -12,9 +12,14 @@ original data into modern formats.
 own, which it reads and never modifies.
 
 Status: **early**. The solution builds and the test suite passes. The content
-pipeline can read the original archives and convert the cinematics; the runtime
-subsystems are still contracts awaiting their phase. See [`../Plan`](../Plan)
-for the full program plan.
+pipeline reads the original archives and converts the cinematics, models, textures
+and scenes. A room now loads the way the game builds it — both of its initialisation
+files, their conditions decided against a point in the story — and renders under
+Vulkan with the artists' own light rigs and optional ray-traced shadows and
+occlusion. Everything after that is still ahead: nothing walks, nothing is
+clickable, no script drives a scene, and there is no audio or UI. See
+[`../Plan`](../Plan) for the full program plan, and
+[docs/known-issues.md](docs/known-issues.md) for what is known to be wrong.
 
 ## Requirements
 

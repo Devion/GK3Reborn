@@ -1,8 +1,9 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Vulkan;
 
@@ -32,12 +33,16 @@ public sealed class SceneRenderStage
     /// <summary>Renders a scene.</summary>
     /// <param name="sourceDirectory">The game's <c>Data</c> directory.</param>
     /// <param name="sceneName">Scene name, such as <c>R25</c>.</param>
-    /// <param name="timeblock">Time of day: <c>M</c>, <c>A</c>, <c>E</c> or <c>N</c>.</param>
+    /// <param name="timeblock">
+    /// A story timeblock such as <c>202P</c>, which decides the scene file's conditions, or
+    /// an asset suffix — <c>M</c>, <c>A</c>, <c>E</c>, <c>N</c> — which only picks the bake.
+    /// </param>
     /// <param name="cameraName">Which room camera to use; null takes the scene's default.</param>
     /// <param name="rayTracing">Quality level: none, low, med or high.</param>
     /// <param name="outputPath">Where to write the PNG.</param>
     /// <param name="width">Image width.</param>
     /// <param name="height">Image height.</param>
+    /// <param name="walkOverlay">Whether to draw the walk boundary over the floor.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -49,6 +54,7 @@ public sealed class SceneRenderStage
         string outputPath,
         int width,
         int height,
+        bool walkOverlay,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -87,12 +93,24 @@ public sealed class SceneRenderStage
 
         using SceneGeometry geometry = renderer.CreateGeometry();
 
+        SceneRequest request = SceneRequest.For(sceneName, timeblock);
+
+        if (request.State is not null)
+        {
+            _log($"story: {request.State.Timeblock} in {request.State.Location}, first visit");
+        }
+
         var loader = new SceneLoader(archives, _log);
-        LoadedScene? scene = loader.Load(geometry, sceneName, timeblock, diagnostics);
+        LoadedScene? scene = loader.Load(geometry, request, diagnostics);
 
         if (scene is null || geometry.TriangleCount == 0)
         {
             return false;
+        }
+
+        if (walkOverlay)
+        {
+            DrawWalkOverlay(geometry, scene);
         }
 
         renderer.SetLights(scene.Lights);
@@ -130,5 +148,33 @@ public sealed class SceneRenderStage
         _log($"wrote {outputPath}");
 
         return true;
+    }
+
+    /// <summary>Lays the walk boundary over the floor it describes.</summary>
+    /// <remarks>
+    /// Every part of a boundary — its row order, the sign of its offset, the size it is
+    /// stretched to — produces a plausible-looking mask when it is wrong. Seeing it on the
+    /// floor is the check, which is why `Plan/04` makes overlay validation an exit
+    /// criterion for this phase rather than a nicety.
+    /// </remarks>
+    private void DrawWalkOverlay(SceneGeometry geometry, LoadedScene scene)
+    {
+        if (scene.Walkable is not { } boundary || scene.Geometry is not { } bsp)
+        {
+            _log("walk overlay: the scene declares no boundary");
+            return;
+        }
+
+        IReadOnlyList<WalkOverlayPatch> patches =
+            WalkOverlay.Build(bsp, scene.Definition.FloorObject(), boundary);
+
+        foreach (WalkOverlayPatch patch in patches)
+        {
+            geometry.AddOverlay(
+                $"walk-region-{patch.Region}", patch.Positions, patch.Indices, patch.Colour);
+        }
+
+        _log($"walk overlay: {patches.Sum(p => p.Indices.Length / 6)} texels over the floor, " +
+             $"regions {string.Join(", ", patches.Select(p => p.Region))}");
     }
 }

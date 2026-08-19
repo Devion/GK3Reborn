@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Numerics;
 
 namespace GK3Reborn.Formats.Ini;
@@ -103,6 +103,21 @@ public sealed record IniLine(IReadOnlyList<IniEntry> Entries)
         Find(key)?.AsNumbers(3) is { } v ? new Vector3(v[0], v[1], v[2]) : null;
 }
 
+/// <summary>
+/// Decides whether a conditional section applies.
+/// </summary>
+/// <param name="condition">
+/// The Sheep expression in the section's header, or null when it has none.
+/// </param>
+/// <returns>True to take the section's lines.</returns>
+/// <remarks>
+/// The reader does not evaluate conditions itself — that needs the story's state and the
+/// Sheep expression parser, neither of which belongs to a text format. Callers that have
+/// them pass one of these; tooling that only wants to see everything a file can contain
+/// passes <see cref="IniDocument.EverySection"/>.
+/// </remarks>
+public delegate bool SectionFilter(string? condition);
+
 /// <summary>A section, together with the condition that gates it.</summary>
 /// <param name="Name">Section name, such as <c>MODELS</c>.</param>
 /// <param name="Condition">
@@ -200,7 +215,7 @@ public sealed class IniDocument
                 if (equals >= 0)
                 {
                     currentName = header[..equals].Trim();
-                    currentCondition = header[(equals + 1)..].Trim().Trim('{', '}').Trim();
+                    currentCondition = ConditionIn(header[(equals + 1)..]);
                 }
                 else
                 {
@@ -239,15 +254,36 @@ public sealed class IniDocument
         return new IniDocument(name, sections);
     }
 
+    /// <summary>Takes every section, conditional or not.</summary>
+    /// <remarks>
+    /// The union of every state a file describes. Right for tooling, and wrong for the
+    /// game — a scene read this way holds both the made bed and the unmade one.
+    /// </remarks>
+    public static readonly SectionFilter EverySection = _ => true;
+
+    /// <summary>Takes only the sections that carry no condition.</summary>
+    public static readonly SectionFilter UnconditionalSections = c => c is null;
+
     /// <summary>Every line of every section with a given name.</summary>
     /// <param name="section">Section name.</param>
     /// <param name="includeConditional">Whether to include sections gated by a condition.</param>
     /// <returns>The lines.</returns>
     public IEnumerable<IniLine> LinesOf(string section, bool includeConditional = false) =>
-        Sections
+        LinesOf(section, includeConditional ? EverySection : UnconditionalSections);
+
+    /// <summary>Every line of every section with a given name that the filter accepts.</summary>
+    /// <param name="section">Section name.</param>
+    /// <param name="applies">Decides which conditional sections count.</param>
+    /// <returns>The lines, in file order.</returns>
+    public IEnumerable<IniLine> LinesOf(string section, SectionFilter applies)
+    {
+        ArgumentNullException.ThrowIfNull(applies);
+
+        return Sections
             .Where(s => string.Equals(s.Name, section, StringComparison.OrdinalIgnoreCase))
-            .Where(s => includeConditional || s.Condition is null)
+            .Where(s => applies(s.Condition))
             .SelectMany(s => s.Lines);
+    }
 
     /// <summary>Every section whose name begins with a prefix.</summary>
     /// <param name="prefix">The prefix, matched case-insensitively.</param>
@@ -258,6 +294,25 @@ public sealed class IniDocument
     /// </remarks>
     public IEnumerable<IniSection> SectionsStartingWith(string prefix) =>
         Sections.Where(s => s.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The expression inside a section header's braces.</summary>
+    /// <param name="header">Everything after the <c>=</c>, still in its braces.</param>
+    /// <returns>The expression, or the trimmed text when there are no braces.</returns>
+    /// <remarks>
+    /// Between the first brace and the last, rather than trimmed of braces at both ends.
+    /// <c>CHU.SIF</c> closes one of its headers with <c>}]]</c> — a stray bracket the
+    /// original tolerated — and trimming characters leaves it attached to the expression,
+    /// where it reads as trailing junk and the condition fails to parse. Delimiters are
+    /// the honest reading, and it costs nothing.
+    /// </remarks>
+    private static string ConditionIn(string header)
+    {
+        string text = header.Trim();
+        int open = text.IndexOf('{', StringComparison.Ordinal);
+        int close = text.LastIndexOf('}');
+
+        return open >= 0 && close > open ? text[(open + 1)..close].Trim() : text;
+    }
 
     private static string StripComments(string raw, ref bool inBlockComment)
     {
