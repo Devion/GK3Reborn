@@ -383,14 +383,36 @@ by construction, because the variance is boosted exactly while a pixel has no hi
 Their blur is rescuing one bit a pixel; ours is filtering eight rays, and the contrast it
 recovers was never lost, so it is gone.
 
+Three more, found in the lobby, where the walls are lit from every direction:
+
+**Low was tracing one ray a pixel.** The ray count had been taken from the
+ambient-occlusion budget, which is nought at Low because Low has no ambient occlusion —
+so the level meant to be cheapest was estimating every shadow from a single sample and
+looked far worse than the one above it. Occlusion samples are their own setting now: four,
+six and eight.
+
+**The clamp window was as noisy as what it was clamping.** A reprojected history is held
+to the local neighbourhood, plus or minus half its deviation. On a smooth wall that window
+is a couple of hundredths wide and both its ends are recomputed from this frame's rays, so
+the history was dragged along by the window rather than converging inside it. It is
+widened by the same sampling error the damper uses, and for the same reason.
+
+**The rays were drawn independently.** The mesh shader used to stratify them — the
+elevation stepping once through the hemisphere, the azimuth advancing by the golden angle
+— and that was lost when the tracing moved into a pass of its own. Eight independent draws
+over a rig's cumulative brightness clump and leave gaps, and the gaps move every frame,
+which is a blotch on a wall that will not sit still. Both the light a shadow ray picks and
+the direction an occlusion ray takes are stratified again.
+
 | | flicker, still | flicker, gliding |
 | --- | --- | --- |
 | no ray tracing | 0.000 | 6.35 |
 | `HAL` at High, as reported | 3.76 | 7.87 |
-| `HAL` at High, now | 1.25 | 7.05 |
-| `HAL` at Medium, now | 1.77 | — |
-| `R25` at High, now | 0.47 | — |
-| `MOP` at High, now | 0.28 | — |
+| `HAL` at High, now | 0.73 | 7.05 |
+| `LBY` at High, now | 0.82 | — |
+| `LBY` at Medium, now | 0.94 | — |
+| `LBY` at Low, now | 1.13 | — |
+| `R25` at High, now | 0.30 | — |
 
 Gliding changes the picture whether or not anything is traced; what matters is the gap
 above that baseline, and it is now 0.7 of an eight-bit step.

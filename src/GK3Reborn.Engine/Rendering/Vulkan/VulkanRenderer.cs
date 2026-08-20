@@ -1383,7 +1383,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _camera!,
             _depthImage,
             settings.AmbientOcclusionRadius,
-            settings.AmbientOcclusionRays);
+            settings.OcclusionSamples);
 
         // Last frame's picture, which is the one there is to reflect. It ends every frame
         // as the source of the copy to the screen, so that is where it is coming from.

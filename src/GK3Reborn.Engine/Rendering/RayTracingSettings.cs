@@ -44,13 +44,17 @@ public enum RayTracingQuality
 /// How much the baked lightmap contributes as an indirect term, from zero to one.
 /// </param>
 /// <param name="AmbientOcclusionRadius">How far occlusion rays reach, in scene units.</param>
+/// <param name="OcclusionSamples">
+/// How many rays a pixel spends on each of the two occlusion signals every frame.
+/// </param>
 public readonly record struct RayTracingSettings(
     RayTracingQuality Quality,
     int ShadowLights,
     int AmbientOcclusionRays,
     int ShadowSamples,
     float LightmapIndirect,
-    float AmbientOcclusionRadius)
+    float AmbientOcclusionRadius,
+    int OcclusionSamples = 8)
 {
     /// <summary>Whether any rays are traced at all.</summary>
     public bool TracesRays => ShadowLights > 0 || AmbientOcclusionRays > 0;
@@ -99,10 +103,15 @@ public readonly record struct RayTracingSettings(
     /// </remarks>
     public static RayTracingSettings For(RayTracingQuality quality) => quality switch
     {
-        RayTracingQuality.Low => new(quality, 8, 0, 1, 0.6f, 0f),
-        RayTracingQuality.Medium => new(quality, 16, 4, 1, 0.5f, OcclusionRadius),
-        RayTracingQuality.High => new(quality, 32, 8, 2, 0.35f, OcclusionRadius),
-        _ => new(RayTracingQuality.None, 0, 0, 1, 1f, 0f),
+        // The last number is what every quality level needs most, and the one that used
+        // to be missing from Low: how many rays a pixel spends on occlusion each frame.
+        // It had been taken from the ambient-occlusion budget, which is nought at Low
+        // because Low has no ambient occlusion — so Low was estimating every shadow from
+        // a single ray and looked far worse than the level above it.
+        RayTracingQuality.Low => new(quality, 8, 0, 1, 0.6f, 0f, 4),
+        RayTracingQuality.Medium => new(quality, 16, 4, 1, 0.5f, OcclusionRadius, 6),
+        RayTracingQuality.High => new(quality, 32, 8, 2, 0.35f, OcclusionRadius, 8),
+        _ => new(RayTracingQuality.None, 0, 0, 1, 1f, 0f, 0),
     };
 
     /// <summary>Parses a quality level from a command line or configuration value.</summary>

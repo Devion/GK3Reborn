@@ -139,6 +139,10 @@ internal static class DenoiserShaders
         const float kNormalBias = 6.0;
         const float kShadowFloor = 0.004;
 
+        // The reciprocal of the golden ratio. Advancing an angle by this fraction of a
+        // turn spaces successive samples about as evenly as a sequence can.
+        const float kGolden = 0.6180339887;
+
         shared uint gShadow;
         shared uint gOcclusion;
 
@@ -221,7 +225,7 @@ internal static class DenoiserShaders
         // this way is what makes a single bit an unbiased estimate of the fraction of the
         // direct light that arrives: a light worth twice as much is picked twice as often,
         // so the average over frames weights each light exactly as the shading does.
-        bool ShadowRay(vec3 position, vec3 normal, vec2 pixel, float salt)
+        bool ShadowRay(vec3 position, vec3 normal, vec2 pixel, int index, int samples)
         {
             int count = int(rig.counts.x);
             float total = 0.0;
@@ -239,7 +243,12 @@ internal static class DenoiserShaders
                 return true;
             }
 
-            float pick = Random(pixel, 5.0 + salt) * total;
+            // Stratified, not drawn afresh each time. Eight independent draws over the
+            // rig's cumulative brightness clump and leave gaps, and the gaps move every
+            // frame, which is a blotch on a wall that will not sit still. Walking the
+            // distribution in equal steps from one shared random offset visits every part
+            // of it exactly once and leaves only the offset to vary.
+            float pick = ((float(index) + Random(pixel, 5.0)) / float(samples)) * total;
             float running = 0.0;
 
             for (int i = 0; i < count; i++)
@@ -262,8 +271,13 @@ internal static class DenoiserShaders
                 vec3 bitangent;
                 Basis(toLight / distance, tangent, bitangent);
 
-                float angle = 6.2831853 * Random(pixel, 6.0 + salt);
-                float offset = rig.lights[i].cone.w * sqrt(Random(pixel, 7.0 + salt));
+                // The emitter's own disc, walked by the golden angle so that successive
+                // samples spread rather than cluster.
+                float angle = 6.2831853 *
+                    fract(Random(pixel, 6.0) + (float(index) * kGolden));
+
+                float offset = rig.lights[i].cone.w *
+                    sqrt((float(index) + Random(pixel, 7.0)) / float(samples));
 
                 vec3 target = toLight +
                               (tangent * cos(angle) * offset) +
@@ -278,14 +292,21 @@ internal static class DenoiserShaders
             return true;
         }
 
-        bool OcclusionRay(vec3 position, vec3 normal, vec2 pixel, float salt)
+        bool OcclusionRay(vec3 position, vec3 normal, vec2 pixel, int index, int samples)
         {
             vec3 tangent;
             vec3 bitangent;
             Basis(normal, tangent, bitangent);
 
-            float u = Random(pixel, 8.0 + salt);
-            float angle = 6.2831853 * Random(pixel, 9.0 + salt);
+            // Cosine-weighted and stratified: the elevation steps once through the
+            // hemisphere and the azimuth advances by the golden angle, so the rays cover
+            // it evenly instead of clumping. This is what the mesh shader used to do, and
+            // losing it when the tracing moved into a pass of its own is most of why the
+            // lobby's walls would not settle.
+            float u = (float(index) + Random(pixel, 8.0)) / float(samples);
+            float angle = 6.2831853 *
+                fract(Random(pixel, 9.0) + (float(index) * kGolden));
+
             float radial = sqrt(u);
 
             vec3 direction = normalize(
@@ -334,10 +355,8 @@ internal static class DenoiserShaders
                 // worth something on its own.
                 for (int i = 0; i < samples; i++)
                 {
-                    float salt = float(i) * 13.0;
-
-                    litCount += ShadowRay(position, normal, vec2(pixel), salt) ? 1 : 0;
-                    openCount += OcclusionRay(position, normal, vec2(pixel), salt) ? 1 : 0;
+                    litCount += ShadowRay(position, normal, vec2(pixel), i, samples) ? 1 : 0;
+                    openCount += OcclusionRay(position, normal, vec2(pixel), i, samples) ? 1 : 0;
                 }
             }
 
@@ -728,10 +747,17 @@ internal static class DenoiserShaders
                         sampler2D(history, clampedSampler), historyUv, 0.0).x;
                 }
 
-                blended = clamp(
-                    previous,
-                    neighbourhood - (0.5 * deviation),
-                    neighbourhood + (0.5 * deviation));
+                // The window a reprojected history is allowed to sit in. Widened by the
+                // same sampling error the damper uses, and for the same reason: both ends
+                // of it are computed from this frame's rays and so move by that much on
+                // their own. Left at half the spatial deviation, a smooth wall gives a
+                // window a couple of hundredths wide that jitters by a couple of
+                // hundredths, and the history is dragged along by it rather than
+                // converging — which is most of what was left of the noise on the lobby's
+                // walls once the damper stopped firing.
+                float window = max(0.5 * deviation, kSamplingError);
+
+                blended = clamp(previous, neighbourhood - window, neighbourhood + window);
 
                 // A history that disagrees with where it landed is worth less. Rather
                 // than dropping it outright the sample count is damped, which lets the
@@ -795,7 +821,7 @@ internal static class DenoiserShaders
                 // the hundredth frame is worth a hundredth. The count is reset by
                 // disocclusion and damped by disagreement, so this still follows a room
                 // whose lighting changes — it simply stops fidgeting when nothing does.
-                float steady = 1.0 / clamp(moments.z, 1.0, 100.0);
+                float steady = 1.0 / clamp(moments.z, 1.0, 400.0);
                 float weight = sqrt(max(8.0 - moments.z, 0.0) / 8.0);
 
                 blended = mix(blended, current, mix(steady, 1.0, weight));
