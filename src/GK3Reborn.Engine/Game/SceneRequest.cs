@@ -1,4 +1,4 @@
-﻿namespace GK3Reborn.Game;
+namespace GK3Reborn.Game;
 
 /// <summary>
 /// A scene to load, and the point in the story to load it at.
@@ -27,7 +27,8 @@ public sealed class SceneRequest
         Scene = scene;
         AssetSuffix = assetSuffix;
         State = state;
-        Conditions = state is null ? null : new SceneConditions(new Gk3SheepApi(state));
+        Api = state is null ? null : new Gk3SheepApi(state);
+        Conditions = Api is null ? null : new SceneConditions(Api);
     }
 
     /// <summary>The scene's name, which is also its three-letter location code.</summary>
@@ -52,6 +53,16 @@ public sealed class SceneRequest
 
     /// <summary>The evaluator to read the scene file through, when there is a state.</summary>
     public SceneConditions? Conditions { get; }
+
+    /// <summary>
+    /// The script host the conditions are decided through, when there is a state.
+    /// </summary>
+    /// <remarks>
+    /// Shared with whatever else has to ask the story a question while the scene stands —
+    /// the action files, above all, whose cases are Sheep expressions over the same state.
+    /// Giving them a second host would give them a second answer.
+    /// </remarks>
+    public Gk3SheepApi? Api { get; }
 
     /// <summary>Reads a timeblock argument.</summary>
     /// <param name="scene">Scene name, such as <c>R25</c>.</param>

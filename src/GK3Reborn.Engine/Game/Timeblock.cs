@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 
 namespace GK3Reborn.Game;
 
@@ -40,6 +40,22 @@ public readonly record struct Timeblock(int Day, int Hour, bool IsAfternoon) : I
         timeblock = new Timeblock(day, hour, meridiem == 'P');
         return true;
     }
+
+    /// <summary>Midnight at the start of a day, as a bound rather than a real block.</summary>
+    /// <param name="day">The day.</param>
+    /// <returns>A timeblock that sorts before every real one on that day.</returns>
+    /// <remarks>
+    /// The game's blocks run from seven in the morning to the evening, so nothing ever
+    /// equals this. It exists because assets name the span they apply to in days —
+    /// <c>R25_23ALL.NVC</c> is days two and three — and a day has to become a pair of
+    /// comparable points before that can be tested. See <see cref="TimeblockRange"/>.
+    /// </remarks>
+    public static Timeblock StartOfDay(int day) => new(day, 0, IsAfternoon: false);
+
+    /// <summary>The last hour of a day, as a bound rather than a real block.</summary>
+    /// <param name="day">The day.</param>
+    /// <returns>A timeblock that sorts after every real one on that day.</returns>
+    public static Timeblock EndOfDay(int day) => new(day, 11, IsAfternoon: true);
 
     /// <summary>Renders the original code form.</summary>
     /// <remarks>

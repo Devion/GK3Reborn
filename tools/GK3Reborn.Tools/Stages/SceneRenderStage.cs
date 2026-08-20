@@ -9,6 +9,7 @@ using GK3Reborn.Game.Interaction;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Vulkan;
+using GK3Reborn.UI.Interaction;
 
 namespace GK3Reborn.Tools.Stages;
 
@@ -131,6 +132,13 @@ public sealed class SceneRenderStage
         {
             DrawWalkPath(geometry, scene, walkPath, diagnostics);
         }
+
+        if (scene.Ambient.Count > 0)
+        {
+            _log($"ambient: {string.Join(", ", scene.Ambient)}");
+        }
+
+        ReportNounCoverage(scene);
 
         renderer.SetLights(scene.Lights);
 
@@ -344,6 +352,39 @@ public sealed class SceneRenderStage
             CultureInfo.InvariantCulture,
             $"pick ({x}, {y}): {hit.Name} [{hit.Kind}] {noun}{verb} at {hit.Distance:F1} " +
             $"units, ({hit.Point.X:F1}, {hit.Point.Y:F1}, {hit.Point.Z:F1})"));
+
+        if (hit.Noun is { Length: > 0 } clicked)
+        {
+            ReportActions(scene, clicked);
+        }
+    }
+
+    /// <summary>Says what the player may do to a noun, here and now.</summary>
+    /// <remarks>
+    /// The other half of a click. Picking says <em>what</em> was clicked and the action
+    /// files say what that means, and the two only agree if the noun the geometry carries
+    /// is one the action files have heard of — a noun with no verbs is either a scene file
+    /// naming something the action files do not, or an action set that should have been
+    /// loaded and was not.
+    /// </remarks>
+    private void ReportActions(LoadedScene scene, string noun)
+    {
+        if (scene.Actions is not { } actions)
+        {
+            _log("  verbs: unknown, because no point in the story was named");
+            return;
+        }
+
+        IReadOnlyList<AvailableAction> available = actions.Resolve(noun);
+
+        _log(available.Count == 0
+            ? $"  {noun}: no verbs apply right now"
+            : $"  {noun}: {string.Join(", ", available.Select(a => a.LocalizedVerb))}");
+
+        foreach (Diagnostic diagnostic in actions.Diagnostics.Items)
+        {
+            _log($"  {diagnostic.Code}: {diagnostic.Message}");
+        }
     }
 
     /// <summary>Draws what the player could click, one colour per noun.</summary>
@@ -488,5 +529,44 @@ public sealed class SceneRenderStage
             4 => (rising, low, High),
             _ => (High, low, falling),
         };
+    }
+
+    /// <summary>Checks the scene's nouns against the ones the action files know.</summary>
+    /// <remarks>
+    /// The two halves of an interaction are written in different files by different people:
+    /// the scene file hangs a noun on a piece of geometry, and the action files say what
+    /// that noun can have done to it. A noun in one and not the other is a click that
+    /// resolves to something and then offers nothing, and neither file is wrong on its own,
+    /// so the only way to see it is to put them side by side.
+    /// </remarks>
+    private void ReportNounCoverage(LoadedScene scene)
+    {
+        if (scene.Actions is not { } actions)
+        {
+            return;
+        }
+
+        HashSet<string> known = new(actions.Nouns, StringComparer.OrdinalIgnoreCase);
+
+        List<string> declared =
+        [
+            .. scene.Definition.Models().Select(m => m.Noun)
+                .Concat(scene.Definition.Actors().Select(a => a.Noun))
+                .Where(n => n is { Length: > 0 })
+                .Select(n => n!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase),
+        ];
+
+        List<string> unknown = [.. declared.Where(n => !known.Contains(n))];
+
+        _log($"nouns: {declared.Count} on the scene's objects, " +
+             $"{declared.Count - unknown.Count} of them known to the action files");
+
+        if (unknown.Count > 0)
+        {
+            _log($"  nothing can be done to: {string.Join(", ", unknown.Take(12))}" +
+                 (unknown.Count > 12 ? $", and {unknown.Count - 12} more" : string.Empty));
+        }
     }
 }

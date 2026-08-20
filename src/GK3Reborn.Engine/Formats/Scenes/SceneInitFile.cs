@@ -298,6 +298,34 @@ public sealed class SceneInitFile
         return order.Select(n => models[n]).ToList();
     }
 
+    /// <summary>The action files the scene brings into scope.</summary>
+    /// <param name="includeConditional">Whether to include conditional sections.</param>
+    /// <returns>File names, in the order the file lists them.</returns>
+    /// <remarks>
+    /// Bare names on their own lines, no <c>key=</c> about them, and the name carries the
+    /// meaning: <c>r25_all.nvc</c> applies to every timeblock, <c>r25_23all.nvc</c> to days
+    /// two and three, <c>r25202p.nvc</c> to that afternoon alone. See
+    /// <see cref="GK3Reborn.Game.TimeblockRange"/> for how that is read.
+    /// </remarks>
+    public IReadOnlyList<string> ActionFiles(bool includeConditional = true) =>
+        [.. NamesIn("ACTIONS", includeConditional)];
+
+    /// <summary>The soundtracks the scene plays in the background.</summary>
+    /// <param name="includeConditional">Whether to include conditional sections.</param>
+    /// <returns>File names, in the order the file lists them.</returns>
+    /// <remarks>
+    /// <c>.STK</c> files: a soundtrack is a small script of its own, saying which sounds to
+    /// play and how often, not a piece of music to loop.
+    /// </remarks>
+    public IReadOnlyList<string> Soundtracks(bool includeConditional = true) =>
+        [.. NamesIn("AMBIENT", includeConditional)];
+
+    /// <summary>Bare file names listed one per line in a section.</summary>
+    private IEnumerable<string> NamesIn(string section, bool includeConditional) =>
+        _document.LinesOf(section, Applies(includeConditional))
+            .Select(l => l.Head.Key)
+            .Where(name => name.Length > 0);
+
     /// <summary>The actors the scene places.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The actors.</returns>

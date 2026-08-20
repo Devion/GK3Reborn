@@ -1,5 +1,6 @@
 using System.Numerics;
 using GK3Reborn.Content;
+using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
@@ -20,6 +21,12 @@ namespace GK3Reborn.Game;
 /// The props and actors that were loaded from files, with where they stand. Kept so a
 /// click can be resolved against them; the geometry the renderer holds cannot answer that.
 /// </param>
+/// <param name="Actions">
+/// What the player may do to the things in the room, or null when the caller named no
+/// point in the story: an action's case is a Sheep expression over the story's state, and
+/// with no state there is nothing to decide it against.
+/// </param>
+/// <param name="Soundtracks">The <c>.STK</c> files the scene plays in the background.</param>
 /// <param name="Walkable">Where actors may stand, if the scene declares a boundary.</param>
 /// <param name="Geometry">
 /// The room's parsed geometry. Kept because several things want to ask questions of it
@@ -34,7 +41,9 @@ public sealed record LoadedScene(
     int ModelsPlaced,
     WalkBoundary? Walkable = null,
     BspFile? Geometry = null,
-    IReadOnlyList<PlacedModel>? Placed = null)
+    IReadOnlyList<PlacedModel>? Placed = null,
+    ActionResolver? Actions = null,
+    IReadOnlyList<string>? Soundtracks = null)
 {
     /// <summary>The lights the artists authored for this time of day.</summary>
     public IReadOnlyList<AuthoredLight> Lights => Asset?.Lights ?? [];
@@ -44,6 +53,9 @@ public sealed record LoadedScene(
 
     /// <summary>The props and actors loaded from files, never null.</summary>
     public IReadOnlyList<PlacedModel> Models => Placed ?? [];
+
+    /// <summary>The soundtracks the scene plays, never null.</summary>
+    public IReadOnlyList<string> Ambient => Soundtracks ?? [];
 
     /// <summary>Finds a camera by name, falling back to the scene's default.</summary>
     /// <param name="name">Camera name, or null for the default.</param>
@@ -153,7 +165,9 @@ public sealed class SceneLoader
             placed.Count,
             ReadBoundary(init, diagnostics),
             bsp,
-            placed);
+            placed,
+            ReadActions(init, request, diagnostics),
+            init.Soundtracks());
     }
 
     /// <summary>Builds a camera from one of a scene's own viewpoints.</summary>
@@ -542,5 +556,74 @@ public sealed class SceneLoader
 
             geometry.AddTexture(texture, BitmapDecoder.Decode(bytes, texture));
         }
+    }
+
+    /// <summary>Brings the scene's action files into scope.</summary>
+    /// <remarks>
+    /// The files decide what the player may do to a noun, so this is what turns a click
+    /// that resolves to <c>NIGHTSTAND</c> into a list of verbs. Which files apply is
+    /// <see cref="ActionSets"/>' business; this reads them and hands them to a resolver
+    /// sharing the story host the scene's own conditions were decided through, because two
+    /// hosts over the same state would sooner or later give two answers.
+    /// </remarks>
+    private ActionResolver? ReadActions(
+        SceneDefinition init, SceneRequest request, DiagnosticBag diagnostics)
+    {
+        if (request.Api is not { } api)
+        {
+            return null;
+        }
+
+        // A location's files are chosen by their own names, so a name that says nothing
+        // about when it applies is one that will never be loaded. No file the corpus's
+        // general SIFs list is like that; the one name in the game that cannot be read
+        // this way, CHU's ch312p06p.nvc, is listed by a timeblock file, where the question
+        // is never asked.
+        foreach (string listed in init.General?.ActionFiles() ?? [])
+        {
+            if (!TimeblockRange.TryParse(listed, out _))
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE015",
+                    DiagnosticSeverity.Warning,
+                    $"{listed} does not name the timeblocks it is for, so it is never " +
+                    "loaded and whatever it allows can never be done."));
+            }
+        }
+
+        var resolver = new ActionResolver(api);
+        IReadOnlyList<string> names = ActionSets.For(init, request.State?.Timeblock);
+        List<string> read = [];
+
+        foreach (string name in names)
+        {
+            string? text = _archives.ReadText(name);
+
+            if (text is null)
+            {
+                // The global and inventory lists are the original's, verbatim, and a few of
+                // their names are not in the archives at all; a location's own file being
+                // missing is worth hearing about, one of those is not.
+                if (!ActionSets.Global.Contains(name) && !ActionSets.Inventory.Contains(name))
+                {
+                    diagnostics.Add(new Diagnostic(
+                        "SCENE014",
+                        DiagnosticSeverity.Warning,
+                        $"The scene lists {name}, which no archive contains; " +
+                        "whatever it allows cannot be done."));
+                }
+
+                continue;
+            }
+
+            resolver.Add(NvcFile.Parse(text, name, diagnostics));
+            read.Add(name);
+        }
+
+        _log?.Invoke(
+            $"actions: {resolver.Nouns.Count} nouns from {read.Count} of {names.Count} sets, " +
+            $"most specific first: {string.Join(", ", read)}");
+
+        return resolver;
     }
 }

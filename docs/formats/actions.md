@@ -68,6 +68,69 @@ Both sides of `&&` and `||` are evaluated rather than short-circuited. These con
 call into game state, so which calls happen would otherwise depend on data — and a
 differential comparison would see that as a divergence.
 
+## Which files are in scope
+
+A scene's verbs do not all come from the scene. Four sets are in play at once, and
+`ActionSets.For` puts them in the order they should be consulted:
+
+| where from | how chosen |
+| --- | --- |
+| the timeblock file's `[ACTIONS]` | taken as listed, never name-checked |
+| the general file's `[ACTIONS]` | name-checked against the current timeblock |
+| twelve global sets, `GLB*.NVC` | fixed list, name-checked |
+| sixteen inventory sets, `INV*.NVC` | fixed list, name-checked |
+
+Without the last two most objects have no `LOOK`, because looking at things is a rule
+about the game rather than about the room. R25 on the second afternoon reads eleven
+files: `r25202p.nvc`, then `r25_all`, `r25_23all`, `r25_2all`, `r25_12all`, then
+`GLB_ALL`, `GLB_23ALL`, `GLB202P`, `INV_ALL`, `INV_23ALL`, `INV202P`.
+
+**The name is the condition.** `TimeblockRange` reads it, following G-Engine's
+`Timeblock::ParseTimeblockRange`: three letters of location, an optional underscore,
+then either `ALL` preceded by the digits of the days it covers, or a timeblock code
+optionally followed by a second one giving the end of a range.
+
+| name | applies |
+| --- | --- |
+| `R25_ALL.NVC` | every timeblock in the game |
+| `R25_1ALL.NVC` | all of day one |
+| `R25_23ALL.NVC` | days two and three |
+| `R25202P.NVC` | that afternoon alone |
+| `HAL110A04P.NVC` | day one, ten in the morning until four — the end borrows the start's day |
+
+A name that cannot be read this way covers nothing and is never loaded, which is the
+original's behaviour and the safe direction: loading an action file at the wrong point
+in the story puts verbs on objects that should not have them yet. Of the 362 distinct
+names the corpus's scene files list, exactly one cannot be read — CHU's
+`ch312p06p.nvc` — and it is listed by a timeblock file, where the question is never
+asked. The general-file path warns (`SCENE015`) if it ever meets one.
+
+Order is priority, because the resolver keeps the first rule it finds for a verb, so
+the most specific file goes first. That is the opposite of the order the original
+inserts them in; it can afford general-first because it keeps every rule and separates
+them by case at the point of use, where this keeps one entry per verb so a menu can be
+built from the answer.
+
+`[AMBIENT]` sits beside `[ACTIONS]` in the same files and names `.STK` soundtracks —
+scripts saying which sounds to play and how often, not music to loop. R25 plays
+`R25SNDTRKL.STK`, except on the third morning when Grace is the player and it plays
+`R25Grace.STK`.
+
+## Nouns have two halves
+
+The scene file hangs a noun on a piece of geometry; the action files say what that noun
+can have done to it. Neither is wrong on its own, so a noun in one and not the other is
+only visible by putting them side by side, which `render-scene` does on every load:
+
+```text
+nouns: 33 on the scene's objects, 33 of them known to the action files
+```
+
+R25 at 202P covers all of its own. The gaps elsewhere are real rather than defects in
+the loading: at LBY 102P, `ESTELLE` and `LADY_HOWARD` have no verbs because at that
+point the pair is one noun, `LADY_H_ESTELLE`; PLO's mopeds are interactive only at
+104P; RC1 declares `SUITCASES`, whose verbs live in R25's files.
+
 ## Resolving
 
 `ActionResolver` answers "what can the player do to this, right now" by taking every rule

@@ -88,6 +88,7 @@ Sections used so far:
 | `CINEMATIC_CAMERAS`, `INSPECT_CAMERAS`, `DIALOGUE_CAMERAS` | same shape, different use |
 | `POSITIONS` | named spots with `pos`, `heading`, and the `camera` to cut to |
 | `REGIONS`, `TRIGGERS` | rectangles the game reacts to |
+| `ACTIONS`, `AMBIENT` | bare file names, one per line: the `.NVC` action files in scope and the `.STK` soundtracks to play |
 
 ### Model types
 
@@ -110,6 +111,10 @@ single `noclick` — TE3's floor. Model lines may also carry `verb=`, 103 times,
 95 of those are `EXIT` or one of its directional forms; the rest are `GO_UP`,
 `GO_DOWN`, `OPEN` and one `CLIMB`. It is the verb a click performs without asking,
 so that clicking a doorway walks through it instead of opening the action bar.
+
+`[ACTIONS]` and `[AMBIENT]` carry no `key=`, only names, and for the action files the
+name is the condition — `R25_23ALL.NVC` applies on days two and three. See
+[`actions.md`](actions.md) for that grammar and for which files are in scope.
 
 ### Resolving a click
 

@@ -95,6 +95,10 @@ public sealed class SceneDefinition
     public IReadOnlyList<SceneCamera> CinematicCameras() =>
         Join(_general?.CinematicCameras(), _specific?.CinematicCameras());
 
+    /// <summary>The soundtracks the scene plays, general file first.</summary>
+    public IReadOnlyList<string> Soundtracks() =>
+        Join(_general?.Soundtracks(), _specific?.Soundtracks());
+
     /// <summary>Where the player starts.</summary>
     public ScenePosition? StartPosition() =>
         PositionNamed("START") ?? (Positions() is [ScenePosition first, ..] ? first : null);
