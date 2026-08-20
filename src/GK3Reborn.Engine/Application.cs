@@ -7,6 +7,7 @@ using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using GK3Reborn.Rendering;
 using GK3Reborn.UI;
+using GK3Reborn.Rendering.Materials;
 using GK3Reborn.Rendering.Vulkan;
 
 namespace GK3Reborn;
@@ -205,9 +206,33 @@ public static class Application
         // One pass a room. A door is a script that says SetLocation and nothing more, so
         // going through one is this loop coming round again rather than anything the room
         // itself knows how to do.
+        var finishes = SurfaceFinishes.Empty;
+
         while (true)
         {
             using SceneGeometry geometry = renderer.CreateGeometry();
+
+            // What each texture's surface is like. Read once and shared by every room:
+            // it is a property of the corpus, not of a scene, and it is what tells the
+            // renderer that the church floor is polished and the pews are not.
+            if (first)
+            {
+                finishes = SurfaceFinishes.Load(Path.Combine(
+                    Path.GetDirectoryName(
+                        CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty)
+                            .TrimEnd(Path.DirectorySeparatorChar, '/')) ?? ".",
+                    "manifests",
+                    "material-library.json"));
+
+                if (finishes.Count > 0)
+                {
+                    Console.WriteLine(
+                        $"Surface finishes: {finishes.Count} textures measured, " +
+                        $"{finishes.Reflective} smooth enough to reflect");
+                }
+            }
+
+            geometry.Materials = finishes;
 
             // A fresh loader each time: it carries the last room's glances and its count of
             // enhanced textures, and neither belongs to the next one.

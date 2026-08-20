@@ -456,7 +456,9 @@ internal static class MeshShaders
             // claiming to have crossed the screen since the last frame.
             vec3 normal = PerturbedNormal(normalize(inNormal));
 
-            outNormalTarget = vec4(normal, 0.0);
+            // Alpha is how rough this surface is, which is what decides whether a
+            // reflection is worth tracing off it and how tightly to gather one.
+            outNormalTarget = vec4(normal, draw.shading.w);
             outMotion = vec2(0.0);
 
             #ifdef RAY_TRACING

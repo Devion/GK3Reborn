@@ -42,6 +42,7 @@ internal sealed unsafe class CompositePipeline : IDisposable
         layout(set = 0, binding = 1) uniform sampler2D directTarget;
         layout(set = 0, binding = 2) uniform sampler2D shadowTarget;
         layout(set = 0, binding = 3) uniform sampler2D occlusionTarget;
+        layout(set = 0, binding = 4) uniform sampler2D reflectionTarget;
 
         // How much of the traced occlusion to believe. Not all of it: the lightmaps these
         // rooms ship with were baked with occlusion already in them, so a hemisphere of
@@ -53,6 +54,11 @@ internal sealed unsafe class CompositePipeline : IDisposable
         // What is worth having is the near contact the bake is too coarse to hold: the
         // seam where an arm meets a body, the line under a table.
         const float kOcclusionStrength = 0.55;
+
+        // Reflections arrive already weighted: by how much of the ray the marcher could
+        // follow, by how much the surface reflects at the angle it is seen from, and by
+        // how rough it is. There is nothing left to scale here.
+        const float kReflectionStrength = 1.0;
 
         void main()
         {
@@ -67,7 +73,15 @@ internal sealed unsafe class CompositePipeline : IDisposable
             // by the shade around it.
             float occlusion = mix(1.0, open, kOcclusionStrength * indirect.a);
 
-            outColor = vec4((indirect.rgb * occlusion) + (direct * shadow), 1.0);
+            vec3 lit = (indirect.rgb * occlusion) + (direct * shadow);
+
+            // What the surface reflects, and how much of it was found. Added rather than
+            // mixed in: a floor that reflects a lamp is brighter for it, not less itself.
+            // Alpha is the marcher's own confidence — off the edge of the screen there is
+            // nothing to reflect and it says so.
+            vec4 mirrored = texelFetch(reflectionTarget, pixel, 0);
+
+            outColor = vec4(lit + (mirrored.rgb * mirrored.a * kReflectionStrength), 1.0);
         }
         """;
 
@@ -79,7 +93,7 @@ internal sealed unsafe class CompositePipeline : IDisposable
     private readonly DescriptorPool _pool;
     private readonly Sampler _sampler;
 
-    private DescriptorSet _set;
+    private readonly DescriptorSet[] _sets = new DescriptorSet[2];
 
     private CompositePipeline(
         Vk vk,
@@ -127,9 +141,9 @@ internal sealed unsafe class CompositePipeline : IDisposable
         ShaderModule fragmentModule = Module(vk, device, compiler, Fragment, ShaderStage.Fragment);
 
         DescriptorSetLayoutBinding* bindings =
-            stackalloc DescriptorSetLayoutBinding[4];
+            stackalloc DescriptorSetLayoutBinding[5];
 
-        for (uint i = 0; i < 4; i++)
+        for (uint i = 0; i < 5; i++)
         {
             bindings[i] = new DescriptorSetLayoutBinding
             {
@@ -143,7 +157,7 @@ internal sealed unsafe class CompositePipeline : IDisposable
         var layoutInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 4,
+            BindingCount = 5,
             PBindings = bindings,
         };
 
@@ -160,14 +174,14 @@ internal sealed unsafe class CompositePipeline : IDisposable
 
         vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out PipelineLayout layout);
 
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 8);
+        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 16);
 
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = 2,
+            MaxSets = 4,
         };
 
         vk.CreateDescriptorPool(device, in poolInfo, null, out DescriptorPool pool);
@@ -304,68 +318,98 @@ internal sealed unsafe class CompositePipeline : IDisposable
             vk, device, vertexModule, fragmentModule, setLayout, layout, handle, pool, sampler);
     }
 
-    /// <summary>Points the pass at the four things it reads.</summary>
+    /// <summary>Points the pass at the five things it reads.</summary>
     /// <param name="indirect">Ambient and baked light, before occlusion.</param>
     /// <param name="direct">The rig's light, before shadowing.</param>
     /// <param name="shadow">The denoised fraction of that light which arrives.</param>
     /// <param name="occlusion">The denoised fraction of the hemisphere that is open.</param>
-    public void Bind(ImageView indirect, ImageView direct, ImageView shadow, ImageView occlusion)
+    /// <param name="reflections">
+    /// The two buffers reflections alternate between, most recent first each frame.
+    /// </param>
+    /// <remarks>
+    /// Two sets, because the reflection pass writes its answer into whichever of its two
+    /// buffers was not the last frame's. Everything else is the same in both.
+    /// </remarks>
+    public void Bind(
+        ImageView indirect,
+        ImageView direct,
+        ImageView shadow,
+        ImageView occlusion,
+        ReadOnlySpan<ImageView> reflections)
     {
+        DescriptorSetLayout* layouts = stackalloc DescriptorSetLayout[2]
+        {
+            _setLayout,
+            _setLayout,
+        };
+
         var info = new DescriptorSetAllocateInfo
         {
             SType = StructureType.DescriptorSetAllocateInfo,
             DescriptorPool = _pool,
-            DescriptorSetCount = 1,
+            DescriptorSetCount = 2,
+            PSetLayouts = layouts,
         };
 
-        DescriptorSetLayout layout = _setLayout;
-        info.PSetLayouts = &layout;
-
-        fixed (DescriptorSet* set = &_set)
+        fixed (DescriptorSet* sets = _sets)
         {
-            if (_vk.AllocateDescriptorSets(_device, in info, set) != Result.Success)
+            if (_vk.AllocateDescriptorSets(_device, in info, sets) != Result.Success)
             {
-                throw new VulkanException("Could not allocate the compositing descriptor set.");
+                throw new VulkanException("Could not allocate the compositing descriptor sets.");
             }
         }
 
-        DescriptorImageInfo* images = stackalloc DescriptorImageInfo[4];
-        ImageView[] views = [indirect, direct, shadow, occlusion];
-        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[4];
+        DescriptorImageInfo* images = stackalloc DescriptorImageInfo[10];
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[10];
 
-        for (uint i = 0; i < 4; i++)
+        for (uint which = 0; which < 2; which++)
         {
-            images[i] = new DescriptorImageInfo
-            {
-                Sampler = _sampler,
-                ImageView = views[i],
+            ImageView[] views =
+            [
+                indirect,
+                direct,
+                shadow,
+                occlusion,
+                reflections.Length > which ? reflections[(int)which] : occlusion,
+            ];
 
-                // The two denoised terms are storage images and stay in General; the two
-                // colour targets are read after being written as attachments.
-                ImageLayout = i < 2
-                    ? ImageLayout.ShaderReadOnlyOptimal
-                    : ImageLayout.General,
-            };
-
-            writes[i] = new WriteDescriptorSet
+            for (uint i = 0; i < 5; i++)
             {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _set,
-                DstBinding = i,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                PImageInfo = &images[i],
-            };
+                uint at = (which * 5) + i;
+
+                images[at] = new DescriptorImageInfo
+                {
+                    Sampler = _sampler,
+                    ImageView = views[i],
+
+                    // The three computed terms are storage images and stay in General; the
+                    // two colour targets are read after being written as attachments.
+                    ImageLayout = i < 2
+                        ? ImageLayout.ShaderReadOnlyOptimal
+                        : ImageLayout.General,
+                };
+
+                writes[at] = new WriteDescriptorSet
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = _sets[which],
+                    DstBinding = i,
+                    DescriptorCount = 1,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    PImageInfo = &images[at],
+                };
+            }
         }
 
-        _vk.UpdateDescriptorSets(_device, 4, writes, 0, null);
+        _vk.UpdateDescriptorSets(_device, 10, writes, 0, null);
     }
 
     /// <summary>Draws the frame.</summary>
     /// <param name="command">Command buffer, inside an active rendering scope.</param>
     /// <param name="width">Viewport width.</param>
     /// <param name="height">Viewport height.</param>
-    public void Record(CommandBuffer command, int width, int height)
+    /// <param name="parity">Which of the two reflection buffers holds this frame's.</param>
+    public void Record(CommandBuffer command, int width, int height, int parity)
     {
         var viewport = new Viewport { Width = width, Height = height, MaxDepth = 1f };
         var scissor = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) };
@@ -373,8 +417,10 @@ internal sealed unsafe class CompositePipeline : IDisposable
         _vk.CmdSetViewport(command, 0, 1, in viewport);
         _vk.CmdSetScissor(command, 0, 1, in scissor);
         _vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, Handle);
+        DescriptorSet set = _sets[parity & 1];
+
         _vk.CmdBindDescriptorSets(
-            command, PipelineBindPoint.Graphics, Layout, 0, 1, in _set, 0, null);
+            command, PipelineBindPoint.Graphics, Layout, 0, 1, in set, 0, null);
 
         _vk.CmdDraw(command, 3, 1, 0, 0);
     }

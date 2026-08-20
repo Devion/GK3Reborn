@@ -98,6 +98,21 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private DeviceMemory _sceneMemory;
     private ImageView _sceneView;
 
+    /// <summary>The finished picture, before it is copied out to be shown.</summary>
+    /// <remarks>
+    /// Reflections need a lit picture to reflect, and the one they are being added to is
+    /// not finished yet. They read this one, a frame old, and reproject it — a frame of
+    /// lag in a reflection is not something anybody has ever seen. It holds the sky as
+    /// well, so a floor can reflect that, but not the interface, which is drawn after the
+    /// copy so that it never appears underfoot.
+    /// </remarks>
+    private Image _litImage;
+    private DeviceMemory _litMemory;
+    private ImageView _litView;
+    private bool _litSettled;
+
+    private Reflections? _reflections;
+
     private readonly Image[] _extraImages = new Image[GBuffer.Targets - 1];
     private readonly DeviceMemory[] _extraMemory = new DeviceMemory[GBuffer.Targets - 1];
     private readonly ImageView[] _extraViews = new ImageView[GBuffer.Targets - 1];
@@ -213,6 +228,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             renderer.CreateDepthBuffer();
             renderer.CreateGBuffer();
             renderer.CreateSceneTarget();
+            renderer.CreateLitTarget();
             renderer.CreateCommandResources();
             renderer.CreateSynchronization();
             renderer.CreatePipelines();
@@ -573,6 +589,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
             DestroyDepthBuffer();
             DestroyGBuffer();
             DestroySceneTarget();
+            DestroyLitTarget();
+            _reflections?.Dispose();
+            _reflections = null;
             _denoiser?.Dispose();
             _denoiser = null;
             _composite?.Dispose();
@@ -1292,7 +1311,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 return;
             }
 
+            _reflections?.Dispose();
+            _reflections = Reflections.Create(
+                _context, _shaderCompiler, (int)_extent.Width, (int)_extent.Height);
+
             _denoiser.Settle(buffer);
+            _reflections.Settle(buffer);
             _composed = false;
         }
 
@@ -1306,11 +1330,18 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 _rayTracedFrames.Rig.Handle,
                 _rayTracedFrames.Rig.Size);
 
+            _reflections!.Bind(
+                _depthView,
+                _extraViews[GBuffer.Normal - 1],
+                _extraViews[GBuffer.Motion - 1],
+                _litView);
+
             _composite!.Bind(
                 _sceneView,
                 _extraViews[GBuffer.Direct - 1],
                 _denoiser.Shadow,
-                _denoiser.Occlusion);
+                _denoiser.Occlusion,
+                _reflections.Buffers);
 
             _composed = true;
         }
@@ -1348,14 +1379,31 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _denoiser!.Record(
             buffer, _camera!, _depthImage, RayTracingSettings.For(Quality).AmbientOcclusionRadius);
 
+        // Last frame's picture, which is the one there is to reflect. It ends every frame
+        // as the source of the copy to the screen, so that is where it is coming from.
+        Transition(
+            buffer,
+            _litImage,
+            _litSettled ? ImageLayout.TransferSrcOptimal : ImageLayout.Undefined,
+            ImageLayout.ShaderReadOnlyOptimal);
+
+        _reflections!.Record(buffer, _camera!, Rendering.Materials.SurfaceFinish.Roughest);
+
         _context.Transition(
             buffer, _depthImage, ImageLayout.ShaderReadOnlyOptimal,
             ImageLayout.DepthStencilAttachmentOptimal, ImageAspectFlags.DepthBit);
 
+        Transition(
+            buffer, _litImage, ImageLayout.ShaderReadOnlyOptimal,
+            ImageLayout.ColorAttachmentOptimal);
+
         var attachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
-            ImageView = view,
+
+            // Into a picture of its own rather than straight onto the screen, so that the
+            // next frame has something to reflect.
+            ImageView = _litView,
             ImageLayout = ImageLayout.ColorAttachmentOptimal,
 
             // Nothing to load: the first thing drawn covers every pixel of it.
@@ -1385,15 +1433,76 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         _vk.CmdBeginRendering(buffer, in rendering);
 
-        _composite!.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+        _composite!.Record(
+            buffer, (int)_extent.Width, (int)_extent.Height, _reflections.Parity);
 
         if (_camera is not null)
         {
             _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
         }
 
-        _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+        _vk.CmdEndRendering(buffer);
 
+        // Onto the screen. A copy rather than another full-screen triangle because the two
+        // are the same size and the same format, so there is nothing to do but move it.
+        Transition(
+            buffer, _litImage, ImageLayout.ColorAttachmentOptimal,
+            ImageLayout.TransferSrcOptimal);
+
+        Transition(
+            buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferDstOptimal);
+
+        var region = new ImageCopy
+        {
+            SrcSubresource = new ImageSubresourceLayers
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LayerCount = 1,
+            },
+            DstSubresource = new ImageSubresourceLayers
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LayerCount = 1,
+            },
+            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+        };
+
+        _vk.CmdCopyImage(
+            buffer,
+            _litImage,
+            ImageLayout.TransferSrcOptimal,
+            image,
+            ImageLayout.TransferDstOptimal,
+            1,
+            in region);
+
+        Transition(
+            buffer, image, ImageLayout.TransferDstOptimal, ImageLayout.ColorAttachmentOptimal);
+
+        _litSettled = true;
+
+        // The interface last and straight onto the screen, so that it is never part of
+        // what the next frame reflects. A floor should show the room, not the inventory.
+        var overlayAttachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = view,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var overlayRendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = _extent },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &overlayAttachment,
+        };
+
+        _vk.CmdBeginRendering(buffer, in overlayRendering);
+        _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
         _vk.CmdEndRendering(buffer);
     }
 
@@ -1555,6 +1664,77 @@ public sealed unsafe class VulkanRenderer : IDisposable
         if (_vk.CreateImageView(_device, in viewInfo, null, out _sceneView) != Result.Success)
         {
             throw new VulkanException("Could not create the scene target's view.");
+        }
+    }
+
+    /// <summary>Builds the picture the swapchain is copied from.</summary>
+    private void CreateLitTarget()
+    {
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Format = _format,
+            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+            Usage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit |
+                    ImageUsageFlags.TransferSrcBit,
+            InitialLayout = ImageLayout.Undefined,
+        };
+
+        if (_vk.CreateImage(_device, in imageInfo, null, out _litImage) != Result.Success)
+        {
+            throw new VulkanException("Could not create the lit target.");
+        }
+
+        _vk.GetImageMemoryRequirements(_device, _litImage, out MemoryRequirements requirements);
+
+        _litMemory = AllocateDepthMemory(requirements);
+        _vk.BindImageMemory(_device, _litImage, _litMemory, 0);
+
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = _litImage,
+            ViewType = ImageViewType.Type2D,
+            Format = _format,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LevelCount = 1,
+                LayerCount = 1,
+            },
+        };
+
+        if (_vk.CreateImageView(_device, in viewInfo, null, out _litView) != Result.Success)
+        {
+            throw new VulkanException("Could not create the lit target's view.");
+        }
+
+        _litSettled = false;
+    }
+
+    private void DestroyLitTarget()
+    {
+        if (_litView.Handle != 0)
+        {
+            _vk.DestroyImageView(_device, _litView, null);
+            _litView = default;
+        }
+
+        if (_litImage.Handle != 0)
+        {
+            _vk.DestroyImage(_device, _litImage, null);
+            _litImage = default;
+        }
+
+        if (_litMemory.Handle != 0)
+        {
+            _vk.FreeMemory(_device, _litMemory, null);
+            _litMemory = default;
         }
     }
 
@@ -1752,6 +1932,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         // The denoiser holds a frame's worth of history at one size, and none of it means
         // anything at another.
+        _reflections?.Dispose();
+        _reflections = null;
         _denoiser?.Dispose();
         _denoiser = null;
         _composite?.Dispose();
@@ -1761,11 +1943,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
         DestroyDepthBuffer();
         DestroyGBuffer();
         DestroySceneTarget();
+        DestroyLitTarget();
         DestroySwapchain();
         CreateSwapchain();
         CreateDepthBuffer();
         CreateGBuffer();
         CreateSceneTarget();
+        CreateLitTarget();
         _needsRecreate = false;
     }
 

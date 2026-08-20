@@ -105,6 +105,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>The scene as rays see it, once <see cref="Finish"/> has built it.</summary>
     public RayTracingScene? RayTracing => _rayTracing;
 
+    /// <summary>What each texture's surface is like, for the passes that care.</summary>
+    /// <remarks>
+    /// Set by whoever loads the scene. Empty by default, which makes every surface matte
+    /// and every reflection cost nothing.
+    /// </remarks>
+    public Rendering.Materials.SurfaceFinishes Materials { get; set; } =
+        Rendering.Materials.SurfaceFinishes.Empty;
+
     /// <summary>How many triangles are in the ray-traced representation.</summary>
     /// <remarks>
     /// Lower than <see cref="TriangleCount"/>, because alpha-tested geometry is left out;
@@ -876,7 +884,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     _lightmap is not null && batch.UseLightmap ? 1f : 0f,
                     LightmapMultiplier,
                     batch.SelfLit ? 1f : 0f,
-                    0)));
+
+                    // Written straight into the frame's normals, whose alpha nothing else
+                    // uses, because the only pass that wants it runs after this one.
+                    Materials.Of(batch.TextureName).Roughness)));
 
             // The animated buffer when something has reshaped this batch, and the one the
             // model was built with otherwise.

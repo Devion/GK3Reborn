@@ -313,3 +313,69 @@ rays measures something the bake has largely accounted for, and counting it twic
 surfaces to black: enough of the hemisphere above a shoulder is that person's own head
 that the shoulder disappears. What is worth keeping is the near contact the bake is too
 coarse to hold — the seam where an arm meets a body, the line under a table.
+
+## Reflections
+
+The church has a tiled floor, the hotel has marble, and until now every surface in the
+game was equally matte. The marching is AMD's, from FidelityFX SSSR in the same 1.1.4
+release: the hierarchical walk over a min-depth pyramid, the plane intersections that
+advance it, the visible-normal sampling that gives a rough surface a wider cone than a
+polished one, and the checks that decide a hit is real. `ReflectionShaders` lists what was
+left out — their tile classification, indirect dispatch, blue-noise sampler and their own
+reflection denoiser, all of which buy throughput on scenes far heavier than these rooms.
+
+### Where roughness comes from
+
+GK3 has no material data: every surface is a diffuse texture and, sometimes, a lightmap.
+The workspace's material pass infers roughness and specular reflectance for all 6,657
+textures and writes them to `manifests/material-library.json`; 1,456 come out smooth enough
+to be worth a ray. `SurfaceFinishes` reads it once and the mesh pass writes each surface's
+roughness into the alpha of the frame's normals, which nothing else was using. A texture
+the library has never heard of is matte and costs nothing.
+
+### Two things the port had to be told about GK3
+
+Both were invisible in the picture and both made reflections vanish entirely.
+
+**The ray has to be given at the right scale.** AMD form the screen-space ray from the
+projection of a point one unit along it. In a game measured in metres that is a good part
+of a room; GK3 measures a hotel room at about a thousand units, so one unit projects to a
+few millionths of the screen and every subtraction that follows is rounding error. A
+world-space line stays a line under projection — normalised depth varies linearly along it
+as well — so the ray can be given by any two points on it, and this goes as far along it as
+the camera is away, stopping short of the near plane.
+
+**The ray has to start on the level it marches.** The origin's depth is read from the
+pyramid at the most detailed mip the march will use, not from the depth buffer. A level of
+the pyramid holds the nearest of the pixels under it, so starting there puts the ray just
+in front of its own surface. Starting at the pixel's own depth puts it exactly on it, the
+first test says it is not above anything, and the march ends where it began.
+
+The depth-thickness tolerance also had to grow from AMD's default to 250 units, for the
+same reason of scale: a two-by-two pixel neighbourhood on a receding floor spans more than
+twenty units of view space, so almost every hit read as being behind the surface it landed
+on.
+
+### What is added to the picture
+
+A reflection arrives already weighted, so the compositing pass adds it whole:
+
+| | |
+| --- | --- |
+| the marcher's confidence | how much of the ray it could follow, fading at the frame's edges |
+| Schlick's term | a base reflectance of 0.16 — generous for a dielectric, and what makes the difference between polish and haze |
+| a roughness falloff | the root of the distance to the threshold, so a floor and the wall beside it do not differ by a hard line |
+
+Reflections read the previous frame's finished picture, reprojected through the motion
+vectors: reading this frame's is not possible, since it is what the reflection is being
+added to. That picture holds the sky, so a floor can reflect it, but not the interface,
+which is drawn straight onto the screen after the copy so that it never appears underfoot.
+
+| | before | after |
+| --- | --- | --- |
+| `CHU` at High | 162 fps | 152 fps |
+| `R25` at High | 163 fps | 161 fps |
+| `MOP` at High | 159 fps | 159 fps |
+
+Measured on the church floor, reflections change it by a mean of 0.47 of an eight-bit step
+— visible as the pews mirrored under them, and nothing like a mirror.
