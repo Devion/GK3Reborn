@@ -71,6 +71,11 @@ public sealed class SceneCheckStage
              $"{string.Join(", ", timeblocks)}");
 
         var tally = new Tally();
+
+        // What lets the sweep say how long the game's actions take rather than only what
+        // they call. Reading an animation changes nothing, so this is as safe as the rest
+        // of the sweep.
+        tally.Api.Animations = new AnimationLibrary(archives);
         var loader = new SceneLoader(archives);
 
         foreach (string scene in scenes)
@@ -277,6 +282,19 @@ public sealed class SceneCheckStage
                         foreach (ActionStatement statement in statements)
                         {
                             tally.Called[statement.Call] = tally.Called.GetValueOrDefault(statement.Call) + 1;
+
+                            if (!statement.Waited)
+                            {
+                                continue;
+                            }
+
+                            tally.Waited++;
+
+                            if (statement.Seconds > 0)
+                            {
+                                tally.Timed++;
+                                tally.Seconds += statement.Seconds;
+                            }
                         }
                     }
                     else
@@ -387,6 +405,11 @@ public sealed class SceneCheckStage
             $"({tally.Runnable * 100f / Math.Max(1, tally.Verbs):F1}%), " +
             $"{tally.Statements} statements calling {tally.Called.Count} distinct functions"));
 
+        _log(string.Create(CultureInfo.InvariantCulture,
+            $"  {tally.Timed} of {tally.Waited} waited statements have a length " +
+            $"({tally.Timed * 100f / Math.Max(1, tally.Waited):F1}%), " +
+            $"{tally.Seconds / 60:F0} minutes of the player's time in all"));
+
         if (tally.Unreadable.Count > 0)
         {
             _log($"  cannot be performed: {string.Join(", ", tally.Unreadable.Take(6))}" +
@@ -482,8 +505,17 @@ public sealed class SceneCheckStage
 
         public int Statements { get; set; }
 
+        /// <summary>Answers how long a call takes, and nothing else.</summary>
+        public Gk3SheepApi Api { get; } = new(new GameState());
+
         /// <summary>Reads scripts without a story to run them against.</summary>
-        public ActionRunner Runner { get; } = new(new Gk3SheepApi(new GameState()));
+        public ActionRunner Runner => field ??= new ActionRunner(Api);
+
+        public int Waited { get; set; }
+
+        public int Timed { get; set; }
+
+        public double Seconds { get; set; }
 
         public Dictionary<string, int> Called { get; } = new(StringComparer.OrdinalIgnoreCase);
 

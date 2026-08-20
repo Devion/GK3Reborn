@@ -205,10 +205,27 @@ of guessing at it. A script with a statement it cannot read is refused **whole**
 way a compiler refuses a file: half an action is worse than none, because the half that
 ran has already changed the story.
 
-`wait` is recorded and not obeyed. Calls run inline to completion, which produces the
-same observable order for anything that does not depend on real elapsed time; keeping
-the flag in the record is what lets that stop being true later without the traces
-becoming incomparable.
+`wait` means what it says. A waited call reports how long it takes and the statement
+takes that long, so an action takes the time it was written to take instead of happening
+all at once:
+
+```
+do GABRIEL:LOOK [ALL] from GLB_ALL.NVC:30, 224 scripts loaded
+  ran 1 statement(s): wait StartVoiceOver
+  takes 3.3s of the player's time
+```
+
+Almost all of that is dialogue, and how long a line of dialogue lasts is a frame count in
+a `.YAK` — see `docs/formats/animations.md`, particularly the part about finding which
+`.YAK`, which is where this is easy to get silently wrong. Across the corpus **21,064 of
+22,556 waited statements have a length (93.4%), 1,201 minutes of the player's time in
+all**. A call whose length lives somewhere still unread — a soundtrack, a walk, a
+conversation — reports zero and is over as soon as it starts, which is what every waited
+call did before any of this could be measured.
+
+Working out a duration needs the call's arguments, and working those out means evaluating
+the expression. Reading a script is supposed to change nothing, so a read evaluates
+against a host that does nothing and catches the call on its way in.
 
 Two things happen after a script finishes, whatever it said. A **topic** verb — one
 named `T_…` — increments its own topic count, and `Z_CHAT` increments the noun's chat

@@ -127,6 +127,10 @@ public static class Application
         SceneRequest request = SceneRequest.For(sceneName, timeblock);
         Gk3SheepApi api = request.Api ?? new Gk3SheepApi(new GameState());
 
+        // What makes a waited call take time. Without it every line of dialogue in the
+        // game is over in the frame it starts.
+        api.Animations = new AnimationLibrary(archives);
+
         if (request.State is not null)
         {
             Console.WriteLine($"Story: {request.State.Timeblock} in {request.State.Location}");

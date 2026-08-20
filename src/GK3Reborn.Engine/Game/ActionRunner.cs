@@ -8,7 +8,12 @@ namespace GK3Reborn.Game;
 /// <summary>One statement of an action's script.</summary>
 /// <param name="Call">The function it calls.</param>
 /// <param name="Waited">Whether the script waited on it.</param>
-public readonly record struct ActionStatement(string Call, bool Waited);
+/// <param name="Seconds">
+/// How long the script waits on it. Zero when it was not waited on, and also zero when it
+/// was but the host cannot say how long it takes — the two are told apart by
+/// <paramref name="Waited"/>, not by this.
+/// </param>
+public readonly record struct ActionStatement(string Call, bool Waited, double Seconds = 0);
 
 /// <summary>What running an action did.</summary>
 /// <param name="Noun">What it was done to.</param>
@@ -25,7 +30,16 @@ public sealed record ActionOutcome(
     string Verb,
     string Case,
     IReadOnlyList<ActionStatement> Statements,
-    bool Ran);
+    bool Ran)
+{
+    /// <summary>How long the action takes, in seconds.</summary>
+    /// <remarks>
+    /// The sum of its waits, because the statements run one after another and a waited one
+    /// holds up the rest. An action of nothing but unwaited calls is instantaneous, which
+    /// is right: those are the ones the script did not want to wait for.
+    /// </remarks>
+    public double Seconds => Statements.Sum(s => s.Seconds);
+}
 
 /// <summary>
 /// Runs the script an action names.
@@ -104,7 +118,23 @@ public sealed class ActionRunner
         {
             try
             {
-                SheepExpression.Evaluate(sources[i], _api);
+                // How long a waited call takes is not something its return value says, and
+                // an action script is evaluated one statement at a time with no wait block
+                // to accumulate it in, so it is collected as the call is made. The longest
+                // call in a statement decides the statement, the way a wait block is over
+                // when its slowest member is.
+                double seconds = 0;
+
+                SheepExpression.Evaluate(
+                    sources[i],
+                    _api,
+                    null,
+                    statements[i].Waited
+                        ? (name, arguments) =>
+                            seconds = Math.Max(seconds, _api.SecondsFor(name, arguments))
+                        : null);
+
+                statements[i] = statements[i] with { Seconds = seconds };
             }
             catch (FormatParseException ex)
             {
@@ -154,6 +184,57 @@ public sealed class ActionRunner
     }
 
     /// <summary>Reads a script into statements, or explains why it cannot.</summary>
+    /// <summary>
+    /// Works out how long a waited statement takes without performing it.
+    /// </summary>
+    /// <param name="text">The call, as the script wrote it.</param>
+    /// <returns>Seconds, or zero when the host cannot say.</returns>
+    /// <remarks>
+    /// <para>
+    /// How long a call takes depends on its arguments — which line of dialogue, which
+    /// animation — so the arguments have to be worked out, and working them out means
+    /// evaluating the expression. Reading a script is supposed to change nothing, so the
+    /// evaluation is done against a host that does nothing, and the call is caught on its
+    /// way in rather than being allowed to happen.
+    /// </para>
+    /// <para>
+    /// An argument that is itself a call — <c>StartVoiceOver(GetVar("x"), 1)</c> — comes
+    /// out empty, because the inert host has nothing to return. There are none of those in
+    /// the corpus; if there were, they would read as instantaneous rather than wrong.
+    /// </para>
+    /// </remarks>
+    private double Measure(string text)
+    {
+        double seconds = 0;
+
+        try
+        {
+            SheepExpression.Evaluate(
+                text.Contains('(', StringComparison.Ordinal) ? text : text + "()",
+                Inert.Instance,
+                null,
+                (name, arguments) => seconds = Math.Max(seconds, _api.SecondsFor(name, arguments)));
+        }
+        catch (FormatParseException)
+        {
+            // Whatever is wrong with it will be reported by the read itself.
+            return 0;
+        }
+
+        return seconds;
+    }
+
+    /// <summary>A host that does nothing, for finding out what a script would call.</summary>
+    private sealed class Inert : ISheepApi
+    {
+        public static Inert Instance { get; } = new();
+
+        public SheepValue Invoke(string name, IReadOnlyList<SheepValue> arguments) =>
+            SheepValue.FromInt(0);
+
+        public bool IsWaitable(string name) => false;
+    }
+
     private bool TryRead(
         NvcAction action, out List<ActionStatement> statements, out List<string> sources)
     {
@@ -186,7 +267,7 @@ public sealed class ActionRunner
                 return false;
             }
 
-            statements.Add(new ActionStatement(call, waited));
+            statements.Add(new ActionStatement(call, waited, waited ? Measure(text) : 0));
 
             // A bare name is a call with no arguments — the language has statements like
             // Yield that take none — and the expression reader wants the parentheses.

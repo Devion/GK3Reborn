@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using GK3Reborn.Content;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Sheep;
 using GK3Reborn.UI;
@@ -95,24 +96,54 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <inheritdoc/>
     public bool IsWaitable(string name) => _waitable.Contains(name);
 
+    /// <summary>
+    /// The animations, for the calls whose length is a frame count.
+    /// </summary>
+    /// <remarks>
+    /// Optional, because a tool sweeping the corpus has no clock and does not want one.
+    /// Without it a line of dialogue is over as soon as it starts, which is what every
+    /// waited call did before there was anywhere to read a duration from.
+    /// </remarks>
+    public AnimationLibrary? Animations { get; set; }
+
     /// <inheritdoc/>
     /// <remarks>
+    /// <para>
     /// Only the calls whose length is knowable from what has been read. A timer is exactly
-    /// its argument; a camera glide is as long as a glide. Everything else — a line of
-    /// dialogue, an animation — is as long as an asset nothing reads yet, and answering
-    /// with a plausible number would invent pacing the game does not have. Those keep the
-    /// old behaviour of being over as soon as they start.
+    /// its argument and a camera glide is as long as a glide, both of which the engine
+    /// decides for itself. The rest is asset-shaped: an animation is a frame count at
+    /// fifteen frames a second, and a voice-over is one animation per line of dialogue.
+    /// </para>
+    /// <para>
+    /// A call whose asset cannot be found answers zero rather than a plausible guess, so a
+    /// missing file makes a line instant instead of inventing a pause that is not in the
+    /// game.
+    /// </para>
     /// </remarks>
     public double SecondsFor(string name, IReadOnlyList<SheepValue> arguments)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(arguments);
 
+        string first = arguments.Count > 0 ? arguments[0].AsString() : string.Empty;
+
         return name.ToUpperInvariant() switch
         {
             "SETTIMERSECONDS" => arguments.Count > 0 ? arguments[0].AsFloat() : 0,
             "SETTIMERMS" => arguments.Count > 0 ? arguments[0].AsInt() / 1000.0 : 0,
             "GLIDETOCAMERAANGLE" => SceneUpdate.GlideSeconds,
+
+            // A licence plate and a line count, not an asset name. The library works out
+            // which animations those are.
+            "STARTVOICEOVER" => Animations?.SecondsOfVoiceOver(
+                first, arguments.Count > 1 ? arguments[1].AsInt() : 1) ?? 0,
+
+            // StartYak names one animation outright, where StartVoiceOver names a run of
+            // them, so the same asset is reached two different ways.
+            "STARTYAK" or "STARTANIMATION" or "LOOPANIMATION" or "STARTMOVEANIMATION" or
+            "STARTMORPHANIMATION" or "STARTMOM" =>
+                Animations?.SecondsOf(first) ?? 0,
+
             _ => 0,
         };
     }

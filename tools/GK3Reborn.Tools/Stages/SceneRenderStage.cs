@@ -661,6 +661,13 @@ public sealed class SceneRenderStage
         int loaded = LoadScripts(archives, host);
         var runner = new ActionRunner(api);
 
+        // With somewhere to put a waiting script and something that knows how long its
+        // calls take, an action takes the time it was written to take instead of happening
+        // all at once. Both are needed: a scheduler with no durations parks nothing for
+        // long, and durations with no scheduler are a number nobody spends.
+        api.Animations = new AnimationLibrary(archives);
+        host.Scheduler = new SheepScheduler(host.Machine);
+
         string before = api.State.ComputeHash();
         int events = api.Events.Count;
 
@@ -677,6 +684,10 @@ public sealed class SceneRenderStage
         {
             _log($"    {recorded.Name}({string.Join(", ", recorded.Arguments)})");
         }
+
+        _log(outcome.Seconds > 0
+            ? $"  takes {outcome.Seconds:0.0}s of the player's time"
+            : "  is over as soon as it starts");
 
         if (host.CallStackTrace.Count > 0)
         {
