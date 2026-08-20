@@ -34,14 +34,21 @@ public static class SceneScripting
     /// <param name="api">The host.</param>
     /// <param name="scene">The scene they act on.</param>
     /// <param name="glances">Where to record who is looking at what, if anywhere.</param>
+    /// <param name="audio">The room's audio, or null to leave the sound calls recorded.</param>
     /// <remarks>
     /// Call it again for the next scene: the functions close over this one, and the last
     /// registration wins, which is what changing rooms means.
     /// </remarks>
-    public static void Attach(Gk3SheepApi api, LoadedScene scene, Glances? glances = null)
+    public static void Attach(
+        Gk3SheepApi api, LoadedScene scene, Glances? glances = null, SceneAudio? audio = null)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(scene);
+
+        if (audio is not null)
+        {
+            Speak(api, audio);
+        }
 
         api.Register("WalkerBoundaryBlockModel", arguments =>
         {
@@ -466,4 +473,74 @@ public static class SceneScripting
 
         return -1;
     }
+    /// <summary>
+    /// Makes the calls that were recorded actually make a sound.
+    /// </summary>
+    /// <param name="api">The host.</param>
+    /// <param name="audio">The room's audio.</param>
+    /// <remarks>
+    /// These were all registered as recorded — the presentation surface named but not
+    /// performed — because there was no device and no decoder. There is both now, so they
+    /// are registered over. A call whose sound cannot be found still returns cleanly: a
+    /// missing footstep should not stop the script that stepped.
+    /// </remarks>
+    private static void Speak(Gk3SheepApi api, SceneAudio audio)
+    {
+        api.Register("PlaySound", arguments =>
+        {
+            if (arguments.Count > 0)
+            {
+                audio.Play(arguments[0].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("StartVoiceOver", arguments =>
+        {
+            if (arguments.Count > 0)
+            {
+                audio.Speak(
+                    arguments[0].AsString(),
+                    arguments.Count > 1 ? arguments[1].AsInt() : 1);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        // A yak names one line outright where a voice-over names a run of them.
+        api.Register("StartYak", arguments =>
+        {
+            if (arguments.Count > 0)
+            {
+                audio.Speak(arguments[0].AsString(), 1);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("PlaySoundTrack", arguments =>
+        {
+            if (arguments.Count > 0)
+            {
+                audio.Loop(arguments[0].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("StopSoundTrack", _ =>
+        {
+            audio.Loop(null);
+            return SheepValue.FromInt(0);
+        });
+
+        // One of the two functions the corpus called that nothing answered.
+        api.Register("StopAllSoundTracks", _ =>
+        {
+            audio.Loop(null);
+            return SheepValue.FromInt(0);
+        });
+    }
+
 }

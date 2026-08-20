@@ -1,0 +1,191 @@
+using System.Buffers.Binary;
+using System.Globalization;
+using GK3Reborn.Foundation.Diagnostics;
+
+namespace GK3Reborn.Formats.Audio;
+
+/// <summary>
+/// A RIFF/WAVE file, decoded to signed 16-bit samples.
+/// </summary>
+/// <remarks>
+/// <para>
+/// GK3's 7,852 sounds are RIFF files, and 7,656 of them — 97.5% — are not really WAV at
+/// all: format tag 85 is an MP3 stream wrapped in a RIFF header. Only 196 are plain PCM.
+/// So a reader that handles PCM alone can play the footsteps and the fly loop and nothing
+/// anybody says.
+/// </para>
+/// <para>
+/// Decoding those is an <b>import</b> concern, not a runtime one. `Plan/01` is explicit
+/// that conversion happens offline and the runtime never shells out, so `import-audio`
+/// transcodes the compressed ones into the content workspace and this reads what comes
+/// out. Meeting a compressed file at runtime is therefore a real diagnostic — it means the
+/// import has not been run — rather than something to fail quietly over.
+/// </para>
+/// </remarks>
+public sealed class WavFile
+{
+    /// <summary>Uncompressed pulse-code modulation.</summary>
+    public const int FormatPcm = 1;
+
+    /// <summary>An MP3 stream wearing a RIFF header.</summary>
+    public const int FormatMpegLayer3 = 85;
+
+    private WavFile(string name, int channels, int sampleRate, short[] samples)
+    {
+        Name = name;
+        Channels = channels;
+        SampleRate = sampleRate;
+        Samples = samples;
+    }
+
+    /// <summary>Name it was read under.</summary>
+    public string Name { get; }
+
+    /// <summary>One for mono, two for stereo.</summary>
+    public int Channels { get; }
+
+    /// <summary>Frames a second.</summary>
+    public int SampleRate { get; }
+
+    /// <summary>The samples, interleaved by channel.</summary>
+    public short[] Samples { get; }
+
+    /// <summary>How many frames long it is, counting a stereo pair as one.</summary>
+    public int FrameCount => Channels > 0 ? Samples.Length / Channels : 0;
+
+    /// <summary>How long it lasts, in seconds.</summary>
+    public double Duration => SampleRate > 0 ? (double)FrameCount / SampleRate : 0;
+
+    /// <summary>Reads a RIFF file.</summary>
+    /// <param name="bytes">The file.</param>
+    /// <param name="name">Name used in diagnostics.</param>
+    /// <param name="diagnostics">Receives a reason when it cannot be read.</param>
+    /// <returns>The sound, or null.</returns>
+    public static WavFile? Read(ReadOnlySpan<byte> bytes, string name, DiagnosticBag diagnostics)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(diagnostics);
+
+        if (bytes.Length < 12 ||
+            !bytes[..4].SequenceEqual("RIFF"u8) ||
+            !bytes.Slice(8, 4).SequenceEqual("WAVE"u8))
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R1120", DiagnosticSeverity.Warning,
+                "A sound is not a RIFF/WAVE file, so it cannot be played.",
+                name, null, "RIFF….WAVE",
+                bytes.Length >= 4 ? Text(bytes[..4]) : "an empty file",
+                "Check that the archive entry is audio and not something else."));
+
+            return null;
+        }
+
+        int format = 0;
+        int channels = 0;
+        int rate = 0;
+        int bits = 0;
+        ReadOnlySpan<byte> data = default;
+
+        // Chunks are id, length, payload, padded to even. Walking them rather than
+        // assuming fmt-then-data matters: these files carry a `fact` chunk between the two.
+        for (int at = 12; at + 8 <= bytes.Length;)
+        {
+            ReadOnlySpan<byte> id = bytes.Slice(at, 4);
+            long size = BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(at + 4, 4));
+            int body = at + 8;
+
+            if (size < 0 || body + size > bytes.Length)
+            {
+                size = bytes.Length - body;
+            }
+
+            if (id.SequenceEqual("fmt "u8) && size >= 16)
+            {
+                format = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(body, 2));
+                channels = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(body + 2, 2));
+                rate = BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(body + 4, 4));
+                bits = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(body + 14, 2));
+            }
+            else if (id.SequenceEqual("data"u8))
+            {
+                data = bytes.Slice(body, (int)size);
+            }
+
+            at = body + (int)size + ((int)size & 1);
+        }
+
+        if (format != FormatPcm)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R1121", DiagnosticSeverity.Warning,
+                format == FormatMpegLayer3
+                    ? "A sound is still an MP3 inside its RIFF header, so it cannot be played."
+                    : "A sound is in a compressed format nothing here decodes.",
+                name, null, "format tag 1, uncompressed",
+                format.ToString(CultureInfo.InvariantCulture),
+                format == FormatMpegLayer3
+                    ? "Run `import-audio` to transcode the corpus; the runtime does not decode."
+                    : "Convert it to 16-bit PCM."));
+
+            return null;
+        }
+
+        if (channels is < 1 or > 2 || rate <= 0)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R1122", DiagnosticSeverity.Warning,
+                "A sound has a channel count or sample rate nothing can play.",
+                name, null, "one or two channels at a positive rate",
+                string.Create(CultureInfo.InvariantCulture, $"{channels} channels at {rate} Hz"),
+                "Check the fmt chunk."));
+
+            return null;
+        }
+
+        return new WavFile(name, channels, rate, Decode(data, bits));
+    }
+
+    /// <summary>
+    /// Widens the sample data to signed 16-bit.
+    /// </summary>
+    /// <remarks>
+    /// Eight-bit WAV is unsigned with 128 as silence, which is the one trap here: read it
+    /// as signed and every sound is a loud square wave. GK3's PCM is all 16-bit, but the
+    /// import writes what it is given.
+    /// </remarks>
+    private static short[] Decode(ReadOnlySpan<byte> data, int bits)
+    {
+        switch (bits)
+        {
+            case 16:
+            {
+                short[] samples = new short[data.Length / 2];
+
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    samples[i] = BinaryPrimitives.ReadInt16LittleEndian(data.Slice(i * 2, 2));
+                }
+
+                return samples;
+            }
+
+            case 8:
+            {
+                short[] samples = new short[data.Length];
+
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    samples[i] = (short)((data[i] - 128) << 8);
+                }
+
+                return samples;
+            }
+
+            default:
+                return [];
+        }
+    }
+
+    private static string Text(ReadOnlySpan<byte> bytes) =>
+        System.Text.Encoding.ASCII.GetString(bytes);
+}

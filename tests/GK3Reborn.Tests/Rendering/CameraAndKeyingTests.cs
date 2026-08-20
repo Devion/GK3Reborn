@@ -232,6 +232,10 @@ public sealed class CameraAndKeyingTests
 
         public bool WasPressed(CameraAction action) => false;
 
+        public Vector2 PointerPosition => Vector2.Zero;
+
+        public bool WasClicked(PointerButton button) => false;
+
         public void EndFrame()
         {
         }
@@ -247,6 +251,10 @@ public sealed class CameraAndKeyingTests
         public bool IsHeld(CameraAction action) => action == held;
 
         public bool WasPressed(CameraAction action) => false;
+
+        public Vector2 PointerPosition => Vector2.Zero;
+
+        public bool WasClicked(PointerButton button) => false;
 
         public void EndFrame()
         {

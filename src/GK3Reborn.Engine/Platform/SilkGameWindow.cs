@@ -57,12 +57,17 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     };
 
     private readonly IWindow _window;
+    /// <summary>How far the pointer may travel between press and release and still be a click.</summary>
+    private const float DragThreshold = 4f;
+
     private readonly HashSet<CameraAction> _pressed = [];
+    private readonly HashSet<PointerButton> _clicked = [];
     private IInputContext? _input;
     private IKeyboard? _keyboard;
     private IMouse? _mouse;
     private Vector2 _pointerDelta;
     private Vector2 _lastPointer;
+    private Vector2 _pressedAt;
     private bool _hasPointer;
 
     private SilkGameWindow(IWindow window)
@@ -172,6 +177,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     public Vector2 PointerDelta => _pointerDelta;
 
     /// <inheritdoc/>
+    public Vector2 PointerPosition => _lastPointer;
+
+    /// <inheritdoc/>
+    public bool WasClicked(PointerButton button) => _clicked.Contains(button);
+
+    /// <inheritdoc/>
     public bool IsDragging =>
         _mouse is not null &&
         (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
@@ -189,6 +200,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     public void EndFrame()
     {
         _pressed.Clear();
+        _clicked.Clear();
         _pointerDelta = Vector2.Zero;
     }
 
@@ -231,6 +243,37 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         _input = _window.CreateInput();
         _keyboard = _input.Keyboards.Count > 0 ? _input.Keyboards[0] : null;
         _mouse = _input.Mice.Count > 0 ? _input.Mice[0] : null;
+
+        if (_mouse is not null)
+        {
+            // A click is only a click if the pointer did not travel while the button was
+            // down. Dragging to look around passes over every noun between where it
+            // started and where it stopped, and acting on the one it happens to end over
+            // is not what the player asked for.
+            _mouse.MouseDown += (_, _) =>
+            {
+                _pressedAt = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+            };
+
+            _mouse.MouseUp += (_, mouseButton) =>
+            {
+                var at = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+
+                if ((at - _pressedAt).Length() > DragThreshold)
+                {
+                    return;
+                }
+
+                if (mouseButton == MouseButton.Left)
+                {
+                    _clicked.Add(PointerButton.Primary);
+                }
+                else if (mouseButton == MouseButton.Right)
+                {
+                    _clicked.Add(PointerButton.Secondary);
+                }
+            };
+        }
 
         if (_keyboard is not null)
         {

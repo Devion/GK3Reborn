@@ -197,8 +197,26 @@ public static class Application
         // The world going on by itself: timers coming due, heads finishing a turn. It is
         // the only thing that touches the clock, and it is given the elapsed time rather
         // than reading it, so two runs stepped the same way do the same thing.
+        // Sound. The device may not open — a machine without one, or one already held —
+        // and the game runs quietly rather than not at all.
+        Audio.OpenAlBackend? audio = Audio.OpenAlBackend.Open(
+            Audio.SpeakerLayout.Stereo, diagnostics);
+
+        var sounds = new SoundLibrary(
+            archives,
+            Path.Combine(DefaultWorkspaceDirectory(), "normalized", "audio-pcm"));
+
+        SceneAudio? room = audio is null
+            ? null
+            : new SceneAudio(sounds, api.Animations ?? new AnimationLibrary(archives), audio);
+
+        Console.WriteLine(audio is null
+            ? "Audio: none, the game runs silent"
+            : $"Audio: {audio.DeviceName}, {sounds.DecodedCount} sound(s) decoded" +
+              (sounds.HasDecoded ? string.Empty : " — run import-audio, almost nothing will play"));
+
         var host = new ScriptHost(api);
-        SceneScripting.Attach(api, scene, loader.Glances);
+        SceneScripting.Attach(api, scene, loader.Glances, room);
 
         // Scripts wait for real here, unlike in the tools, because here there is a clock
         // for them to wait against.
@@ -214,6 +232,12 @@ public static class Application
             host.Scheduler);
 
         Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
+
+        // What the room sounds like when nothing is happening in it.
+        if (room?.StartAmbience(scene.AmbienceRead) is { } bed)
+        {
+            Console.WriteLine($"Ambience: {bed}");
+        }
 
         // Set once the room is standing, which is where a script would set it, so the head
         // turns while the player watches instead of having always been turned.
@@ -261,7 +285,11 @@ public static class Application
             }
         }
 
-        int result = FlyScene(window, renderer, geometry, scene, cameraName, frameLimit, update);
+        int result = FlyScene(
+            window, renderer, geometry, scene, cameraName, frameLimit, update,
+            new SceneInteraction(scene, api), room);
+
+        audio?.Dispose();
 
         if (screenshotPath is not null && renderer.Capture() is { } capture)
         {
@@ -273,6 +301,16 @@ public static class Application
     }
 
     /// <summary>Runs the present loop with a camera the player can move.</summary>
+    /// <param name="window">The window and its input.</param>
+    /// <param name="renderer">The renderer.</param>
+    /// <param name="geometry">The scene's geometry.</param>
+    /// <param name="scene">The scene.</param>
+    /// <param name="cameraName">Which camera to open on, if any.</param>
+    /// <param name="frameLimit">Stop after this many frames, or zero for no limit.</param>
+    /// <param name="update">The world going on by itself.</param>
+    /// <param name="interaction">Turns pointing at the room into doing something to it.</param>
+    /// <param name="room">What the room sounds like, if there is a device.</param>
+    /// <returns>Process exit code.</returns>
     /// <remarks>
     /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
     /// given the frame's elapsed time, so a head that was told to look at something turns
@@ -285,7 +323,9 @@ public static class Application
         LoadedScene scene,
         string? cameraName,
         int frameLimit,
-        SceneUpdate update)
+        SceneUpdate update,
+        SceneInteraction interaction,
+        SceneAudio? room)
     {
         int cameraIndex = Math.Max(
             0,
@@ -304,7 +344,8 @@ public static class Application
         Console.WriteLine();
         Console.WriteLine("WASD to move, E and Q for up and down, drag to look,");
         Console.WriteLine("Tab for the next camera, R to return to it, F2 for ray tracing,");
-        Console.WriteLine("Escape to leave.");
+        Console.WriteLine("click to act on what is under the pointer, right-click to see");
+        Console.WriteLine("everything it answers to, Escape to leave.");
 
         // Where the scene opened, so a glide has somewhere to leave from rather than
         // arriving the moment it is asked for.
@@ -315,6 +356,8 @@ public static class Application
         var stopwatch = Stopwatch.StartNew();
         double previous = 0;
         int presented = 0;
+        string? hovering = null;
+        string? said = null;
 
         while (!window.IsClosing && (frameLimit == 0 || presented < frameLimit))
         {
@@ -370,9 +413,62 @@ public static class Application
             }
 
             camera.Update(window, delta);
+
+            Camera view = camera.ToCamera(template);
+
+            // What the pointer is over. Asked every frame and free of consequences by
+            // design — the resolver evaluates conditions to answer, so anything that wrote
+            // to the story here would advance the game by moving the mouse across it.
+            // The pointer is in window pixels and the viewport is in framebuffer pixels,
+            // which are not the same on a scaled display. Picking in the wrong one puts the
+            // ray somewhere the player is not looking, and only on some machines.
+            Hover hover = interaction.At(
+                view,
+                (int)(window.PointerPosition.X * window.DpiScale),
+                (int)(window.PointerPosition.Y * window.DpiScale),
+                window.FramebufferWidth,
+                window.FramebufferHeight);
+
+            if (hover.Noun != hovering)
+            {
+                hovering = hover.Noun;
+
+                if (hovering is { Length: > 0 })
+                {
+                    Console.WriteLine(hover.Actionable
+                        ? $"> {hovering} — click to {hover.Default}"
+                        : $"> {hovering} — nothing to do with it here");
+                }
+            }
+
+            if (window.WasClicked(Platform.PointerButton.Secondary) && hover.Actionable)
+            {
+                Console.WriteLine($"{hover.Noun} answers to: " +
+                    string.Join(", ", hover.Actions.Select(a => a.LocalizedVerb)));
+            }
+
+            if (window.WasClicked(Platform.PointerButton.Primary) &&
+                interaction.Do(hover) is { } did)
+            {
+                Console.WriteLine(
+                    $"{did.Noun}:{did.Verb} [{did.Case}] — " +
+                    $"{(did.Ran ? "ran" : "refused")} {did.Statements.Count} statement(s)" +
+                    (did.Seconds > 0 ? $", {did.Seconds:F1}s" : string.Empty));
+            }
+
+            // The device is the clock for dialogue: the next line of a voice-over starts
+            // when the last one's source stops, so they never overlap and never drift.
+            room?.Update();
+
+            if (room?.Caption is { Length: > 0 } caption && caption != said)
+            {
+                said = caption;
+                Console.WriteLine($"  {room.Speaker}: {caption}");
+            }
+
             window.EndFrame();
 
-            renderer.SetScene(geometry, camera.ToCamera(template));
+            renderer.SetScene(geometry, view);
 
             if (renderer.DrawFrame(0f, 0f, 0f))
             {

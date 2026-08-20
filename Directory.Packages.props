@@ -16,6 +16,9 @@
     <PackageVersion Include="Silk.NET.Maths" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.OpenAL" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.OpenAL.Extensions.Soft" Version="2.23.0" />
+    <!-- The bindings are separate from the library they bind; without this there is no
+         soft_oal.dll to load and opening a device fails at runtime rather than at build. -->
+    <PackageVersion Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
     <PackageVersion Include="Silk.NET.Shaderc" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />

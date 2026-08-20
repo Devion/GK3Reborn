@@ -43,6 +43,16 @@ public enum CameraAction
     Quit,
 }
 
+/// <summary>The pointer buttons the game reads.</summary>
+public enum PointerButton
+{
+    /// <summary>Do the thing under the pointer.</summary>
+    Primary,
+
+    /// <summary>Ask what the thing under the pointer answers to.</summary>
+    Secondary,
+}
+
 /// <summary>What the player is doing right now.</summary>
 public interface IGameInput
 {
@@ -58,6 +68,23 @@ public interface IGameInput
 
     /// <summary>How far the pointer moved since the last poll, in pixels.</summary>
     Vector2 PointerDelta { get; }
+
+    /// <summary>Where the pointer is, in pixels from the top-left of the window.</summary>
+    /// <remarks>
+    /// Absolute rather than relative, because pointing at a thing in the room is a
+    /// different question from looking around: a click has to become a ray, and a ray needs
+    /// a position on the screen rather than how far the mouse moved to get there.
+    /// </remarks>
+    Vector2 PointerPosition { get; }
+
+    /// <summary>Whether the pointer was clicked since the last poll.</summary>
+    /// <param name="button">Which button.</param>
+    /// <returns>True once per press.</returns>
+    /// <remarks>
+    /// A click, not a hold: the interesting event is the transition, and reading a held
+    /// button in a frame loop turns one click into thirty actions.
+    /// </remarks>
+    bool WasClicked(PointerButton button);
 
     /// <summary>Whether the pointer is being dragged with a button held.</summary>
     bool IsDragging { get; }
