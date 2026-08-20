@@ -791,22 +791,16 @@ internal static class DenoiserShaders
                     variance = max(variance, spatial) * max(16.0 - moments.z, 1.0);
                 }
 
-                // With little or no history to lean on, the seventeen-by-seventeen
-                // neighbourhood already computed is a far better estimate of this
-                // fraction than the one bit this pixel happened to draw. It is the same
-                // quantity measured across space instead of across time, and it is what
-                // a freshly uncovered pixel — the edge of a walking character, the wall
-                // behind them — has instead of a past.
-                // Sixteen frames rather than eight, because a character is not only
-                // uncovering new pixels as they walk — they are deforming, so the
-                // surface under a pixel is a different surface even where the history
-                // reprojects onto it, and the spatial estimate stays the better one for
-                // longer than a static disocclusion would need.
-                float trusted = clamp(moments.z / 16.0, 0.0, 1.0);
-                float fresh = mix(neighbourhood, current, trusted);
-
+                // A pixel with no history has only what its own rays found, and with
+                // eight of them that is worth something. What it must *not* fall back on
+                // is the seventeen-by-seventeen neighbourhood: that is a flat Gaussian
+                // over the bitmask with no regard for depth or normal, so beside a window
+                // it mixes wall with the fully-lit pixels an undrawn sky is written as,
+                // and every camera movement painted a glow around the frame that faded
+                // once the camera stopped. The three filtering stages that follow blur
+                // this with edges in mind, which is the whole reason they exist.
                 float weight = sqrt(max(8.0 - moments.z, 0.0) / 8.0);
-                blended = mix(blended, fresh, mix(0.05, 1.0, weight));
+                blended = mix(blended, current, mix(0.05, 1.0, weight));
             }
 
             imageStore(reprojection, pixel, vec4(blended, variance, 0.0, 0.0));

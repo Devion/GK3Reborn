@@ -28,7 +28,7 @@ namespace GK3Reborn.Rendering.Materials;
 public sealed class SurfaceFinishes
 {
     /// <summary>What a surface nobody has measured is assumed to be.</summary>
-    public static readonly SurfaceFinish Matte = new(1f, 0.5f);
+    public static readonly SurfaceFinish Matte = new(1f, 0.5f, false);
 
     private readonly Dictionary<string, SurfaceFinish> _finishes;
 
@@ -107,7 +107,8 @@ public sealed class SurfaceFinishes
         {
             finishes[material.Id] = new SurfaceFinish(
                 Math.Clamp(material.Roughness, 0f, 1f),
-                Math.Clamp(material.SpecularReflectance, 0f, 1f));
+                Math.Clamp(material.SpecularReflectance, 0f, 1f),
+                material.Emissive != System.Numerics.Vector3.Zero);
         }
 
         return new SurfaceFinishes(finishes);
@@ -130,8 +131,22 @@ public sealed class SurfaceFinishes
 /// How much light the surface throws back when looked at straight on, before the grazing
 /// angle raises it. Half is the usual dielectric value and the assumption here.
 /// </param>
-public readonly record struct SurfaceFinish(float Roughness, float Specular)
+/// <param name="Emits">
+/// Whether the surface is its own light source — a lit bulb, a lamp shade with a bulb
+/// inside it, the painted view through a window.
+/// </param>
+public readonly record struct SurfaceFinish(float Roughness, float Specular, bool Emits = false)
 {
+    /// <summary>Whether this surface should stop a ray.</summary>
+    /// <remarks>
+    /// A light fitting must not. The rig puts its emitters where the bulb is — inside the
+    /// shade, behind the pane — because the 1999 bake never traced a fitting against its
+    /// own light, and tracing it now seals every lamp inside its own shade. R25's floor
+    /// went black for exactly this reason: its lamps are placed models rather than room
+    /// geometry, and the flags the room's surfaces carry do not reach them.
+    /// </remarks>
+    public bool Occludes => !Emits;
+
     /// <summary>Whether this is smooth enough for a reflection to be worth tracing.</summary>
     /// <remarks>
     /// Past this the cone a reflection would be gathered over is wide enough that what

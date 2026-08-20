@@ -665,7 +665,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 groups[key] = group;
             }
 
-            bool occludes = surface.CastsShadows && !_textures.Keyed.Contains(surface.TextureName);
+            bool occludes = surface.CastsShadows &&
+                            !_textures.Keyed.Contains(surface.TextureName) &&
+                            Materials.Of(surface.TextureName).Occludes;
 
             foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
             {
@@ -749,7 +751,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private void RecordTraceable(
         string texture, Vector3[] positions, ReadOnlySpan<uint> indices, int part = 0)
     {
-        if (!_context.SupportsRayTracing || _textures.Keyed.Contains(texture))
+        // Nor anything that is its own light source. A room's own surfaces say so
+        // through the flags the BSP carries; a placed model — which is what most of the
+        // lamps in this game are — says so only here.
+        if (!_context.SupportsRayTracing ||
+            _textures.Keyed.Contains(texture) ||
+            !Materials.Of(texture).Occludes)
         {
             return;
         }

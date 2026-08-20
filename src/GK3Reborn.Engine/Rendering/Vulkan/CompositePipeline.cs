@@ -73,7 +73,28 @@ internal sealed unsafe class CompositePipeline : IDisposable
             // by the shade around it.
             float occlusion = mix(1.0, open, kOcclusionStrength * indirect.a);
 
-            vec3 lit = (indirect.rgb * occlusion) + (direct * shadow);
+            // The rig's light, as much of it as actually arrives.
+            vec3 arrived = direct * shadow;
+
+            // And what the bake holds that the rig has not just accounted for.
+            //
+            // A bake contains two things: the light these same lamps threw in 1999, which
+            // is being computed afresh and would otherwise be counted twice, and light
+            // from sources the rig has not got — daylight through a window, sky, bounce
+            // off a wall. Scaling the whole bake down, which is what this used to do,
+            // throws the second away with the first: R25's window fell from a mean of 71
+            // to 50 and the room lost the daylight the artists painted into it.
+            //
+            // Subtracting what the rig delivered keeps the two apart, and needs no weight
+            // to be chosen. Where the rig explains the bake this falls to nothing and the
+            // picture is ray traced outright; where it explains none of it — a window with
+            // no light behind it, a corner lit only by bounce — the bake survives whole.
+            // And it is the *arrived* light that is subtracted, not the light the rig
+            // would give with nothing in the way: a rig this size has lamps in the rooms
+            // next door, which contribute on paper and are stopped by a wall in fact.
+            vec3 residual = max(indirect.rgb - arrived, vec3(0.0));
+
+            vec3 lit = (residual * occlusion) + arrived;
 
             // What the surface reflects, and how much of it was found. Added rather than
             // mixed in: a floor that reflects a lamp is brighter for it, not less itself.

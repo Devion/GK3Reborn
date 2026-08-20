@@ -287,10 +287,13 @@ any history at all:
   zero — and most of a character is a uniform neighbourhood, which sent the count to zero
   every frame. The floor is a thousand times larger now, and the count never falls below
   the one sample the pixel did take.
-- A pixel with no history to lean on now falls back to the seventeen-by-seventeen
-  neighbourhood the pass has already computed, over sixteen frames rather than eight. It
-  is the same quantity measured across space instead of across time, and it is what the
-  edge of a walking character has instead of a past.
+A pixel with no history has only what its own rays found, and with eight of them that is
+worth something. It must **not** fall back on the seventeen-by-seventeen neighbourhood the
+pass computes for its clamping bounds: that is a flat Gaussian over the bitmask with no
+regard for depth or normal, so beside a window it mixes wall with the fully-lit pixels an
+undrawn sky is written as. Trying it that way painted a glow around R25's window frame
+whenever the camera moved, which faded as soon as it stopped. The three filtering stages
+that follow blur with edges in mind, which is what they are for.
 
 ### What is denoised
 
@@ -338,6 +341,45 @@ rays measures something the bake has largely accounted for, and counting it twic
 surfaces to black: enough of the hemisphere above a shoulder is that person's own head
 that the shoulder disappears. What is worth keeping is the near contact the bake is too
 coarse to hold — the seam where an arm meets a body, the line under a table.
+
+## The bake, and what the rig is allowed to replace
+
+A GK3 room ships with lightmaps, and they contain two different things: the light these
+same lamps threw in 1999, which is now being computed afresh and would otherwise be
+counted twice, and light from sources the rig has not got — daylight through a window,
+sky, the bounce off a wall.
+
+This used to be handled by scaling the whole bake down, by a weight that fell as quality
+rose. That throws the second away along with the first. Measured on R25's window at High:
+the bake alone gives that area a mean of 71 and the room 85; scaling it to 0.35 gave 50
+and 51, and the daylight the artists painted around the window was simply gone.
+
+The compositing pass now subtracts instead, and needs no weight chosen:
+
+    arrived  = direct * shadow
+    residual = max(bake - arrived, 0)
+    lit      = residual * occlusion + arrived
+
+Where the rig explains the bake the residual falls to nothing and the picture is ray
+traced outright, shadows and all. Where it explains none of it — a window with no light
+behind it, a corner lit only by bounce — the bake survives whole. R25's window comes back
+to 56 and the room to 59.
+
+It is the **arrived** light that is subtracted, not what the rig would give with nothing
+in the way. That distinction is the whole of it: R25's rig has sixty-three lights, and
+from inside one hotel room a great many of them are in the rooms next door. They
+contribute on paper and are stopped by a wall in fact, so subtracting the unshadowed term
+takes out light the bake never had — tried that way, the room fell to 32.
+
+`RayTracingSettings.LightmapIndirect` is no longer read while tracing.
+
+### What this does not reach
+
+A surface with no lightmap has no bake to fall back on: models are lit by the rig alone,
+and the rig's light is now shadowed where it was not before, so a wardrobe or a plant is
+darker than the 1999 picture even though the wall behind it matches. Fixing that properly
+means light probes — somewhere for a model to ask what the room around it is lit like —
+and nothing here has one.
 
 ## Reflections
 

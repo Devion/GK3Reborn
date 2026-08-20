@@ -515,18 +515,22 @@ internal static class MeshShaders
                 return;
             }
 
-            // Indirect light. There is no gathered bounce yet, so the bake stands in for
-            // it: scaled down, because it also contains the direct light being computed
-            // afresh below, and weighted less the higher the quality goes.
-            vec3 indirect = mix(kAmbient, baked * useLightmap, bakedWeight * useLightmap);
-
             #ifdef RAY_TRACING
+            // The bake at full strength, and the rig beside it. It is the compositing
+            // pass that reconciles them, by subtracting from the bake the light the rig
+            // has just accounted for rather than scaling the whole thing down — see
+            // there for why the difference matters at a window.
+            //
             // Neither term is occluded here. Both occlusions are traced once a pixel and
-            // filtered over many frames, which is the only way one ray a pixel becomes a
-            // smooth number, and neither is available until this pass has finished.
-            outColor = vec4(albedo * indirect, 1.0);
+            // filtered over many frames, and neither is available until this pass has
+            // finished.
+            outColor = vec4(albedo * mix(kAmbient, baked, useLightmap), 1.0);
             outDirect = vec4(albedo * EvaluateRig(inWorld, normal, 0, 1), 1.0);
             #else
+            // Indirect light. There is no gathered bounce, so the bake stands in for it,
+            // scaled down because it also contains the direct light computed afresh.
+            vec3 indirect = mix(kAmbient, baked * useLightmap, bakedWeight * useLightmap);
+
             outColor = vec4(albedo * (indirect + EvaluateRig(inWorld, normal, 0, 1)), 1.0);
             #endif
         }
