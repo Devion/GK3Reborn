@@ -163,6 +163,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _camera = camera;
     }
 
+    /// <summary>What this renderer's instance can see, for the startup report.</summary>
+    /// <remarks>
+    /// Asked of the instance the renderer already has. Surveying separately means creating a
+    /// second instance and throwing it away, which is 145 ms nobody is waiting to read.
+    /// </remarks>
+    public VulkanDeviceReport Survey() => VulkanDeviceSelector.Survey(_vk, _instance);
+
     /// <summary>Creates a renderer for a window.</summary>
     /// <param name="window">Window to present into.</param>
     /// <param name="surfaceSource">Surface provider for that window.</param>

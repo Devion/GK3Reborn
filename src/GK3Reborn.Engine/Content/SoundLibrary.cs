@@ -45,28 +45,53 @@ public sealed class SoundLibrary
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (_read.TryGetValue(name, out WavFile? cached))
+        // Locked, because a room decodes its ambience on another thread while the player is
+        // being shown the first frames of it. Held across the decode rather than only across
+        // the dictionary: two threads asking for the same sound should decode it once, and a
+        // soundtrack is a quarter of a second of work.
+        lock (_read)
         {
-            return cached;
-        }
+            if (_read.TryGetValue(name, out WavFile? cached))
+            {
+                return cached;
+            }
 
-        WavFile? sound = null;
+            WavFile? sound = null;
+
+            foreach (string candidate in Spellings(name))
+            {
+                if (_archives.Read(candidate) is { } bytes)
+                {
+                    sound = WavFile.Read(bytes, name, Diagnostics);
+                }
+
+                if (sound is not null)
+                {
+                    break;
+                }
+            }
+
+            _read[name] = sound;
+            return sound;
+        }
+    }
+
+    /// <summary>Whether a sound exists, without reading or decoding it.</summary>
+    /// <param name="name">Its name, with or without an extension.</param>
+    /// <returns>True when an archive holds it under either spelling.</returns>
+    public bool Has(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
 
         foreach (string candidate in Spellings(name))
         {
-            if (_archives.Read(candidate) is { } bytes)
+            if (_archives.Exists(candidate))
             {
-                sound = WavFile.Read(bytes, name, Diagnostics);
-            }
-
-            if (sound is not null)
-            {
-                break;
+                return true;
             }
         }
 
-        _read[name] = sound;
-        return sound;
+        return false;
     }
 
     /// <summary>The names a sound might be stored under.</summary>

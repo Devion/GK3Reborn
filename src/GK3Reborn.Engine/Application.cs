@@ -45,7 +45,6 @@ public static class Application
         Console.WriteLine($"RNG seed 0x{random.Seed:X}: first draw {random.NextUInt64():X16}");
 
         Console.WriteLine();
-        ReportGraphics();
 
         if (Option(args, "--scene") is { } scene)
         {
@@ -61,6 +60,8 @@ public static class Application
                 EnhancedTextureDirectory(args),
                 args);
         }
+
+        ReportGraphics();
 
         if (args.Contains("--offscreen", StringComparer.OrdinalIgnoreCase))
         {
@@ -119,6 +120,7 @@ public static class Application
         using var window = Platform.SilkGameWindow.Open($"GK3Reborn - {sceneName}");
         using var renderer = VulkanRenderer.Create(window, window);
 
+        ReportGraphics(renderer.Survey());
         Console.WriteLine($"Renderer: {renderer}");
 
         window.Resized += (_, _) => renderer.Invalidate();
@@ -1057,33 +1059,43 @@ public static class Application
     /// cannot run the game at all. A device that cannot present is reported rather than
     /// treated as an error, because saying why is more useful than failing.
     /// </remarks>
-    private static void ReportGraphics()
+    /// <summary>Prints what a device survey found.</summary>
+    /// <param name="report">
+    /// The survey, or null to make one. A caller that already has a renderer should pass its
+    /// own: building an instance purely to look through it is 145 ms of the time to a first
+    /// frame, and doing it on another thread to hide that lost a device about one run in six.
+    /// </param>
+    private static void ReportGraphics(Rendering.Vulkan.VulkanDeviceReport? report = null) =>
+        Console.Write(GraphicsReport(report ?? Rendering.Vulkan.VulkanDeviceSelector.Survey()));
+
+    private static string GraphicsReport(Rendering.Vulkan.VulkanDeviceReport report)
     {
-        Rendering.Vulkan.VulkanDeviceReport report = Rendering.Vulkan.VulkanDeviceSelector.Survey();
+        var text = new System.Text.StringBuilder();
 
         if (!report.VulkanAvailable)
         {
-            Console.WriteLine($"Vulkan unavailable: {report.Unavailable}");
-            return;
+            return text.AppendLine(CultureInfo.InvariantCulture, $"Vulkan unavailable: {report.Unavailable}").ToString();
         }
 
-        Console.WriteLine($"Vulkan: {report.Devices.Count} device(s), "
+        text.AppendLine(CultureInfo.InvariantCulture, $"Vulkan: {report.Devices.Count} device(s), "
             + $"validation layers {(report.ValidationAvailable ? "available" : "not installed")}");
 
         foreach (Rendering.Vulkan.VulkanDeviceInfo device in report.Devices)
         {
             bool selected = ReferenceEquals(device, report.Selected);
-            Console.WriteLine($"  {(selected ? "*" : " ")} {device}");
+            text.AppendLine(CultureInfo.InvariantCulture, $"  {(selected ? "*" : " ")} {device}");
 
             foreach (string note in device.TierNotes)
             {
-                Console.WriteLine($"      {note}");
+                text.AppendLine(CultureInfo.InvariantCulture, $"      {note}");
             }
         }
 
         if (report.Selected is null)
         {
-            Console.WriteLine("  no device can present; the game cannot render here");
+            text.AppendLine("  no device can present; the game cannot render here");
         }
+
+        return text.ToString();
     }
 }

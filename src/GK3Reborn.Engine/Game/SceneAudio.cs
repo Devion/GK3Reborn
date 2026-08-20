@@ -85,6 +85,9 @@ public sealed class SceneAudio
     /// <returns>True when something is now playing.</returns>
     public bool Loop(string? name)
     {
+        _pending = null;
+        _waiting = null;
+
         if (_ambience.Exists)
         {
             _backend.Silence(_ambience);
@@ -103,6 +106,9 @@ public sealed class SceneAudio
 
         return _ambience.Exists;
     }
+
+    private Task<WavFile?>? _pending;
+    private string? _waiting;
 
     /// <summary>Starts the room's ambience from the soundtracks the scene names.</summary>
     /// <param name="soundtracks">What the scene listed.</param>
@@ -132,8 +138,15 @@ public sealed class SceneAudio
             {
                 foreach (SoundtrackSound sound in node.Sounds)
                 {
-                    if (Loop(sound.Name))
+                    // Chosen by whether the archives hold it, which costs a directory
+                    // lookup, rather than by whether it decodes, which costs the decode.
+                    if (_sounds.Has(sound.Name))
                     {
+                        Silence();
+
+                        _waiting = sound.Name;
+                        _pending = Task.Run(() => _sounds.Read(sound.Name));
+
                         return sound.Name;
                     }
                 }
@@ -213,6 +226,23 @@ public sealed class SceneAudio
     public void Update()
     {
         _backend.Update();
+
+        // A soundtrack is a five-minute MP3 and decoding one is a quarter of a second, which
+        // used to sit between a room being ready and the player seeing it. It is decoded
+        // beside the first frames instead and started on whichever one it is ready for. The
+        // device work stays here, on the thread that owns the device.
+        if (_pending is { IsCompleted: true } finished)
+        {
+            string? name = _waiting;
+
+            _pending = null;
+            _waiting = null;
+
+            if (finished.IsCompletedSuccessfully && finished.Result is not null)
+            {
+                Loop(name);
+            }
+        }
 
         if (_line.Exists && !_backend.IsPlaying(_line))
         {

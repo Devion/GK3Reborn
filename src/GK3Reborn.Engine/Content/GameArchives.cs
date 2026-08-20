@@ -119,6 +119,28 @@ public sealed class GameArchives : IDisposable
         return null;
     }
 
+    /// <summary>Whether any archive holds an asset.</summary>
+    /// <param name="name">Asset name, with extension.</param>
+    /// <returns>True when one does.</returns>
+    /// <remarks>
+    /// A directory lookup and nothing more — no extraction, no decompression. It is what
+    /// lets a caller choose between candidates before committing to reading one.
+    /// </remarks>
+    public bool Exists(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        foreach (BarnArchive archive in _archives)
+        {
+            if (archive.Find(name) is { IsPointer: false })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Reads a text asset by name.</summary>
     /// <param name="name">Asset name, with extension.</param>
     /// <returns>Its text, or null if no archive holds it.</returns>
