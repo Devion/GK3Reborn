@@ -73,11 +73,14 @@ public static class WalkOverlay
         {
             for (int x = 0; x < boundary.Width; x++)
             {
-                int region = boundary.RegionOf(x, y);
-                if (!boundary.IsRegionOpen(region))
+                // Walkable rather than open: a rectangle a script has blocked off should
+                // read as a hole in the overlay, because that is what it is to an actor.
+                if (!boundary.IsTexelWalkable(x, y))
                 {
                     continue;
                 }
+
+                int region = boundary.RegionOf(x, y);
 
                 Vector3 centre = boundary.ToWorld(x, y);
                 if (HeightAt(floor, centre.X, centre.Z) is not { } height)

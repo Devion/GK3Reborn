@@ -386,9 +386,14 @@ public sealed class SceneCheckStage
         var api = new Gk3SheepApi(new GameState());
 
         // Attaching a host is what registers CallSheep and the inventory and location
-        // functions, so probing without one would report a fifth of the corpus's calls as
-        // unimplemented when the game does implement them.
+        // functions, and attaching a scene is what registers the walker ones, so probing
+        // without both would report a fifth of the corpus's calls as unimplemented when
+        // the game does implement them. The scene is empty because only the registration
+        // is being asked about, not what the functions would do.
         _ = new ScriptHost(api);
+        SceneScripting.Attach(
+            api,
+            new LoadedScene("PROBE", new SceneDefinition(general: null), null, null, 0));
 
         List<string> recorded =
             [.. tally.Called.Keys.Where(c => !api.Implements(c)).Order(StringComparer.OrdinalIgnoreCase)];

@@ -41,6 +41,8 @@ public sealed class WalkBoundary
 
     private readonly IndexedImage _image;
     private readonly HashSet<int> _closed = [.. ClosedByDefault];
+    private readonly Dictionary<string, (Vector2 Minimum, Vector2 Maximum)> _blocked =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Creates a boundary.</summary>
     /// <param name="image">The boundary bitmap, as palette indices.</param>
@@ -99,37 +101,68 @@ public sealed class WalkBoundary
 
     /// <summary>Whether an actor may stand at a point.</summary>
     /// <param name="world">The point. Only X and Z are read.</param>
-    /// <returns>True when the region there is open.</returns>
-    public bool IsWalkable(Vector3 world) => !_closed.Contains(RegionAt(world));
+    /// <returns>True when the region there is open and nothing is standing on it.</returns>
+    public bool IsWalkable(Vector3 world) =>
+        !_closed.Contains(RegionAt(world)) && !IsBlocked(world.X, world.Z);
 
     /// <summary>Whether a region is open.</summary>
     /// <param name="region">The palette index.</param>
     /// <returns>True when an actor may stand in it.</returns>
     public bool IsRegionOpen(int region) => !_closed.Contains(region);
 
-    /// <summary>Opens or closes one of the scriptable regions.</summary>
-    /// <param name="region">The palette index, from 128 to 254.</param>
+    /// <summary>Opens or closes a region.</summary>
+    /// <param name="region">The palette index.</param>
     /// <param name="open">True to let actors through.</param>
     /// <remarks>
-    /// Only the named regions move. Wall is wall whatever a script says, and letting a
-    /// script open region 255 would make every scene's boundary vanish at once.
+    /// Anything may be closed — a script that wants a stretch of open floor shut off is
+    /// entitled to shut it, and to open it again afterwards. What it may not do is open
+    /// something that was never open: wall is wall whatever a script says, and letting one
+    /// open region 255 would make every scene's boundary vanish at once.
     /// </remarks>
     public void SetRegionOpen(int region, bool open)
     {
-        if (region is < 128 or > 254)
+        if (!open)
         {
+            _closed.Add(region);
             return;
         }
 
-        if (open)
+        if (!ClosedByDefault.Contains(region))
         {
             _closed.Remove(region);
         }
-        else
-        {
-            _closed.Add(region);
-        }
     }
+
+    /// <summary>Shuts off a rectangle of the floor, under a name that can undo it.</summary>
+    /// <param name="name">What is standing there; blocking the same name twice moves it.</param>
+    /// <param name="minimum">Lower corner, on X and Z.</param>
+    /// <param name="maximum">Upper corner, on X and Z.</param>
+    /// <remarks>
+    /// How a script puts a thing in the way. The boundary is painted once, before anybody
+    /// knows where the van will park or which door the story will leave open, so what
+    /// occupies the floor at a given moment is kept beside the bitmap rather than in it —
+    /// which also means it can be taken away again without repainting anything.
+    /// </remarks>
+    public void Block(string name, Vector2 minimum, Vector2 maximum)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _blocked[name] = (Vector2.Min(minimum, maximum), Vector2.Max(minimum, maximum));
+    }
+
+    /// <summary>Takes a blocked rectangle away.</summary>
+    /// <param name="name">The name it was blocked under.</param>
+    /// <returns>True when something was there to remove.</returns>
+    public bool Unblock(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _blocked.Remove(name);
+    }
+
+    /// <summary>What is standing in the way, and where, in a stable order.</summary>
+    public IReadOnlyList<(string Name, Vector2 Minimum, Vector2 Maximum)> Blocked =>
+        [.. _blocked.OrderBy(b => b.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(b => (b.Key, b.Value.Minimum, b.Value.Maximum))];
 
     /// <summary>The texel a world position falls in.</summary>
     /// <param name="world">The point. Only X and Z are read.</param>
@@ -163,7 +196,30 @@ public sealed class WalkBoundary
     /// <param name="x">Column, from the left.</param>
     /// <param name="y">Row, from the top.</param>
     /// <returns>True when the region there is open.</returns>
-    public bool IsTexelWalkable(int x, int y) => IsRegionOpen(RegionOf(x, y));
+    public bool IsTexelWalkable(int x, int y)
+    {
+        if (!IsRegionOpen(RegionOf(x, y)))
+        {
+            return false;
+        }
+
+        Vector3 centre = ToWorld(x, y);
+        return !IsBlocked(centre.X, centre.Z);
+    }
+
+    /// <summary>Whether something is standing on a point.</summary>
+    private bool IsBlocked(float x, float z)
+    {
+        foreach ((Vector2 minimum, Vector2 maximum) in _blocked.Values)
+        {
+            if (x >= minimum.X && x <= maximum.X && z >= minimum.Y && z <= maximum.Y)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>The nearest texel an actor may stand on.</summary>
     /// <param name="world">The point. Only X and Z are read.</param>
@@ -232,15 +288,22 @@ public sealed class WalkBoundary
 
     /// <summary>How many texels an actor may stand on.</summary>
     /// <returns>The count, useful as a sanity check that a boundary loaded at all.</returns>
+    /// <remarks>
+    /// Counts what is walkable now, so a scene with a van parked across the road reports
+    /// fewer texels than the bitmap alone would suggest.
+    /// </remarks>
     public int WalkableTexels()
     {
         int count = 0;
 
-        foreach (byte index in _image.Indices)
+        for (int y = 0; y < Height; y++)
         {
-            if (!_closed.Contains(index))
+            for (int x = 0; x < Width; x++)
             {
-                count++;
+                if (IsTexelWalkable(x, y))
+                {
+                    count++;
+                }
             }
         }
 

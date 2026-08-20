@@ -244,6 +244,52 @@ out all produce a mask that looks perfectly reasonable until you put it on the f
 GK3Reborn.Tools render-scene --model R25 --timeblock 202P --walk-overlay --camera FR_DU1 ...
 ```
 
+### Putting something in the way
+
+A boundary is painted once, before anybody knows where the van will park or which
+wardrobe door will be standing open, so what *occupies* the floor at a given moment is
+kept beside the bitmap rather than in it. Four script functions move things onto and
+off it, registered by `SceneScripting` against one loaded scene because they mean
+nothing outside it:
+
+| function | what it does |
+| --- | --- |
+| `WalkerBoundaryBlockModel(name)` | shuts off the ground a named object stands on |
+| `WalkerBoundaryUnblockModel(name)` | gives it back |
+| `WalkerBoundaryBlockRegion(a, b)` | shuts two palette regions |
+| `WalkerBoundaryUnblockRegion(a, b)` | opens them again |
+
+The footprint is a box around everything the object is made of, flattened onto the
+floor by throwing the height away — the original does the same, and it is coarse in the
+right direction: an actor walks around a chair rather than through the gap under its
+seat. The name may be a prop standing in the room or an object baked into the geometry,
+since the scene files name both the same way.
+
+Blocking changes what `IsWalkable` answers and what `WalkPath` may cross, but **not**
+what `RegionAt` reports: what is standing on the floor is not what the floor is. It
+does change what the overlay draws, because a rectangle a script has blocked off should
+read as a hole — that is what it is to an actor.
+
+Regions take two indices because a scriptable region is painted as an area *and* the
+border around it, and moving one without the other leaves a wall a texel thick where
+the doorway was. Anything may be shut and reopened; what a script may not do is open
+something that was never open, since wall is wall whatever it says.
+
+CS3's wardrobe is the case that names itself:
+
+```text
+WARDROBE, OPEN,  CLOSET_CLOSED, script={… wait WalkerBoundaryBlockModel("cs3_wrdb_dr_r");}
+WARDROBE, CLOSE, CLOSET_OPEN,   script={… wait WalkerBoundaryUnBlockModel("cs3_wrdb_dr_r");}
+```
+
+```bash
+GK3Reborn.Tools render-scene --model CS3 --timeblock 212P --do WARDROBE:OPEN --walk-overlay ...
+```
+
+opens it, and reports `cs3_wrdb_dr_r over (-31, 205) to (29, 278)` with six fewer
+texels open than before. `--do` runs before anything that draws, so what an action
+changed is in the picture rather than behind it.
+
 ### Finding a way across one
 
 `WalkPath.Find` answers it, following G-Engine's `WalkerBoundary::FindPath`: a

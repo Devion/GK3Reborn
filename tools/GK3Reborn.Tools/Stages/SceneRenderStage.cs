@@ -128,6 +128,13 @@ public sealed class SceneRenderStage
             return false;
         }
 
+        // Before anything that draws the world, so that what an action changed - a van
+        // moved into the road, a region shut off - is in the picture rather than behind it.
+        if (perform is { Length: > 0 })
+        {
+            Perform(archives, scene, request, perform, diagnostics);
+        }
+
         if (walkOverlay)
         {
             DrawWalkOverlay(geometry, scene);
@@ -176,11 +183,6 @@ public sealed class SceneRenderStage
         if (nounMap is { Length: > 0 })
         {
             WriteNounMap(scene, camera, width, height, nounMap);
-        }
-
-        if (perform is { Length: > 0 })
-        {
-            Perform(archives, scene, request, perform, diagnostics);
         }
 
         DecodedImage image = renderer.Render(geometry, width, height, camera);
@@ -624,6 +626,7 @@ public sealed class SceneRenderStage
         }
 
         var host = new ScriptHost(api);
+        SceneScripting.Attach(api, scene);
         int loaded = LoadScripts(archives, host);
         var runner = new ActionRunner(api);
 
@@ -655,6 +658,17 @@ public sealed class SceneRenderStage
         _log(api.State.ComputeHash() == before
             ? "  the story is where it was"
             : "  the story moved");
+
+        if (scene.Walkable is { Blocked.Count: > 0 } boundary)
+        {
+            string standing = string.Join(
+                ", ",
+                boundary.Blocked.Select(b => string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{b.Name} over ({b.Minimum.X:F0}, {b.Minimum.Y:F0}) to ({b.Maximum.X:F0}, {b.Maximum.Y:F0})")));
+
+            _log($"  in the way now, {boundary.WalkableTexels()} texels still open: {standing}");
+        }
 
         foreach (Diagnostic diagnostic in runner.Diagnostics.Items.Concat(host.Diagnostics.Items))
         {
