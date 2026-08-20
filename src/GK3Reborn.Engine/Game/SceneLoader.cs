@@ -1,3 +1,4 @@
+using GK3Reborn.Formats.Animation;
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Actions;
@@ -412,6 +413,49 @@ public sealed class SceneLoader
         }
     }
 
+    /// <summary>Reads the script that drives a prop when nobody is asking it to.</summary>
+    /// <remarks>
+    /// A script the reader does not fully understand is not run at all. Half of a
+    /// behaviour is worse than none of it: the branching half of the language decides
+    /// *which* idle to play, and running only the parts that are understood would pick
+    /// the wrong one and repeat it for as long as the scene is loaded.
+    /// </remarks>
+    private GasFile? ReadIdle(SceneModel model, DiagnosticBag diagnostics)
+    {
+        if (model.Gas is not { Length: > 0 } named)
+        {
+            return null;
+        }
+
+        if (_archives.Read(named) is not { } bytes)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R3330", DiagnosticSeverity.Info,
+                "A prop names a behaviour script no archive contains.",
+                model.Name, null, named, "nothing",
+                "The prop is placed and stands still."));
+
+            return null;
+        }
+
+        GasFile script = GasFile.Parse(bytes);
+
+        if (!script.Complete)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R3331", DiagnosticSeverity.Info,
+                "A behaviour script uses instructions this engine does not run yet.",
+                named, null, "an animation and a loop",
+                string.Join(", ", script.Unsupported),
+                "The prop is placed and stands still. Branching behaviour needs the " +
+                "Sheep virtual machine behind it."));
+
+            return null;
+        }
+
+        return script;
+    }
+
     private static bool IsHitTest(SceneModel model) =>
         string.Equals(model.Type, "hittest", StringComparison.OrdinalIgnoreCase);
 
@@ -620,7 +664,11 @@ public sealed class SceneLoader
                 parsed,
                 Matrix4x4.Identity,
                 PlacedModelKind.Prop,
-                geometry.Add(parsed)));
+                geometry.Add(parsed))
+            {
+                Gas = model.Gas,
+                Idle = ReadIdle(model, diagnostics),
+            });
         }
 
         return placed;

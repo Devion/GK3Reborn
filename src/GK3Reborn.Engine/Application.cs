@@ -360,9 +360,20 @@ public static class Application
             update.Clips = clips;
             update.Characters = characters;
 
+            // What a room does when nobody is asking it to: the lobby's ceiling fans turn
+            // because the scene gave them a script of their own. Started after the
+            // animation libraries are attached, since that is what the scripts drive.
+            update.StartScenery();
+
             if (scene.Actions is { } actions)
             {
                 actions.Verbs = verbs;
+            }
+
+            if (update.Scenic > 0)
+            {
+                Console.WriteLine(
+                    $"Scenery: {update.Scenic} prop(s) move on their own");
             }
 
             Console.WriteLine(

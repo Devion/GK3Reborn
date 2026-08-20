@@ -94,3 +94,8 @@ walk, a conversation. Those stay instantaneous rather than being guessed at.
 
 Voice-overs, measured over the corpus: median 3.1s, mean 3.7s, 95th percentile 8.0s, longest
 44.5s.
+
+## What starts them
+
+Scripts, mostly — and for scenery, the room itself: a `gasprop` carries a `.GAS`
+behaviour script that plays an animation and loops. See `behaviour-scripts.md`.

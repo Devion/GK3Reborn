@@ -41,4 +41,11 @@ public sealed record PlacedModel(
     ModFile Model,
     Matrix4x4 Transform,
     PlacedModelKind Kind,
-    ModelPlacement Placement = default);
+    ModelPlacement Placement = default)
+{
+    /// <summary>The script that drives it on its own, or null.</summary>
+    public string? Gas { get; init; }
+
+    /// <summary>That script, read.</summary>
+    public Formats.Animation.GasFile? Idle { get; init; }
+}

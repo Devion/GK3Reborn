@@ -46,6 +46,14 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     /// </remarks>
     public string? Verb { get; init; }
 
+    /// <summary>The script that drives it when nobody is asking it to do anything.</summary>
+    /// <remarks>
+    /// Named on a <c>gasprop</c> line as <c>gas=lbyfan.gas</c>. Ninety-one models across
+    /// thirty-one scenes have one, and they are the things in a room that move on their
+    /// own: the lobby's ceiling fans above all.
+    /// </remarks>
+    public string? Gas { get; init; }
+
     /// <summary>
     /// Whether one block hides it while another shows it, so its visibility depends on
     /// story state that has not been evaluated.
@@ -298,6 +306,7 @@ public sealed class SceneInitFile
                 ConditionsResolved ? hidden : hidden && (seen?.Hidden ?? true))
             {
                 Verb = line.Value("verb") ?? seen?.Verb,
+                Gas = line.Value("gas") ?? seen?.Gas,
 
                 // Carried forward, or a third block agreeing with the second would erase
                 // the disagreement the first one recorded. Nothing to carry once the

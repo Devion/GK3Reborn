@@ -171,6 +171,8 @@ public sealed class SceneUpdate
     /// being recorded, which is what every tool wants and what the launcher wanted until
     /// there was a reader.
     /// </remarks>
+    private readonly List<Scenery> _scenery = [];
+
     public Content.ClipLibrary? Clips { get; set; }
 
     /// <summary>Where the animations that name those clips come from.</summary>
@@ -283,6 +285,80 @@ public sealed class SceneUpdate
 
         return longest;
     }
+
+    /// <summary>Starts every scenery script the scene named.</summary>
+    /// <remarks>
+    /// A <c>gasprop</c> carries a <c>.GAS</c> script that runs for as long as the scene
+    /// is loaded: the lobby's ceiling fans turn because of one. Called once the scene is
+    /// standing and its animation libraries are attached.
+    /// </remarks>
+    public void StartScenery()
+    {
+        _scenery.Clear();
+
+        foreach (PlacedModel model in _scene.Models)
+        {
+            if (model.Idle is { Steps.Count: > 0 } script)
+            {
+                _scenery.Add(new Scenery(script));
+            }
+        }
+    }
+
+    // One step of each running scenery script. An animation is played and the script
+    // waits out its length before going on, which is what makes a fan turn continuously
+    // rather than restarting every frame.
+    private void StepScenery(double seconds)
+    {
+        foreach (Scenery running in _scenery)
+        {
+            running.Remaining -= seconds;
+
+            // Sixteen at once is a bound on a script that loops without ever waiting,
+            // which would otherwise spin here for ever.
+            for (int guard = 0; guard < 16 && running.Remaining <= 0; guard++)
+            {
+                if (running.Position >= running.Script.Steps.Count)
+                {
+                    running.Position = 0;
+
+                    // A script with no loop and nothing left to do simply stops.
+                    if (!running.Repeats)
+                    {
+                        running.Remaining = double.MaxValue;
+                        break;
+                    }
+                }
+
+                GasStep step = running.Script.Steps[running.Position++];
+
+                switch (step.Action)
+                {
+                    case GasAction.Animate when step.Name is { Length: > 0 } clip:
+                        running.Remaining += Math.Max(Play(clip), 1.0 / 60);
+                        break;
+
+                    case GasAction.Wait:
+                        running.Remaining += step.Seconds;
+                        break;
+
+                    case GasAction.Goto when step.Name is { Length: > 0 } label:
+                        running.Position = running.Script.LabelAt(label) ?? 0;
+                        break;
+
+                    case GasAction.Loop:
+                        running.Position = 0;
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
+    /// <summary>How many scenery scripts are running.</summary>
+    public int Scenic => _scenery.Count;
 
     /// <summary>Stops everything a model is doing.</summary>
     /// <param name="model">Its name, or null for everything in the room.</param>
@@ -496,6 +572,22 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Diagnostics raised while the world went on by itself.</summary>
+    /// <summary>One scenery script, and where it has got to.</summary>
+    private sealed class Scenery(Formats.Animation.GasFile script)
+    {
+        public Formats.Animation.GasFile Script { get; } = script;
+
+        public int Position { get; set; }
+
+        /// <summary>Seconds until the next step.</summary>
+        public double Remaining { get; set; }
+
+        /// <summary>Whether it says to start again, rather than stopping at the end.</summary>
+        public bool Repeats { get; } =
+            script.Steps.Any(s => s.Action is Formats.Animation.GasAction.Loop
+                                            or Formats.Animation.GasAction.Goto);
+    }
+
     public DiagnosticBag Diagnostics { get; } = new();
 
     /// <summary>How many actors in the scene have a head that can turn.</summary>
@@ -550,6 +642,7 @@ public sealed class SceneUpdate
             happened.Add($"{carried} carried on");
         }
 
+        StepScenery(seconds);
         MoveView(seconds);
 
         foreach (GameTimer timer in _api.State.Timers.Advance(seconds))
