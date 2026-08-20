@@ -123,8 +123,6 @@ public static class Application
 
         window.Resized += (_, _) => renderer.Invalidate();
 
-        using SceneGeometry geometry = renderer.CreateGeometry();
-
         var diagnostics = new DiagnosticBag();
         SceneRequest request = Playable(archives, sceneName, timeblock);
         Gk3SheepApi api = request.Api ?? new Gk3SheepApi(new GameState());
@@ -138,67 +136,6 @@ public static class Application
             Console.WriteLine($"Story: {request.State.Timeblock} in {request.State.Location}");
         }
 
-        var loader = new SceneLoader(archives, Console.WriteLine);
-
-        if (enhancedDirectory is { Length: > 0 })
-        {
-            EnhancedTextures enhanced = EnhancedTextures.Open(enhancedDirectory);
-            loader.Enhanced = enhanced;
-
-            Console.WriteLine(enhanced.Count > 0
-                ? $"Enhanced textures: {enhanced.Count} available in {enhancedDirectory}"
-                : $"Enhanced textures: none found in {enhancedDirectory}");
-        }
-
-        LoadedScene? scene = loader.Load(geometry, request, diagnostics);
-
-        if (scene is null)
-        {
-            foreach (Diagnostic diagnostic in diagnostics.Items)
-            {
-                Console.Error.WriteLine(diagnostic);
-            }
-
-            return 3;
-        }
-
-        renderer.SetLights(scene.Lights);
-        renderer.Quality = renderer.SupportsRayTracing ? quality : RayTracingQuality.None;
-
-        Console.WriteLine(renderer.SupportsRayTracing
-            ? $"Ray tracing: {renderer.Quality} ({geometry.TraceableTriangleCount} opaque "
-              + "triangles traced)"
-            : "Ray tracing: unavailable on this device");
-
-        Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
-            + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"
-            + (loader.EnhancedTexturesUsed > 0
-                ? $" ({loader.EnhancedTexturesUsed} enhanced)"
-                : string.Empty)
-            + $", {scene.Lights.Count} authored lights");
-
-        Diagnostic[] problems = diagnostics.Items
-            .Where(d => d.Severity >= DiagnosticSeverity.Warning)
-            .ToArray();
-
-        if (problems.Length > 0)
-        {
-            Console.WriteLine(verbose
-                ? $"{problems.Length} assets could not be loaded:"
-                : $"({problems.Length} assets could not be loaded; --verbose lists them)");
-
-            if (verbose)
-            {
-                foreach (Diagnostic problem in problems)
-                {
-                    Console.WriteLine($"  {problem}");
-                }
-            }
-        }
-
-        // The world going on by itself: timers coming due, heads finishing a turn. It is
-        // the only thing that touches the clock, and it is given the elapsed time rather
-        // than reading it, so two runs stepped the same way do the same thing.
         // Sound. The device may not open — a machine without one, or one already held —
         // and the game runs quietly rather than not at all.
         Audio.OpenAlBackend? audio = Audio.OpenAlBackend.Open(
@@ -210,82 +147,23 @@ public static class Application
 
         SceneAudio? room = audio is null
             ? null
-            : new SceneAudio(sounds, api.Animations ?? new AnimationLibrary(archives), audio);
+            : new SceneAudio(sounds, api.Animations, audio);
 
         Console.WriteLine(audio is null
             ? "Audio: none, the game runs silent"
             : $"Audio: {audio.DeviceName}, {sounds.DecodedCount} sound(s) decoded" +
               (sounds.HasDecoded ? string.Empty : " — run import-audio, almost nothing will play"));
 
+        // The host outlives the room. Its scripts and its registrations belong to the
+        // story rather than to the room, and reloading them at every door would lose
+        // whatever a script was in the middle of.
         var host = new ScriptHost(api);
-        SceneScripting.Attach(api, scene, loader.Glances, room);
 
         // Scripts wait for real here, unlike in the tools, because here there is a clock
         // for them to wait against.
         host.Scheduler = new SheepScheduler(host.Machine);
 
-        var update = new SceneUpdate(
-            scene,
-            api,
-            loader.Glances,
-            geometry,
-            scene.Actions,
-            new ActionRunner(api),
-            host.Scheduler);
-
-        Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
-
-        // What the room sounds like when nothing is happening in it.
-        if (room?.StartAmbience(scene.AmbienceRead) is { } bed)
-        {
-            Console.WriteLine($"Ambience: {bed}");
-        }
-
-        // Set once the room is standing, which is where a script would set it, so the head
-        // turns while the player watches instead of having always been turned.
-        // Doing something is how a script gets started, and a script is what waits.
-        if (Option(args, "--do")?.Split(':') is [string noun, string verb] &&
-            scene.Actions?.Find(noun.Trim(), verb.Trim()) is { } rule)
-        {
-            foreach (string name in archives.Names(".SHP"))
-            {
-                if (archives.Read(name) is { } bytes)
-                {
-                    try
-                    {
-                        host.Add(Sheep.SheepScriptFile.Parse(bytes, name));
-                    }
-                    catch (Formats.FormatParseException)
-                    {
-                    }
-                }
-            }
-
-            ActionOutcome outcome = new ActionRunner(api).Run(rule);
-
-            Console.WriteLine(
-                $"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: " +
-                $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)");
-        }
-
-        if (Option(args, "--glide") is { Length: > 0 } destination)
-        {
-            Sheep.SheepExpression.Evaluate(
-                $"GlideToCameraAngle(\"{destination}\")", api);
-
-            Console.WriteLine($"Gliding to {destination}");
-        }
-
-        if (Option(args, "--glance")?.Split(':') is [string who, string at])
-        {
-            Sheep.SheepExpression.Evaluate(
-                $"LookitActor(\"{who.Trim()}\", \"{at.Trim()}\", \"\", 0)", api);
-
-            foreach (Diagnostic diagnostic in api.Diagnostics.Items)
-            {
-                Console.WriteLine($"  {diagnostic}");
-            }
-        }
+        Console.WriteLine($"Scripts: {LoadScripts(archives, host)} loaded");
 
         // The interface. GK3's own bitmap fonts rather than anything imported: they are in
         // the archives, they are the right size for the game's own screens, and reading one
@@ -310,9 +188,118 @@ public static class Application
             Console.WriteLine("Interface: no font found, nothing is drawn over the room");
         }
 
-        int result = FlyScene(
-            window, renderer, geometry, scene, cameraName, frameLimit, update,
-            new SceneInteraction(scene, api), room, hud, api.State, args);
+        int result = 0;
+        bool first = true;
+
+        // One pass a room. A door is a script that says SetLocation and nothing more, so
+        // going through one is this loop coming round again rather than anything the room
+        // itself knows how to do.
+        while (true)
+        {
+            using SceneGeometry geometry = renderer.CreateGeometry();
+
+            // A fresh loader each time: it carries the last room's glances and its count of
+            // enhanced textures, and neither belongs to the next one.
+            var loader = new SceneLoader(archives, Console.WriteLine);
+
+            if (enhancedDirectory is { Length: > 0 })
+            {
+                EnhancedTextures enhanced = EnhancedTextures.Open(enhancedDirectory);
+                loader.Enhanced = enhanced;
+
+                if (first)
+                {
+                    Console.WriteLine(enhanced.Count > 0
+                        ? $"Enhanced textures: {enhanced.Count} available in {enhancedDirectory}"
+                        : $"Enhanced textures: none found in {enhancedDirectory}");
+                }
+            }
+
+            if (loader.Load(geometry, request, diagnostics) is not { } scene)
+            {
+                foreach (Diagnostic diagnostic in diagnostics.Items)
+                {
+                    Console.Error.WriteLine(diagnostic);
+                }
+
+                audio?.Dispose();
+                return 3;
+            }
+
+            renderer.SetLights(scene.Lights);
+            renderer.Quality = renderer.SupportsRayTracing ? quality : RayTracingQuality.None;
+
+            if (first)
+            {
+                Console.WriteLine(renderer.SupportsRayTracing
+                    ? $"Ray tracing: {renderer.Quality} ({geometry.TraceableTriangleCount} opaque "
+                      + "triangles traced)"
+                    : "Ray tracing: unavailable on this device");
+            }
+
+            Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
+                + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"
+                + (loader.EnhancedTexturesUsed > 0
+                    ? $" ({loader.EnhancedTexturesUsed} enhanced)"
+                    : string.Empty)
+                + $", {scene.Lights.Count} authored lights");
+
+            Report(diagnostics, verbose);
+
+            // Registered again for the new room: the scene functions close over the room
+            // they were given, and the last registration wins.
+            SceneScripting.Attach(api, scene, loader.Glances, room);
+
+            // Whatever was waiting was waiting on the room that has gone.
+            host.Scheduler.Clear();
+
+            var update = new SceneUpdate(
+                scene,
+                api,
+                loader.Glances,
+                geometry,
+                scene.Actions,
+                new ActionRunner(api),
+                host.Scheduler);
+
+            Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
+
+            room?.Silence();
+
+            // What the room sounds like when nothing is happening in it.
+            if (room?.StartAmbience(scene.AmbienceRead) is { } bed)
+            {
+                Console.WriteLine($"Ambience: {bed}");
+            }
+
+            if (first)
+            {
+                Opening(args, api, scene);
+            }
+
+            RoomExit exit = FlyScene(
+                window, renderer, geometry, scene, cameraName, frameLimit, update,
+                new SceneInteraction(scene, api), room, hud, api.State, args);
+
+            result = exit.Code;
+
+            if (exit.Destination is not { Length: > 0 } next)
+            {
+                break;
+            }
+
+            // The geometry is about to go. Frames are still in flight reading its buffers,
+            // and freeing those underneath the device is a crash somewhere else entirely.
+            renderer.SetScene(null, null);
+            renderer.Idle();
+
+            request = SceneRequest.Continuing(api, next);
+
+            // The next room has its own idea of where to stand; the camera the player named
+            // belonged to the one they have left.
+            cameraName = null;
+            first = false;
+        }
 
         audio?.Dispose();
 
@@ -323,6 +310,109 @@ public static class Application
         }
 
         return result;
+    }
+
+    /// <summary>Loads every compiled script in the game.</summary>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="host">Where they go.</param>
+    /// <returns>How many were loaded.</returns>
+    /// <remarks>
+    /// Once, before the first room. A fifth of the corpus's action statements are
+    /// <c>CallSheep</c>, and a script that is not loaded is a call that does nothing — most
+    /// visibly the ones that take the player from one room to the next.
+    /// </remarks>
+    private static int LoadScripts(GameArchives archives, ScriptHost host)
+    {
+        int loaded = 0;
+
+        foreach (string name in archives.Names(".SHP"))
+        {
+            if (archives.Read(name) is not { } bytes)
+            {
+                continue;
+            }
+
+            try
+            {
+                host.Add(Sheep.SheepScriptFile.Parse(bytes, name));
+                loaded++;
+            }
+            catch (Formats.FormatParseException)
+            {
+                // A script that will not parse is one call that does nothing, not a game
+                // that will not start.
+            }
+        }
+
+        return loaded;
+    }
+
+    /// <summary>Says what could not be loaded.</summary>
+    /// <param name="diagnostics">What was raised while loading.</param>
+    /// <param name="verbose">Whether to list them rather than count them.</param>
+    private static void Report(DiagnosticBag diagnostics, bool verbose)
+    {
+        Diagnostic[] problems =
+            [.. diagnostics.Items.Where(d => d.Severity >= DiagnosticSeverity.Warning)];
+
+        if (problems.Length == 0)
+        {
+            return;
+        }
+
+        Console.WriteLine(verbose
+            ? $"{problems.Length} assets could not be loaded:"
+            : $"({problems.Length} assets could not be loaded; --verbose lists them)");
+
+        if (verbose)
+        {
+            foreach (Diagnostic problem in problems)
+            {
+                Console.WriteLine($"  {problem}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The switches that set something going before the player takes over.
+    /// </summary>
+    /// <param name="args">The command line.</param>
+    /// <param name="api">The host.</param>
+    /// <param name="scene">The room they act on.</param>
+    /// <remarks>
+    /// Only in the first room. They exist for looking at one thing on purpose, and firing
+    /// them again at every door would mean the player could never get away from them.
+    /// </remarks>
+    private static void Opening(string[] args, Gk3SheepApi api, LoadedScene scene)
+    {
+        if (Option(args, "--do")?.Split(':') is [string noun, string verb] &&
+            scene.Actions?.Find(noun.Trim(), verb.Trim()) is { } rule)
+        {
+            ActionOutcome outcome = new ActionRunner(api).Run(rule);
+
+            Console.WriteLine(
+                $"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: " +
+                $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)");
+        }
+
+        if (Option(args, "--glide") is { Length: > 0 } destination)
+        {
+            Sheep.SheepExpression.Evaluate(
+                $"GlideToCameraAngle(\"{destination}\")", api);
+            Console.WriteLine($"Gliding to {destination}");
+        }
+
+        if (Option(args, "--glance")?.Split(':') is [string who, string at])
+        {
+            Sheep.SheepExpression.Evaluate(
+                $"LookitActor(\"{who.Trim()}\", \"{at.Trim()}\", \"\", 0)",
+                api);
+
+            foreach (Diagnostic diagnostic in api.Diagnostics.Items)
+            {
+                Console.WriteLine($"  {diagnostic}");
+            }
+        }
     }
 
     /// <summary>Runs the present loop with a camera the player can move.</summary>
@@ -338,13 +428,13 @@ public static class Application
     /// <param name="hud">The interface, if there is a font to draw it with.</param>
     /// <param name="story">Where the story stands, for the inventory strip.</param>
     /// <param name="options">The command line, for the debugging switches.</param>
-    /// <returns>Process exit code.</returns>
+    /// <returns>Why the room was left, and where for.</returns>
     /// <remarks>
     /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
     /// given the frame's elapsed time, so a head that was told to look at something turns
     /// while the player watches rather than having always been turned.
     /// </remarks>
-    private static int FlyScene(
+    private static RoomExit FlyScene(
         Platform.SilkGameWindow window,
         VulkanRenderer renderer,
         SceneGeometry geometry,
@@ -358,6 +448,8 @@ public static class Application
         GameState story,
         string[] options)
     {
+        string here = scene.Name;
+
         int cameraIndex = Math.Max(
             0,
             scene.Cameras.ToList().FindIndex(c => string.Equals(
@@ -596,6 +688,16 @@ public static class Application
                 renderer.SetOverlay(hud.Overlay);
             }
 
+            // A door is a script that says SetLocation and nothing more. Noticing it here
+            // rather than inside the action means it works however the story asked —
+            // clicked, on a timer, or from a script three calls deep.
+            if (!string.Equals(story.Location, here, StringComparison.OrdinalIgnoreCase) &&
+                story.Location is { Length: > 0 } elsewhere)
+            {
+                Console.WriteLine($"Leaving {here} for {elsewhere}");
+                return new RoomExit(0, elsewhere);
+            }
+
             window.EndFrame();
 
             renderer.SetScene(geometry, view);
@@ -611,8 +713,13 @@ public static class Application
             $"Presented {presented} frames in {stopwatch.Elapsed.TotalSeconds:F1}s "
             + $"({presented / Math.Max(0.001, stopwatch.Elapsed.TotalSeconds):F0} fps)"));
 
-        return 0;
+        return new RoomExit(0, null);
     }
+
+    /// <summary>Why a room was left.</summary>
+    /// <param name="Code">Process exit code, if this is the end of it.</param>
+    /// <param name="Destination">Where the story went, or null when the player quit.</param>
+    private readonly record struct RoomExit(int Code, string? Destination);
 
     /// <summary>
     /// Makes sure the scene is loaded at a point in the story, not merely at a time of day.

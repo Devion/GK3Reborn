@@ -356,6 +356,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <summary>Marks the swapchain as needing rebuilding, after a resize.</summary>
     public void Invalidate() => _needsRecreate = true;
 
+    /// <summary>Waits until the device has finished everything it was given.</summary>
+    /// <remarks>
+    /// Before throwing away a scene's geometry. Frames are still in flight when the player
+    /// walks through a door, and freeing the buffers they are reading is a use-after-free
+    /// that shows up as a driver crash somewhere else entirely.
+    /// </remarks>
+    public void Idle() => _vk.DeviceWaitIdle(_device);
+
     /// <summary>Whether an interface can be drawn.</summary>
     public bool HasOverlay => _overlay is not null;
 

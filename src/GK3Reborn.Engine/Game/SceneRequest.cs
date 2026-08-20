@@ -22,12 +22,12 @@ namespace GK3Reborn.Game;
 /// </remarks>
 public sealed class SceneRequest
 {
-    private SceneRequest(string scene, string? assetSuffix, GameState? state)
+    private SceneRequest(string scene, string? assetSuffix, GameState? state, Gk3SheepApi? api = null)
     {
         Scene = scene;
         AssetSuffix = assetSuffix;
         State = state;
-        Api = state is null ? null : new Gk3SheepApi(state);
+        Api = state is null ? null : api ?? new Gk3SheepApi(state);
         Conditions = Api is null ? null : new SceneConditions(Api);
     }
 
@@ -63,6 +63,39 @@ public sealed class SceneRequest
     /// Giving them a second host would give them a second answer.
     /// </remarks>
     public Gk3SheepApi? Api { get; }
+
+    /// <summary>
+    /// A request for the next room, in a story that is already under way.
+    /// </summary>
+    /// <param name="api">The host the story has been running against.</param>
+    /// <param name="scene">Where the player is going.</param>
+    /// <returns>The request.</returns>
+    /// <remarks>
+    /// <para>
+    /// <see cref="For"/> starts a story; this continues one. The difference is the whole
+    /// point of walking through a door: a new state would forget everything the player has
+    /// done, and a new host would forget every function the last room registered and every
+    /// script it had loaded.
+    /// </para>
+    /// <para>
+    /// The arrival is recorded here rather than by the script that asked for it, because a
+    /// scene file asks whether this is the first visit by checking the count, and the count
+    /// has to have gone up by the time the file is read.
+    /// </para>
+    /// </remarks>
+    public static SceneRequest Continuing(Gk3SheepApi api, string scene)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        ArgumentNullException.ThrowIfNull(scene);
+
+        string name = scene.ToUpperInvariant();
+        GameState state = api.State;
+
+        state.Location = name;
+        state.EnterLocation(state.Ego, name);
+
+        return new SceneRequest(name, null, state, api);
+    }
 
     /// <summary>Reads a timeblock argument.</summary>
     /// <param name="scene">Scene name, such as <c>R25</c>.</param>
