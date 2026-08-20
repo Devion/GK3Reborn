@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using GK3Reborn.Foundation.Diagnostics;
+using NLayer;
 
 namespace GK3Reborn.Formats.Audio;
 
@@ -15,11 +17,10 @@ namespace GK3Reborn.Formats.Audio;
 /// anybody says.
 /// </para>
 /// <para>
-/// Decoding those is an <b>import</b> concern, not a runtime one. `Plan/01` is explicit
-/// that conversion happens offline and the runtime never shells out, so `import-audio`
-/// transcodes the compressed ones into the content workspace and this reads what comes
-/// out. Meeting a compressed file at runtime is therefore a real diagnostic — it means the
-/// import has not been run — rather than something to fail quietly over.
+/// Both are read here, in process. <c>Plan/01</c> rules out an external process at runtime,
+/// which is a different thing from ruling out decoding — and the difference is worth 3.7 GB:
+/// keeping a decoded copy of the corpus on disk cost that to save a few milliseconds a
+/// sound, while the compressed originals are 347 MB and already inside the archives.
 /// </para>
 /// </remarks>
 public sealed class WavFile
@@ -29,6 +30,13 @@ public sealed class WavFile
 
     /// <summary>An MP3 stream wearing a RIFF header.</summary>
     public const int FormatMpegLayer3 = 85;
+
+    /// <summary>How much of an MP3 to decode per call, in bytes.</summary>
+    /// <remarks>
+    /// Verified against ffmpeg at 4,608, 16,384 and 65,536 bytes; 16,384 is four frames of
+    /// stereo and a little over seven of mono.
+    /// </remarks>
+    private const int Block = 16384;
 
     private WavFile(string name, int channels, int sampleRate, short[] samples)
     {
@@ -114,18 +122,19 @@ public sealed class WavFile
             at = body + (int)size + ((int)size & 1);
         }
 
+        if (format == FormatMpegLayer3)
+        {
+            return Mpeg(data, name, diagnostics);
+        }
+
         if (format != FormatPcm)
         {
             diagnostics.Add(new Diagnostic(
                 "GK3R1121", DiagnosticSeverity.Warning,
-                format == FormatMpegLayer3
-                    ? "A sound is still an MP3 inside its RIFF header, so it cannot be played."
-                    : "A sound is in a compressed format nothing here decodes.",
-                name, null, "format tag 1, uncompressed",
+                "A sound is in a compressed format nothing here decodes.",
+                name, null, "format tag 1 or 85",
                 format.ToString(CultureInfo.InvariantCulture),
-                format == FormatMpegLayer3
-                    ? "Run `import-audio` to transcode the corpus; the runtime does not decode."
-                    : "Convert it to 16-bit PCM."));
+                "Convert it to 16-bit PCM."));
 
             return null;
         }
@@ -143,6 +152,93 @@ public sealed class WavFile
         }
 
         return new WavFile(name, channels, rate, Decode(data, bits));
+    }
+
+    /// <summary>
+    /// Decodes the MP3 stream inside a RIFF header.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Which is 7,656 of the game's 7,852 sounds — everything anybody says and almost every
+    /// soundtrack. The <c>fmt</c> chunk describes the MP3 and the <c>data</c> chunk is the
+    /// MP3 itself, so the frames are handed to the decoder as they stand and the header's
+    /// channel count and rate are ignored in favour of what the stream actually says.
+    /// </para>
+    /// <para>
+    /// In process, and not by shelling out. <c>Plan/01</c> rules out an external process at
+    /// runtime, which is a different thing from ruling out decoding: keeping a decoded copy
+    /// of the corpus on disk cost 3.7 GB to save what turns out to be a few milliseconds a
+    /// sound.
+    /// </para>
+    /// </remarks>
+    private static WavFile? Mpeg(ReadOnlySpan<byte> data, string name, DiagnosticBag diagnostics)
+    {
+        if (data.Length == 0)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R1123", DiagnosticSeverity.Warning,
+                "A sound's RIFF header promises an MP3 and contains nothing.",
+                name, null, "a data chunk", "empty",
+                "The archive entry may be truncated."));
+
+            return null;
+        }
+
+        try
+        {
+            using var stream = new MemoryStream(data.ToArray(), writable: false);
+            using var mpeg = new MpegFile(stream);
+
+            int channels = Math.Clamp(mpeg.Channels, 1, 2);
+
+            // ReadSamplesInt16, not ReadSamples: the byte overload of ReadSamples writes
+            // *floats* into the buffer. Reading those as 16-bit gives exactly twice as many
+            // samples as the sound has, each one the bit pattern of half a float — which
+            // sounds like static and measures as a clip of the right name and the wrong
+            // length.
+            //
+            // Always into a block, always at index 0. Decoding straight into the destination
+            // is the obvious way to write this and it is wrong twice over: asked for a whole
+            // clip in one call the decoder returns the full count and quietly leaves the back
+            // of it silent, and asked to write at a non-zero index it returns the right count
+            // of the wrong samples. Neither shows up as an error or a short clip — the length
+            // is right to the sample either way, which is why this is worth the copy.
+            int expected = (int)(mpeg.Duration.TotalSeconds * mpeg.SampleRate) * channels;
+            short[] samples = new short[Math.Max(expected + mpeg.SampleRate, Block / 2)];
+            byte[] block = new byte[Block];
+            int count = 0;
+            int read;
+
+            while ((read = mpeg.ReadSamplesInt16(block, 0, Block)) > 0)
+            {
+                int got = read / 2;
+
+                if (count + got > samples.Length)
+                {
+                    Array.Resize(ref samples, Math.Max(samples.Length * 2, count + got));
+                }
+
+                MemoryMarshal.Cast<byte, short>(block.AsSpan(0, got * 2))
+                    .CopyTo(samples.AsSpan(count));
+
+                count += got;
+            }
+
+            Array.Resize(ref samples, count);
+
+            return new WavFile(name, channels, mpeg.SampleRate, samples);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or FormatException or
+                                       IndexOutOfRangeException or ArgumentException)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R1124", DiagnosticSeverity.Warning,
+                "A sound's MP3 stream could not be decoded.",
+                name, null, "a readable MPEG stream", ex.Message,
+                "The archive entry may be damaged; two of the game's own files are."));
+
+            return null;
+        }
     }
 
     /// <summary>

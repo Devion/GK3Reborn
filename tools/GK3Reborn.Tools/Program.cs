@@ -83,9 +83,6 @@ public static class Program
             case "import-textures":
                 return ImportTextures(options, diagnostics);
 
-            case "import-audio":
-                return ImportAudio(options, diagnostics);
-
             case "act-info":
                 return ActInfo(options, diagnostics);
 
@@ -172,25 +169,6 @@ public static class Program
 
         Report(diagnostics);
         return imported ? 0 : 3;
-    }
-
-    private static int ImportAudio(Options options, DiagnosticBag diagnostics)
-    {
-        if (options.Source is null || options.Workspace is null)
-        {
-            Console.Error.WriteLine("import-audio requires --source and --workspace.");
-            return 2;
-        }
-
-        bool complete = new AudioImportStage(Console.WriteLine).Run(
-            options.Source,
-            options.Workspace,
-            options.FfmpegDirectory,
-            options.Force,
-            diagnostics);
-
-        Report(diagnostics);
-        return complete ? 0 : 3;
     }
 
     private static int ActInfo(Options options, DiagnosticBag diagnostics)
@@ -576,7 +554,6 @@ public static class Program
                                 report what came out. --model limits it to one
                                 location.
               act-info          Read every vertex animation and say what is in them.
-              import-audio      Decode the game's sounds into playable PCM.
               import-textures   Check generated texture candidates against the
                                 originals they replace and take the sound ones
                                 into the enhanced set.

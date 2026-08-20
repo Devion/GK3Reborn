@@ -141,9 +141,7 @@ public static class Application
         Audio.OpenAlBackend? audio = Audio.OpenAlBackend.Open(
             Audio.SpeakerLayout.Stereo, diagnostics);
 
-        var sounds = new SoundLibrary(
-            archives,
-            Path.Combine(DefaultWorkspaceDirectory(), "normalized", "audio-pcm"));
+        var sounds = new SoundLibrary(archives);
 
         SceneAudio? room = audio is null
             ? null
@@ -151,8 +149,7 @@ public static class Application
 
         Console.WriteLine(audio is null
             ? "Audio: none, the game runs silent"
-            : $"Audio: {audio.DeviceName}, {sounds.DecodedCount} sound(s) decoded" +
-              (sounds.HasDecoded ? string.Empty : " — run import-audio, almost nothing will play"));
+            : $"Audio: {audio.DeviceName}");
 
         // The host outlives the room. Its scripts and its registrations belong to the
         // story rather than to the room, and reloading them at every door would lose

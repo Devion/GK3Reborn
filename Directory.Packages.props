@@ -11,6 +11,10 @@
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
+    <!-- A pure-managed MP3 decoder. 97.5% of the game's audio is an MP3 inside a RIFF
+         header, and decoding it in process is what lets the archives be read directly
+         instead of keeping 3.7 GB of decoded copies beside them. -->
+    <PackageVersion Include="NLayer" Version="2.0.1" />
     <PackageVersion Include="Silk.NET.Core" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Input" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Maths" Version="2.23.0" />

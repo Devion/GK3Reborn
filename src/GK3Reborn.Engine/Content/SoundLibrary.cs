@@ -8,12 +8,10 @@ namespace GK3Reborn.Content;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Looks in the content workspace's <c>normalized/audio-pcm</c> first and the archives
-/// second. That order is the whole point: 97.5% of the archives' sounds are an MP3 inside
-/// a RIFF header and the runtime does not decode, so the workspace copy that
-/// <c>import-audio</c> produced is the only playable one. The archives still answer for
-/// the 196 that were always PCM, which means a player who has not run the import gets
-/// footsteps and silence rather than a crash.
+/// Straight out of the archives. 97.5% of the game's sounds are an MP3 inside a RIFF
+/// header, and <see cref="WavFile"/> decodes those where it finds them, so there is nothing
+/// to import and no second place to look. A decoded copy of the corpus used to sit in the
+/// content workspace and cost 3.7 GB to save about eight milliseconds a sound.
 /// </para>
 /// <para>
 /// Names keep their extension, and a script may not give one. A line of dialogue is
@@ -26,31 +24,19 @@ namespace GK3Reborn.Content;
 public sealed class SoundLibrary
 {
     private readonly GameArchives _archives;
-    private readonly string? _decoded;
     private readonly Dictionary<string, WavFile?> _read = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Creates a library.</summary>
     /// <param name="archives">The game's archives.</param>
-    /// <param name="decodedDirectory">
-    /// Where <c>import-audio</c> put its output, or null to use the archives alone.
-    /// </param>
-    public SoundLibrary(GameArchives archives, string? decodedDirectory)
+    public SoundLibrary(GameArchives archives)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
         _archives = archives;
-        _decoded = decodedDirectory is { Length: > 0 } d && Directory.Exists(d) ? d : null;
     }
 
     /// <summary>Diagnostics raised while reading.</summary>
     public DiagnosticBag Diagnostics { get; } = new();
-
-    /// <summary>Whether the decoded store is there.</summary>
-    public bool HasDecoded => _decoded is not null;
-
-    /// <summary>How many decoded sounds are available.</summary>
-    public int DecodedCount =>
-        _decoded is null ? 0 : Directory.EnumerateFiles(_decoded, "*.wav").Count();
 
     /// <summary>Reads a sound, or returns what was read before.</summary>
     /// <param name="name">Its name, extension and all.</param>
@@ -68,17 +54,7 @@ public sealed class SoundLibrary
 
         foreach (string candidate in Spellings(name))
         {
-            if (_decoded is not null)
-            {
-                string path = Path.Combine(_decoded, candidate + ".wav");
-
-                if (File.Exists(path))
-                {
-                    sound = WavFile.Read(File.ReadAllBytes(path), name, Diagnostics);
-                }
-            }
-
-            if (sound is null && _archives.Read(candidate) is { } bytes)
+            if (_archives.Read(candidate) is { } bytes)
             {
                 sound = WavFile.Read(bytes, name, Diagnostics);
             }

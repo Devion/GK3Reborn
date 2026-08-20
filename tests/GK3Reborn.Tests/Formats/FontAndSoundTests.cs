@@ -190,15 +190,36 @@ public sealed class FontAndSoundTests
     }
 
     [Fact]
-    public void An_mp3_inside_a_riff_header_is_refused_with_the_reason()
+    public void An_mp3_header_with_no_stream_behind_it_is_refused()
     {
-        // 97.5% of the game's sounds are this, and the runtime does not decode: the import
-        // does. Saying so is the difference between a silent game and a silent mystery.
+        // 97.5% of the game's sounds are an MP3 inside a RIFF header and they are decoded
+        // in process. An empty one is a truncated archive entry, which is worth saying
+        // rather than returning a sound of no length.
         var bag = new DiagnosticBag();
 
         Assert.Null(WavFile.Read(Wave(85, 1, 44100, 0, []), "TEST", bag));
+        Assert.Contains(bag.Items, d => d.Code == "GK3R1123");
+    }
+
+    [Fact]
+    public void An_mp3_stream_that_will_not_decode_is_refused_rather_than_thrown()
+    {
+        // Two of the game's own audio files are damaged. A reader that throws on those
+        // takes the room down with them.
+        var bag = new DiagnosticBag();
+        short[] noise = [.. Enumerable.Range(0, 512).Select(i => (short)(i * 37))];
+
+        Assert.Null(WavFile.Read(Wave(85, 1, 44100, 16, noise), "TEST", bag));
+        Assert.Contains(bag.Items, d => d.Code is "GK3R1123" or "GK3R1124");
+    }
+
+    [Fact]
+    public void A_format_nothing_decodes_is_refused_with_the_reason()
+    {
+        var bag = new DiagnosticBag();
+
+        Assert.Null(WavFile.Read(Wave(2, 1, 44100, 4, []), "TEST", bag));
         Assert.Contains(bag.Items, d => d.Code == "GK3R1121");
-        Assert.Contains(bag.Items, d => d.Remediation!.Contains("import-audio", StringComparison.Ordinal));
     }
 
     [Fact]

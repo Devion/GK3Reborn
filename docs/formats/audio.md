@@ -9,22 +9,42 @@ few soundtracks. The 196 that are honestly PCM are 22 kHz footsteps and one loop
 So "read the WAV files" gets you a silent game. Every line of dialogue and almost every
 soundtrack is compressed.
 
-## Where that gets fixed
+## Where that gets decoded
 
-`Plan/01` settles it: **conversion is an import concern and the runtime never shells out.**
-So the corpus is decoded once, offline, into the content workspace — beside the textures
-that were converted out of GK3's own container for the same reason.
+In process, on first use, by NLayer.
 
-```bash
-GK3Reborn.Tools import-audio --source <GK3>/Data --workspace <ContentWorkspace>
-```
+`Plan/01` rules out an external process at runtime, which is a different thing from ruling
+out decoding — and the difference turned out to be worth 3.7 GB. The corpus used to be
+decoded once offline into `normalized/audio-pcm`, which cost that much disk to save about
+eight milliseconds a sound; the compressed originals are 347 MB and already inside the
+archives. `SoundLibrary` therefore reads the archives and nothing else, and `import-audio`
+is gone.
 
-Output is `normalized/audio-pcm/<archive name>.wav`, PCM 16-bit. All 7,852 come through;
-none are refused. The `.wav` is **appended** rather than substituted, because two archive
-entries differ only in the extension that carries their sequence number.
+### Two ways the decoder lies to you
 
-The engine then reads plain PCM. Meeting a compressed file at runtime is `GK3R1121` — a
-diagnostic saying the import has not been run, not a mystery silence.
+Both return the right sample count and raise nothing, which is what makes them expensive.
+
+- **`ReadSamples(byte[], …)` writes floats.** Read back as 16-bit that is exactly twice as
+  many samples as the sound has, each the bit pattern of half a float. Use
+  `ReadSamplesInt16`.
+- **`ReadSamplesInt16` only fills correctly at index 0, a block at a time.** Ask for a whole
+  clip in one call and it returns the full count with the back of it silent — one 99-frame
+  clip decoded its first 71 frames sample-for-sample and left the last 28 as silence. Ask it
+  to write at a non-zero index and it returns the right count of the wrong samples. So every
+  read goes into a 16 KB block at index 0 and is copied out.
+
+Verified against ffmpeg over all 7,852 sounds: **7,155 are sample-for-sample identical**,
+619 correlate above 0.99, 75 below, and 3 differ in length. None are refused.
+
+The 75 are all under four seconds and differ only in their first frame or two — a decoder
+starting cold has no filter history, which is a large share of a 0.2 s clip and none of a
+long one. The 3 are `THEME.WAV`, `TE5MIX.WAV` and `TEMPLEPORCHMIX.WAV`, each 250–308 s and
+each exactly 2,304 samples — one MP3 frame, 26 ms — short, where NLayer drops a frame
+ffmpeg conceals. Everything before the drop is sample-exact.
+
+There is no unit test for any of this: pinning it needs real MP3 data, and the game's audio
+does not belong in the repository. The check above is the guard, and it is a decode of the
+whole corpus in 67 seconds.
 
 ## Finding the sound a script meant
 
