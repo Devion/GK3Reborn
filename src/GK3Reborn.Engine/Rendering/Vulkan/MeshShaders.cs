@@ -1,4 +1,4 @@
-﻿namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>
 /// The mesh shaders, in GLSL.
@@ -115,6 +115,26 @@ internal static class MeshShaders
         // clear the surface it came from without floating visibly above it.
         const float kRayBias = 0.75;
 
+        // And this lifts the start off the surface along its normal, which is a different
+        // thing and the one that matters. A minimum distance is measured *along the ray*,
+        // so a ray leaving at a grazing angle — which is every ray on a curved surface
+        // facing away from the light — is still within a hair of the surface after it and
+        // hits the surface it started on. On a wall there are few such angles; on a face
+        // there is little else, which is why the room was clean and Gabriel was covered in
+        // black speckle.
+        //
+        // Two and a half units, about six centimetres. It has to clear not only the
+        // surface but the gap between the smooth normal a low-polygon character is shaded
+        // with and the flat triangle the ray actually starts on, which on a face is most
+        // of the error.
+        const float kNormalBias = 6.0;
+
+        // Where a ray should start: off the surface, along its normal.
+        vec3 RayStart(vec3 position, vec3 normal)
+        {
+            return position + (normal * kNormalBias);
+        }
+
         // How much a light has to contribute before its shadow is worth a ray. Below this
         // the shadow it casts is under a step of an eight-bit channel, so tracing it costs
         // a ray and changes no pixel.
@@ -178,11 +198,14 @@ internal static class MeshShaders
 
         // How much of a light reaches a point: one ray for a hard shadow, several jittered
         // across the emitter's own radius for a soft one.
-        float Visibility(vec3 position, Light light, vec3 toLight, float distance, int samples)
+        float Visibility(
+            vec3 position, vec3 normal, Light light, vec3 toLight, float distance, int samples)
         {
+            vec3 start = RayStart(position, normal);
+
             if (samples <= 1)
             {
-                return Occluded(position, toLight / distance, distance) ? 0.0 : 1.0;
+                return Occluded(start, toLight / distance, distance) ? 0.0 : 1.0;
             }
 
             vec3 tangent;
@@ -204,7 +227,7 @@ internal static class MeshShaders
                               (bitangent * sin(angle) * offset);
 
                 float reach = length(target);
-                visible += Occluded(position, target / reach, reach) ? 0.0 : 1.0;
+                visible += Occluded(start, target / reach, reach) ? 0.0 : 1.0;
             }
 
             return visible / float(samples);
@@ -212,6 +235,7 @@ internal static class MeshShaders
 
         float Occlusion(vec3 position, vec3 normal, int samples, float radius)
         {
+            vec3 start = RayStart(position, normal);
             vec3 tangent;
             vec3 bitangent;
             Basis(normal, tangent, bitangent);
@@ -237,7 +261,7 @@ internal static class MeshShaders
                     (bitangent * radial * sin(angle)) +
                     (normal * sqrt(max(0.0, 1.0 - u))));
 
-                open += Occluded(position, direction, radius) ? 0.0 : 1.0;
+                open += Occluded(start, direction, radius) ? 0.0 : 1.0;
             }
 
             return open / float(samples);
@@ -306,7 +330,8 @@ internal static class MeshShaders
                 if (traced < shadowed && max(contribution.r, max(contribution.g, contribution.b)) > kShadowFloor)
                 {
                     traced++;
-                    visibility = Visibility(position, light, toLight, distance, shadowSamples);
+                    visibility =
+                        Visibility(position, normal, light, toLight, distance, shadowSamples);
                 }
                 #endif
 

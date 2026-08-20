@@ -164,3 +164,30 @@ so more of what you see comes from the sampled terms.
 The trade is that the grain is now a dither pattern fixed to the screen rather than
 something that averages out over time. That is the right way round until something
 accumulates frames; a temporal filter would want the counter back.
+
+## Where a shadow ray starts
+
+A ray's minimum distance is measured **along the ray**, so it clears the surface only in
+proportion to the angle it leaves at. A ray leaving at a grazing angle — which is every ray
+on a curved surface turned away from the light — is still within a hair of the surface after
+it, and hits the surface it started on. A wall has few such angles. A face has little else.
+
+That is what covered Gabriel in black speckle while the room around him stayed clean, and
+what read as a face full of smudges of dirt.
+
+So the start is lifted along the surface normal as well. It has to clear not only the
+surface but the gap between the smooth normal a low-polygon character is shaded with and the
+flat triangle the ray actually starts on, which on a face is most of the error. Measured as
+local contrast over Gabriel in the lobby, against the room's own texture detail as a floor:
+
+| normal bias | on Gabriel | on the room |
+|---|---|---|
+| none | 12.36 | 8.50 |
+| 2.5 units | 9.25 | 7.90 |
+| **6 units** | **6.78** | 8.07 |
+| 12 units | 6.10 | 8.06 |
+
+Six units is where it flattens, and it puts the character below the room's own detail rather
+than above it. Twelve buys almost nothing and lifts a shadow further from whatever casts it.
+Six units is about fifteen centimetres, which is a lot in the abstract and not much beside a
+character seventy-six units tall in a room three hundred and seventy across.
