@@ -59,6 +59,7 @@ public sealed class SceneRenderStage
     /// </param>
     /// <param name="nounMap">Where to write a map of what is clickable, if anywhere.</param>
     /// <param name="perform">An action to carry out, as <c>noun:verb</c>.</param>
+    /// <param name="advanceSeconds">How much time to let pass afterwards.</param>
     /// <param name="enhanced">Higher-resolution textures to prefer, or null for none.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
@@ -76,6 +77,7 @@ public sealed class SceneRenderStage
         string? pick,
         string? nounMap,
         string? perform,
+        double advanceSeconds,
         string? enhanced,
         DiagnosticBag diagnostics)
     {
@@ -142,6 +144,11 @@ public sealed class SceneRenderStage
         if (perform is { Length: > 0 })
         {
             Perform(archives, scene, request, perform, diagnostics);
+        }
+
+        if (advanceSeconds > 0)
+        {
+            Advance(archives, scene, request, advanceSeconds, diagnostics);
         }
 
         if (walkOverlay)
@@ -727,5 +734,63 @@ public sealed class SceneRenderStage
         }
 
         return loaded;
+    }
+
+    /// <summary>Lets time pass, and performs whatever the story had asked for by then.</summary>
+    /// <remarks>
+    /// The other way an action starts. A script can set a timer — a phone that rings a
+    /// minute after the player walks in — and what fires is a noun and a verb resolved
+    /// then, not a piece of work saved earlier, so the rule that applies is the one that
+    /// applies when it goes off.
+    /// </remarks>
+    private void Advance(
+        GameArchives archives,
+        LoadedScene scene,
+        SceneRequest request,
+        double seconds,
+        DiagnosticBag diagnostics)
+    {
+        if (scene.Actions is not { } actions || request.Api is not { } api)
+        {
+            _log("advance: no point in the story to let pass; name one with --timeblock");
+            return;
+        }
+
+        IReadOnlyList<GameTimer> due = api.State.Timers.Advance(seconds);
+
+        _log(string.Create(
+            CultureInfo.InvariantCulture,
+            $"advance {seconds:F1}s: {due.Count} action(s) come due, " +
+            $"{api.State.Timers.Count} still waiting"));
+
+        if (due.Count == 0)
+        {
+            return;
+        }
+
+        var host = new ScriptHost(api);
+        SceneScripting.Attach(api, scene);
+        LoadScripts(archives, host);
+        var runner = new ActionRunner(api);
+
+        foreach (GameTimer timer in due)
+        {
+            if (actions.Find(timer.Noun, timer.Verb) is not { } rule)
+            {
+                _log($"  {timer.Noun}:{timer.Verb} came due and nothing applies to it now");
+                continue;
+            }
+
+            ActionOutcome outcome = runner.Run(rule);
+
+            _log($"  {timer.Noun}:{timer.Verb} [{rule.Case}] " +
+                 $"{(outcome.Ran ? "ran" : "was refused")}: " +
+                 string.Join("; ", outcome.Statements.Select(t => t.Call)));
+        }
+
+        foreach (Diagnostic diagnostic in runner.Diagnostics.Items.Concat(host.Diagnostics.Items))
+        {
+            diagnostics.Add(diagnostic);
+        }
     }
 }

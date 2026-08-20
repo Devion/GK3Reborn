@@ -78,6 +78,13 @@ public sealed class GameState
     /// </remarks>
     public bool CinematicsEnabled { get; set; } = true;
 
+    /// <summary>Actions the story has asked for later.</summary>
+    /// <remarks>
+    /// Story state rather than scene state: a minute set in the lobby has to still be
+    /// counting in the hall, which is why the original saves them.
+    /// </remarks>
+    public GameTimers Timers { get; } = new();
+
     /// <summary>What is in front of the room.</summary>
     /// <remarks>
     /// State rather than presentation: scripts ask what is showing — <c>IsTopLayerInventory</c>
@@ -339,6 +346,9 @@ public sealed class GameState
         builder.Append(
             CultureInfo.InvariantCulture,
             $"screens={string.Join(">", Screens.Open)}\n");
+        builder.Append(
+            CultureInfo.InvariantCulture,
+            $"timers={string.Join(",", Timers.Pending)}\n");
 
         Append(builder, "flag", _flags.OrderBy(f => f, StringComparer.Ordinal).Select(f => (f, "1")));
         Append(builder, "var", Ordered(_variables));

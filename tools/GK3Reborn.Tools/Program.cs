@@ -121,6 +121,7 @@ public static class Program
                 options.Pick,
                 options.NounMap,
                 options.Perform,
+                options.Advance,
                 EnhancedDirectory(options),
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
@@ -576,6 +577,8 @@ public static class Program
               --do NOUN:VERB       Carry out an action and report what it did.
                                    Needs --timeblock, since a story state is what
                                    decides which rule applies.
+              --advance SECONDS    Let that much time pass afterwards and perform
+                                   whatever the story had asked for by then.
 
             The toolchain never writes to the source installation.
             """);
@@ -616,6 +619,8 @@ public static class Program
 
         public string? Perform { get; init; }
 
+        public double Advance { get; init; }
+
         public string? Variant { get; init; }
 
         public string? Tool { get; init; }
@@ -643,6 +648,7 @@ public static class Program
             string? pick = null;
             string? nounMap = null;
             string? perform = null;
+            double advance = 0;
             string? variant = null;
             string? tool = null;
             string? enhanced = null;
@@ -715,6 +721,9 @@ public static class Program
                     case "--do" when i + 1 < args.Length:
                         perform = args[++i];
                         break;
+                    case "--advance" when i + 1 < args.Length:
+                        advance = double.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
                     case "--variant" when i + 1 < args.Length:
                         variant = args[++i];
                         break;
@@ -752,6 +761,7 @@ public static class Program
                 Pick = pick,
                 NounMap = nounMap,
                 Perform = perform,
+                Advance = advance,
                 Variant = variant,
                 Tool = tool,
                 Enhanced = enhanced,

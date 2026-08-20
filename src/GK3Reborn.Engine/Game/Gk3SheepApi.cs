@@ -321,6 +321,15 @@ public sealed class Gk3SheepApi : ISheepApi
             void Take(string who, string what) => State.Inventory.Remove(who, what);
         });
 
+        // Milliseconds in the file, seconds here, because everything else that measures
+        // time in this engine does. A wait of zero or less is due at once, which the
+        // original notes happens "from time to time".
+        Register("SetGameTimer", a =>
+        {
+            State.Timers.Set(Arg(a, 0), Arg(a, 1), Int(a, 2) / 1000.0);
+            return SheepValue.FromInt(0);
+        });
+
         RegisterScreenFunctions();
 
         // Explicitly answered rather than left unknown: scripts poll these constantly and
