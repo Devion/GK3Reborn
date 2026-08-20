@@ -37,6 +37,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private readonly VulkanContext _context;
     private readonly MeshPipeline _pipeline;
     private readonly List<Batch> _batches = [];
+
+    /// <summary>Which batches belong to which mesh of which placed model.</summary>
+    /// <remarks>
+    /// A mesh becomes one batch per submesh, so moving a head means moving all of them
+    /// together. Kept beside the batches rather than inside them because only the handful
+    /// of models that can move ever need it.
+    /// </remarks>
+    private readonly List<Dictionary<int, List<int>>> _placements = [];
+
+    /// <summary>What each placement was, so a mesh can be re-placed from its own space.</summary>
+    private readonly List<(ModFile Model, Matrix4x4 Transform)> _placed = [];
     private readonly Dictionary<string, VulkanTexture> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly VulkanTexture _fallbackTexture;
     private readonly VulkanTexture _whiteTexture;
@@ -131,7 +142,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="model">The parsed model.</param>
     /// <param name="transform">Where to place it, or null for its authored position.</param>
     /// <param name="meshTurns">Extra rotations for particular meshes, about their own origins.</param>
-    public void Add(
+    public ModelPlacement Add(
         ModFile model,
         Matrix4x4? transform = null,
         IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null)
@@ -139,6 +150,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         ArgumentNullException.ThrowIfNull(model);
 
         Matrix4x4 placement = transform ?? Matrix4x4.Identity;
+        Dictionary<int, List<int>> batches = [];
+        _placements.Add(batches);
 
         for (int index = 0; index < model.Meshes.Count; index++)
         {
@@ -175,6 +188,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
                 RecordTraceable(submesh.TextureName, world, submesh.Indices);
 
+                if (!batches.TryGetValue(index, out List<int>? owned))
+                {
+                    owned = [];
+                    batches[index] = owned;
+                }
+
+                owned.Add(_batches.Count);
+
                 AddBatch(
                     vertices,
                     VulkanBuffer.CreateDeviceLocal<ushort>(
@@ -185,6 +206,43 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     submesh.TextureName,
                     useLightmap: false);
             }
+        }
+
+        _placed.Add((model, placement));
+        return new ModelPlacement(_placements.Count - 1);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The vertices do not move; the transform they are drawn with does. That keeps a
+    /// glance to a handful of matrix multiplies a frame and leaves the acceleration
+    /// structure alone — which is also its limit, since a head turned under ray tracing
+    /// still casts the shadow of the head it was.
+    /// </remarks>
+    public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (!_placements[placement.Id].TryGetValue(mesh, out List<int>? batches))
+        {
+            return;
+        }
+
+        (ModFile model, Matrix4x4 where) = _placed[placement.Id];
+
+        if (mesh >= model.Meshes.Count)
+        {
+            return;
+        }
+
+        Matrix4x4 meshToWorld = turn * model.Meshes[mesh].MeshToLocal * where;
+
+        foreach (int index in batches)
+        {
+            _batches[index] = _batches[index] with { Transform = meshToWorld };
         }
     }
 

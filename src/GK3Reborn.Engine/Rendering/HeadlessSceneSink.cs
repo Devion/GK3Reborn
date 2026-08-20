@@ -54,7 +54,7 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
-    public void Add(
+    public ModelPlacement Add(
         ModFile model,
         Matrix4x4? transform = null,
         IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null)
@@ -82,6 +82,17 @@ public sealed class HeadlessSceneSink : ISceneSink
                 }
             }
         }
+
+        return new ModelPlacement(ModelCount - 1);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing to move: this measures what was loaded rather than keeping it. A sweep that
+    /// wanted to know where a head ended up would have to draw it.
+    /// </remarks>
+    public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn)
+    {
     }
 
     /// <inheritdoc/>

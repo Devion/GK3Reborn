@@ -56,7 +56,8 @@ public static class Application
                 Option(args, "--screenshot"),
                 args.Contains("--verbose", StringComparer.OrdinalIgnoreCase),
                 RayTracingSettings.Parse(Option(args, "--rt")) ?? RayTracingQuality.None,
-                EnhancedTextureDirectory(args));
+                EnhancedTextureDirectory(args),
+                args);
         }
 
         if (args.Contains("--offscreen", StringComparer.OrdinalIgnoreCase))
@@ -84,6 +85,7 @@ public static class Application
     /// <param name="verbose">Whether to list everything that could not be loaded.</param>
     /// <param name="quality">How much ray tracing to start with.</param>
     /// <param name="enhancedDirectory">Higher-resolution textures to prefer, if any.</param>
+    /// <param name="args">The command line, for the options only the running scene reads.</param>
     /// <returns>Process exit code.</returns>
     /// <remarks>
     /// The camera starts at one of the scene's own viewpoints, which is what the player
@@ -99,7 +101,8 @@ public static class Application
         string? screenshotPath,
         bool verbose,
         RayTracingQuality quality,
-        string? enhancedDirectory)
+        string? enhancedDirectory,
+        string[] args)
     {
         if (!Directory.Exists(dataDirectory))
         {
@@ -122,6 +125,7 @@ public static class Application
 
         var diagnostics = new DiagnosticBag();
         SceneRequest request = SceneRequest.For(sceneName, timeblock);
+        Gk3SheepApi api = request.Api ?? new Gk3SheepApi(new GameState());
 
         if (request.State is not null)
         {
@@ -186,7 +190,31 @@ public static class Application
             }
         }
 
-        int result = FlyScene(window, renderer, geometry, scene, cameraName, frameLimit);
+        // The world going on by itself: timers coming due, heads finishing a turn. It is
+        // the only thing that touches the clock, and it is given the elapsed time rather
+        // than reading it, so two runs stepped the same way do the same thing.
+        var host = new ScriptHost(api);
+        SceneScripting.Attach(api, scene, loader.Glances);
+
+        var update = new SceneUpdate(
+            scene, api, loader.Glances, geometry, scene.Actions, new ActionRunner(api));
+
+        Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
+
+        // Set once the room is standing, which is where a script would set it, so the head
+        // turns while the player watches instead of having always been turned.
+        if (Option(args, "--glance")?.Split(':') is [string who, string at])
+        {
+            Sheep.SheepExpression.Evaluate(
+                $"LookitActor(\"{who.Trim()}\", \"{at.Trim()}\", \"\", 0)", api);
+
+            foreach (Diagnostic diagnostic in api.Diagnostics.Items)
+            {
+                Console.WriteLine($"  {diagnostic}");
+            }
+        }
+
+        int result = FlyScene(window, renderer, geometry, scene, cameraName, frameLimit, update);
 
         if (screenshotPath is not null && renderer.Capture() is { } capture)
         {
@@ -198,13 +226,19 @@ public static class Application
     }
 
     /// <summary>Runs the present loop with a camera the player can move.</summary>
+    /// <remarks>
+    /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
+    /// given the frame's elapsed time, so a head that was told to look at something turns
+    /// while the player watches rather than having always been turned.
+    /// </remarks>
     private static int FlyScene(
         Platform.SilkGameWindow window,
         VulkanRenderer renderer,
         SceneGeometry geometry,
         LoadedScene scene,
         string? cameraName,
-        int frameLimit)
+        int frameLimit,
+        SceneUpdate update)
     {
         int cameraIndex = Math.Max(
             0,
@@ -262,6 +296,11 @@ public static class Application
 
                 renderer.Quality = levels[(Array.IndexOf(levels, renderer.Quality) + 1) % levels.Length];
                 Console.WriteLine($"ray tracing: {renderer.Quality}");
+            }
+
+            foreach (string happened in update.Advance(delta))
+            {
+                Console.WriteLine($"  {happened}");
             }
 
             camera.Update(window, delta);

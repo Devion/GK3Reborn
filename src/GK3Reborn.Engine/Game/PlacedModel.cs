@@ -1,5 +1,6 @@
 using System.Numerics;
 using GK3Reborn.Formats.Models;
+using GK3Reborn.Rendering;
 
 namespace GK3Reborn.Game;
 
@@ -29,10 +30,15 @@ public enum PlacedModelKind
 /// <param name="Model">The parsed mesh, in its own space.</param>
 /// <param name="Transform">Where it stands, applied after each mesh's own transform.</param>
 /// <param name="Kind">Whether it is scenery or a character.</param>
+/// <param name="Placement">
+/// Where it went in the geometry, so its parts can still be moved. A character has no
+/// skeleton, so this is the only handle there is on a head.
+/// </param>
 public sealed record PlacedModel(
     string Name,
     string? Noun,
     string? Verb,
     ModFile Model,
     Matrix4x4 Transform,
-    PlacedModelKind Kind);
+    PlacedModelKind Kind,
+    ModelPlacement Placement = default);

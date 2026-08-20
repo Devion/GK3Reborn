@@ -516,15 +516,14 @@ public sealed class SceneLoader
                 model.Name,
                 diagnostics);
 
-            geometry.Add(parsed);
-
             placed.Add(new PlacedModel(
                 model.Name,
                 model.Noun,
                 model.Verb,
                 parsed,
                 Matrix4x4.Identity,
-                PlacedModelKind.Prop));
+                PlacedModelKind.Prop,
+                geometry.Add(parsed)));
         }
 
         return placed;
@@ -599,13 +598,14 @@ public sealed class SceneLoader
             Matrix4x4 placement =
                 Matrix4x4.CreateRotationY(spot.Heading) * Matrix4x4.CreateTranslation(spot.Position);
 
-            geometry.Add(model, placement, TurnedHead(actor.Name, model, spot));
+            ModelPlacement standing =
+                geometry.Add(model, placement, TurnedHead(actor.Name, model, spot));
 
             _log?.Invoke(
                 $"actor: {actor.Name} ({actor.Noun}) at {spot.Name}{(actor.IsEgo ? ", ego" : string.Empty)}");
 
             placed.Add(new PlacedModel(
-                actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor));
+                actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor, standing));
         }
 
         return placed;
