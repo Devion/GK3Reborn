@@ -412,6 +412,14 @@ public sealed class GameHud
             return name;
         }
 
+        // Small talk, which the data spells Z_CHAT so that it sorts to the end of a list.
+        // Left alone it reads as "Z Chat" beside "Talk", which is two ways of saying the
+        // same thing and one of them nonsense.
+        if (name.Equals("Z_CHAT", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Chat";
+        }
+
         string text = name.Replace('_', ' ').Trim();
 
         // A topic is a thing to talk about rather than a thing to do.

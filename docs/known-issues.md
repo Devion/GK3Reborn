@@ -201,46 +201,9 @@ nothing visible in R25.
 
 The grain itself is tracked as issue 1 above.
 
-### The sky is wrong outdoors, and turning the camera makes it look like it spins — open, 2026-08-20
+### The sky was wrong outdoors and looked like it span when the camera turned — fixed, 2026-08-20
 
-Reported as "the skybox rotates around its axis in a 90 degree turn of the camera".
-Reproduces in any outdoor room; `VGR` at `110A` is the clearest, with all four of its
-room cameras at zero pitch so the horizon should be dead level in every one.
-
-**Two faults, one found and one not.** Neither is fixed — the first fix alone makes the
-sky look *worse*, because the clipping was hiding the second.
-
-**1. The cube is clipped by the near plane.** `SkyboxPipeline` draws a cube of side two
-centred on the camera, so its nearest face is one unit away, and `SceneLoader` gives every
-room a near plane of exactly `1f`. The sky is therefore clipped almost everywhere, leaving
-wedges of the clear colour whose edges swing about as the view turns — which is what reads
-as spinning. Giving the sky its own projection (`0.01f` to `10f`, the room's field of view
-and aspect) fills the screen; the depth is forced to the far plane by `clip.xyww` anyway,
-so nothing else about those planes matters.
-
-**2. The fragment shader gets a constant direction.** With the coverage fixed, the whole
-sky draws in one flat colour. Proved by replacing the texture lookup with
-`vec4(normalize(fragDirection) * 0.5 + 0.5, 1.0)`: the sky comes out uniformly yellow,
-which is the first cube corner `(1, 1, -1)`. Rasterisation is fine — colouring by
-`gl_FragCoord` gives a clean screen gradient — so many fragments run and every one of them
-gets the same varying.
-
-What has been ruled out:
-
-- **Not the vertex buffer.** Generating the 36 corners in the shader from `gl_VertexIndex`
-  changes nothing.
-- **Not a location clash** between the vertex input at location 0 and the varying at
-  location 0. Moving the varying to 1 in both stages changes nothing.
-- **Not the SPIR-V cache.** Its key hashes the source, and every *fragment* shader edit
-  took effect immediately.
-- **Not the cube map.** Six faces, `MipLevels = 1`, `ImageViewType.TypeCube`,
-  `CreateCubeCompatibleBit`, all six textures 512×512 and correctly oriented on disk.
-- **Not the face assignment.** A probe skybox of six flat colours renders one clean face
-  per view with no seams, which is right for a 78-degree horizontal field of view.
-
-The striking thing is that **no edit to the vertex shader has ever changed the output**
-while every edit to the fragment shader has. That is the thread to pull.
-
-**The tool this needs is the one that is missing**: the startup line says *validation
-layers not installed*. Installing the Vulkan SDK's layers would almost certainly name this
-in one run, and is worth doing before spending more time reasoning about it.
+See the commit. Two faults: a cube of side two clipped by a near plane of one, and a
+varying that never reached the fragment stage. The sky is a screen-covering triangle now,
+with each pixel's ray built from the camera's basis — no vertex buffer, no attribute, no
+varying. A faint seam between faces remains at some headings.

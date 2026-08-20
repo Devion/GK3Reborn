@@ -32,25 +32,18 @@ public sealed unsafe class SkyboxPipeline : IDisposable
     private const string VertexSource = """
         #version 450
 
-        layout(location = 0) in vec3 inPosition;
-        layout(location = 0) out vec3 fragDirection;
-
-        layout(push_constant) uniform Push
-        {
-            mat4 viewProjection;
-        } push;
-
+        // One triangle covering the screen, from the vertex index alone. No vertex buffer,
+        // no attributes and nothing passed to the fragment stage: the direction to sample
+        // is worked out from where the fragment is, which is the one input that was ever
+        // demonstrably reaching it.
         void main()
         {
-            // The corner's own position is the direction to sample, which is what makes
-            // this a cube map rather than six quads with hand-written coordinates.
-            fragDirection = inPosition;
+            vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
 
-            vec4 clip = push.viewProjection * vec4(inPosition, 1.0);
-
-            // Pinned to the far plane. Equal depth rather than nearer, so the sky loses to
-            // anything the room drew and wins everywhere else.
-            gl_Position = clip.xyww;
+            // Depth at the far plane, so the sky loses to anything the room drew. Written
+            // as clip coordinates outright, which is also why nothing here can be clipped
+            // by a near plane.
+            gl_Position = vec4((corner * 2.0) - 1.0, 1.0, 1.0);
         }
         """;
 
@@ -59,18 +52,34 @@ public sealed unsafe class SkyboxPipeline : IDisposable
 
         layout(binding = 0) uniform samplerCube sky;
 
-        layout(location = 0) in vec3 fragDirection;
+        layout(push_constant) uniform Push
+        {
+            vec4 forward;   // xyz: where the camera looks, already turned by the azimuth
+            vec4 right;     // xyz: its right, scaled by nothing; w: tan of half the horizontal fov
+            vec4 up;        // xyz: its up;                      w: tan of half the vertical fov
+            vec4 viewport;  // xy: size in pixels
+        } push;
+
         layout(location = 0) out vec4 outColor;
 
         void main()
         {
-            outColor = vec4(texture(sky, normalize(fragDirection)).rgb, 1.0);
+            // The ray through this pixel, built from the camera's own basis rather than by
+            // inverting a projection. It is the same arithmetic the projection does, run
+            // forwards: an inverse is a thing that can be ill-conditioned or wrong in a way
+            // that is invisible until every pixel comes back with the same answer.
+            vec2 ndc = ((gl_FragCoord.xy / push.viewport.xy) * 2.0) - 1.0;
+
+            // gl_FragCoord counts down the screen and up counts up it.
+            vec3 direction = push.forward.xyz
+                           + (push.right.xyz * (ndc.x * push.right.w))
+                           - (push.up.xyz * (ndc.y * push.up.w));
+
+            outColor = vec4(texture(sky, normalize(direction)).rgb, 1.0);
         }
         """;
 
     /// <summary>The corners of a cube, two triangles a face, wound to be seen from inside.</summary>
-    private static readonly Vector3[] Corners = Cube();
-
     private readonly Vk _vk;
     private readonly VulkanContext _context;
 
@@ -81,7 +90,6 @@ public sealed unsafe class SkyboxPipeline : IDisposable
     private DescriptorSet _set;
     private PipelineLayout _layout;
     private Pipeline _pipeline;
-    private VulkanBuffer? _vertices;
     private VulkanTexture? _cube;
 
     private SkyboxPipeline(VulkanContext context)
@@ -125,9 +133,6 @@ public sealed unsafe class SkyboxPipeline : IDisposable
 
             pipeline._cube = VulkanTexture.CreateCube(context, faces);
 
-            pipeline._vertices = VulkanBuffer.CreateDeviceLocal<Vector3>(
-                context, Corners, BufferUsageFlags.VertexBufferBit);
-
             pipeline.CreateDescriptors();
             pipeline.BuildPipeline(colorFormat, depthFormat);
 
@@ -154,20 +159,30 @@ public sealed unsafe class SkyboxPipeline : IDisposable
     {
         ArgumentNullException.ThrowIfNull(camera);
 
-        if (_vertices is null || height <= 0)
+        if (_cube is null || width <= 0 || height <= 0)
         {
             return;
         }
 
-        Matrix4x4 view = camera.View;
-        view.M41 = 0;
-        view.M42 = 0;
-        view.M43 = 0;
+        // The camera's basis, the way CreateLookAtLeftHanded builds it.
+        Vector3 forward = Vector3.Normalize(camera.Target - camera.Position);
+        Vector3 right = Vector3.Normalize(Vector3.Cross(camera.Up, forward));
+        Vector3 up = Vector3.Cross(forward, right);
 
-        Matrix4x4 turned = Matrix4x4.CreateRotationY(Azimuth) *
-                           view *
-                           camera.Projection((float)width / height);
-        Matrix4x4 transposed = Matrix4x4.Transpose(turned);
+        // Turning the sky by its azimuth is turning the ray the other way, which is one
+        // rotation of three vectors rather than a matrix through the whole pass.
+        Matrix4x4 azimuth = Matrix4x4.CreateRotationY(-Azimuth);
+
+        float tanY = MathF.Tan(camera.FieldOfView / 2f);
+        float tanX = tanY * width / height;
+
+        var push = new SkyPush
+        {
+            Forward = new Vector4(Vector3.TransformNormal(forward, azimuth), 0),
+            Right = new Vector4(Vector3.TransformNormal(right, azimuth), tanX),
+            Up = new Vector4(Vector3.TransformNormal(up, azimuth), tanY),
+            Viewport = new Vector4(width, height, 0, 0),
+        };
 
         var viewport = new Viewport { Width = width, Height = height, MaxDepth = 1f };
         var scissor = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) };
@@ -181,14 +196,10 @@ public sealed unsafe class SkyboxPipeline : IDisposable
             command, PipelineBindPoint.Graphics, _layout, 0, 1, in set, 0, null);
 
         _vk.CmdPushConstants(
-            command, _layout, ShaderStageFlags.VertexBit, 0,
-            (uint)Marshal.SizeOf<Matrix4x4>(), &transposed);
+            command, _layout, ShaderStageFlags.FragmentBit, 0,
+            (uint)Marshal.SizeOf<SkyPush>(), &push);
 
-        Buffer handle = _vertices.Handle;
-        ulong offset = 0;
-
-        _vk.CmdBindVertexBuffers(command, 0, 1, in handle, in offset);
-        _vk.CmdDraw(command, (uint)Corners.Length, 1, 0, 0);
+        _vk.CmdDraw(command, 3, 1, 0, 0);
     }
 
     /// <inheritdoc/>
@@ -230,41 +241,29 @@ public sealed unsafe class SkyboxPipeline : IDisposable
             _fragmentModule = default;
         }
 
-        _vertices?.Dispose();
-        _vertices = null;
 
         _cube?.Dispose();
         _cube = null;
     }
 
     /// <summary>A unit cube as thirty-six corners, seen from the inside.</summary>
-    private static Vector3[] Cube()
+    /// <summary>What the fragment stage needs to turn a pixel into a direction.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SkyPush
     {
-        Vector3[] corners = new Vector3[36];
-        int at = 0;
+        /// <summary>Where the camera looks, turned by the sky's azimuth.</summary>
+        public Vector4 Forward;
 
-        // Each face as two triangles, listed so that the winding faces inwards; culling is
-        // off for this pipeline anyway, which makes the order a readability question rather
-        // than a correctness one.
-        void Face(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
-        {
-            corners[at++] = a;
-            corners[at++] = b;
-            corners[at++] = c;
-            corners[at++] = c;
-            corners[at++] = d;
-            corners[at++] = a;
-        }
+        /// <summary>Its right, with the tangent of half the horizontal field of view in w.</summary>
+        public Vector4 Right;
 
-        Face(new(1, 1, -1), new(1, 1, 1), new(1, -1, 1), new(1, -1, -1));
-        Face(new(-1, 1, 1), new(-1, 1, -1), new(-1, -1, -1), new(-1, -1, 1));
-        Face(new(-1, 1, 1), new(1, 1, 1), new(1, 1, -1), new(-1, 1, -1));
-        Face(new(-1, -1, -1), new(1, -1, -1), new(1, -1, 1), new(-1, -1, 1));
-        Face(new(1, 1, 1), new(-1, 1, 1), new(-1, -1, 1), new(1, -1, 1));
-        Face(new(-1, 1, -1), new(1, 1, -1), new(1, -1, -1), new(-1, -1, -1));
+        /// <summary>Its up, with the tangent of half the vertical field of view in w.</summary>
+        public Vector4 Up;
 
-        return corners;
+        /// <summary>Width and height in pixels.</summary>
+        public Vector4 Viewport;
     }
+
 
     private ShaderModule CreateModule(byte[] spirv)
     {
@@ -369,9 +368,9 @@ public sealed unsafe class SkyboxPipeline : IDisposable
 
         var pushConstants = new PushConstantRange
         {
-            StageFlags = ShaderStageFlags.VertexBit,
+            StageFlags = ShaderStageFlags.FragmentBit,
             Offset = 0,
-            Size = (uint)Marshal.SizeOf<Matrix4x4>(),
+            Size = (uint)Marshal.SizeOf<SkyPush>(),
         };
 
         var layoutInfo = new PipelineLayoutCreateInfo
@@ -409,28 +408,12 @@ public sealed unsafe class SkyboxPipeline : IDisposable
                 PName = (byte*)entryPoint,
             };
 
-            var binding = new VertexInputBindingDescription
-            {
-                Binding = 0,
-                Stride = (uint)Marshal.SizeOf<Vector3>(),
-                InputRate = VertexInputRate.Vertex,
-            };
-
-            var attribute = new VertexInputAttributeDescription
-            {
-                Location = 0,
-                Binding = 0,
-                Format = Format.R32G32B32Sfloat,
-                Offset = 0,
-            };
-
+            // Nothing comes in. The one triangle is built from the vertex index and the
+            // ray through each pixel from the camera's own basis, so there is no buffer,
+            // no attribute and nothing passed between the stages.
             var vertexInput = new PipelineVertexInputStateCreateInfo
             {
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 1,
-                PVertexBindingDescriptions = &binding,
-                VertexAttributeDescriptionCount = 1,
-                PVertexAttributeDescriptions = &attribute,
             };
 
             var inputAssembly = new PipelineInputAssemblyStateCreateInfo

@@ -110,6 +110,11 @@ public sealed class SceneAudio
     private Task<WavFile?>? _pending;
     private string? _waiting;
 
+    // Where a run of lines has got to, so that ContinueDialogue knows what "the next two"
+    // means without the script repeating the plate.
+    private string? _stem;
+    private int _next;
+
     /// <summary>Starts the room's ambience from the soundtracks the scene names.</summary>
     /// <param name="soundtracks">What the scene listed.</param>
     /// <returns>What is playing, or null when none of it could be.</returns>
@@ -176,13 +181,41 @@ public sealed class SceneAudio
             return 0;
         }
 
-        string stem = plate[..^1];
-        int first = Sequence(plate[^1]);
+        _stem = plate[..^1];
+        _next = Sequence(plate[^1]);
+
+        return Continue(lines);
+    }
+
+    /// <summary>Says the next lines of whatever was last started.</summary>
+    /// <param name="lines">How many more to say.</param>
+    /// <returns>How many of them were found.</returns>
+    /// <remarks>
+    /// <para>
+    /// A conversation is written as one plate and then a series of continuations: the
+    /// script says <c>StartDialogue("1E4CU4OCZ1", 1)</c> and later <c>ContinueDialogue(2)</c>,
+    /// which means the next two in the same sequence. The plate is not repeated, so
+    /// somebody has to remember where the run had got to.
+    /// </para>
+    /// <para>
+    /// Continuing when nothing was started says nothing, which is what a script calling it
+    /// out of order deserves — and is better than guessing at a plate.
+    /// </para>
+    /// </remarks>
+    public int Continue(int lines)
+    {
+        if (_stem is not { Length: > 0 } stem)
+        {
+            return 0;
+        }
+
         int found = 0;
 
         for (int i = 0; i < Math.Max(1, lines); i++)
         {
-            string yak = stem + Digit(first + i);
+            string yak = stem + Digit(_next);
+
+            _next++;
 
             if (_animations.Read(yak) is not null)
             {

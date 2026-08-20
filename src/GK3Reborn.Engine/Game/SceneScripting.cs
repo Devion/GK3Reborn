@@ -519,6 +519,37 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
+        // What a conversation is actually said with. A topic's script does not call
+        // StartVoiceOver — it calls into the location's compiled script, which calls these.
+        // Left recorded, a topic runs, its camera cuts, the topic is used up, and nobody
+        // says anything: the reported "the screen flashes but nothing happens".
+        //
+        // The fidget forms differ only in whether the speakers play their talking and
+        // listening idles, which nothing here does yet, so the four are the same two calls.
+        foreach (string start in new[] { "StartDialogue", "StartDialogueNoFidgets" })
+        {
+            api.Register(start, arguments =>
+            {
+                if (arguments.Count > 0)
+                {
+                    audio.Speak(
+                        arguments[0].AsString(),
+                        arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                }
+
+                return SheepValue.FromInt(0);
+            });
+        }
+
+        foreach (string more in new[] { "ContinueDialogue", "ContinueDialogueNoFidgets" })
+        {
+            api.Register(more, arguments =>
+            {
+                audio.Continue(arguments.Count > 0 ? arguments[0].AsInt() : 1);
+                return SheepValue.FromInt(0);
+            });
+        }
+
         // A yak names one line outright where a voice-over names a run of them.
         api.Register("StartYak", arguments =>
         {

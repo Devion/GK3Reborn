@@ -731,6 +731,7 @@ public sealed class SceneLoader
     {
         string?[] named = [sky.Right, sky.Left, sky.Up, sky.Down, sky.Front, sky.Back];
         DecodedImage?[] read = new DecodedImage?[6];
+
         DecodedImage? any = null;
 
         for (int face = 0; face < named.Length; face++)

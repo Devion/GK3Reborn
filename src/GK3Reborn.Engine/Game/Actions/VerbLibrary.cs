@@ -17,6 +17,14 @@ public enum VerbKind
 
     /// <summary>A topic that may be raised again after it has been said.</summary>
     RecurringTopic,
+
+    /// <summary>Small talk. One verb, <c>Z_CHAT</c>, and it behaves like an ordinary one.</summary>
+    /// <remarks>
+    /// A kind of its own only so that the interface can call it something a player would
+    /// recognise. <c>Z_CHAT</c> is what the data calls it, and a menu that offers "Z Chat"
+    /// beside "Talk" is the internal name leaking onto the screen.
+    /// </remarks>
+    Chat,
 }
 
 /// <summary>
@@ -84,6 +92,7 @@ public sealed class VerbLibrary
                 "INVENTORY" => VerbKind.Inventory,
                 "TOPIC" => VerbKind.Topic,
                 "RECURRINGTOPIC" => VerbKind.RecurringTopic,
+                "CHAT" => VerbKind.Chat,
                 _ => VerbKind.Normal,
             };
         }
