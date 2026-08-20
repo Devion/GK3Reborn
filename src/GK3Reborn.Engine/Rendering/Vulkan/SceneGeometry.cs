@@ -245,9 +245,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // Before the mesh's own transform, so the turn happens about the mesh's origin
             // - which for a head is where the neck is, because that is where the artist
             // put it - rather than about the model's feet.
-            Matrix4x4 meshToWorld = meshTurns is not null && meshTurns.TryGetValue(index, out Matrix4x4 turn)
-                ? turn * mesh.MeshToLocal * placement
-                : mesh.MeshToLocal * placement;
+            Matrix4x4 meshToLocal =
+                meshTurns is not null && meshTurns.TryGetValue(index, out Matrix4x4 turn)
+                    ? turn * mesh.MeshToLocal
+                    : mesh.MeshToLocal;
+
+            Matrix4x4 meshToWorld = meshToLocal * placement;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {
@@ -257,7 +260,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 }
 
                 MeshVertex[] vertices = new MeshVertex[submesh.Positions.Length];
-                var world = new Vector3[submesh.Positions.Length];
+                // In the model's own space rather than the room's, and placed by the
+                // instance transform instead. Baked into world space, an actor's shadow
+                // stays wherever they were standing when the room loaded: it does not
+                // follow them when they walk, and outdoors, where the room stands them
+                // somewhere else on arrival, it is left behind at their authored spot.
+                var local = new Vector3[submesh.Positions.Length];
 
                 for (int i = 0; i < vertices.Length; i++)
                 {
@@ -267,11 +275,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                         i < submesh.TexCoords.Length ? submesh.TexCoords[i] : Vector2.Zero,
                         Vector2.Zero);
 
-                    world[i] = Vector3.Transform(submesh.Positions[i], meshToWorld);
-                    Grow(world[i]);
+                    local[i] = Vector3.Transform(submesh.Positions[i], meshToLocal);
+                    Grow(Vector3.Transform(submesh.Positions[i], meshToWorld));
                 }
 
-                RecordTraceable(submesh.TextureName, world, submesh.Indices);
+                RecordTraceable(
+                    submesh.TextureName, local, submesh.Indices, _placements.Count);
 
                 if (!batches.TryGetValue(index, out List<int>? owned))
                 {
@@ -462,6 +471,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         (ModFile model, Matrix4x4 _) = _placed[placement.Id];
         _placed[placement.Id] = (model, transform);
+
+        // And the shadow with it. The structure holds this model's triangles in the
+        // model's own space, so where it stands is one transform rather than ten thousand
+        // rewritten vertices.
+        _rayTracing?.Move(placement.Id + 1, transform);
 
         foreach ((int mesh, List<int> batches) in _placements[placement.Id])
         {
@@ -657,7 +671,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
-    private void RecordTraceable(string texture, Vector3[] positions, ReadOnlySpan<ushort> indices)
+    private void RecordTraceable(
+        string texture, Vector3[] positions, ReadOnlySpan<ushort> indices, int part = 0)
     {
         var widened = new uint[indices.Length];
 
@@ -666,19 +681,30 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             widened[i] = indices[i];
         }
 
-        RecordTraceable(texture, positions, widened);
+        RecordTraceable(texture, positions, widened, part);
     }
 
     /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
-    private void RecordTraceable(string texture, Vector3[] positions, ReadOnlySpan<uint> indices)
+    private void RecordTraceable(
+        string texture, Vector3[] positions, ReadOnlySpan<uint> indices, int part = 0)
     {
         if (!_context.SupportsRayTracing || _textures.Keyed.Contains(texture))
         {
             return;
         }
 
-        _traceable.Add(new RayTracingMesh(positions, indices.ToArray()));
+        _traceable.Add(new RayTracingMesh(positions, indices.ToArray()) { Part = part });
     }
+
+    /// <summary>Makes the traced world agree with the drawn one, once a frame.</summary>
+    /// <remarks>
+    /// Anything that moved this frame has only been recorded; this is what rebuilds the
+    /// structure that shadows are cast against. Called before the frame traces anything.
+    /// </remarks>
+    public void Settle() => _rayTracing?.Settle();
+
+    /// <summary>How many separately movable things the traced world holds.</summary>
+    public int TraceablePartCount => _rayTracing?.PartCount ?? 0;
 
     /// <summary>Builds the descriptor sets and acceleration structure the batches need.</summary>
     /// <remarks>

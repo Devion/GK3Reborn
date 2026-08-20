@@ -21,7 +21,11 @@ public readonly record struct MeshVertex(
 /// <param name="Rays">
 /// Shadowed light count, occlusion rays, rays per shadow, and how much the bake counts.
 /// </param>
-/// <param name="Tuning">Occlusion radius, frame counter, and two spare components.</param>
+/// <param name="Tuning">
+/// Occlusion radius, and three components nothing reads. The second used to be a frame
+/// counter that seeded the sampling noise; it made the grain change every frame, which
+/// with no temporal filter to average it is a pattern crawling across the picture.
+/// </param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
     Matrix4x4 ViewProjection,

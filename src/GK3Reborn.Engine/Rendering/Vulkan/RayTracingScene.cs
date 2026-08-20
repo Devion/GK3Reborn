@@ -8,7 +8,18 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>Triangles a scene contributes to ray tracing.</summary>
 /// <param name="Positions">World-space vertex positions.</param>
 /// <param name="Indices">Triangle indices into <paramref name="Positions"/>.</param>
-public readonly record struct RayTracingMesh(Vector3[] Positions, uint[] Indices);
+public readonly record struct RayTracingMesh(Vector3[] Positions, uint[] Indices)
+{
+    /// <summary>
+    /// Which movable thing this geometry belongs to, or zero for the room itself.
+    /// </summary>
+    /// <remarks>
+    /// Everything sharing a part is built into one structure and placed by one transform,
+    /// so moving that thing is a matter of rewriting the transform rather than rebuilding
+    /// the geometry. The room never moves and is always part zero.
+    /// </remarks>
+    public int Part { get; init; }
+}
 
 /// <summary>
 /// The scene as rays see it: one bottom-level acceleration structure over every opaque
@@ -38,8 +49,13 @@ public sealed unsafe class RayTracingScene : IDisposable
     private readonly KhrAccelerationStructure _api;
     private readonly List<VulkanBuffer> _buffers = [];
 
-    private AccelerationStructureKHR _bottomLevel;
+    private readonly List<AccelerationStructureKHR> _parts = [];
+    private readonly List<AccelerationStructureInstanceKHR> _instances = [];
+    private readonly Dictionary<int, int> _instanceOf = [];
+
+    private VulkanBuffer? _instanceBuffer;
     private AccelerationStructureKHR _topLevel;
+    private bool _moved;
 
     private RayTracingScene(VulkanContext context, KhrAccelerationStructure api)
     {
@@ -52,6 +68,9 @@ public sealed unsafe class RayTracingScene : IDisposable
 
     /// <summary>How many triangles it holds.</summary>
     public int TriangleCount { get; private set; }
+
+    /// <summary>How many separately movable things it holds, the room among them.</summary>
+    public int PartCount => _parts.Count;
 
     /// <summary>Builds a structure over some meshes.</summary>
     /// <param name="context">Device context.</param>
@@ -67,39 +86,67 @@ public sealed unsafe class RayTracingScene : IDisposable
             return null;
         }
 
-        // One vertex and one index buffer for everything, so the build reads two ranges
-        // rather than several hundred.
-        List<Vector3> positions = [];
-        List<uint> indices = [];
-
-        foreach (RayTracingMesh mesh in meshes)
-        {
-            uint offset = (uint)positions.Count;
-            positions.AddRange(mesh.Positions);
-
-            foreach (uint index in mesh.Indices)
-            {
-                indices.Add(index + offset);
-            }
-        }
-
-        if (indices.Count < 3)
-        {
-            return null;
-        }
-
         if (!context.Api.TryGetDeviceExtension(
                 context.Instance, context.Device, out KhrAccelerationStructure api))
         {
             return null;
         }
 
-        var scene = new RayTracingScene(context, api) { TriangleCount = indices.Count / 3 };
+        // Grouped by the thing that moves. Everything in a group goes into one structure
+        // and is placed by one transform, so a character walking is a transform rewrite
+        // rather than a rebuild of ten thousand triangles.
+        var parts = new SortedDictionary<int, (List<Vector3> Positions, List<uint> Indices)>();
+
+        foreach (RayTracingMesh mesh in meshes)
+        {
+            if (!parts.TryGetValue(mesh.Part, out (List<Vector3>, List<uint>) group))
+            {
+                group = ([], []);
+                parts[mesh.Part] = group;
+            }
+
+            uint offset = (uint)group.Item1.Count;
+            group.Item1.AddRange(mesh.Positions);
+
+            foreach (uint index in mesh.Indices)
+            {
+                group.Item2.Add(index + offset);
+            }
+        }
+
+        int triangles = parts.Values.Sum(g => g.Indices.Count) / 3;
+
+        if (triangles == 0)
+        {
+            return null;
+        }
+
+        var scene = new RayTracingScene(context, api) { TriangleCount = triangles };
 
         try
         {
-            scene.BuildBottomLevel(
-                CollectionsMarshal.AsSpan(positions), CollectionsMarshal.AsSpan(indices));
+            foreach ((int part, (List<Vector3> positions, List<uint> indices)) in parts)
+            {
+                if (indices.Count < 3)
+                {
+                    continue;
+                }
+
+                scene._instanceOf[part] = scene._parts.Count;
+
+                scene._parts.Add(scene.BuildBottomLevel(
+                    CollectionsMarshal.AsSpan(positions), CollectionsMarshal.AsSpan(indices)));
+
+                scene._instances.Add(new AccelerationStructureInstanceKHR
+                {
+                    Transform = Identity(),
+                    InstanceCustomIndex = 0,
+                    Mask = 0xFF,
+                    InstanceShaderBindingTableRecordOffset = 0,
+                    Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
+                    AccelerationStructureReference = scene.DeviceAddressOf(scene._parts[^1]),
+                });
+            }
 
             scene.BuildTopLevel();
             return scene;
@@ -111,6 +158,59 @@ public sealed unsafe class RayTracingScene : IDisposable
         }
     }
 
+    /// <summary>Moves one of the things the structure holds.</summary>
+    /// <param name="part">Which thing, as <see cref="RayTracingMesh.Part"/> named it.</param>
+    /// <param name="transform">Where it is now, in world space.</param>
+    /// <remarks>
+    /// Recorded rather than applied: several models may move in a frame and the structure
+    /// only has to be right by the time something traces against it. <see cref="Settle"/>
+    /// is what makes it so.
+    /// </remarks>
+    public void Move(int part, Matrix4x4 transform)
+    {
+        if (!_instanceOf.TryGetValue(part, out int at))
+        {
+            return;
+        }
+
+        TransformMatrixKHR rows = RowsOf(transform);
+
+        // A struct in a list, so it has to go back rather than be edited in place.
+        AccelerationStructureInstanceKHR instance = _instances[at];
+
+        _instances[at] = instance with { Transform = rows };
+        _moved = true;
+    }
+
+    /// <summary>Rebuilds the top level if anything has moved since it last was.</summary>
+    /// <remarks>
+    /// Only the top level: the geometry inside each thing has not changed, only where the
+    /// thing is, and a rebuild over a few dozen instances is nothing beside one over the
+    /// room's ten thousand triangles. Called once a frame before anything traces.
+    /// </remarks>
+    public void Settle()
+    {
+        if (!_moved || _instanceBuffer is null)
+        {
+            return;
+        }
+
+        _moved = false;
+
+        _instanceBuffer.Write<AccelerationStructureInstanceKHR>(
+            CollectionsMarshal.AsSpan(_instances));
+
+        // The structure is rebuilt rather than refitted. Refitting is quicker and is only
+        // sound for small movements; a character crossing a room is not one.
+        if (_topLevel.Handle != 0)
+        {
+            _api.DestroyAccelerationStructure(_context.Device, _topLevel, null);
+            _topLevel = default;
+        }
+
+        BuildTopLevel(reuseInstances: true);
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -120,11 +220,15 @@ public sealed unsafe class RayTracingScene : IDisposable
             _topLevel = default;
         }
 
-        if (_bottomLevel.Handle != 0)
+        foreach (AccelerationStructureKHR part in _parts)
         {
-            _api.DestroyAccelerationStructure(_context.Device, _bottomLevel, null);
-            _bottomLevel = default;
+            if (part.Handle != 0)
+            {
+                _api.DestroyAccelerationStructure(_context.Device, part, null);
+            }
         }
+
+        _parts.Clear();
 
         foreach (VulkanBuffer buffer in _buffers)
         {
@@ -135,7 +239,8 @@ public sealed unsafe class RayTracingScene : IDisposable
         _api.Dispose();
     }
 
-    private void BuildBottomLevel(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices)
+    private AccelerationStructureKHR BuildBottomLevel(
+        ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices)
     {
         const BufferUsageFlags InputUsage =
             BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr |
@@ -181,30 +286,28 @@ public sealed unsafe class RayTracingScene : IDisposable
             PGeometries = &geometry,
         };
 
-        _bottomLevel = Create(build, primitives, AccelerationStructureTypeKHR.BottomLevelKhr);
+        return Create(build, primitives, AccelerationStructureTypeKHR.BottomLevelKhr);
     }
 
-    private void BuildTopLevel()
+    private void BuildTopLevel(bool reuseInstances = false)
     {
-        // One instance, untransformed: the geometry is already in world space.
-        var instance = new AccelerationStructureInstanceKHR
+        if (!reuseInstances)
         {
-            Transform = Identity(),
-            InstanceCustomIndex = 0,
-            Mask = 0xFF,
-            InstanceShaderBindingTableRecordOffset = 0,
-            Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
-            AccelerationStructureReference = DeviceAddressOf(_bottomLevel),
-        };
+            // Host visible and kept, because moving something rewrites it every time that
+            // thing moves and a device-local copy would need a staging pass a frame.
+            _instanceBuffer = VulkanBuffer.CreateHostVisible(
+                _context,
+                (ulong)(sizeof(AccelerationStructureInstanceKHR) * Math.Max(1, _instances.Count)),
+                BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr,
+                addressable: true);
 
-        VulkanBuffer instances = VulkanBuffer.CreateHostVisible(
-            _context,
-            (ulong)sizeof(AccelerationStructureInstanceKHR),
-            BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr,
-            addressable: true);
+            _instanceBuffer.Write<AccelerationStructureInstanceKHR>(
+                CollectionsMarshal.AsSpan(_instances));
 
-        instances.Write<AccelerationStructureInstanceKHR>([instance]);
-        _buffers.Add(instances);
+            _buffers.Add(_instanceBuffer);
+        }
+
+        VulkanBuffer instances = _instanceBuffer!;
 
         var geometry = new AccelerationStructureGeometryKHR
         {
@@ -231,7 +334,36 @@ public sealed unsafe class RayTracingScene : IDisposable
             PGeometries = &geometry,
         };
 
-        _topLevel = Create(build, 1, AccelerationStructureTypeKHR.TopLevelKhr);
+        _topLevel = Create(build, (uint)_instances.Count, AccelerationStructureTypeKHR.TopLevelKhr);
+    }
+
+    /// <summary>The first three rows of a transform, which is what an instance carries.</summary>
+    /// <remarks>
+    /// Row-major and three rows deep, where <see cref="Matrix4x4"/> is row-vector and four:
+    /// the translation that sits in the fourth row there belongs in the fourth column here.
+    /// Transposing is the whole of the conversion, and getting it wrong puts a shadow
+    /// somewhere plausible rather than nowhere, which is worse.
+    /// </remarks>
+    private static TransformMatrixKHR RowsOf(Matrix4x4 transform)
+    {
+        var rows = new TransformMatrixKHR();
+
+        rows.Matrix[0] = transform.M11;
+        rows.Matrix[1] = transform.M21;
+        rows.Matrix[2] = transform.M31;
+        rows.Matrix[3] = transform.M41;
+
+        rows.Matrix[4] = transform.M12;
+        rows.Matrix[5] = transform.M22;
+        rows.Matrix[6] = transform.M32;
+        rows.Matrix[7] = transform.M42;
+
+        rows.Matrix[8] = transform.M13;
+        rows.Matrix[9] = transform.M23;
+        rows.Matrix[10] = transform.M33;
+        rows.Matrix[11] = transform.M43;
+
+        return rows;
     }
 
     /// <summary>Sizes, allocates and builds one structure.</summary>

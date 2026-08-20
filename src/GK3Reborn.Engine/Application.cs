@@ -278,6 +278,10 @@ public static class Application
                 return 3;
             }
 
+            // Before the report, so that it describes something that exists. Finish is
+            // idempotent and the renderer calls it again when the scene is set.
+            geometry.Finish();
+
             renderer.SetLights(scene.Lights);
             renderer.Quality = renderer.SupportsRayTracing ? quality : RayTracingQuality.None;
 
@@ -285,7 +289,7 @@ public static class Application
             {
                 Console.WriteLine(renderer.SupportsRayTracing
                     ? $"Ray tracing: {renderer.Quality} ({geometry.TraceableTriangleCount} opaque "
-                      + "triangles traced)"
+                      + $"triangles traced in {geometry.TraceablePartCount} movable part(s))"
                     : "Ray tracing: unavailable on this device");
             }
 

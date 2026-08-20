@@ -130,3 +130,37 @@ most of it.
 
 In-window frame rate is presentation-limited on this machine and therefore says
 nothing about GPU cost; the figures above come from the headless path.
+
+## Things that move
+
+The acceleration structure is built from the room **and one part for each placed model**,
+each model's triangles held in the model's own space and put in place by an instance
+transform. Moving something is that one transform, and the top level is rebuilt — not
+refitted, which is only sound for small movements and a character crossing a room is not
+one. R25 holds twelve parts, the room and its eleven models; RC1 holds seven.
+
+It used to be one structure with everything baked into world space at load, which meant a
+shadow stayed wherever its owner was standing when the room loaded. Walking left it behind;
+and outdoors, where `SCENE:ENTER` stands the player at the door they came in through *after*
+the geometry is built, it was stranded at the actor's authored spot from the moment the room
+appeared.
+
+**Posing is not reflected.** A part is a whole model, so a character walking takes their
+shadow with them, but a clip that moves one mesh — a turned head, a swinging arm — casts the
+shadow of the rest pose. Per-mesh parts would fix it and would multiply the part count by
+about thirteen.
+
+## Noise that sits still
+
+The sampling noise is seeded from the pixel and nothing else. It used to take a frame
+counter as well, which is what lets a temporal filter average noise away — and there is no
+temporal filter, so the grain simply changed every frame. Measured on a still room at High,
+**15.3% of the picture moved by more than a step of an eight-bit channel between one frame
+and the next, with nothing in the room moving at all**. Locked to the pixel that is 0.00%.
+
+High showed it worse than Medium because High leans less on the bake — 0.35 against 0.5 —
+so more of what you see comes from the sampled terms.
+
+The trade is that the grain is now a dither pattern fixed to the screen rather than
+something that averages out over time. That is the right way round until something
+accumulates frames; a temporal filter would want the counter back.

@@ -127,9 +127,21 @@ internal static class MeshShaders
         // A random value for this pixel, taken from the pixel rather than from the point
         // it shades: world coordinates run into the hundreds, and a sine of a number that
         // large loses enough precision to band into visible patterns across a wall.
+        //
+        // And from the pixel *only* — the frame number used to go in here as well. Varying
+        // the seed each frame is what lets a temporal filter average the noise away, and
+        // there is no temporal filter: the grain simply changed every frame, which reads as
+        // a pattern crawling across the picture and is far more distracting than grain that
+        // sits still. One frame to the next, 15% of the picture used to move by more than a
+        // step of an eight-bit channel with nothing in the room moving at all.
+        //
+        // Fixed to the pixel, the noise becomes a dither pattern locked to the screen. That
+        // is the right trade until something accumulates frames, and it is why High showed
+        // this worse than Medium: High leans less on the bake, so more of what you see comes
+        // from the sampled terms.
         float PixelNoise(float salt)
         {
-            vec3 seed = vec3(gl_FragCoord.xy, frame.tuning.y + salt);
+            vec3 seed = vec3(gl_FragCoord.xy, salt);
 
             return fract(sin(dot(seed, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
         }

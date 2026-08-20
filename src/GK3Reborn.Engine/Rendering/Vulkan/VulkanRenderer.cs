@@ -221,6 +221,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
         Fence fence = _inFlight[_frame];
         _vk.WaitForFences(_device, 1, in fence, true, ulong.MaxValue);
 
+        // Whatever moved since the last frame moves in the traced world too. After the
+        // fence, because rebuilding a structure the device is still tracing against is the
+        // same hazard as rewriting a vertex buffer it is still reading.
+        _scene?.Settle();
+
         uint imageIndex = 0;
         Result acquire = _khrSwapchain.AcquireNextImage(
             _device, _swapchain, ulong.MaxValue, _imageAvailable[_frame], default, ref imageIndex);
