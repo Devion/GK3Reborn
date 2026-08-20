@@ -2,6 +2,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using GK3Reborn.Foundation;
+using GK3Reborn.UI;
 
 namespace GK3Reborn.Game;
 
@@ -46,6 +47,14 @@ public sealed class GameState
     /// <summary>What each character is carrying.</summary>
     public Inventory Inventory { get; } = new();
 
+    /// <summary>What is in front of the room.</summary>
+    /// <remarks>
+    /// State rather than presentation: scripts ask what is showing — <c>IsTopLayerInventory</c>
+    /// is a real question in the data — and behave differently by the answer, so two runs
+    /// that disagree about it have diverged.
+    /// </remarks>
+    public ScreenLayers Screens { get; } = new();
+
     /// <summary>The current timeblock, such as <c>110A</c>.</summary>
     public Timeblock Timeblock { get; set; } = new(1, 10, IsAfternoon: false);
 
@@ -65,6 +74,23 @@ public sealed class GameState
 
     /// <summary>The player's score.</summary>
     public int Score { get; private set; }
+
+    /// <summary>
+    /// Whether the action chooser is insisting on an answer.
+    /// </summary>
+    /// <remarks>
+    /// <c>SetVerbModal</c> in the data: the story has asked a question and wants one of the
+    /// offered actions rather than a shrug. The flag is kept faithfully because scripts set
+    /// and clear it around moments that depend on it.
+    /// </remarks>
+    /// <seealso href="Plan/03-gameplay-ui-audio.md">
+    /// Section 2.1 requires that no puzzle action fire because the engine guessed, so a
+    /// chooser the player cannot leave must still offer a way out that chooses <em>nothing</em>
+    /// — a modal question is a reason to keep asking, never a reason to trap somebody in a
+    /// menu. Which of the offered actions is right is the player's to decide; whether they
+    /// may walk away and come back is not the script's.
+    /// </seealso>
+    public bool MustChooseAnAction { get; set; }
 
     /// <summary>How many random numbers scripts have drawn.</summary>
     /// <remarks>
@@ -275,6 +301,10 @@ public sealed class GameState
         builder.Append(CultureInfo.InvariantCulture, $"ego={Ego}\n");
         builder.Append(CultureInfo.InvariantCulture, $"score={Score}\n");
         builder.Append(CultureInfo.InvariantCulture, $"randomdraws={RandomDraws}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"mustchoose={MustChooseAnAction}\n");
+        builder.Append(
+            CultureInfo.InvariantCulture,
+            $"screens={string.Join(">", Screens.Open)}\n");
 
         Append(builder, "flag", _flags.OrderBy(f => f, StringComparer.Ordinal).Select(f => (f, "1")));
         Append(builder, "var", Ordered(_variables));

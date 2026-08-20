@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Sheep;
+using GK3Reborn.UI;
 
 namespace GK3Reborn.Game;
 
@@ -280,14 +281,144 @@ public sealed class Gk3SheepApi : ISheepApi
         Register("GetTopicCountInt", a =>
             SheepValue.FromInt(State.GetTopicCount(Arg(a, 0), Arg(a, 1))));
 
+        // The six statuses the original accepts, boiled down to who is holding the thing,
+        // which is all any of them ever meant: NotPlaced, Placed and Used all say nobody.
+        Register("SetInvItemStatus", a =>
+        {
+            string item = Arg(a, 0);
+
+            switch (Arg(a, 1).ToUpperInvariant())
+            {
+                case "GRACEHAS":
+                    Give("GRACE", item);
+                    Take("GABRIEL", item);
+                    break;
+                case "GABEHAS":
+                    Give("GABRIEL", item);
+                    Take("GRACE", item);
+                    break;
+                case "BOTHHAVE":
+                    Give("GABRIEL", item);
+                    Give("GRACE", item);
+                    break;
+                case "NOTPLACED" or "PLACED" or "USED":
+                    Take("GABRIEL", item);
+                    Take("GRACE", item);
+                    break;
+                default:
+                    Diagnostics.Add(new Diagnostic(
+                        "GK3R3201", DiagnosticSeverity.Warning,
+                        $"'{Arg(a, 1)}' is not an inventory status.",
+                        null, null, "NotPlaced, Placed, Used, GabeHas, GraceHas or BothHave",
+                        Arg(a, 1),
+                        "The call is ignored, as it is in the original."));
+                    break;
+            }
+
+            return SheepValue.FromInt(0);
+
+            void Give(string who, string what) => State.Inventory.Add(who, what);
+            void Take(string who, string what) => State.Inventory.Remove(who, what);
+        });
+
+        RegisterScreenFunctions();
+
         // Explicitly answered rather than left unknown: scripts poll these constantly and
         // an unregistered warning for each would drown everything else.
         Register("IsActorNear", Zero);
         Register("IsWalkingActorNear", Zero);
+    }
 
-        // There is no inventory screen to be on top, and until there is, saying so is more
-        // honest than warning that the question cannot be answered.
-        Register("IsTopLayerInventory", Zero);
+    /// <summary>
+    /// The screens a script can put in front of the room.
+    /// </summary>
+    /// <remarks>
+    /// Every one of them goes on the same stack and comes off it the same way, which is
+    /// what <c>Plan/03</c> section 3 asks for and what the original did not do. A script
+    /// showing the binoculars and a player pressing Back are talking about the same object.
+    /// </remarks>
+    private void RegisterScreenFunctions()
+    {
+        Register("ShowInventory", _ =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.Inventory));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("HideInventory", _ =>
+        {
+            // The inspect panel belongs to the inventory that opened it, so it goes with
+            // it. The original leaves it behind, which is a bug it shipped with: scanning
+            // an item from the inspect screen left the panel over a room it had no
+            // business being over.
+            State.Screens.Hide(ScreenKind.InventoryInspect);
+            State.Screens.Hide(ScreenKind.Inventory);
+            return SheepValue.FromInt(0);
+        });
+
+        Register("InventoryInspect", a =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.InventoryInspect, Arg(a, 0)));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("InventoryUninspect", _ =>
+        {
+            State.Screens.Hide(ScreenKind.InventoryInspect);
+            return SheepValue.FromInt(0);
+        });
+
+        Register("InspectObject", a =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.SceneInspect, Arg(a, 0)));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("InspectModelUsingAngle", a =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.SceneInspect, Arg(a, 0)));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("UnInspect", _ =>
+        {
+            State.Screens.Hide(ScreenKind.SceneInspect);
+            return SheepValue.FromInt(0);
+        });
+
+        Register("ShowBinocs", _ =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.Binoculars));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("ShowDrivingInterface", _ =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.Driving));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("FollowOnDrivingMap", _ =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.Driving, "follow"));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("ShowFingerprintInterface", a =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.Fingerprint, Arg(a, 0)));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("SetVerbModal", a =>
+        {
+            State.MustChooseAnAction = Int(a, 0) != 0;
+            return SheepValue.FromInt(0);
+        });
+
+        Register("IsTopLayerInventory", _ => SheepValue.FromInt(
+            State.Screens.IsOnTop(ScreenKind.Inventory) ||
+            State.Screens.IsOnTop(ScreenKind.InventoryInspect) ? 1 : 0));
     }
 
     /// <summary>

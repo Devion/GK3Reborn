@@ -659,6 +659,12 @@ public sealed class SceneRenderStage
             ? "  the story is where it was"
             : "  the story moved");
 
+        if (api.State.Screens.Open.Count > 0)
+        {
+            _log($"  in front of the room now: {string.Join(" > ", api.State.Screens.Open)}" +
+                 $"{(api.State.Screens.InventoryReachable ? string.Empty : ", inventory out of reach")}");
+        }
+
         if (scene.Walkable is { Blocked.Count: > 0 } boundary)
         {
             string standing = string.Join(
