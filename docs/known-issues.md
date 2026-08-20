@@ -49,6 +49,30 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ## Closed
 
+### Shadows read as dirt on whatever they fell on — fixed 2026-08-20
+
+Reported as Gabriel's face being "full of smudges of dirt" at High, with the
+grain sitting still rather than shimmering.
+
+Two causes, neither of which was the shadowing itself.
+
+The rays were traced inside the mesh shader and averaged on the spot. Eight rays
+cannot smooth a shadow edge and nothing averaged across frames, so the seed had
+to be pinned to the pixel or the grain crawled — a dither pattern locked to the
+screen. Occlusion is now one ray a pixel with a seed that moves, filtered by a
+port of AMD's FidelityFX denoiser; see `ray-tracing.md`.
+
+Ambient occlusion was then applied whole to the indirect term. These rooms ship
+with lightmaps baked with occlusion already in them, so it was being counted
+twice, and enough of the hemisphere above a shoulder is that person's own head
+that the shoulder went black. It is applied at 0.55 now.
+
+A third fault was found while looking: the acceleration structure held the pose
+each model was authored in, so a ray leaving an animated shoulder started inside
+a body still standing at rest. Posed vertices now reach it.
+
+
+
 ### Every scene rendered as its own mirror image — fixed 2026-08-19
 
 Reported as the numbers on the hotel doors reading backwards. They were: `HAL`'s `27`
