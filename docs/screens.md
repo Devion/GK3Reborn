@@ -106,7 +106,36 @@ Two switches exist for photographing it, since a label that follows the pointer 
 captured by a headless run: `--pointer X,Y` puts the pointer somewhere fixed and `--menu`
 opens the verb list without a right-click.
 
+## Getting places
+
+Clicking something does two things, in order. The action's **approach** takes the player to
+it — `approach=WalkTo, target=TO_B25` is written beside the script and means *this has to be
+true before the script runs* — and then the script runs. There are 3,617 approaches across
+the corpus:
+
+| Approach | Count | What it means |
+| --- | --- | --- |
+| `WalkToSee` | 2,120 | Walk until the target is in view |
+| `WalkTo` | 687 | Walk to a named spot on the floor |
+| `Anim` | 398 | Play an animation instead of walking |
+| `TurnToModel` | 394 | Turn to face it without moving |
+| `NearModel` | 17 | Be close enough |
+| `Region` | 1 | Be inside a region |
+
+The route is found across the walk boundary, so an actor crossing R25 goes round the bed
+rather than through it. Seeing is not worked out yet, so `WalkToSee` walks to the target
+instead — the same answer for anything in the open and too close for anything behind
+something else. `Anim` does nothing until animations play.
+
+A **door** is a script that says `SetLocation` and nothing more. The launcher watches the
+story's location rather than the click, so it works however the story asked — clicked, on a
+timer, or from a script three calls deep — and the room is rebuilt around a story that
+carries on: one host, one state, one audio device, one interface.
+
 ## What is not here
+
+An actor crosses a room rather than walking across it: position and facing move, and the
+walk cycle needs the `.ACT` vertex animation format that nothing reads yet.
 
 The retained UI tree of `Plan/03` section 4, and the screens themselves. `ScreenLayers`
 still only says which screens are open; the binoculars, Sidney, the driving map and the
