@@ -96,6 +96,12 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
+    /// <remarks>Nothing to pose: a sweep measures what was loaded rather than keeping it.</remarks>
+    public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal)
+    {
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// Nothing to do: this counts what a scene contains rather than drawing it, and an
     /// actor who has walked contains exactly what they did before.

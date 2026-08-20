@@ -168,6 +168,7 @@ public static class Application
         // The interface. GK3's own bitmap fonts rather than anything imported: they are in
         // the archives, they are the right size for the game's own screens, and reading one
         // is a smaller job than shaping a scalable typeface would be.
+        var clips = new ClipLibrary(archives);
         var fonts = new FontLibrary(archives);
         GameHud? hud = null;
 
@@ -262,6 +263,11 @@ public static class Application
             // walking functions need something to walk in. The scene functions close over
             // the room they were given and the last registration wins.
             SceneScripting.Attach(api, scene, loader.Glances, room, update);
+
+            // What lets an animation actually move something. Vertex poses are left unread:
+            // gab alone is 50.2 million samples and nothing deforms yet.
+            update.Animations = api.Animations;
+            update.Clips = clips;
 
             Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
 
@@ -396,6 +402,12 @@ public static class Application
                 $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)");
         }
 
+        if (Option(args, "--play") is { Length: > 0 } clip)
+        {
+            Sheep.SheepExpression.Evaluate($"StartAnimation(\"{clip}\")", api);
+            Console.WriteLine($"Playing {clip}");
+        }
+
         if (Option(args, "--glide") is { Length: > 0 } destination)
         {
             Sheep.SheepExpression.Evaluate(
@@ -481,7 +493,8 @@ public static class Application
         double previous = 0;
         int presented = 0;
         string? hovering = null;
-        string? said = null;
+        string? spoken = null;
+        int said = 0;
         Hover? menu = null;
         Vector2 menuAt = Vector2.Zero;
         int menuIndex = 0;
@@ -526,6 +539,14 @@ public static class Application
 
                 renderer.Quality = levels[(Array.IndexOf(levels, renderer.Quality) + 1) % levels.Length];
                 Console.WriteLine($"ray tracing: {renderer.Quality}");
+            }
+
+            // What the world could not do, said once. Animation naming is the sort of thing
+            // that fails by nothing happening, which is indistinguishable from nothing
+            // having been asked for.
+            for (; said < update.Diagnostics.Items.Count; said++)
+            {
+                Console.WriteLine($"  {update.Diagnostics.Items[said]}");
             }
 
             foreach (string happened in update.Advance(delta))
@@ -658,9 +679,9 @@ public static class Application
             // when the last one's source stops, so they never overlap and never drift.
             room?.Update();
 
-            if (room?.Caption is { Length: > 0 } caption && caption != said)
+            if (room?.Caption is { Length: > 0 } caption && caption != spoken)
             {
-                said = caption;
+                spoken = caption;
                 Console.WriteLine($"  {room.Speaker}: {caption}");
             }
 

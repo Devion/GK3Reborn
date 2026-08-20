@@ -60,6 +60,12 @@ public sealed class SceneUpdateTests
 
         public void MoveModel(ModelPlacement placement, Matrix4x4 transform) =>
             Moves[placement.Id] = transform;
+
+        /// <summary>Where each mesh has been posed by an animation.</summary>
+        public Dictionary<(int, int), Matrix4x4> Poses { get; } = [];
+
+        public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal) =>
+            Poses[(placement.Id, mesh)] = meshToLocal;
     }
 
     private static ModFile Person()

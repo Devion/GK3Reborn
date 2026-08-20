@@ -108,6 +108,15 @@ public sealed class Gk3SheepApi : ISheepApi
     public Func<string, string, bool, double>? Walks { get; set; }
 
     /// <summary>
+    /// What plays an animation, when there is a room to play it in.
+    /// </summary>
+    /// <remarks>
+    /// Given the animation's name and whether it repeats; answers how long it will take.
+    /// Null in a tool, where the animation calls stay recorded as they always were.
+    /// </remarks>
+    public Func<string, bool, double>? Plays { get; set; }
+
+    /// <summary>
     /// The animations, for the calls whose length is a frame count.
     /// </summary>
     /// <remarks>

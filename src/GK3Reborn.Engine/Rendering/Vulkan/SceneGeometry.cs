@@ -247,6 +247,27 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
+    public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (!_placements[placement.Id].TryGetValue(mesh, out List<int>? batches))
+        {
+            return;
+        }
+
+        Matrix4x4 meshToWorld = meshToLocal * _placed[placement.Id].Transform;
+
+        foreach (int index in batches)
+        {
+            _batches[index] = _batches[index] with { Transform = meshToWorld };
+        }
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// Every batch of every mesh is re-placed against the new transform. A mesh that has
     /// been turned keeps its turn, because the turn is folded in when it is applied and the

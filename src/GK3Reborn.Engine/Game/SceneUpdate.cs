@@ -2,6 +2,7 @@ using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Actors;
+using GK3Reborn.Formats.Animation;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 
@@ -54,6 +55,11 @@ public sealed class SceneUpdate
 
     private readonly Dictionary<string, PlacedModel> _standing =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, PlacedModel> _models =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly List<Playing> _playing = [];
     private readonly Gk3SheepApi _api;
     private readonly Glances _glances;
     private readonly ISceneSink _geometry;
@@ -109,6 +115,16 @@ public sealed class SceneUpdate
             _actors.Add(new Turning(placed, head));
         }
 
+        // Everything that stands in the room, so a clip can find what it animates. A clip
+        // names its target model in its own header, which is the only reliable pairing.
+        foreach (PlacedModel placed in scene.Models)
+        {
+            if (placed.Placement.Exists)
+            {
+                _models[placed.Name] = placed;
+            }
+        }
+
         // Under both names. A scene places `gab` and calls him GABRIEL, and scripts use
         // whichever they feel like — the state's ego is the noun, an action's target is
         // usually the model. Keying by one of them means half the walks find nobody.
@@ -126,6 +142,125 @@ public sealed class SceneUpdate
                 _standing[noun] = placed;
             }
         }
+    }
+
+    /// <summary>Where the clips come from, when anything is to be played.</summary>
+    /// <remarks>
+    /// Optional. Without it <see cref="Play"/> finds nothing and animation calls go on
+    /// being recorded, which is what every tool wants and what the launcher wanted until
+    /// there was a reader.
+    /// </remarks>
+    public Content.ClipLibrary? Clips { get; set; }
+
+    /// <summary>Where the animations that name those clips come from.</summary>
+    public Content.AnimationLibrary? Animations { get; set; }
+
+    /// <summary>How many clips are running.</summary>
+    public int Animating => _playing.Count;
+
+    /// <summary>
+    /// Starts an animation.
+    /// </summary>
+    /// <param name="name">What the script called it, such as <c>GraCs3WrdbOpen</c>.</param>
+    /// <param name="repeat">Whether it starts again when it ends.</param>
+    /// <returns>How long it will take, or zero when there is nothing to play.</returns>
+    /// <remarks>
+    /// <para>
+    /// A script names an <c>.ANM</c>, whose <c>[ACTIONS]</c> section names one or more
+    /// <c>.ACT</c> clips and the frame each starts on. Each clip names the model it moves.
+    /// None of those three names is the one the script said.
+    /// </para>
+    /// <para>
+    /// Only the rigid part plays: a clip's mesh transforms are applied, its vertex poses are
+    /// not. That covers 2,188 of the corpus's 5,796 clips outright — doors, drawers, a
+    /// telephone — and moves a character's mesh groups about without deforming any of them,
+    /// which is wrong-looking but is where the geometry actually goes.
+    /// </para>
+    /// </remarks>
+    public double Play(string name, bool repeat = false)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (Clips is null || Animations is null)
+        {
+            Diagnostics.Add(new Diagnostic(
+                "GK3R3315", DiagnosticSeverity.Warning,
+                "Nothing can play animations here.",
+                _scene.Name, null, "a clip library and an animation library",
+                $"clips={Clips is not null}, animations={Animations is not null}",
+                "The launcher sets both once the scene is standing."));
+
+            return 0;
+        }
+
+        if (Animations.Read(name) is not { } animation)
+        {
+            Diagnostics.Add(new Diagnostic(
+                "GK3R3312", DiagnosticSeverity.Warning,
+                "A script asked for an animation the archives do not have.",
+                _scene.Name, null, "an .ANM of that name", name,
+                "Check the name against the animation-scripts directory."));
+
+            return 0;
+        }
+
+        if (animation.Actions.Count == 0)
+        {
+            Diagnostics.Add(new Diagnostic(
+                "GK3R3313", DiagnosticSeverity.Info,
+                "An animation names no clips, so it moves nothing.",
+                name, null, "an [ACTIONS] section", "none",
+                "Some animations are only sounds and captions."));
+
+            return 0;
+        }
+
+        double longest = 0;
+
+        foreach (AnimationAction action in animation.Actions)
+        {
+            if (Clips.Read(action.Name) is not { } clip)
+            {
+                Diagnostics.Add(new Diagnostic(
+                    "GK3R3314", DiagnosticSeverity.Warning,
+                    "An animation names a clip the archives do not have.",
+                    name, null, "an .ACT of that name", action.Name,
+                    "Check the [ACTIONS] line against the animations directory."));
+
+                continue;
+            }
+
+            if (!_models.TryGetValue(clip.ModelName, out PlacedModel? target))
+            {
+                Diagnostics.Add(new Diagnostic(
+                    "GK3R3311", DiagnosticSeverity.Info,
+                    "An animation moves a model that is not in this room.",
+                    name, null, "a model the scene placed", clip.ModelName,
+                    "Common and usually harmless: clips are shared between rooms."));
+
+                continue;
+            }
+
+            _playing.Add(new Playing(clip, target, action.Frame, repeat));
+            longest = Math.Max(longest, clip.Duration + (action.Frame / 15.0));
+        }
+
+        return longest;
+    }
+
+    /// <summary>Stops everything a model is doing.</summary>
+    /// <param name="model">Its name, or null for everything in the room.</param>
+    public void StopAnimating(string? model = null)
+    {
+        if (model is not { Length: > 0 })
+        {
+            _playing.Clear();
+            return;
+        }
+
+        _playing.RemoveAll(p =>
+            p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
+            p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>How many actors are crossing the room.</summary>
@@ -275,6 +410,18 @@ public sealed class SceneUpdate
             happened.Add(Fire(timer));
         }
 
+        // Animation before walking: a clip poses a model's meshes in the model's own space
+        // and walking moves the model, so doing it the other way round would apply this
+        // frame's poses to last frame's position.
+        for (int i = _playing.Count - 1; i >= 0; i--)
+        {
+            if (!_playing[i].Step(_geometry, (float)seconds))
+            {
+                happened.Add($"{_playing[i].Clip.Name} finished");
+                _playing.RemoveAt(i);
+            }
+        }
+
         // Walking before turning heads: a head that is looking at something has to be
         // aimed from where its owner is now, not from where they were a frame ago.
         foreach (string who in _walking.Keys.ToList())
@@ -373,6 +520,68 @@ public sealed class SceneUpdate
 
         return $"{timer.Noun}:{timer.Verb} [{rule.Case}] " +
                (outcome.Ran ? "ran" : "was refused");
+    }
+
+    /// <summary>One clip running on one model.</summary>
+    private sealed class Playing
+    {
+        private readonly bool _repeat;
+        private readonly double _delay;
+
+        private double _elapsed;
+
+        public Playing(ActFile clip, PlacedModel target, int startFrame, bool repeat)
+        {
+            Clip = clip;
+            Target = target;
+            _repeat = repeat;
+            _delay = startFrame / (double)AnimationFile.FramesPerSecond;
+        }
+
+        public ActFile Clip { get; }
+
+        public PlacedModel Target { get; }
+
+        /// <summary>Poses the model for this moment.</summary>
+        /// <returns>True while the clip is still running.</returns>
+        /// <remarks>
+        /// The frame is worked out from elapsed time rather than counted, so a dropped frame
+        /// skips a pose instead of slowing the animation down. Fifteen frames a second is
+        /// the original's rate and a large part of why its animation reads as stiff.
+        /// </remarks>
+        public bool Step(ISceneSink geometry, float seconds)
+        {
+            _elapsed += seconds;
+
+            if (_elapsed < _delay)
+            {
+                return true;
+            }
+
+            double running = _elapsed - _delay;
+            int frame = (int)(running * AnimationFile.FramesPerSecond);
+
+            if (frame >= Clip.FrameCount)
+            {
+                if (!_repeat)
+                {
+                    return false;
+                }
+
+                _elapsed = _delay;
+                frame = 0;
+            }
+
+            for (int mesh = 0; mesh < Clip.MeshCount; mesh++)
+            {
+                if (Clip.PoseOf(mesh, frame) is { } pose)
+                {
+                    geometry.PoseMesh(Target.Placement, mesh, pose);
+                }
+            }
+
+            return true;
+        }
     }
 
     /// <summary>One actor crossing the room, and what to move when they do.</summary>

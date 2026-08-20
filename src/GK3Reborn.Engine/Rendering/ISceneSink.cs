@@ -83,6 +83,21 @@ public interface ISceneSink
     /// </remarks>
     void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn);
 
+    /// <summary>Puts one mesh of a model where an animation says it goes.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="mesh">Which of the model's meshes.</param>
+    /// <param name="meshToLocal">
+    /// Where the mesh sits in the model's own space, <em>replacing</em> the one the model
+    /// was built with.
+    /// </param>
+    /// <remarks>
+    /// Distinct from <see cref="TurnMesh"/>, which applies a rotation on top of the mesh's
+    /// own transform. A vertex animation stores the transform outright, and getting there
+    /// through a rotation would mean inverting the model's own basis every frame to cancel
+    /// it out again.
+    /// </remarks>
+    void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal);
+
     /// <summary>Moves a whole model that is already standing.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
     /// <param name="transform">Where it is now, replacing where it was placed.</param>
