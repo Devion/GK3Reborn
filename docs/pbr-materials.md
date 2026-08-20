@@ -48,7 +48,8 @@ in the same way the rig is.
 ### What has to change in the renderer
 
 Four things, none of them large, all worth naming so they are not discovered one at a
-time:
+time. **All four are done** — see `977e525` — and the two traps they hid are recorded
+after the list.
 
 1. **A tangent frame.** `MeshVertex` is position, normal, UV, lightmap UV. Rather than
    adding a tangent to the vertex, build the TBN in the fragment shader from the
@@ -68,6 +69,39 @@ time:
    `NormalStrength` as scalars with no way to name a map. Adding `NormalTexture` and
    `OrmTexture`, and the matching fields on `MaterialPatch`, is what lets the edit layer
    correct a generated material the way it corrects a light.
+
+### The two traps
+
+Both cost a debugging round and neither announced itself.
+
+**A layout binding is not added by writing to it.** The third binding went into the
+`DescriptorSetLayoutBinding` array without `BindingCount` being raised from 2, so the write
+to binding 2 was invalid. The driver did not complain; it quietly corrupted binding 0, and
+surfaces drew the fallback checkerboard instead of their texture. Three rendering tests
+caught it, which is the argument for having them.
+
+**Eight bits cannot encode a half.** A flat normal is (0.5, 0.5, 1) and the nearest byte is
+128, which decodes to 0.0039 rather than 0. An early-out comparing against exactly (0,0,1)
+therefore never fires, and the derivative maths runs on all 6,333 textures that have no map
+at all. The tolerance has to be one step of an eight-bit channel, not an epsilon.
+
+### What it is worth
+
+Measured on B21 with 23 of its 45 surfaces mapped, comparing the same frame with and
+without the normal pass (`--flat` leaves the colour textures enhanced and the surfaces
+smooth):
+
+| | |
+|---|---|
+| Pixels changed at `--rt high` | 3.8% |
+| Worst channel delta | 150 |
+| Pixels changed at `--rt none` | 1.0% |
+
+Lightmapped surfaces are untouched **by construction** rather than by a tier check: the
+baked term never reads the normal, so `mix(albedo * (kAmbient + direct), albedo * baked,
+useLightmap)` confines the effect to the rig-lit and ray-traced terms on its own. The 1% at
+`--rt none` is rig-lit props — the character, the fittings — which is the same rule the rig
+follows.
 
 ## Constraints, which are mostly the upscale's constraints again
 
@@ -161,13 +195,23 @@ making this reproducible rather than an afterthought.
 ### Driving it reproducibly
 
 ComfyUI has an HTTP API — `POST /prompt` with an API-format graph, poll `/history`, fetch
-from `/view`. The workflow JSON is pinned in the repository under `tools/pbr-workflows/`
-with fixed seeds, and the tool records the graph hash, the model file hashes and the seed
-per texture. That is `Plan/02` §1's "tool, model, prompt and settings" satisfied
-mechanically rather than by somebody remembering what they clicked.
+from `/view`. The workflow JSON is pinned, with fixed seeds, and the driver records the
+graph hash, the model file hashes and the seed per texture. That is `Plan/02` §1's "tool,
+model, prompt and settings" satisfied mechanically rather than by somebody remembering
+what they clicked.
 
 A generator that cannot be re-run to the same output cannot have its results attributed,
 and a texture nobody can attribute cannot ship.
+
+### Where it is
+
+`PbrLab/`, beside the repository rather than in it — a Python prototype that writes into
+the content workspace, in the same position `DonorWorkspace/rigsolve` held for the rig
+solve. `PbrLab/README.md` is the operating manual; `PbrLab/comfy/` holds five ComfyUI
+nodes and the pinned graph.
+
+Both lanes are built and the normal pass has been run. What it measured is at the end of
+this document.
 
 ## Bringing candidates in
 
@@ -214,12 +258,50 @@ Not in an image viewer. Three pieces of evidence, all of which the tools can pro
    materials covering 3% of the frame is not a finished tier, and the base-colour pass has
    already demonstrated how easily that happens.
 
+## What the first normal pass measured
+
+324 maps, every enhanced base colour there is, DeepBump on the CPU at overlap LARGE:
+28 minutes, 1.1 GB, **324 accepted and none refused**. Accepted means it is a draft.
+
+The interesting numbers are not the ones about normals.
+
+**126 of the 209 tiling originals have enhanced base colours that no longer tile.** The
+check compares three seams — the original, the enhanced base colour, the generated map —
+because the original is the only authority on whether a surface was ever meant to repeat;
+a pillow with a discontinuous join is not a defect and a wall with one is. Sixty per cent
+of the tiling surfaces in the pilot lost that property in the upscale, and
+`import-textures` does not test for it. This belongs to `texture-enhancement.md`, not
+here, but it took a pass over the same textures with a different question to find it.
+
+**63 of the 324 are worn by characters**, and `ABE_FACE` shows why that is a warning
+rather than a statistic: eyebrows, moustache and a mole come back as geometry. Painted
+features on a face are the loudest possible version of the delighting problem, and those
+maps should be hand-authored or left out rather than generated.
+
+**Relief is gentle: a median mean-slope of 5.5°, a maximum of 30°.** Nothing needs its
+strength pulled back. Five maps sit under 1° — mostly `*_SKIN` — where the derived detail
+is at the floor of what eight bits can express, and binding them costs memory to change
+nothing.
+
+Where the source has real structure, the result is genuinely good: `CHUWKR`'s wicker
+weave, `RC1RGHSTNROOFEDGE`'s roof tiles, and `HOTELHLCHAIN2`, an alpha-tested chain whose
+links round correctly while the transparent surround stays flat.
+
+Both lanes work. The ComfyUI lane produces the same map through five nodes and a pinned
+graph, about twice as slowly, and exists for what comes after normals. The local lane is
+bit-exact between runs on the CPU; CUDA differs on 7% of texels by at most 2/255, which
+is the same picture and a different file.
+
+The machinery is `PbrLab/`; the record is `manifests/enhanced-normals.json`.
+
 ## Suggested order
 
 1. The renderer's four changes, and one hand-authored normal map on one wall in R25,
    before any volume at all. Everything downstream is unreviewable until a map can be seen.
-2. Lane A over the 324 textures that already have an enhanced base colour, normals only.
-   Minutes of compute, and it establishes the review cost per texture.
+2. ~~Lane A over the 324 textures that already have an enhanced base colour, normals
+   only.~~ Done; see above. The tiling breakage it found in the base colours should be
+   fixed in the upscale before any of these maps are reviewed, since a re-upscaled
+   texture regenerates its normal map for nothing but the CPU time.
 3. A tier 0 comparison: twenty surfaces spanning stone, wood, fabric and metal, lane A
    against lane B, judged under the moving light. That decides whether lane B's licence
    questions are worth answering.
