@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using GK3Reborn.Formats.Ini;
 
 namespace GK3Reborn.Formats.Scenes;
@@ -39,6 +39,13 @@ public sealed record SceneBoundary(string Texture, Vector2 Size, Vector2 Offset)
 /// <param name="Hidden">Whether every block that declares it hides it.</param>
 public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hidden)
 {
+    /// <summary>The verb a click on it does by default, if the line names one.</summary>
+    /// <remarks>
+    /// Rare — the corpus uses it for exits, <c>verb=EXIT</c> and its left and right forms,
+    /// where clicking the doorway should walk through it rather than open the action bar.
+    /// </remarks>
+    public string? Verb { get; init; }
+
     /// <summary>
     /// Whether one block hides it while another shows it, so its visibility depends on
     /// story state that has not been evaluated.
@@ -277,6 +284,8 @@ public sealed class SceneInitFile
                 line.Value("type"),
                 ConditionsResolved ? hidden : hidden && (seen?.Hidden ?? true))
             {
+                Verb = line.Value("verb") ?? seen?.Verb,
+
                 // Carried forward, or a third block agreeing with the second would erase
                 // the disagreement the first one recorded. Nothing to carry once the
                 // conditions are decided: only one of a pair of blocks applies.

@@ -112,6 +112,8 @@ public static class Program
                 options.Height,
                 options.WalkOverlay,
                 options.WalkPath,
+                options.Pick,
+                options.NounMap,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height, diagnostics);
@@ -493,6 +495,10 @@ public static class Program
                                    it arrives and red if it could only get near. Each
                                    end is one of the scene's position names or a pair
                                    of world coordinates, x,z.
+              --pick X,Y           Report what a click on that pixel would land on.
+              --noun-map PATH      Write a map of what the player can click, one
+                                   colour per noun, from the same camera as the
+                                   render. Grey is scenery with no noun.
 
             The toolchain never writes to the source installation.
             """);
@@ -525,6 +531,10 @@ public static class Program
 
         public string? WalkPath { get; init; }
 
+        public string? Pick { get; init; }
+
+        public string? NounMap { get; init; }
+
         public bool Force { get; init; }
 
         public bool Verify { get; init; }
@@ -542,6 +552,8 @@ public static class Program
             int width = 1024, height = 768;
             bool walkOverlay = false;
             string? walkPath = null;
+            string? pick = null;
+            string? nounMap = null;
             bool force = false;
             bool verify = false;
             bool execute = false;
@@ -599,6 +611,12 @@ public static class Program
                     case "--walk-path" when i + 1 < args.Length:
                         walkPath = args[++i];
                         break;
+                    case "--pick" when i + 1 < args.Length:
+                        pick = args[++i];
+                        break;
+                    case "--noun-map" when i + 1 < args.Length:
+                        nounMap = args[++i];
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -623,6 +641,8 @@ public static class Program
                 Height = height,
                 WalkOverlay = walkOverlay,
                 WalkPath = walkPath,
+                Pick = pick,
+                NounMap = nounMap,
             };
         }
     }

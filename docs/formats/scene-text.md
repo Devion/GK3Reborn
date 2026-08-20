@@ -105,6 +105,53 @@ apart, which reads as z-fighting. Drawing a `hittest` puts a large flat slab
 through the middle of the room. Both were live bugs before this table was written
 down.
 
+Across the corpus: 2,463 `scene`, 1,905 `prop`, 255 `hittest`, 91 `gasprop` and a
+single `noclick` — TE3's floor. Model lines may also carry `verb=`, 103 times, and
+95 of those are `EXIT` or one of its directional forms; the rest are `GO_UP`,
+`GO_DOWN`, `OPEN` and one `CLIMB`. It is the verb a click performs without asking,
+so that clicking a doorway walks through it instead of opening the action bar.
+
+### Resolving a click
+
+`ScenePicker` casts one ray at the room and at the models standing in it together
+and keeps whatever it reaches first. `Camera.RayThrough` builds the ray from a
+pixel, in the same left-handed basis the view matrix uses.
+
+Three rules decide what a hit means, and all three come from the `[MODELS]` table
+rather than from the geometry:
+
+- **A noun is the whole test of interactivity**, as it is in the original —
+  `CanInteract()` there is `IsActive() && !noun.empty()`. Geometry the file does not
+  name is scenery.
+- **Scenery still blocks.** Most of a room is wallpaper with no noun, and reporting
+  the door behind it would let the player open a door through a wall. The nearest
+  hit wins whether or not it can be acted on.
+- **A hidden object is not there at all** — not merely undrawn. The ray passes
+  through it, which is what the original does by clearing the interactive flag on
+  those surfaces rather than by skipping them when drawing.
+
+Faces matter for the room and not for the models. A room is a box seen from the
+inside, so a BSP surface facing away is one the player is behind and the original
+rejects it; a prop is a closed shell whose winding is the modeller's business.
+
+The awkward part is that **much of what can be clicked is never drawn**. A `hittest`
+is ordinary geometry with an ordinary texture that the file marks invisible: a slab
+across a doorway, a box over the area a note occupies on a desk. PLO's four exits
+are hit tests — at its `FR_MAP` camera three quarters of everything clickable in
+view is invisible in the render. So comparing a render against the original says
+nothing about whether the doorway can be clicked, and the check has to be a
+different picture:
+
+```bash
+GK3Reborn.Tools render-scene --model PLO --timeblock 205P --camera FR_MAP \
+    --noun-map plo-nouns.png --pick 512,384 ...
+```
+
+`--noun-map` casts the game's own ray through every pixel and colours it by what
+answered — one stable colour per noun, dark grey for scenery, black for nothing —
+then reports which nouns and which kinds of thing covered the view. `--pick X,Y`
+answers for one pixel, naming the object, its noun and verb, and how far away it is.
+
 ### Deciding the conditions
 
 981 section headers in the corpus carry one, and they call sixteen functions

@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
@@ -16,6 +16,10 @@ namespace GK3Reborn.Game;
 /// <param name="Asset">The scene asset for the chosen time of day, if it has one.</param>
 /// <param name="Lightmaps">The baked lighting that was applied, if any.</param>
 /// <param name="ModelsPlaced">How many props were placed.</param>
+/// <param name="Placed">
+/// The props and actors that were loaded from files, with where they stand. Kept so a
+/// click can be resolved against them; the geometry the renderer holds cannot answer that.
+/// </param>
 /// <param name="Walkable">Where actors may stand, if the scene declares a boundary.</param>
 /// <param name="Geometry">
 /// The room's parsed geometry. Kept because several things want to ask questions of it
@@ -29,13 +33,17 @@ public sealed record LoadedScene(
     MulFile? Lightmaps,
     int ModelsPlaced,
     WalkBoundary? Walkable = null,
-    BspFile? Geometry = null)
+    BspFile? Geometry = null,
+    IReadOnlyList<PlacedModel>? Placed = null)
 {
     /// <summary>The lights the artists authored for this time of day.</summary>
     public IReadOnlyList<AuthoredLight> Lights => Asset?.Lights ?? [];
 
     /// <summary>Cameras the player's view can occupy.</summary>
     public IReadOnlyList<SceneCamera> Cameras => Definition.RoomCameras();
+
+    /// <summary>The props and actors loaded from files, never null.</summary>
+    public IReadOnlyList<PlacedModel> Models => Placed ?? [];
 
     /// <summary>Finds a camera by name, falling back to the scene's default.</summary>
     /// <param name="name">Camera name, or null for the default.</param>
@@ -133,12 +141,19 @@ public sealed class SceneLoader
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init));
         ReportDisputedVisibility(init, diagnostics);
 
-        int placed = PlaceModels(geometry, asset, init, diagnostics);
-        placed += PlaceActors(geometry, init, diagnostics);
-        _log?.Invoke($"models: {placed} placed, textures: {geometry.TextureCount}");
+        List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
+        placed.AddRange(PlaceActors(geometry, init, diagnostics));
+        _log?.Invoke($"models: {placed.Count} placed, textures: {geometry.TextureCount}");
 
         return new LoadedScene(
-            scene, init, asset, lightmaps, placed, ReadBoundary(init, diagnostics), bsp);
+            scene,
+            init,
+            asset,
+            lightmaps,
+            placed.Count,
+            ReadBoundary(init, diagnostics),
+            bsp,
+            placed);
     }
 
     /// <summary>Builds a camera from one of a scene's own viewpoints.</summary>
@@ -380,11 +395,11 @@ public sealed class SceneLoader
         }
     }
 
-    private int PlaceModels(
+    private List<PlacedModel> PlaceModels(
         ISceneSink geometry, SceneAssetFile? asset, SceneDefinition init, DiagnosticBag diagnostics)
     {
         IReadOnlyList<SceneModel> declared = init.Models();
-        int placed = 0;
+        List<PlacedModel> placed = [];
 
         foreach (SceneModel model in declared)
         {
@@ -413,7 +428,14 @@ public sealed class SceneLoader
                 diagnostics);
 
             geometry.Add(parsed);
-            placed++;
+
+            placed.Add(new PlacedModel(
+                model.Name,
+                model.Noun,
+                model.Verb,
+                parsed,
+                Matrix4x4.Identity,
+                PlacedModelKind.Prop));
         }
 
         return placed;
@@ -432,9 +454,10 @@ public sealed class SceneLoader
     /// supposed to be in.
     /// </para>
     /// </remarks>
-    private int PlaceActors(ISceneSink geometry, SceneDefinition init, DiagnosticBag diagnostics)
+    private List<PlacedModel> PlaceActors(
+        ISceneSink geometry, SceneDefinition init, DiagnosticBag diagnostics)
     {
-        int placed = 0;
+        List<PlacedModel> placed = [];
 
         foreach (SceneActor actor in init.Actors().Where(a => !a.Hidden))
         {
@@ -484,14 +507,16 @@ public sealed class SceneLoader
 
             // Heading turns about the up axis; the model's own origin is at its feet, so
             // the position needs no vertical adjustment.
-            geometry.Add(
-                model,
-                Matrix4x4.CreateRotationY(spot.Heading) * Matrix4x4.CreateTranslation(spot.Position));
+            Matrix4x4 placement =
+                Matrix4x4.CreateRotationY(spot.Heading) * Matrix4x4.CreateTranslation(spot.Position);
+
+            geometry.Add(model, placement);
 
             _log?.Invoke(
                 $"actor: {actor.Name} ({actor.Noun}) at {spot.Name}{(actor.IsEgo ? ", ego" : string.Empty)}");
 
-            placed++;
+            placed.Add(new PlacedModel(
+                actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor));
         }
 
         return placed;

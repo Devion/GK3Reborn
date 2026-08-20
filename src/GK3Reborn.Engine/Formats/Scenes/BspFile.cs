@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Formats.Scenes;
@@ -141,6 +141,31 @@ public sealed class BspFile
 
     /// <summary>Total triangles once polygons are fanned.</summary>
     public int TriangleCount => Polygons.Sum(p => Math.Max(0, p.VertexIndexCount - 2));
+
+    /// <summary>Builds a scene from parts already in memory.</summary>
+    /// <remarks>
+    /// For tests and for tools that synthesise geometry. Everything a room needs to answer
+    /// questions about itself — which object a surface belongs to, which polygons make it
+    /// up — is in these seven pieces, and a test that wants a doorway with a hit test in
+    /// front of it should not have to write a BSP file to get one.
+    /// </remarks>
+    /// <param name="name">Name for the produced scene.</param>
+    /// <param name="objectNames">Object names surfaces group under.</param>
+    /// <param name="surfaces">The surfaces.</param>
+    /// <param name="polygons">The polygons.</param>
+    /// <param name="vertices">Shared vertex positions.</param>
+    /// <param name="texCoords">Shared texture coordinates.</param>
+    /// <param name="vertexIndices">Shared index array the polygons slice into.</param>
+    /// <returns>The scene.</returns>
+    public static BspFile FromParts(
+        string name,
+        IReadOnlyList<string> objectNames,
+        IReadOnlyList<BspSurface> surfaces,
+        IReadOnlyList<BspPolygon> polygons,
+        Vector3[] vertices,
+        Vector2[] texCoords,
+        ushort[] vertexIndices) =>
+        new(name, objectNames, surfaces, polygons, vertices, texCoords, vertexIndices);
 
     /// <summary>Parses a scene.</summary>
     /// <param name="data">The asset's bytes.</param>

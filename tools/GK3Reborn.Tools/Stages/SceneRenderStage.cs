@@ -5,6 +5,7 @@ using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Interaction;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Vulkan;
@@ -49,6 +50,10 @@ public sealed class SceneRenderStage
     /// Two points to find a way between, as <c>from:to</c>. Either may be the name of one
     /// of the scene's positions or a pair of world coordinates, <c>x,z</c>.
     /// </param>
+    /// <param name="pick">
+    /// A pixel to report what is under, as <c>x,y</c> from the top-left of the image.
+    /// </param>
+    /// <param name="nounMap">Where to write a map of what is clickable, if anywhere.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -62,6 +67,8 @@ public sealed class SceneRenderStage
         int height,
         bool walkOverlay,
         string? walkPath,
+        string? pick,
+        string? nounMap,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -146,6 +153,16 @@ public sealed class SceneRenderStage
             _log($"ray tracing {renderer.Quality}: {geometry.TraceableTriangleCount} opaque " +
                  $"triangles traced, {settings.ShadowLights} shadowed lights at " +
                  $"{settings.ShadowSamples} ray(s), {settings.AmbientOcclusionRays} occlusion rays");
+        }
+
+        if (pick is { Length: > 0 })
+        {
+            ReportPick(scene, camera, pick, width, height, diagnostics);
+        }
+
+        if (nounMap is { Length: > 0 })
+        {
+            WriteNounMap(scene, camera, width, height, nounMap);
         }
 
         DecodedImage image = renderer.Render(geometry, width, height, camera);
@@ -286,5 +303,190 @@ public sealed class SceneRenderStage
             float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
             ? new Vector3(x, 0f, z)
             : null;
+    }
+
+    /// <summary>Says what a pixel of the render is looking at.</summary>
+    private void ReportPick(
+        LoadedScene scene,
+        Camera camera,
+        string request,
+        int width,
+        int height,
+        DiagnosticBag diagnostics)
+    {
+        string[] parts = request.Split(',');
+
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int x) ||
+            !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int y))
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE013",
+                DiagnosticSeverity.Error,
+                $"Cannot read '{request}' as a pixel. Give it as x,y from the top-left of " +
+                "the image."));
+
+            return;
+        }
+
+        var picker = new ScenePicker(scene);
+
+        if (picker.Pick(camera, x, y, width, height) is not { } hit)
+        {
+            _log($"pick ({x}, {y}): nothing, the ray leaves the room");
+            return;
+        }
+
+        string noun = hit.Noun is { Length: > 0 } named ? named : "no noun, scenery";
+        string verb = hit.Verb is { Length: > 0 } does ? $", verb {does}" : string.Empty;
+
+        _log(string.Create(
+            CultureInfo.InvariantCulture,
+            $"pick ({x}, {y}): {hit.Name} [{hit.Kind}] {noun}{verb} at {hit.Distance:F1} " +
+            $"units, ({hit.Point.X:F1}, {hit.Point.Y:F1}, {hit.Point.Z:F1})"));
+    }
+
+    /// <summary>Draws what the player could click, one colour per noun.</summary>
+    /// <remarks>
+    /// The overlay validation the phase asks for, and the only kind that works here. Much
+    /// of what a click can land on is never drawn — a hit test is a slab across a doorway
+    /// with its visibility switched off — so comparing the render against the original
+    /// says nothing about whether the doorway can be clicked. This casts the same ray the
+    /// game would through every pixel and colours it by what answered, which puts the
+    /// invisible geometry on screen beside the visible.
+    /// </remarks>
+    private void WriteNounMap(
+        LoadedScene scene, Camera camera, int width, int height, string path)
+    {
+        var picker = new ScenePicker(scene);
+
+        // A quarter of each axis. A ray per pixel of a full render is sixteen times the
+        // work for a picture whose smallest feature is a doorway, and the result is scaled
+        // back up so it can be laid beside the render it belongs to.
+        const int Coarseness = 4;
+
+        int columns = Math.Max(1, width / Coarseness);
+        int rows = Math.Max(1, height / Coarseness);
+
+        string?[] nouns = new string?[columns * rows];
+        Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<PickKind, int> kinds = [];
+        int clickable = 0;
+
+        for (int row = 0; row < rows; row++)
+        {
+            for (int column = 0; column < columns; column++)
+            {
+                if (picker.Pick(camera, column, row, columns, rows) is not { } hit)
+                {
+                    continue;
+                }
+
+                if (hit.Noun is not { Length: > 0 } noun)
+                {
+                    nouns[(row * columns) + column] = string.Empty;
+                    continue;
+                }
+
+                nouns[(row * columns) + column] = noun;
+                counts[noun] = counts.GetValueOrDefault(noun) + 1;
+                kinds[hit.Kind] = kinds.GetValueOrDefault(hit.Kind) + 1;
+                clickable++;
+            }
+        }
+
+        byte[] pixels = new byte[width * height * 4];
+
+        for (int y = 0; y < height; y++)
+        {
+            int row = Math.Min(rows - 1, y * rows / height);
+
+            for (int x = 0; x < width; x++)
+            {
+                int column = Math.Min(columns - 1, x * columns / width);
+                (byte r, byte g, byte b) = ColourFor(nouns[(row * columns) + column]);
+
+                int at = ((y * width) + x) * 4;
+                pixels[at] = r;
+                pixels[at + 1] = g;
+                pixels[at + 2] = b;
+                pixels[at + 3] = 255;
+            }
+        }
+
+        string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (directory is not null)
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllBytes(
+            path, PngWriter.Encode(new DecodedImage(width, height, pixels, false, "noun-map")));
+
+        _log($"noun map: {picker.TargetCount} things the ray can meet, {counts.Count} nouns " +
+             $"over {clickable * 100 / Math.Max(1, columns * rows)}% of the view");
+
+        // Which kinds answered matters as much as which nouns did: a hit test that never
+        // comes back is one the player cannot click, and it is invisible in the render.
+        _log("  from " + string.Join(
+            ", ",
+            kinds.OrderByDescending(p => p.Value)
+                .Select(p => $"{p.Value * 100 / Math.Max(1, clickable)}% {p.Key}")));
+
+        foreach ((string noun, int count) in counts.OrderByDescending(p => p.Value).Take(12))
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {noun}: {count * 100f / (columns * rows):F1}%"));
+        }
+
+        _log($"wrote {path}");
+    }
+
+    /// <summary>A stable colour for a noun.</summary>
+    /// <remarks>
+    /// Black is nothing, dark grey is scenery with no noun, and everything else gets a
+    /// saturated colour derived from its own letters — so the same door is the same colour
+    /// in every render, and two objects side by side are seldom the same colour by chance.
+    /// </remarks>
+    private static (byte R, byte G, byte B) ColourFor(string? noun)
+    {
+        if (noun is null)
+        {
+            return (0, 0, 0);
+        }
+
+        if (noun.Length == 0)
+        {
+            return (48, 48, 52);
+        }
+
+        uint hash = 2166136261;
+
+        foreach (char letter in noun.ToUpperInvariant())
+        {
+            hash = (hash ^ letter) * 16777619;
+        }
+
+        // Around the hue circle, kept bright so the map reads as a diagram rather than as
+        // a picture. Saturation carries a second slice of the hash: hue alone puts two of
+        // R25's nouns within a few degrees of each other, and a map whose whole job is to
+        // tell objects apart cannot afford that.
+        float hue = (hash % 360) / 60f;
+        float fraction = hue - MathF.Floor(hue);
+        const byte High = 245;
+        byte low = (byte)(40 + (((hash >> 16) % 3) * 70));
+        byte rising = (byte)(low + ((High - low) * fraction));
+        byte falling = (byte)(High - ((High - low) * fraction));
+
+        return (int)hue switch
+        {
+            0 => (High, rising, low),
+            1 => (falling, High, low),
+            2 => (low, High, rising),
+            3 => (low, falling, High),
+            4 => (rising, low, High),
+            _ => (High, low, falling),
+        };
     }
 }

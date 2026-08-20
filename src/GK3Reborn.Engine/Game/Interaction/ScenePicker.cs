@@ -1,0 +1,433 @@
+using System.Numerics;
+using GK3Reborn.Formats.Models;
+using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Rendering;
+
+namespace GK3Reborn.Game.Interaction;
+
+/// <summary>What sort of thing a ray landed on.</summary>
+public enum PickKind
+{
+    /// <summary>An object baked into the room's geometry — a wall, a door, a stair.</summary>
+    Geometry,
+
+    /// <summary>A volume in the geometry that is never drawn but can still be clicked.</summary>
+    HitTest,
+
+    /// <summary>A prop, loaded from its own model file.</summary>
+    Prop,
+
+    /// <summary>A character.</summary>
+    Actor,
+}
+
+/// <summary>
+/// What a ray into the scene found.
+/// </summary>
+/// <remarks>
+/// A pick is always reported, even when the thing hit answers to nothing. Most of a room
+/// is wallpaper with no noun, and that wallpaper still <em>blocks</em>: the difference
+/// between clicking a wall and clicking a door hidden behind it is the whole point of
+/// casting a ray rather than testing bounding boxes.
+/// </remarks>
+/// <param name="Name">Name of the thing hit — a BSP object name or a model name.</param>
+/// <param name="Noun">What the scene calls it, or null when the scene names it nothing.</param>
+/// <param name="Verb">The verb a click does by default, if the scene names one.</param>
+/// <param name="Distance">How far along the ray the hit is, in scene units.</param>
+/// <param name="Point">Where the ray met it, in world space.</param>
+/// <param name="Kind">What sort of thing it is.</param>
+public readonly record struct ScenePick(
+    string Name,
+    string? Noun,
+    string? Verb,
+    float Distance,
+    Vector3 Point,
+    PickKind Kind)
+{
+    /// <summary>Whether the player can do anything to it.</summary>
+    /// <remarks>
+    /// A noun is the whole test, as it is in the original: an object the player can name is
+    /// an object the player can act on, and everything else is scenery.
+    /// </remarks>
+    public bool IsInteractive => Noun is { Length: > 0 };
+}
+
+/// <summary>
+/// Answers what is under a point on the screen.
+/// </summary>
+/// <remarks>
+/// <para>
+/// GK3 puts nearly everything clickable inside the room's own geometry. A door, a drawer,
+/// a notice board are objects in the BSP that the initialisation file names — <c>model=</c>
+/// with a <c>noun=</c> — and the handful of things that are not, the props and the people,
+/// are separate models standing in it. So resolving a click means casting one ray at the
+/// geometry and at the placed models together and keeping whichever it reaches first.
+/// </para>
+/// <para>
+/// Some clickable things are not drawn at all. A <c>hittest</c> is ordinary geometry with
+/// an ordinary texture that the scene marks invisible: a slab across a doorway, a box over
+/// the area a note occupies on a desk, giving the player something forgiving to aim at.
+/// They are in the ray's world even though they are not in the picture, which is why a
+/// picture is not enough to check this against — hence the noun map.
+/// </para>
+/// <para>
+/// Hidden objects are the opposite: a <c>scene</c> or <c>hittest</c> model the story has
+/// switched off is not merely undrawn, it is not there. The ray passes through it and hits
+/// whatever stands behind, exactly as the original does by clearing the interactive flag on
+/// those surfaces.
+/// </para>
+/// </remarks>
+public sealed class ScenePicker
+{
+    private readonly List<Target> _targets = [];
+
+    /// <summary>Builds a picker for a loaded scene.</summary>
+    /// <param name="scene">The scene, with its geometry and its placed models.</param>
+    /// <remarks>
+    /// The triangles are gathered once and kept in world space, grouped by object with a
+    /// box around each. A room is fifteen thousand triangles and a click has to be answered
+    /// between two frames; the box rejects nearly all of them before any arithmetic that
+    /// matters happens.
+    /// </remarks>
+    public ScenePicker(LoadedScene scene)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+
+        if (scene.Geometry is { } bsp)
+        {
+            AddGeometry(bsp, scene.Definition);
+        }
+
+        foreach (PlacedModel placed in scene.Models)
+        {
+            AddModel(placed);
+        }
+    }
+
+    /// <summary>How many separately nameable things the ray can meet.</summary>
+    public int TargetCount => _targets.Count;
+
+    /// <summary>Casts a ray into the scene.</summary>
+    /// <param name="ray">Where from and which way.</param>
+    /// <returns>The nearest thing it met, or null if it met nothing.</returns>
+    public ScenePick? Pick(Ray ray)
+    {
+        ScenePick? nearest = null;
+        float best = float.MaxValue;
+
+        foreach (Target target in _targets)
+        {
+            if (!MeetsBox(ray, target.Minimum, target.Maximum, best))
+            {
+                continue;
+            }
+
+            if (Nearest(ray, target, best) is not { } distance)
+            {
+                continue;
+            }
+
+            best = distance;
+
+            nearest = new ScenePick(
+                target.Name, target.Noun, target.Verb, distance, ray.At(distance), target.Kind);
+        }
+
+        return nearest;
+    }
+
+    /// <summary>Casts a ray through a pixel of a rendered image.</summary>
+    /// <param name="camera">The camera the image was rendered from.</param>
+    /// <param name="x">Column, from the left edge.</param>
+    /// <param name="y">Row, from the top edge.</param>
+    /// <param name="width">Image width in pixels.</param>
+    /// <param name="height">Image height in pixels.</param>
+    /// <returns>The nearest thing under that pixel, or null.</returns>
+    public ScenePick? Pick(Camera camera, int x, int y, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        return Pick(camera.RayThrough(x, y, width, height));
+    }
+
+    /// <summary>Gathers the room's own geometry, one target per named object.</summary>
+    private void AddGeometry(BspFile bsp, SceneDefinition definition)
+    {
+        Dictionary<string, SceneModel> declared = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (SceneModel model in definition.Models())
+        {
+            declared[model.Name] = model;
+        }
+
+        Dictionary<int, List<Vector3>> byObject = [];
+
+        foreach (BspPolygon polygon in bsp.Polygons)
+        {
+            if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= bsp.Surfaces.Count)
+            {
+                continue;
+            }
+
+            int objectIndex = bsp.Surfaces[polygon.SurfaceIndex].ObjectIndex;
+
+            if (objectIndex < 0 || objectIndex >= bsp.ObjectNames.Count)
+            {
+                continue;
+            }
+
+            if (!byObject.TryGetValue(objectIndex, out List<Vector3>? triangles))
+            {
+                triangles = [];
+                byObject[objectIndex] = triangles;
+            }
+
+            foreach ((ushort a, ushort b, ushort c) in bsp.Triangulate(polygon))
+            {
+                triangles.Add(bsp.Vertices[a]);
+                triangles.Add(bsp.Vertices[b]);
+                triangles.Add(bsp.Vertices[c]);
+            }
+        }
+
+        foreach ((int objectIndex, List<Vector3> triangles) in byObject.OrderBy(p => p.Key))
+        {
+            string name = bsp.ObjectNames[objectIndex];
+            declared.TryGetValue(name, out SceneModel? model);
+
+            // A model the story has switched off is not there at all, so the ray goes
+            // through it. Props are excluded here for a different reason: a prop line names
+            // a file to load and stand in the room, not an object already inside the BSP,
+            // and the model itself is picked separately.
+            if (model is { Hidden: true } || (model is not null && IsProp(model)))
+            {
+                continue;
+            }
+
+            _targets.Add(new Target(
+                name,
+                NounOf(model),
+                model?.Verb,
+                IsHitTest(model) ? PickKind.HitTest : PickKind.Geometry,
+                [.. triangles],
+                FrontFacingOnly: true));
+        }
+    }
+
+    /// <summary>Gathers one placed prop or actor, in world space.</summary>
+    private void AddModel(PlacedModel placed)
+    {
+        List<Vector3> triangles = [];
+
+        foreach (ModMesh mesh in placed.Model.Meshes)
+        {
+            Matrix4x4 toWorld = mesh.MeshToLocal * placed.Transform;
+
+            foreach (ModSubmesh submesh in mesh.Submeshes)
+            {
+                for (int i = 0; i + 2 < submesh.Indices.Length; i += 3)
+                {
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i]], toWorld));
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 1]], toWorld));
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 2]], toWorld));
+                }
+            }
+        }
+
+        if (triangles.Count == 0)
+        {
+            return;
+        }
+
+        // Both faces, unlike the room. A room is a box seen from the inside and its far
+        // wall's outer face is never what you clicked; a model is a closed shell whose
+        // winding is the modeller's business, and rejecting its back faces loses picks on
+        // anything authored inside out.
+        _targets.Add(new Target(
+            placed.Name,
+            placed.Noun,
+            placed.Verb,
+            placed.Kind == PlacedModelKind.Actor ? PickKind.Actor : PickKind.Prop,
+            [.. triangles],
+            FrontFacingOnly: false));
+    }
+
+    /// <summary>The noun an object answers to, if it answers to one.</summary>
+    /// <remarks>
+    /// <c>noclick</c> is drawn and solid but never named, so a click on it lands on
+    /// scenery. One object in the corpus is declared that way — TE3's floor — and it is
+    /// the floor, which the player is meant to walk on rather than talk to.
+    /// </remarks>
+    private static string? NounOf(SceneModel? model) =>
+        model is null || IsNoClick(model) ? null : model.Noun;
+
+    private static bool IsHitTest(SceneModel? model) =>
+        string.Equals(model?.Type, "hittest", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsNoClick(SceneModel model) =>
+        string.Equals(model.Type, "noclick", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsProp(SceneModel model) =>
+        string.Equals(model.Type, "prop", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The nearest hit on one target, if the ray reaches it at all.</summary>
+    private static float? Nearest(Ray ray, Target target, float limit)
+    {
+        Vector3[] triangles = target.Triangles;
+        float? best = null;
+
+        for (int i = 0; i + 2 < triangles.Length; i += 3)
+        {
+            Vector3 a = triangles[i];
+            Vector3 b = triangles[i + 1];
+            Vector3 c = triangles[i + 2];
+
+            if (target.FrontFacingOnly &&
+                Vector3.Dot(ray.Direction, Vector3.Cross(b - a, c - a)) >= 0f)
+            {
+                continue;
+            }
+
+            if (Meets(ray, a, b, c) is { } distance && distance < (best ?? limit))
+            {
+                best = distance;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Möller–Trumbore, without the culling: the caller decides about faces.</summary>
+    private static float? Meets(Ray ray, Vector3 a, Vector3 b, Vector3 c)
+    {
+        const float epsilon = 1e-7f;
+
+        Vector3 ab = b - a;
+        Vector3 ac = c - a;
+        Vector3 across = Vector3.Cross(ray.Direction, ac);
+        float determinant = Vector3.Dot(ab, across);
+
+        if (MathF.Abs(determinant) < epsilon)
+        {
+            return null;
+        }
+
+        float inverse = 1f / determinant;
+        Vector3 toA = ray.Origin - a;
+        float u = Vector3.Dot(toA, across) * inverse;
+
+        if (u is < 0f or > 1f)
+        {
+            return null;
+        }
+
+        Vector3 along = Vector3.Cross(toA, ab);
+        float v = Vector3.Dot(ray.Direction, along) * inverse;
+
+        if (v < 0f || u + v > 1f)
+        {
+            return null;
+        }
+
+        float distance = Vector3.Dot(ac, along) * inverse;
+
+        return distance > epsilon ? distance : null;
+    }
+
+    /// <summary>Whether the ray enters a box before a distance it has already beaten.</summary>
+    private static bool MeetsBox(Ray ray, Vector3 minimum, Vector3 maximum, float limit)
+    {
+        float near = 0f;
+        float far = limit;
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            float direction = Component(ray.Direction, axis);
+            float origin = Component(ray.Origin, axis);
+            float low = Component(minimum, axis);
+            float high = Component(maximum, axis);
+
+            if (MathF.Abs(direction) < 1e-9f)
+            {
+                if (origin < low || origin > high)
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            float inverse = 1f / direction;
+            float first = (low - origin) * inverse;
+            float second = (high - origin) * inverse;
+
+            if (first > second)
+            {
+                (first, second) = (second, first);
+            }
+
+            near = MathF.Max(near, first);
+            far = MathF.Min(far, second);
+
+            if (near > far)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static float Component(Vector3 vector, int axis) =>
+        axis switch { 0 => vector.X, 1 => vector.Y, _ => vector.Z };
+
+    /// <summary>One nameable thing, with its triangles in world space.</summary>
+    private sealed record Target
+    {
+        public Target(
+            string name,
+            string? noun,
+            string? verb,
+            PickKind kind,
+            Vector3[] triangles,
+            bool FrontFacingOnly)
+        {
+            Name = name;
+            Noun = noun;
+            Verb = verb;
+            Kind = kind;
+            Triangles = triangles;
+            this.FrontFacingOnly = FrontFacingOnly;
+
+            Vector3 minimum = new(float.MaxValue);
+            Vector3 maximum = new(float.MinValue);
+
+            foreach (Vector3 vertex in triangles)
+            {
+                minimum = Vector3.Min(minimum, vertex);
+                maximum = Vector3.Max(maximum, vertex);
+            }
+
+            // A hair of slack, so a box around a wall with no thickness still has volume
+            // for the slab test to work with.
+            Minimum = minimum - new Vector3(0.01f);
+            Maximum = maximum + new Vector3(0.01f);
+        }
+
+        public string Name { get; }
+
+        public string? Noun { get; }
+
+        public string? Verb { get; }
+
+        public PickKind Kind { get; }
+
+        public Vector3[] Triangles { get; }
+
+        public bool FrontFacingOnly { get; }
+
+        public Vector3 Minimum { get; }
+
+        public Vector3 Maximum { get; }
+    }
+}

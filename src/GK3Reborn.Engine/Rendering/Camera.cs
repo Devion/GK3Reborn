@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 
 namespace GK3Reborn.Rendering;
 
@@ -69,6 +69,38 @@ public sealed class Camera
         // Flip Y for Vulkan's clip space.
         projection.M22 *= -1;
         return projection;
+    }
+
+    /// <summary>The ray a pixel of the rendered image looks along.</summary>
+    /// <param name="x">Column, from the left edge of the image.</param>
+    /// <param name="y">Row, from the top edge of the image.</param>
+    /// <param name="width">Image width in pixels.</param>
+    /// <param name="height">Image height in pixels.</param>
+    /// <returns>A ray from the camera through the middle of that pixel.</returns>
+    /// <remarks>
+    /// The basis is the left-handed one the view matrix uses — screen right is
+    /// <c>cross(up, forward)</c>, not the other way about — so a ray built here lands on
+    /// what the pixel actually shows rather than on its mirror image. The Y flip the
+    /// projection carries for Vulkan's clip space does not appear here: this works in view
+    /// space, where up is up, and the row is counted from the top because that is how an
+    /// image is indexed and where a mouse position comes from.
+    /// </remarks>
+    public Ray RayThrough(int x, int y, int width, int height)
+    {
+        Vector3 forward = Vector3.Normalize(Target - Position);
+        Vector3 right = Vector3.Normalize(Vector3.Cross(Up, forward));
+        Vector3 up = Vector3.Cross(forward, right);
+
+        float extent = MathF.Tan(FieldOfView * 0.5f);
+        float aspect = height > 0 ? (float)width / height : 1f;
+
+        float across = width > 0 ? ((2f * (x + 0.5f)) / width) - 1f : 0f;
+        float rise = height > 0 ? 1f - ((2f * (y + 0.5f)) / height) : 0f;
+
+        return new Ray(
+            Position,
+            Vector3.Normalize(
+                forward + (right * (across * extent * aspect)) + (up * (rise * extent))));
     }
 
     /// <summary>Places a camera so that a bounding box fills the view.</summary>
