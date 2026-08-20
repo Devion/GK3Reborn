@@ -75,12 +75,28 @@ public sealed partial class NvcFile
     /// Cases the engine answers itself rather than reading from a file.
     /// </summary>
     /// <remarks>
-    /// <c>ALL</c> always applies. The others depend on who the player currently is, which
-    /// matters because GK3 switches between Gabriel and Grace.
+    /// <para>
+    /// <c>ALL</c> always applies. <c>GABE_ALL</c> and the rest depend on who the player
+    /// currently is, which matters because GK3 switches between Gabriel and Grace. The
+    /// <c>_TIME</c> family counts how often the player has already done this to this, and
+    /// the two <c>DIALOGUE_TOPICS_LEFT</c> forms ask whether there is anything left to say.
+    /// </para>
+    /// <para>
+    /// <c>TIME_BLOCK</c> and <c>TIME_BLOCK_OVERRIDE</c> are simply true. They mark an
+    /// action a timeblock's own file writes to override one the location's general file
+    /// gives, and the second outranks the first where both could apply. Missing them is
+    /// expensive and silent: <c>TIME_BLOCK_OVERRIDE</c> is used by 90 of the corpus's
+    /// action files and written into the logic section of exactly one, so treating it as
+    /// an undefined case takes 918 actions out of the game.
+    /// </para>
     /// </remarks>
     public static IReadOnlySet<string> BuiltInCases { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "ALL", "GABE_ALL", "GRACE_ALL", "DEFAULT", "NOT_GABE_ALL", "NOT_GRACE_ALL",
+        "TIME_BLOCK", "TIME_BLOCK_OVERRIDE",
+        "1ST_TIME", "2CD_TIME", "2ND_TIME", "3RD_TIME", "OTR_TIME",
+        "DIALOGUE_TOPICS_LEFT", "NOT_DIALOGUE_TOPICS_LEFT",
+        "EGG",
     };
 
     /// <summary>Parses an action file.</summary>
@@ -125,7 +141,19 @@ public sealed partial class NvcFile
                 }
 
                 string caseName = line[..equals].Trim();
-                string expression = line[(equals + 1)..].Trim().Trim('{', '}').Trim();
+
+                // The braces are the field, not the expression. The semicolon inside them
+                // is a statement terminator the original's compiler tolerates because it
+                // compiles the case as a snippet of Sheep; read as an expression it is
+                // trailing rubbish, and three cases in the corpus are written that way —
+                // LBY110A02P's {!DoesEgoHaveInvItem("Candy");} among them.
+                string expression = line[(equals + 1)..]
+                    .Trim()
+                    .Trim('{', '}')
+                    .Trim()
+                    .TrimEnd(';')
+                    .Trim();
+
                 cases[caseName] = expression;
                 continue;
             }

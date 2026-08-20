@@ -24,9 +24,32 @@ The script field contains commas and braces, so it has to be lifted out before t
 of the line is split. `approach` says how the actor gets into position — `WalkTo`,
 `WalkToSee`, `ANIM` — and `target` says where.
 
-Built-in cases the engine answers itself: `ALL`, `DEFAULT`, and the ego-specific
-`GABE_ALL`, `GRACE_ALL` and their negations, which matter because GK3 switches between
-Gabriel and Grace.
+Cases the engine answers itself, rather than reading them from a `[LOGIC]` section:
+
+| case | holds when |
+| --- | --- |
+| `ALL`, `DEFAULT` | always |
+| `GABE_ALL`, `GRACE_ALL`, `NOT_GABE_ALL`, `NOT_GRACE_ALL` | the player is (or is not) that character — GK3 switches between Gabriel and Grace |
+| `TIME_BLOCK`, `TIME_BLOCK_OVERRIDE` | always; they mark an action a timeblock's file writes over one the location's general file gives, the second outranking the first |
+| `1ST_TIME`, `2CD_TIME`/`2ND_TIME`, `3RD_TIME`, `OTR_TIME` | the player has done this to this 0, 1, 2, or more than 0 times |
+| `DIALOGUE_TOPICS_LEFT`, `NOT_DIALOGUE_TOPICS_LEFT` | there is (or is not) a `T_` verb for the noun still to be raised |
+| `EGG` | never — easter eggs are off, as in the original |
+
+Missing one of these is expensive and silent, because an unrecognised case is treated
+as unavailable and the action simply leaves the game. `TIME_BLOCK_OVERRIDE` is used by
+90 of the corpus's action files and written into the logic section of exactly one, so
+before it was recognised, `check-scenes` counted **918** actions naming a case nothing
+defined; afterwards, 78, and 448 more verbs available across the corpus.
+
+Those 78 are the game's own typos. `CHU_ALL.NVC` asks for `G_DONE_PISCES_NOT_ARIES`
+and defines `GOT_LSR_DONE_PISCES_NOT_ARIES`; the action never fires in the original
+either.
+
+The case is the text between the braces, and the braces are the field rather than the
+expression — three cases in the corpus end in a semicolon inside them, such as
+`LBY110A02P.NVC`'s `{!DoesEgoHaveInvItem("Candy");}`. The original tolerates it because
+it compiles a case as a snippet of Sheep rather than reading it as an expression, so
+the terminator comes off before the expression reader sees it.
 
 ## Verbs are not all verbs
 
@@ -84,6 +107,13 @@ Without the last two most objects have no `LOOK`, because looking at things is a
 about the game rather than about the room. R25 on the second afternoon reads eleven
 files: `r25202p.nvc`, then `r25_all`, `r25_23all`, `r25_2all`, `r25_12all`, then
 `GLB_ALL`, `GLB_23ALL`, `GLB202P`, `INV_ALL`, `INV_23ALL`, `INV202P`.
+
+Two things a sweep of the corpus finds in the listings themselves. 21 pairs list an
+action file no archive contains — `arm_202p.nvc` among them (`SCENE014`). And
+`MA2207A.SIF` lists `ma2207a.sif` in its own `[ACTIONS]` section, meaning the `.nvc`
+beside it; anything not named `.nvc` is skipped rather than read as one, because a
+scene file read as an action file would put invented nouns and verbs into scope
+(`SCENE018`).
 
 **The name is the condition.** `TimeblockRange` reads it, following G-Engine's
 `Timeblock::ParseTimeblockRange`: three letters of location, an optional underscore,

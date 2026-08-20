@@ -133,6 +133,26 @@ public sealed class ActionResolver
                 "GRACE_ALL" => !IsGabriel(ego),
                 "NOT_GABE_ALL" => !IsGabriel(ego),
                 "NOT_GRACE_ALL" => IsGabriel(ego),
+
+                // An action a timeblock's file writes over one the location's general file
+                // gives. Always available; the OVERRIDE form outranks the plain one where
+                // both could apply, which matters only once anything ranks them.
+                "TIME_BLOCK" or "TIME_BLOCK_OVERRIDE" => true,
+
+                // How often the player has already done this to this. The counts live in
+                // the story's state and are reached through the same host the conditions
+                // are, so a resolver never needs to know what kind of game it is in.
+                "1ST_TIME" => Done(noun, verb) == 0,
+                "2CD_TIME" or "2ND_TIME" => Done(noun, verb) == 1,
+                "3RD_TIME" => Done(noun, verb) == 2,
+                "OTR_TIME" => Done(noun, verb) > 0,
+
+                "DIALOGUE_TOPICS_LEFT" => HasTopicsLeft(noun, ego),
+                "NOT_DIALOGUE_TOPICS_LEFT" => !HasTopicsLeft(noun, ego),
+
+                // Easter eggs are off. The original has the same placeholder.
+                "EGG" => false,
+
                 _ => true,
             };
         }
@@ -179,6 +199,73 @@ public sealed class ActionResolver
 
     private static bool IsGabriel(string ego) =>
         ego.StartsWith("GAB", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>How often the player has already done this to this.</summary>
+    /// <remarks>
+    /// Asked of the host rather than of a game state this class does not have, which is the
+    /// same route the file's own conditions take when they write
+    /// <c>GetNounVerbCount("BLOOD_POOL","LOOK")</c>. A host that does not implement it
+    /// answers zero, and every count-based case then reads as the first time — which is
+    /// what an unplayed game should look like anyway.
+    /// </remarks>
+    private int Done(string noun, string verb)
+    {
+        try
+        {
+            return _api.Invoke(
+                "GetNounVerbCount",
+                [SheepValue.FromString(noun), SheepValue.FromString(verb)]).AsInt();
+        }
+        catch (FormatParseException ex)
+        {
+            Diagnostics.Add(ex.Diagnostic);
+            return 0;
+        }
+    }
+
+    /// <summary>Whether anything is left to say to someone.</summary>
+    /// <remarks>
+    /// <para>
+    /// A topic is a verb: dialogue is written as actions whose verbs are named
+    /// <c>T_SOMETHING</c>, so "are there topics left" is "is there a <c>T_</c> action for
+    /// this noun whose case holds and which has not been used up". The original tracks the
+    /// topics played this conversation; this reads the count the story keeps, which says
+    /// the same thing for everything except a topic said twice in one sitting.
+    /// </para>
+    /// <para>
+    /// Topic cases are not consulted recursively. A topic whose own case is
+    /// <c>DIALOGUE_TOPICS_LEFT</c> would ask this question to answer this question, and
+    /// the original does not define what that means either.
+    /// </para>
+    /// </remarks>
+    private bool HasTopicsLeft(string noun, string ego)
+    {
+        foreach (NvcFile file in _files)
+        {
+            foreach (NvcAction action in file.Actions)
+            {
+                if (!action.Verb.StartsWith("T_", StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (action.Case.StartsWith("DIALOGUE_TOPICS_LEFT", StringComparison.OrdinalIgnoreCase) ||
+                    action.Case.StartsWith("NOT_DIALOGUE_TOPICS_LEFT", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (Done(noun, action.Verb) == 0 &&
+                    IsCaseSatisfied(file, action.Case, ego, noun, action.Verb))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Classifies a verb for presentation.

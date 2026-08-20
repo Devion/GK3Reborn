@@ -303,7 +303,8 @@ The baseline, which is what a regression shows up against:
 - **1,292** load a walk boundary, over **78** distinct bitmaps, all present and
   decoding. Only `DU1`, `DU2` and `MA2` declare none — the dumbwaiter shafts are
   ridden rather than walked.
-- 845 name a soundtrack; 19,651 nouns hang on their objects.
+- 845 name a soundtrack; 19,651 nouns hang on their objects, with 24,126 verbs
+  available across the ones the action files know.
 - **1,315 of 1,343 load their geometry**: 14.5M triangles, 52,464 named objects,
   90,314 textures, 63,270 things a click can land on. The other 28 have no geometry at
   that point in the story, which is the story rather than a fault — `ARM` names its

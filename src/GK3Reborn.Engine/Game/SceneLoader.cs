@@ -636,6 +636,20 @@ public sealed class SceneLoader
 
         foreach (string name in names)
         {
+            // MA2207A.SIF lists "ma2207a.sif" in its own [ACTIONS] section, meaning the
+            // .nvc beside it. Read as an action file a scene file is nonsense, and the
+            // nonsense is not harmless: it would put invented nouns and verbs into scope.
+            if (!name.EndsWith(".nvc", StringComparison.OrdinalIgnoreCase))
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE018",
+                    DiagnosticSeverity.Warning,
+                    $"The scene lists {name} as an action file, which is not one; " +
+                    "it is skipped, and whatever it allows cannot be done."));
+
+                continue;
+            }
+
             string? text = _archives.ReadText(name);
 
             if (text is null)
