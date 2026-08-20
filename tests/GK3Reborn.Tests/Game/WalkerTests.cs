@@ -226,6 +226,25 @@ public sealed class WalkerTests
     }
 
     [Fact]
+    public void Asking_how_far_is_left_during_the_arrival_turn_is_not_an_error()
+    {
+        // Walking covers the turn at the end, which has no distance in it, so the route is
+        // already exhausted while the walk is still running. Reported as a crash.
+        var walker = new Walker(
+            "GABRIEL",
+            Route(new Vector3(0, 0, 10)),
+            Vector3.Zero,
+            facing: 0f,
+            arriveFacing: MathF.PI / 2);
+
+        walker.Advance(0.2f);
+
+        Assert.True(walker.Walking, "the turn should still be running");
+        Assert.Equal(0f, walker.Remaining);
+        Assert.Equal(0.0, walker.Seconds, 6);
+    }
+
+    [Fact]
     public void Stopping_leaves_the_actor_where_they_stand()
     {
         Walker walker = Walking(new Vector3(1000, 0, 0));

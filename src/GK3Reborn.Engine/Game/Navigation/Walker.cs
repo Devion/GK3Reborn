@@ -148,7 +148,9 @@ public sealed class Walker
     {
         get
         {
-            if (!Walking)
+            // Walking now covers the turn at the end, which has no distance in it. Asking
+            // how far is left once the corners are done used to index past the last one.
+            if (_at >= _route.Count)
             {
                 return 0;
             }
