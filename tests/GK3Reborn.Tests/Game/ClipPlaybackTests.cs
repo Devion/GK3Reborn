@@ -47,6 +47,8 @@ public sealed class ClipPlaybackTests
 
         public void AddTexture(string name, DecodedImage image) => _inner.AddTexture(name, image);
 
+        public bool HasTexture(string name) => false;
+
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,

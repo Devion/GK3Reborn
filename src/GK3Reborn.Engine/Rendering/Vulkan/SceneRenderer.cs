@@ -103,7 +103,12 @@ public sealed unsafe class SceneRenderer : IDisposable
 
     /// <summary>Creates geometry this renderer can draw.</summary>
     /// <returns>Empty scene geometry.</returns>
-    public SceneGeometry CreateGeometry() => SceneGeometry.Create(_context, _pipeline);
+    public SceneGeometry CreateGeometry() =>
+        SceneGeometry.Create(_context, _pipeline, Textures);
+
+    /// <summary>The textures the device holds, shared by every scene this renderer draws.</summary>
+    public TextureCache Textures =>
+        field ??= new TextureCache(_context, SceneGeometry.CheckerBoard());
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>

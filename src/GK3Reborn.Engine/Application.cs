@@ -199,6 +199,7 @@ public static class Application
         // itself knows how to do.
         while (true)
         {
+            var building = Stopwatch.StartNew();
             using SceneGeometry geometry = renderer.CreateGeometry();
 
             // A fresh loader each time: it carries the last room's glances and its count of
@@ -217,6 +218,12 @@ public static class Application
                         : $"Enhanced textures: none found in {enhancedDirectory}");
                 }
             }
+
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  geometry ready after {building.Elapsed.TotalMilliseconds:F0} ms"));
+
+            var loading = Stopwatch.StartNew();
 
             if (loader.Load(geometry, request, diagnostics) is not { } scene)
             {
@@ -239,6 +246,11 @@ public static class Application
                       + "triangles traced)"
                     : "Ray tracing: unavailable on this device");
             }
+
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Loaded {scene.Name} in {loading.Elapsed.TotalMilliseconds:F0} ms, " +
+                $"{geometry.TextureCount} textures resident, {geometry.TexturesReused} reused"));
 
             Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
                 + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"
@@ -285,6 +297,16 @@ public static class Application
             {
                 Opening(args, api, scene);
             }
+            else if (Option(args, "--then")?.Split(':') is [string n, string v] &&
+                     scene.Actions?.Find(n.Trim(), v.Trim()) is { } follow)
+            {
+                // The same as --do, in the second room. It exists to measure a second
+                // transition — and a return trip is the one that shows what the texture
+                // cache is worth — without needing a mouse.
+                new ActionRunner(api).Run(follow);
+
+                Console.WriteLine($"Then {n.Trim()}:{v.Trim()} [{follow.Case}]");
+            }
 
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
@@ -299,8 +321,14 @@ public static class Application
 
             // The geometry is about to go. Frames are still in flight reading its buffers,
             // and freeing those underneath the device is a crash somewhere else entirely.
+            var leaving = Stopwatch.StartNew();
+
             renderer.SetScene(null, null);
             renderer.Idle();
+
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  device idle after {leaving.Elapsed.TotalMilliseconds:F0} ms"));
 
             request = SceneRequest.Continuing(api, next);
 

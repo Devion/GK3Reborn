@@ -42,6 +42,8 @@ public sealed class SceneUpdateTests
         {
         }
 
+        public bool HasTexture(string name) => false;
+
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,

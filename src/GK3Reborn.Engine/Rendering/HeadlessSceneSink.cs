@@ -96,6 +96,13 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A sweep counts distinct textures, so it wants to be told about every one; saying no
+    /// here keeps the count honest and costs a decode nobody is timing.
+    /// </remarks>
+    public bool HasTexture(string name) => false;
+
+    /// <inheritdoc/>
     /// <remarks>Nothing to reshape, for the same reason as posing.</remarks>
     public void ShapeMesh(
         ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions)

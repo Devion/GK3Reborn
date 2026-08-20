@@ -59,11 +59,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// not finished reading.
     /// </remarks>
     private const int FramesInFlight = 2;
-    private readonly Dictionary<string, VulkanTexture> _textures = new(StringComparer.OrdinalIgnoreCase);
-    private readonly VulkanTexture _fallbackTexture;
+    private readonly TextureCache _textures;
     private readonly VulkanTexture _whiteTexture;
 
-    private readonly HashSet<string> _keyedTextures = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly List<RayTracingMesh> _traceable = [];
 
     private RayTracingScene? _rayTracing;
@@ -73,14 +72,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private Vector3 _minimum = new(float.MaxValue);
     private Vector3 _maximum = new(float.MinValue);
 
-    private SceneGeometry(VulkanContext context, MeshPipeline pipeline)
+    private SceneGeometry(VulkanContext context, MeshPipeline pipeline, TextureCache textures)
     {
         _context = context;
         _pipeline = pipeline;
 
-        // A model referencing a texture the corpus does not contain still has to draw, and
-        // a wrong-looking texture is better than a silently black one.
-        _fallbackTexture = VulkanTexture.Create(context, CheckerBoard());
+        // The renderer's, not this room's. A room that threw its textures away on the way
+        // out spent most of the next room's load getting them back.
+        _textures = textures;
 
         // Bound wherever a batch has no lightmap. Vulkan requires every declared binding to
         // point at something valid even when the shader ignores what it reads.
@@ -95,6 +94,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>Distinct textures uploaded.</summary>
     public int TextureCount => _textures.Count;
+
+    /// <summary>How many of this room's textures the device already had.</summary>
+    public int TexturesReused { get; private set; }
 
     /// <summary>The scene as rays see it, once <see cref="Finish"/> has built it.</summary>
     public RayTracingScene? RayTracing => _rayTracing;
@@ -115,13 +117,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Creates an empty scene.</summary>
     /// <param name="context">Device context.</param>
     /// <param name="pipeline">Pipeline its descriptor sets must match.</param>
+    /// <param name="textures">The device's textures, which outlast any one room.</param>
     /// <returns>The scene.</returns>
-    public static SceneGeometry Create(VulkanContext context, MeshPipeline pipeline)
+    public static SceneGeometry Create(
+        VulkanContext context, MeshPipeline pipeline, TextureCache textures)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pipeline);
+        ArgumentNullException.ThrowIfNull(textures);
 
-        return new SceneGeometry(context, pipeline);
+        return new SceneGeometry(context, pipeline, textures);
     }
 
     /// <summary>Uploads a texture under a name models can reference.</summary>
@@ -131,22 +136,27 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (!_textures.ContainsKey(name))
+        if (_textures.Has(name))
         {
-            // Keying happens before upload so that mip generation never sees the key
-            // colour; see TextureKeying.
-            DecodedImage keyed = TextureKeying.Apply(image);
-
-            if (keyed.HasAlpha)
-            {
-                // Remembered so the geometry using it can be kept out of the acceleration
-                // structure: without an any-hit shader, a keyed surface would cast a solid
-                // shadow from the parts of it that are holes.
-                _keyedTextures.Add(name);
-            }
-
-            _textures[name] = VulkanTexture.Create(_context, keyed);
+            TexturesReused++;
+            return;
         }
+
+        _textures.Add(name, image);
+    }
+
+    /// <inheritdoc/>
+    public bool HasTexture(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (!_textures.Has(name))
+        {
+            return false;
+        }
+
+        TexturesReused++;
+        return true;
     }
 
     /// <summary>Loads a model.</summary>
@@ -516,7 +526,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 groups[key] = group;
             }
 
-            bool occludes = surface.CastsShadows && !_keyedTextures.Contains(surface.TextureName);
+            bool occludes = surface.CastsShadows && !_textures.Keyed.Contains(surface.TextureName);
 
             foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
             {
@@ -598,7 +608,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
     private void RecordTraceable(string texture, Vector3[] positions, ReadOnlySpan<uint> indices)
     {
-        if (!_context.SupportsRayTracing || _keyedTextures.Contains(texture))
+        if (!_context.SupportsRayTracing || _textures.Keyed.Contains(texture))
         {
             return;
         }
@@ -725,13 +735,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _descriptorPool = default;
         }
 
-        foreach (VulkanTexture texture in _textures.Values)
-        {
-            texture.Dispose();
-        }
-
-        _textures.Clear();
-        _fallbackTexture.Dispose();
+        // The textures are the renderer's and outlast this room; see TextureCache.
         _whiteTexture.Dispose();
         _lightmap?.Dispose();
         _lightmap = null;
@@ -769,7 +773,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private static byte Channel(float value) => (byte)Math.Clamp(value * 255f, 0f, 255f);
 
     /// <summary>A visibly wrong texture, so a missing one is obvious rather than silent.</summary>
-    private static DecodedImage CheckerBoard()
+    /// <summary>
+    /// Drawn wherever a model asks for a texture the corpus does not contain.
+    /// </summary>
+    /// <remarks>
+    /// A wrong-looking texture is better than a silently black one: the first is a bug you
+    /// can see, and the second is a room that merely looks badly lit.
+    /// </remarks>
+    internal static DecodedImage CheckerBoard()
     {
         const int Size = 64;
         byte[] pixels = new byte[Size * Size * 4];
@@ -821,9 +832,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         });
 
     private VulkanTexture TextureFor(string name) =>
-        name.Length > 0 && _textures.TryGetValue(name, out VulkanTexture? texture)
-            ? texture
-            : _fallbackTexture;
+        _textures.Get(name);
 
     private DescriptorSet CreateMaterialSet(VulkanTexture diffuse, VulkanTexture lightmap)
     {

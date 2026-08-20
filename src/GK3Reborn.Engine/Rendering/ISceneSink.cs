@@ -56,6 +56,16 @@ public interface ISceneSink
     /// <param name="image">The decoded image.</param>
     void AddTexture(string name, DecodedImage image);
 
+    /// <summary>Whether a texture has already been given, under this or an earlier room.</summary>
+    /// <param name="name">Its name.</param>
+    /// <returns>True when there is nothing to read, decode or upload.</returns>
+    /// <remarks>
+    /// So a loader can skip the reading and decoding as well as the upload. Asking after
+    /// decoding saves the device's time and not the CPU's, and the decoding is a third of
+    /// what a room costs.
+    /// </remarks>
+    bool HasTexture(string name);
+
     /// <summary>Adds a model.</summary>
     /// <param name="model">The parsed model.</param>
     /// <param name="transform">Where to place it, or null for its authored position.</param>

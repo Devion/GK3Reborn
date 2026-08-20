@@ -684,6 +684,14 @@ public sealed class SceneLoader
                      .Where(n => n.Length > 0)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            // Already on the device from an earlier room, so there is nothing to read,
+            // decode or upload. Most of what a room asks for is something it has met
+            // before: the characters are in every room they appear in.
+            if (geometry.HasTexture(texture))
+            {
+                continue;
+            }
+
             // The enhanced version first, when there is one. It falls back on its own if it
             // will not decode, so a bad file in the enhanced set costs that texture and
             // nothing else.

@@ -113,7 +113,19 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     /// <summary>Creates geometry this renderer can draw.</summary>
     /// <returns>Empty scene geometry.</returns>
-    public SceneGeometry CreateGeometry() => SceneGeometry.Create(Context, MeshPipeline);
+    public SceneGeometry CreateGeometry() =>
+        SceneGeometry.Create(Context, MeshPipeline, Textures);
+
+    /// <summary>
+    /// The textures the device is holding, across every room it has drawn.
+    /// </summary>
+    /// <remarks>
+    /// A room's geometry used to own them, so going through a door threw away 120 textures
+    /// and uploaded the next room's from scratch — about 200 ms of a 350 ms room load spent
+    /// getting back what had just been discarded.
+    /// </remarks>
+    public TextureCache Textures =>
+        field ??= new TextureCache(Context, SceneGeometry.CheckerBoard());
 
     /// <summary>Whether a ray-traced pipeline was built.</summary>
     public bool SupportsRayTracing => _rayTracedPipeline is not null;
