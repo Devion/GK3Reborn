@@ -83,7 +83,13 @@ public sealed class SceneUpdateTests
     private static LoadedScene Scene() =>
         new(
             "TEST",
-            new SceneDefinition(general: null),
+            new SceneDefinition(SceneInitFile.Parse(
+                """
+                [ROOM_CAMERAS]
+                NEAR, angle={0, 0}, pos={0, 60, 0}, Default
+                FAR,  angle={0, 0}, pos={0, 60, 200}
+                """,
+                "TEST.SIF")),
             Asset: null,
             Lightmaps: null,
             ModelsPlaced: 1,
@@ -223,5 +229,74 @@ public sealed class SceneUpdateTests
             "nothing here to run it",
             Assert.Single(update.Advance(2)),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_cut_takes_the_view_there_at_once()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+
+        state.CameraGliding = false;
+        state.CameraAngle = "FAR";
+
+        update.Advance(1.0 / 60);
+
+        Assert.False(update.Gliding);
+        Assert.Equal(200f, update.View!.Position.Z, 1);
+    }
+
+    [Fact]
+    public void A_glide_takes_a_moment_and_lands_exactly_where_a_cut_would()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+
+        state.CameraGliding = true;
+        state.CameraAngle = "FAR";
+
+        update.Advance(SceneUpdate.GlideSeconds / 3);
+
+        Assert.True(update.Gliding, "still on its way");
+        Assert.InRange(update.View!.Position.Z, 1f, 199f);
+
+        update.Advance(SceneUpdate.GlideSeconds);
+
+        Assert.False(update.Gliding);
+        Assert.Equal(200f, update.View!.Position.Z, 1);
+    }
+
+    [Fact]
+    public void A_glide_with_nowhere_to_leave_from_is_a_cut()
+    {
+        // The scene has only just opened and nobody has said where the view is, so there is
+        // nothing to interpolate away from.
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        state.CameraGliding = true;
+        state.CameraAngle = "FAR";
+
+        update.Advance(1.0 / 60);
+
+        Assert.False(update.Gliding);
+        Assert.Equal(200f, update.View!.Position.Z, 1);
+    }
+
+    [Fact]
+    public void The_view_stays_where_the_story_left_it()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        state.CameraAngle = "FAR";
+
+        for (int i = 0; i < 200; i++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.Equal(200f, update.View!.Position.Z, 1);
     }
 }

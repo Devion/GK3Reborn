@@ -100,16 +100,16 @@ public static class SceneScripting
     private static void AttachCameras(Gk3SheepApi api, LoadedScene scene)
     {
         api.Register("CutToCameraAngle", arguments =>
-            CutTo(api, scene, arguments, forced: false));
+            CutTo(api, scene, arguments, forced: false, gliding: false));
 
         api.Register("ForceCutToCameraAngle", arguments =>
-            CutTo(api, scene, arguments, forced: true));
+            CutTo(api, scene, arguments, forced: true, gliding: false));
 
         // Waitable in the original because the travelling takes time. Nothing waits on it
         // yet; the flag is kept so a script's recorded order does not change when it does.
         api.Register(
             "GlideToCameraAngle",
-            arguments => CutTo(api, scene, arguments, forced: false),
+            arguments => CutTo(api, scene, arguments, forced: false, gliding: true),
             waitable: true);
 
         api.Register("SetForcedCameraCuts", arguments =>
@@ -138,7 +138,11 @@ public static class SceneScripting
     }
 
     private static SheepValue CutTo(
-        Gk3SheepApi api, LoadedScene scene, IReadOnlyList<SheepValue> arguments, bool forced)
+        Gk3SheepApi api,
+        LoadedScene scene,
+        IReadOnlyList<SheepValue> arguments,
+        bool forced,
+        bool gliding)
     {
         if (arguments.Count == 0)
         {
@@ -160,6 +164,7 @@ public static class SceneScripting
 
         if (forced || api.State.CinematicsEnabled || api.State.ForcedCameraCuts)
         {
+            api.State.CameraGliding = gliding;
             api.State.CameraAngle = name;
         }
 

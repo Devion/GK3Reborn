@@ -58,6 +58,17 @@ public sealed class GameState
     public string CameraAngle { get; set; } = string.Empty;
 
     /// <summary>
+    /// Whether the last camera move was asked to take a moment.
+    /// </summary>
+    /// <remarks>
+    /// A cut and a glide end in the same place, so this is the only thing that separates
+    /// them once <see cref="CameraAngle"/> has changed. Not in the state hash: where the
+    /// view ends up is a fact about the story, how it got there is not, and two runs that
+    /// disagree only about that have not diverged.
+    /// </remarks>
+    public bool CameraGliding { get; set; }
+
+    /// <summary>
     /// Whether the story may cut the camera about even with cinematics turned off.
     /// </summary>
     /// <remarks>

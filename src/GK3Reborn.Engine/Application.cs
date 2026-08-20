@@ -203,6 +203,14 @@ public static class Application
 
         // Set once the room is standing, which is where a script would set it, so the head
         // turns while the player watches instead of having always been turned.
+        if (Option(args, "--glide") is { Length: > 0 } destination)
+        {
+            Sheep.SheepExpression.Evaluate(
+                $"GlideToCameraAngle(\"{destination}\")", api);
+
+            Console.WriteLine($"Gliding to {destination}");
+        }
+
         if (Option(args, "--glance")?.Split(':') is [string who, string at])
         {
             Sheep.SheepExpression.Evaluate(
@@ -259,6 +267,12 @@ public static class Application
         Console.WriteLine("Tab for the next camera, R to return to it, F2 for ray tracing,");
         Console.WriteLine("Escape to leave.");
 
+        // Where the scene opened, so a glide has somewhere to leave from rather than
+        // arriving the moment it is asked for.
+        update.StartAt(template);
+
+        Camera? directing = update.View;
+
         var stopwatch = Stopwatch.StartNew();
         double previous = 0;
         int presented = 0;
@@ -301,6 +315,17 @@ public static class Application
             foreach (string happened in update.Advance(delta))
             {
                 Console.WriteLine($"  {happened}");
+            }
+
+            // The story moving the camera takes it back off the player, for as long as it
+            // is moving. Letting them keep flying through a scripted glide would fight
+            // them for the mouse, and letting the glide win afterwards would take the view
+            // away from somebody who had gone to look at something.
+            if (!ReferenceEquals(update.View, directing) && update.View is { } directed)
+            {
+                directing = update.View;
+                template = directed;
+                camera.CopyFrom(directed);
             }
 
             camera.Update(window, delta);

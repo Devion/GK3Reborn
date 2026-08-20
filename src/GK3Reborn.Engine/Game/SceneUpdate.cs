@@ -32,6 +32,14 @@ namespace GK3Reborn.Game;
 /// </remarks>
 public sealed class SceneUpdate
 {
+    /// <summary>How long a glide takes, in seconds.</summary>
+    /// <remarks>
+    /// Fixed, like the turn rate and for the same reason: the scripts pass a duration whose
+    /// units are not established. A second and a half is long enough to read as the camera
+    /// moving rather than jumping, and short enough not to hold the player up.
+    /// </remarks>
+    public const double GlideSeconds = 1.5;
+
     /// <summary>How fast a head turns, in radians a second.</summary>
     /// <remarks>
     /// About 170 degrees a second: fast enough to read as noticing something, slow enough
@@ -45,6 +53,12 @@ public sealed class SceneUpdate
     private readonly ISceneSink _geometry;
     private readonly ActionResolver? _actions;
     private readonly ActionRunner? _runner;
+    private readonly LoadedScene _scene;
+
+    private string _angle = string.Empty;
+    private Camera? _from;
+    private Camera? _to;
+    private double _glided;
 
     /// <summary>Creates an update for one standing scene.</summary>
     /// <param name="scene">The scene, already loaded.</param>
@@ -67,6 +81,7 @@ public sealed class SceneUpdate
         ArgumentNullException.ThrowIfNull(geometry);
 
         _api = api;
+        _scene = scene;
         _glances = glances;
         _geometry = geometry;
         _actions = actions;
@@ -91,6 +106,36 @@ public sealed class SceneUpdate
     /// <summary>How many actors in the scene have a head that can turn.</summary>
     public int Movable => _actors.Count;
 
+    /// <summary>
+    /// Where the story wants the view, or null while it has not moved it.
+    /// </summary>
+    /// <remarks>
+    /// A cut arrives at once and a glide takes <see cref="GlideSeconds"/> to get there, so
+    /// during one this is somewhere between the two cameras rather than at either. The
+    /// player's own camera is a separate thing: this says where the story put the view, and
+    /// what happens to a player who was flying it around is the caller's decision.
+    /// </remarks>
+    public Camera? View { get; private set; }
+
+    /// <summary>Whether the view is on its way somewhere.</summary>
+    public bool Gliding => _to is not null && _glided < GlideSeconds;
+
+    /// <summary>Says where the view already is, so a glide has somewhere to leave from.</summary>
+    /// <param name="camera">Where the scene opened.</param>
+    /// <remarks>
+    /// Without this the first move the story makes is always a cut, however it was asked
+    /// for, because there is nothing to interpolate away from. The caller knows where the
+    /// scene started and this does not. It deliberately does not take note of where the
+    /// story currently wants the view: a glide asked for before the first frame is still a
+    /// glide, and swallowing it here would turn it into a cut.
+    /// </remarks>
+    public void StartAt(Camera camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+
+        View = camera;
+    }
+
     /// <summary>Lets time pass.</summary>
     /// <param name="seconds">How much.</param>
     /// <returns>What the world did on its own, for whoever wants to say so.</returns>
@@ -102,6 +147,8 @@ public sealed class SceneUpdate
         }
 
         List<string> happened = [];
+
+        MoveView(seconds);
 
         foreach (GameTimer timer in _api.State.Timers.Advance(seconds))
         {
@@ -117,6 +164,51 @@ public sealed class SceneUpdate
         }
 
         return happened;
+    }
+
+    /// <summary>Takes the view wherever the story has put it.</summary>
+    /// <remarks>
+    /// The story moving the camera is a change of <see cref="GameState.CameraAngle"/> and
+    /// nothing else, so this watches for one. Position and target are eased separately and
+    /// linearly: an arc would look better and would also invent framing the artists did not
+    /// author, which <c>Plan/03</c> section 5 says to leave alone.
+    /// </remarks>
+    private void MoveView(double seconds)
+    {
+        string wanted = _api.State.CameraAngle;
+
+        if (!string.Equals(wanted, _angle, StringComparison.OrdinalIgnoreCase))
+        {
+            _angle = wanted;
+            _from = View;
+            _to = wanted.Length > 0 ? SceneLoader.CameraFor(_scene, _geometry, wanted) : null;
+            _glided = _api.State.CameraGliding && _from is not null ? 0 : GlideSeconds;
+        }
+
+        if (_to is null)
+        {
+            return;
+        }
+
+        _glided += seconds;
+
+        if (_from is null || _glided >= GlideSeconds)
+        {
+            View = _to;
+            return;
+        }
+
+        float part = (float)(_glided / GlideSeconds);
+
+        View = new Camera
+        {
+            Position = Vector3.Lerp(_from.Position, _to.Position, part),
+            Target = Vector3.Lerp(_from.Target, _to.Target, part),
+            Up = _to.Up,
+            FieldOfView = float.Lerp(_from.FieldOfView, _to.FieldOfView, part),
+            NearPlane = _to.NearPlane,
+            FarPlane = _to.FarPlane,
+        };
     }
 
     /// <summary>Performs an action that has come due.</summary>
