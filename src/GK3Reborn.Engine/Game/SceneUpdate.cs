@@ -417,7 +417,7 @@ public sealed class SceneUpdate
 
         Vector3 towards = target - from;
 
-        return Walk(actor, from, MathF.Atan2(towards.X, towards.Z));
+        return Walk(actor, from, Walker.Heading(towards));
     }
 
     /// <summary>Stops everyone where they stand.</summary>

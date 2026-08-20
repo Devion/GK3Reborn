@@ -139,7 +139,7 @@ public sealed class Walker
 
             Vector3 towards = Flat(at - Position);
 
-            return towards.LengthSquared() > 1e-4f ? MathF.Atan2(towards.X, towards.Z) : null;
+            return towards.LengthSquared() > 1e-4f ? Heading(towards) : null;
         }
     }
 
@@ -243,12 +243,40 @@ public sealed class Walker
     /// <summary>Turns towards a direction, at most so far this frame.</summary>
     private void Face(Vector3 direction, float seconds)
     {
-        float wanted = MathF.Atan2(direction.X, direction.Z);
+        float wanted = Heading(direction);
         float difference = Wrap(wanted - Facing);
         float most = TurnRate * Math.Max(0, seconds);
 
         Facing = Wrap(Facing + Math.Clamp(difference, -most, most));
     }
+
+    /// <summary>
+    /// The heading at which a character's model looks along a direction.
+    /// </summary>
+    /// <param name="direction">Where they should be looking, in world space.</param>
+    /// <returns>A rotation about the vertical, in radians.</returns>
+    /// <remarks>
+    /// <para>
+    /// GK3's characters are modelled facing <b>−Z</b>, so a heading whose forward is +Z
+    /// points them the wrong way — they walk backwards and arrive with their back to
+    /// whatever they went to look at.
+    /// </para>
+    /// <para>
+    /// The convention itself is +Z: <c>Heading::FromDirection</c> is <c>atan2(x, z)</c> and
+    /// <c>FromQuaternion</c> takes the heading of a rotated <c>UnitZ</c>. What is −Z is the
+    /// geometry, and the original never has to know: it keeps the actor's heading and the
+    /// model's apart and measures where the model actually faces, from a helper arrow or
+    /// from a triangle through the head and both shoes, both named per character in
+    /// <c>CHARACTERS.TXT</c>. That measurement is not read yet, so this is the one constant
+    /// that stands in for it — and the place to replace when it is.
+    /// </para>
+    /// <para>
+    /// Nothing that comes out of the scene files goes through here. A named spot's heading
+    /// is authored against the model as it is and is already correct.
+    /// </para>
+    /// </remarks>
+    public static float Heading(Vector3 direction) =>
+        MathF.Atan2(-direction.X, -direction.Z);
 
     /// <summary>Drops the vertical, because walking is a thing done on a floor.</summary>
     private static Vector3 Flat(Vector3 v) => new(v.X, 0, v.Z);

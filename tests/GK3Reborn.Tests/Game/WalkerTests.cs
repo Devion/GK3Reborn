@@ -20,6 +20,27 @@ public sealed class WalkerTests
     private static Walker Walking(params Vector3[] points) =>
         new("GABRIEL", Route(points), Vector3.Zero, 0f);
 
+    /// <summary>
+    /// Which way the model actually points at a given heading.
+    /// </summary>
+    /// <remarks>
+    /// GK3's characters are modelled facing −Z, so asserting a raw angle here would only
+    /// restate whatever <see cref="Walker.Heading"/> does. Asserting the direction faced is
+    /// the thing anybody actually cares about, and it caught this being inverted.
+    /// </remarks>
+    private static Vector3 Facing(Walker walker) =>
+        Vector3.Transform(-Vector3.UnitZ, Matrix4x4.CreateRotationY(walker.Facing));
+
+    private static void AssertFacing(Vector3 towards, Walker walker)
+    {
+        Vector3 wanted = Vector3.Normalize(new Vector3(towards.X, 0, towards.Z));
+        Vector3 actual = Facing(walker);
+
+        Assert.True(
+            Vector3.Dot(wanted, actual) > 0.99f,
+            $"expected to be facing {wanted}, was facing {actual}");
+    }
+
     [Fact]
     public void An_actor_walks_towards_the_first_corner()
     {
@@ -63,24 +84,24 @@ public sealed class WalkerTests
     public void An_actor_turns_into_a_corner_rather_than_snapping_round_it()
     {
         // Facing is a rate, so after a short step it is on its way and not yet arrived.
+        // Starting at π means starting faced along +Z, so walking to −Z is a half turn.
         var walker = new Walker(
-            "GABRIEL", Route(new Vector3(0, 0, -100)), Vector3.Zero, facing: 0f);
+            "GABRIEL", Route(new Vector3(0, 0, -100)), Vector3.Zero, facing: MathF.PI);
 
         walker.Advance(0.05f);
 
-        Assert.NotEqual(0f, walker.Facing, 3);
-        Assert.True(MathF.Abs(walker.Facing) < MathF.PI, "the turn went the long way round");
+        Assert.NotEqual(MathF.PI, walker.Facing, 3);
+        Assert.True(Facing(walker).Z > -0.99f, "the turn arrived in a single step");
     }
 
     [Fact]
-    public void Walking_the_other_way_ends_up_facing_the_other_way()
+    public void Walking_ends_up_facing_the_way_the_walk_went()
     {
-        var walker = new Walker(
-            "GABRIEL", Route(new Vector3(0, 0, -100)), Vector3.Zero, facing: 0f);
+        Walker walker = Walking(new Vector3(0, 0, -100));
 
         walker.Advance(2f);
 
-        Assert.Equal(MathF.PI, MathF.Abs(walker.Facing), 2);
+        AssertFacing(new Vector3(0, 0, -100), walker);
     }
 
     [Fact]
@@ -106,6 +127,17 @@ public sealed class WalkerTests
 
         Assert.Equal(130f, walker.Remaining, 1);
         Assert.Equal(2.0, walker.Seconds, 2);
+    }
+
+    [Fact]
+    public void A_character_is_modelled_facing_away_from_the_heading_axis()
+    {
+        // The convention is +Z — the original's Heading::FromDirection is atan2(x, z) — and
+        // the geometry is −Z. Getting this backwards makes an actor walk backwards and
+        // arrive with their back to whatever they went to look at, which is exactly how it
+        // was reported.
+        Assert.Equal(MathF.PI, MathF.Abs(Walker.Heading(Vector3.UnitZ)), 3);
+        Assert.Equal(0f, Walker.Heading(-Vector3.UnitZ), 3);
     }
 
     [Fact]
@@ -145,8 +177,8 @@ public sealed class WalkerTests
 
         Assert.False(walker.Walking);
 
-        // Due east of where they stopped.
-        Assert.Equal(MathF.PI / 2, walker.Facing, 2);
+        // Due east of where they stopped, which is where the thing to look at was put.
+        AssertFacing(new Vector3(50, 0, 0), walker);
     }
 
     [Fact]
@@ -172,7 +204,7 @@ public sealed class WalkerTests
 
         walker.Advance(5f);
 
-        Assert.Equal(0f, walker.Facing, 2);
+        AssertFacing(new Vector3(0, 0, 100), walker);
     }
 
     [Fact]
