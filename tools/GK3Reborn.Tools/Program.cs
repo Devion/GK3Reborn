@@ -86,6 +86,9 @@ public static class Program
             case "import-audio":
                 return ImportAudio(options, diagnostics);
 
+            case "act-info":
+                return ActInfo(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -188,6 +191,21 @@ public static class Program
 
         Report(diagnostics);
         return complete ? 0 : 3;
+    }
+
+    private static int ActInfo(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("act-info requires --source.");
+            return 2;
+        }
+
+        bool clean = new ActInfoStage(Console.WriteLine).Run(
+            options.Source, options.Model, options.Deep, diagnostics);
+
+        Report(diagnostics);
+        return clean ? 0 : 3;
     }
 
     private static int CheckScenes(Options options, DiagnosticBag diagnostics)
@@ -557,6 +575,7 @@ public static class Program
               check-scenes      Load every scene at every point in the story and
                                 report what came out. --model limits it to one
                                 location.
+              act-info          Read every vertex animation and say what is in them.
               import-audio      Decode the game's sounds into playable PCM.
               import-textures   Check generated texture candidates against the
                                 originals they replace and take the sound ones

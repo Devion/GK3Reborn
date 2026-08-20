@@ -1,0 +1,434 @@
+using System.Numerics;
+using System.Text;
+using GK3Reborn.Formats.Animation;
+using GK3Reborn.Foundation.Diagnostics;
+using Xunit;
+
+namespace GK3Reborn.Tests.Formats;
+
+/// <summary>
+/// Tests for GK3's vertex animation.
+/// </summary>
+/// <remarks>
+/// The five invariants are from <c>Plan/06-c6-rig-solve.md</c> §3.6, which says to use them
+/// as reader tests, and all five hold across the corpus. Each one is a way for the reader to
+/// have lost its place in the file — after which it is reading noise and would happily
+/// carry on, so each is checked rather than assumed.
+/// </remarks>
+public sealed class ActFileTests
+{
+    /// <summary>Builds an ACT file a block at a time.</summary>
+    private sealed class Clip
+    {
+        private readonly List<List<(int Mesh, List<byte[]> Blocks)>> _frames = [];
+
+        public Clip(int meshes, string model = "gab")
+        {
+            Meshes = meshes;
+            Model = model;
+        }
+
+        public int Meshes { get; }
+
+        public string Model { get; }
+
+        /// <summary>Written into each frame's declared offset, for the invariant test.</summary>
+        public int OffsetDrift { get; set; }
+
+        /// <summary>Written in place of the mesh index, for the invariant test.</summary>
+        public int? MeshDrift { get; set; }
+
+        public byte[] Trailer { get; set; } = [];
+
+        public Clip Frame(params (int Mesh, byte[] Block)[] blocks)
+        {
+            List<(int, List<byte[]>)> frame = [];
+
+            for (int mesh = 0; mesh < Meshes; mesh++)
+            {
+                int at = mesh;
+                frame.Add((mesh, [.. blocks.Where(b => b.Mesh == at).Select(b => b.Block)]));
+            }
+
+            _frames.Add(frame);
+            return this;
+        }
+
+        public static byte[] Transform(Matrix4x4 basis) =>
+            Block(2, [.. Floats(
+                basis.M11, basis.M12, basis.M13,
+                basis.M21, basis.M22, basis.M23,
+                basis.M31, basis.M32, basis.M33,
+                basis.M41, basis.M42, basis.M43)]);
+
+        public static byte[] Bounds(Vector3 minimum, Vector3 maximum) =>
+            Block(3, [.. Floats(
+                minimum.X, minimum.Y, minimum.Z, maximum.X, maximum.Y, maximum.Z)]);
+
+        public static byte[] Shape(int submesh, params Vector3[] positions)
+        {
+            List<byte> body = [.. BitConverter.GetBytes((ushort)submesh)];
+            body.AddRange(BitConverter.GetBytes((ushort)positions.Length));
+
+            foreach (Vector3 p in positions)
+            {
+                body.AddRange(Floats(p.X, p.Y, p.Z));
+            }
+
+            return Block(0, [.. body]);
+        }
+
+        /// <summary>A compressed shape: one two-bit code a vertex, then the payloads.</summary>
+        public static byte[] Compressed(int submesh, int count, int[] codes, byte[] payload)
+        {
+            List<byte> body = [.. BitConverter.GetBytes((ushort)submesh)];
+            body.AddRange(BitConverter.GetBytes((ushort)count));
+
+            byte[] format = new byte[(count / 4) + 1];
+
+            for (int k = 0; k < count; k++)
+            {
+                format[k / 4] |= (byte)((codes[k] & 0x3) << (2 * (k % 4)));
+            }
+
+            body.AddRange(format);
+            body.AddRange(payload);
+
+            return Block(1, [.. body]);
+        }
+
+        private static byte[] Block(int dataId, byte[] body)
+        {
+            List<byte> block = [(byte)dataId];
+            block.AddRange(BitConverter.GetBytes(body.Length));
+            block.AddRange(body);
+            return [.. block];
+        }
+
+        private static IEnumerable<byte> Floats(params float[] values) =>
+            values.SelectMany(BitConverter.GetBytes);
+
+        public byte[] Build()
+        {
+            // The body first, so the frame offsets can be worked out and written into a
+            // header of known size.
+            int header = 20 + 32 + (_frames.Count * 4);
+            List<byte> body = [];
+            List<int> offsets = [];
+
+            foreach (List<(int Mesh, List<byte[]> Blocks)> frame in _frames)
+            {
+                offsets.Add(header + body.Count + OffsetDrift);
+
+                foreach ((int mesh, List<byte[]> blocks) in frame)
+                {
+                    body.AddRange(BitConverter.GetBytes((ushort)(MeshDrift ?? mesh)));
+                    body.AddRange(BitConverter.GetBytes(blocks.Sum(b => b.Length)));
+
+                    foreach (byte[] block in blocks)
+                    {
+                        body.AddRange(block);
+                    }
+                }
+            }
+
+            List<byte> file = [.. "HTCA"u8];
+            file.AddRange(BitConverter.GetBytes(ActFile.Version));
+            file.AddRange(BitConverter.GetBytes(_frames.Count));
+            file.AddRange(BitConverter.GetBytes(Meshes));
+            file.AddRange(BitConverter.GetBytes(body.Count));
+
+            byte[] name = new byte[32];
+            Encoding.ASCII.GetBytes(Model).CopyTo(name, 0);
+            file.AddRange(name);
+
+            foreach (int offset in offsets)
+            {
+                file.AddRange(BitConverter.GetBytes(offset));
+            }
+
+            file.AddRange(body);
+            file.AddRange(Trailer);
+
+            return [.. file];
+        }
+    }
+
+    private static ActFile Read(Clip clip, bool vertices = true)
+    {
+        var bag = new DiagnosticBag();
+        ActFile? act = ActFile.Read(clip.Build(), "TEST", bag, vertices);
+
+        Assert.NotNull(act);
+        Assert.DoesNotContain(bag.Items, d => d.Severity >= DiagnosticSeverity.Error);
+
+        return act;
+    }
+
+    private static string? Refused(Clip clip)
+    {
+        var bag = new DiagnosticBag();
+
+        Assert.Null(ActFile.Read(clip.Build(), "TEST", bag, vertices: true));
+
+        return bag.Items.Count > 0 ? bag.Items[0].Code : null;
+    }
+
+    [Fact]
+    public void A_clip_reports_its_model_its_frames_and_its_length()
+    {
+        ActFile act = Read(new Clip(1, "gra")
+            .Frame((0, Clip.Transform(Matrix4x4.Identity)))
+            .Frame((0, Clip.Transform(Matrix4x4.Identity))));
+
+        Assert.Equal("gra", act.ModelName);
+        Assert.Equal(2, act.FrameCount);
+        Assert.Equal(1, act.MeshCount);
+
+        // Fifteen frames a second, the same rate the rest of the game's animation runs at.
+        Assert.Equal(2 / 15.0, act.Duration, 6);
+    }
+
+    [Fact]
+    public void Something_that_is_not_an_animation_is_refused()
+    {
+        var bag = new DiagnosticBag();
+
+        Assert.Null(ActFile.Read("not an animation"u8, "TEST", bag));
+        Assert.Contains(bag.Items, d => d.Code == "GK3R1150");
+    }
+
+    [Fact]
+    public void A_version_nothing_has_seen_is_refused_rather_than_guessed_at()
+    {
+        byte[] file = new Clip(1).Frame((0, Clip.Transform(Matrix4x4.Identity))).Build();
+        BitConverter.GetBytes(259).CopyTo(file, 4);
+
+        var bag = new DiagnosticBag();
+
+        Assert.Null(ActFile.Read(file, "TEST", bag));
+        Assert.Contains(bag.Items, d => d.Code == "GK3R1151");
+    }
+
+    [Fact]
+    public void A_frame_that_does_not_start_where_the_file_says_is_an_error()
+    {
+        // Invariant 2, and the one that matters most: a block length misread puts the
+        // reader somewhere arbitrary, and everything after it is noise read confidently.
+        var clip = new Clip(1) { OffsetDrift = 4 };
+        clip.Frame((0, Clip.Transform(Matrix4x4.Identity)));
+
+        Assert.Equal("GK3R1152", Refused(clip));
+    }
+
+    [Fact]
+    public void Meshes_out_of_order_are_an_error()
+    {
+        // Invariant 3.
+        var clip = new Clip(1) { MeshDrift = 7 };
+        clip.Frame((0, Clip.Transform(Matrix4x4.Identity)));
+
+        Assert.Equal("GK3R1153", Refused(clip));
+    }
+
+    [Fact]
+    public void A_transform_block_of_the_wrong_size_is_an_error()
+    {
+        // Invariant 4. Built by hand because the helper always writes 48 bytes.
+        List<byte> block = [2];
+        block.AddRange(BitConverter.GetBytes(36));
+        block.AddRange(new byte[36]);
+
+        var clip = new Clip(1);
+        clip.Frame((0, [.. block]));
+
+        Assert.Equal("GK3R1156", Refused(clip));
+    }
+
+    [Fact]
+    public void The_five_byte_trailer_a_fifth_of_the_corpus_has_is_accepted()
+    {
+        // Invariant 5. 1,201 of the 5,796 files end with these bytes and the reference
+        // implementation never noticed them.
+        var clip = new Clip(1) { Trailer = [0x01, 0x00, 0x00, 0x00, 0x00] };
+        clip.Frame((0, Clip.Transform(Matrix4x4.Identity)));
+
+        Assert.Equal(1, Read(clip).FrameCount);
+    }
+
+    [Fact]
+    public void Any_other_trailing_bytes_are_an_error()
+    {
+        var clip = new Clip(1) { Trailer = [0xFF, 0xFF] };
+        clip.Frame((0, Clip.Transform(Matrix4x4.Identity)));
+
+        Assert.Equal("GK3R1155", Refused(clip));
+    }
+
+    [Fact]
+    public void A_mesh_with_nothing_to_say_this_frame_is_legal()
+    {
+        // byteCount == 0 means the mesh has not moved, and most frames of most clips are
+        // mostly that.
+        ActFile act = Read(new Clip(2)
+            .Frame((0, Clip.Transform(Matrix4x4.Identity)))
+            .Frame((1, Clip.Transform(Matrix4x4.Identity))));
+
+        Assert.Equal(2, act.Transforms.Count);
+    }
+
+    [Fact]
+    public void A_transform_is_read_with_its_bases_as_columns_and_its_handedness_kept()
+    {
+        // The bases are orthonormal with determinant −1, which is right: GK3 authored a
+        // left-handed world. Negating a basis to "fix" it mirrors every character.
+        var mirrored = new Matrix4x4(
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, -1, 0,
+            5, 6, 7, 1);
+
+        ActFile act = Read(new Clip(1).Frame((0, Clip.Transform(mirrored))));
+        Matrix4x4 pose = Assert.Single(act.Transforms).MeshToLocal;
+
+        Assert.Equal(new Vector3(5, 6, 7), pose.Translation);
+        Assert.True(pose.GetDeterminant() < 0, "the handedness was flipped on the way in");
+    }
+
+    [Fact]
+    public void Bounds_are_read()
+    {
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Bounds(new Vector3(-1, -2, -3), new Vector3(4, 5, 6)))));
+
+        MeshBounds bounds = Assert.Single(act.Bounds);
+
+        Assert.Equal(new Vector3(-1, -2, -3), bounds.Minimum);
+        Assert.Equal(new Vector3(4, 5, 6), bounds.Maximum);
+    }
+
+    [Fact]
+    public void Uncompressed_vertices_are_absolute_positions()
+    {
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Shape(0, new Vector3(1, 2, 3), new Vector3(4, 5, 6)))));
+
+        VertexPose pose = Assert.Single(act.Vertices);
+
+        Assert.Equal([new Vector3(1, 2, 3), new Vector3(4, 5, 6)], pose.Positions);
+        Assert.True(act.Deforms);
+    }
+
+    [Fact]
+    public void A_clip_of_transforms_alone_is_rigid()
+    {
+        // 2,188 of the corpus's 5,796 clips. A door, a phone, a go-kart — no skinning
+        // needed, which is why they are the part that can be played without a rig.
+        Assert.False(Read(new Clip(1).Frame((0, Clip.Transform(Matrix4x4.Identity)))).Deforms);
+    }
+
+    [Fact]
+    public void An_unchanged_vertex_keeps_the_shape_it_had()
+    {
+        // Code 0 is 62.2% of the corpus's 92.1 million vertex samples, so this is the
+        // common case rather than an edge one.
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Shape(0, new Vector3(10, 20, 30))))
+            .Frame((0, Clip.Compressed(0, 1, [0], []))));
+
+        Assert.Equal(new Vector3(10, 20, 30), act.Vertices[1].Positions[0]);
+    }
+
+    [Fact]
+    public void A_one_byte_delta_is_added_to_the_previous_pose()
+    {
+        // 0x21 is sign +, whole (0x21 & 0x7F) >> 5 == 1, fraction (0x21 & 0x1F) / 32.
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Shape(0, new Vector3(10, 0, 0))))
+            .Frame((0, Clip.Compressed(0, 1, [1], [0x21, 0x00, 0x00]))));
+
+        Assert.Equal(10f + 1f + (1 / 32f), act.Vertices[1].Positions[0].X, 5);
+    }
+
+    [Fact]
+    public void A_negative_delta_keeps_its_whole_part()
+    {
+        // The quirk worth reproducing: the whole part is masked with 0x7F rather than
+        // 0x60, so the sign bit survives the mask and is discarded by the shift. Tidying
+        // that to 0x60 gives the same answer, which is why it is easy to get almost right.
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Shape(0, Vector3.Zero)))
+            .Frame((0, Clip.Compressed(0, 1, [1], [0xA1, 0x00, 0x00]))));
+
+        Assert.Equal(-(1f + (1 / 32f)), act.Vertices[1].Positions[0].X, 5);
+    }
+
+    [Fact]
+    public void A_two_byte_delta_carries_more_of_both_halves()
+    {
+        // Seven whole bits and eight fractional, for the joints where meshes meet.
+        byte[] payload = [.. BitConverter.GetBytes((ushort)0x0280), .. new byte[4]];
+
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Shape(0, Vector3.Zero)))
+            .Frame((0, Clip.Compressed(0, 1, [2], payload))));
+
+        Assert.Equal(2f + 0.5f, act.Vertices[1].Positions[0].X, 5);
+    }
+
+    [Fact]
+    public void Codes_are_read_low_bits_first_within_each_byte()
+    {
+        // Four vertices to a byte. Reading them the other way round silently swaps which
+        // vertex got which delta, which looks like a subtly wrong pose rather than an error.
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Shape(0, Vector3.Zero, Vector3.Zero)))
+            .Frame((0, Clip.Compressed(0, 2, [0, 1], [0x21, 0x00, 0x00]))));
+
+        Assert.Equal(Vector3.Zero, act.Vertices[1].Positions[0]);
+        Assert.Equal(1f + (1 / 32f), act.Vertices[1].Positions[1].X, 5);
+    }
+
+    [Fact]
+    public void A_pose_is_held_until_the_next_one_is_recorded()
+    {
+        // The sampling rule: the closest previous recorded pose. A mesh that does not move
+        // is simply not written again, so every clip has holes in every mesh's track.
+        ActFile act = Read(new Clip(1)
+            .Frame((0, Clip.Transform(Matrix4x4.CreateTranslation(1, 0, 0))))
+            .Frame()
+            .Frame((0, Clip.Transform(Matrix4x4.CreateTranslation(3, 0, 0)))));
+
+        Assert.Equal(1f, act.PoseOf(0, 0)!.Value.Translation.X, 5);
+        Assert.Equal(1f, act.PoseOf(0, 1)!.Value.Translation.X, 5);
+        Assert.Equal(3f, act.PoseOf(0, 2)!.Value.Translation.X, 5);
+
+        // Past the end holds the last one rather than falling off it.
+        Assert.Equal(3f, act.PoseOf(0, 99)!.Value.Translation.X, 5);
+    }
+
+    [Fact]
+    public void A_mesh_the_clip_never_places_has_no_pose()
+    {
+        ActFile act = Read(new Clip(2).Frame((0, Clip.Transform(Matrix4x4.Identity))));
+
+        Assert.NotNull(act.PoseOf(0, 0));
+        Assert.Null(act.PoseOf(1, 0));
+    }
+
+    [Fact]
+    public void Vertices_are_decoded_even_when_they_are_not_kept()
+    {
+        // They have to be: a compressed frame is a delta against the previous pose, so
+        // skipping one makes every later frame of that submesh wrong. What the flag saves
+        // is holding them, not reading them.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Shape(0, new Vector3(10, 0, 0))))
+                .Frame((0, Clip.Compressed(0, 1, [1], [0x21, 0x00, 0x00]))),
+            vertices: false);
+
+        Assert.Empty(act.Vertices);
+        Assert.True(act.Deforms);
+    }
+}
