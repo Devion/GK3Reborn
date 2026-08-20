@@ -163,6 +163,12 @@ public sealed class SceneUpdate
     /// </summary>
     /// <param name="name">What the script called it, such as <c>GraCs3WrdbOpen</c>.</param>
     /// <param name="repeat">Whether it starts again when it ends.</param>
+    /// <param name="moves">
+    /// Whether the actor keeps the ground the clip covered. GK3 calls these move
+    /// animations: an ordinary one leaves the <em>pose</em> where the clip finished but
+    /// puts the actor's position and heading back where they were, so a character who
+    /// mimes walking has not actually gone anywhere.
+    /// </param>
     /// <returns>How long it will take, or zero when there is nothing to play.</returns>
     /// <remarks>
     /// <para>
@@ -177,7 +183,7 @@ public sealed class SceneUpdate
     /// which is wrong-looking but is where the geometry actually goes.
     /// </para>
     /// </remarks>
-    public double Play(string name, bool repeat = false)
+    public double Play(string name, bool repeat = false, bool moves = false)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -241,7 +247,10 @@ public sealed class SceneUpdate
                 continue;
             }
 
-            _playing.Add(new Playing(clip, target, action.Frame, repeat));
+            // The move flag is carried but not yet spent. Committing the ground a clip
+            // covered means writing the actor's position, and Walker already owns that —
+            // the two have to be reconciled before either may write it.
+            _playing.Add(new Playing(clip, target, action, repeat, moves));
             longest = Math.Max(longest, clip.Duration + (action.Frame / 15.0));
         }
 
@@ -526,21 +535,86 @@ public sealed class SceneUpdate
     private sealed class Playing
     {
         private readonly bool _repeat;
+        private readonly bool _moves;
         private readonly double _delay;
+        private readonly Matrix4x4 _correction;
 
         private double _elapsed;
 
-        public Playing(ActFile clip, PlacedModel target, int startFrame, bool repeat)
+        public Playing(
+            ActFile clip, PlacedModel target, AnimationAction action, bool repeat, bool moves)
         {
             Clip = clip;
             Target = target;
             _repeat = repeat;
-            _delay = startFrame / (double)AnimationFile.FramesPerSecond;
+            _moves = moves;
+            _delay = action.Frame / (double)AnimationFile.FramesPerSecond;
+            _correction = Correction(clip, target, action.Placement);
         }
 
         public ActFile Clip { get; }
 
         public PlacedModel Target { get; }
+
+        /// <summary>
+        /// Where the clip's own space has to be moved to for it to play here.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A clip's mesh transforms are wherever the animator authored them, which for a
+        /// walk is halfway across some other room. Played as written, the character
+        /// disappears.
+        /// </para>
+        /// <para>
+        /// So a <b>relative</b> clip — 92% of them — is shifted once, at the start, by
+        /// however far its first frame sits from where the model rests. Root motion within
+        /// the clip then still happens, measured from where the actor was standing. The
+        /// shift is computed once and held, because recomputing it per frame would cancel
+        /// exactly the movement it is meant to preserve.
+        /// </para>
+        /// <para>
+        /// An <b>absolute</b> clip carries its own spot and heading and is put there.
+        /// </para>
+        /// <para>
+        /// The reference point is the average of the mesh groups' origins. The original
+        /// uses the shoes, named per character in <c>CHARACTERS.TXT</c>, which is not read
+        /// yet; the average moves with the same rigid motion and differs only by a constant,
+        /// which a difference of two averages cancels.
+        /// </para>
+        /// </remarks>
+        private static Matrix4x4 Correction(
+            ActFile clip, PlacedModel target, AnimationPlacement? placement)
+        {
+            if (placement is { } spot)
+            {
+                return Matrix4x4.CreateRotationY(spot.Heading) *
+                       Matrix4x4.CreateTranslation(spot.Position);
+            }
+
+            Vector3 rest = Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation));
+
+            Vector3 opens = Average(Enumerable
+                .Range(0, clip.MeshCount)
+                .Select(m => clip.PoseOf(m, 0))
+                .Where(p => p is not null)
+                .Select(p => p!.Value.Translation));
+
+            return Matrix4x4.CreateTranslation(rest - opens);
+        }
+
+        private static Vector3 Average(IEnumerable<Vector3> points)
+        {
+            Vector3 total = Vector3.Zero;
+            int count = 0;
+
+            foreach (Vector3 point in points)
+            {
+                total += point;
+                count++;
+            }
+
+            return count > 0 ? total / count : Vector3.Zero;
+        }
 
         /// <summary>Poses the model for this moment.</summary>
         /// <returns>True while the clip is still running.</returns>
@@ -565,6 +639,11 @@ public sealed class SceneUpdate
             {
                 if (!_repeat)
                 {
+                    // The last frame first. A frame long enough to run past the end should
+                    // still leave the model where the clip finished, which is the whole of
+                    // what a move animation means; skipping to the stop would leave it
+                    // wherever the previous frame happened to be.
+                    Pose(geometry, Clip.FrameCount - 1);
                     return false;
                 }
 
@@ -572,11 +651,18 @@ public sealed class SceneUpdate
                 frame = 0;
             }
 
+            Pose(geometry, frame);
+            return true;
+        }
+
+        /// <summary>Puts the model into one frame of the clip.</summary>
+        private void Pose(ISceneSink geometry, int frame)
+        {
             for (int mesh = 0; mesh < Clip.MeshCount; mesh++)
             {
                 if (Clip.PoseOf(mesh, frame) is { } pose)
                 {
-                    geometry.PoseMesh(Target.Placement, mesh, pose);
+                    geometry.PoseMesh(Target.Placement, mesh, pose * _correction);
                 }
 
                 // The shapes, where the clip has them. Without these a character is mesh
@@ -589,8 +675,6 @@ public sealed class SceneUpdate
                     }
                 }
             }
-
-            return true;
         }
     }
 

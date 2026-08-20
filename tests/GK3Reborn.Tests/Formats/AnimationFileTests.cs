@@ -59,6 +59,57 @@ public sealed class AnimationFileTests
     }
 
     [Fact]
+    public void An_action_line_with_no_numbers_places_nothing()
+    {
+        // 92% of the corpus's action lines. They mean "play this where the model is".
+        AnimationFile animation = Parse("[HEADER]\n60\n\n[ACTIONS]\n1\n0,GRA_WALK.ACT\n");
+
+        Assert.Null(Assert.Single(animation.Actions).Placement);
+    }
+
+    [Fact]
+    public void An_action_line_of_zeroes_places_nothing_either()
+    {
+        // Nearly two thirds of them are written this way and mean the same as writing
+        // nothing at all.
+        AnimationFile animation = Parse(
+            "[HEADER]\n60\n\n[ACTIONS]\n1\n0,GRA_WALK.ACT,0,0,0,0,0,0,0,0\n");
+
+        Assert.Null(Assert.Single(animation.Actions).Placement);
+    }
+
+    [Fact]
+    public void An_absolute_action_line_negates_the_first_offset_and_swaps_y_with_z()
+    {
+        // Both quirks are the original's: the first offset goes actor-to-model and is
+        // wanted the other way round, and the assets came out of Maya with y and z
+        // swapped. Reproducing them is the difference between a character standing on the
+        // floor and one standing in a wall.
+        AnimationFile animation = Parse(
+            "[HEADER]\n60\n\n[ACTIONS]\n1\n0,GRA_WALK.ACT,1,2,3,0,10,20,30,0\n");
+
+        AnimationPlacement placement = Assert.Single(animation.Actions).Placement!.Value;
+
+        // World-to-model (10, 30, 20), plus the negated and swapped model-to-actor
+        // (-1, -3, -2).
+        Assert.Equal(9f, placement.Position.X, 4);
+        Assert.Equal(27f, placement.Position.Y, 4);
+        Assert.Equal(18f, placement.Position.Z, 4);
+        Assert.Equal(0f, placement.Heading, 4);
+    }
+
+    [Fact]
+    public void The_heading_is_the_difference_of_the_two_headings_in_radians()
+    {
+        AnimationFile animation = Parse(
+            "[HEADER]\n60\n\n[ACTIONS]\n1\n0,GRA_WALK.ACT,0,0,0,30,0,0,0,120\n");
+
+        AnimationPlacement placement = Assert.Single(animation.Actions).Placement!.Value;
+
+        Assert.Equal(90f * MathF.PI / 180f, placement.Heading, 4);
+    }
+
+    [Fact]
     public void A_caption_keeps_the_commas_that_are_part_of_the_sentence()
     {
         // The line is <frame>,SpeakerCaption,<end>,<noun>,<caption> and the caption is a

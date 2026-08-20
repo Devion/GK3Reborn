@@ -1,3 +1,4 @@
+using System.Numerics;
 using GK3Reborn.Formats.Ini;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -19,7 +20,29 @@ public readonly record struct AnimationCaption(int Frame, int EndFrame, string S
 /// <summary>A vertex animation an animation starts on a frame.</summary>
 /// <param name="Frame">Which frame it starts on.</param>
 /// <param name="Name">The <c>.ACT</c> asset.</param>
-public readonly record struct AnimationAction(int Frame, string Name);
+/// <param name="Placement">
+/// Where in the room to play it, or null to play it wherever the model already is.
+/// </param>
+public readonly record struct AnimationAction(
+    int Frame, string Name, AnimationPlacement? Placement = null);
+
+/// <summary>Where an absolute animation puts the thing it moves.</summary>
+/// <param name="Position">The spot, in world space.</param>
+/// <param name="Heading">Which way it faces there, in radians about the vertical.</param>
+/// <remarks>
+/// <para>
+/// An <c>[ACTIONS]</c> line may carry eight numbers after the clip's name: an offset and
+/// heading from the actor to the model, then a second pair from the world to the model. The
+/// spot is the second offset plus the first <em>rotated</em> by the second heading, and the
+/// facing is the difference of the two headings. That is as strange as it sounds and it is
+/// what the original computes.
+/// </para>
+/// <para>
+/// 502 of the corpus's 6,040 action lines carry them — 8.3%. The other 92% place nothing
+/// and mean "play this where the model is standing".
+/// </para>
+/// </remarks>
+public readonly record struct AnimationPlacement(Vector3 Position, float Heading);
 
 /// <summary>
 /// Reader for GK3's animations.
@@ -117,7 +140,9 @@ public sealed class AnimationFile
 
                 case "ACTIONS":
                     Read(section, line => actions.Add(new AnimationAction(
-                        (int)(line.Entries[0].AsNumber() ?? 0), line.Entries[1].Key)));
+                        (int)(line.Entries[0].AsNumber() ?? 0),
+                        line.Entries[1].Key,
+                        Placement(line))));
                     break;
 
                 case "SOUNDS":
@@ -147,6 +172,54 @@ public sealed class AnimationFile
         }
 
         return new AnimationFile(name, Math.Max(0, frames), actions, sounds, captions);
+    }
+
+    /// <summary>
+    /// Reads an action line's absolute placement, if it has one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>&lt;frame&gt;,&lt;clip&gt;,x1,y1,z1,angle1,x2,y2,z2,angle2</c>. The first offset
+    /// goes actor-to-model and is wanted the other way round, so it is <b>negated</b>; and
+    /// <b>y and z are swapped</b> in both, because the assets came out of Maya. Both quirks
+    /// are the original's and reproducing them is the difference between a character
+    /// standing on the floor and one standing in a wall.
+    /// </para>
+    /// <para>
+    /// A line whose numbers are all zero is not a placement. Nearly two thirds of the
+    /// corpus's action lines are written that way and they mean the same as writing nothing.
+    /// </para>
+    /// </remarks>
+    private static AnimationPlacement? Placement(IniLine line)
+    {
+        if (line.Entries.Count < 10)
+        {
+            return null;
+        }
+
+        float At(int index) => line.Entries[index].AsNumber() ?? 0;
+
+        // Actor to model, wanted as model to actor, with y and z as Maya left them.
+        var modelToActor = new Vector3(-At(2), -At(4), -At(3));
+        float modelToActorHeading = At(5);
+
+        var worldToModel = new Vector3(At(6), At(8), At(7));
+        float worldToModelHeading = At(9);
+
+        if (modelToActor == Vector3.Zero &&
+            worldToModel == Vector3.Zero &&
+            modelToActorHeading == 0 &&
+            worldToModelHeading == 0)
+        {
+            return null;
+        }
+
+        Vector3 position = worldToModel + Vector3.Transform(
+            modelToActor,
+            Matrix4x4.CreateRotationY(worldToModelHeading * MathF.PI / 180f));
+
+        return new AnimationPlacement(
+            position, (worldToModelHeading - modelToActorHeading) * MathF.PI / 180f);
     }
 
     /// <summary>

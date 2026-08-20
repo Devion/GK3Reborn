@@ -679,8 +679,11 @@ public static class SceneScripting
         api.Register("StartAnimation", a => SheepValue.FromInt(
             (int)world.Play(Name(a, 0))));
 
+        // A move animation leaves the thing it moved where it ended; an ordinary one puts
+        // it back. That distinction is GK3's and it is the whole difference between a
+        // character who has walked somewhere and one who has mimed walking.
         api.Register("StartMoveAnimation", a => SheepValue.FromInt(
-            (int)world.Play(Name(a, 0))));
+            (int)world.Play(Name(a, 0), repeat: false, moves: true)));
 
         api.Register("LoopAnimation", a => SheepValue.FromInt(
             (int)world.Play(Name(a, 0), repeat: true)));

@@ -94,8 +94,10 @@ public sealed class ClipPlaybackTests
             List<byte> block = [2];
             block.AddRange(BitConverter.GetBytes(48));
 
+            // Starts a long way from the origin, as a real clip does — authored wherever
+            // the animator built it — and then advances a unit a frame.
             foreach (float value in new float[]
-                     { 1, 0, 0, 0, 1, 0, 0, 0, 1, frame, 0, 0 })
+                     { 1, 0, 0, 0, 1, 0, 0, 0, 1, Away + frame, 0, 0 })
             {
                 block.AddRange(BitConverter.GetBytes(value));
             }
@@ -141,6 +143,9 @@ public sealed class ClipPlaybackTests
     }
 
     /// <summary>A model of one mesh, which is all a rigid clip needs to move.</summary>
+    /// <summary>How far from the model's rest position the synthetic clip is authored.</summary>
+    private const float Away = 500f;
+
     private static ModFile Model() => ModFile.FromMeshes(
         "door",
         [
@@ -217,7 +222,8 @@ public sealed class ClipPlaybackTests
 
         update.Advance(0.5);
 
-        // Half a second in: frame seven, and the mesh has moved seven along.
+        // Half a second in: frame seven, and the mesh seven along from where it began. A
+        // clip authored 500 units away plays here, not there.
         Assert.Equal(7f, sink.Poses[(0, 0)].Translation.X, 3);
     }
 
@@ -231,7 +237,9 @@ public sealed class ClipPlaybackTests
         update.Play("Breathe");
         update.Advance(0.5);
 
-        // Frame seven: the mesh is seven along and its one vertex is seven up.
+        // Frame seven: seven along from where it started, not seven from the origin, and
+        // its one vertex seven up. The clip is authored 500 away and the correction takes
+        // that out.
         Assert.Equal(7f, sink.Poses[(0, 0)].Translation.X, 3);
         Assert.Equal(7f, Assert.Single(sink.Shapes[(0, 0, 0)]).Y, 3);
     }
@@ -246,6 +254,65 @@ public sealed class ClipPlaybackTests
 
         Assert.NotEmpty(sink.Poses);
         Assert.Empty(sink.Shapes);
+    }
+
+    [Fact]
+    public void A_clip_authored_elsewhere_plays_where_the_model_is()
+    {
+        // The reason a walk clip made Gabriel disappear: its mesh transforms are wherever
+        // the animator built them, which for a walk is halfway across another room.
+        (SceneUpdate update, Sink sink) = World("Walk", "door_Walk", "door");
+
+        update.Play("Walk");
+        update.Advance(0.001);
+
+        Assert.Equal(0f, sink.Poses[(0, 0)].Translation.X, 2);
+    }
+
+    [Fact]
+    public void The_correction_is_taken_once_so_the_clip_still_moves()
+    {
+        // Recomputing it per frame would cancel exactly the movement it is meant to keep.
+        (SceneUpdate update, Sink sink) = World("Walk", "door_Walk", "door");
+
+        update.Play("Walk");
+        update.Advance(0.001);
+        float first = sink.Poses[(0, 0)].Translation.X;
+
+        update.Advance(0.5);
+
+        Assert.True(
+            sink.Poses[(0, 0)].Translation.X > first + 5f,
+            "the clip's own movement was corrected away");
+    }
+
+    [Fact]
+    public void A_clip_leaves_the_model_in_the_pose_it_finished_in()
+    {
+        // The original reverts an actor's *position* after a non-move animation, not the
+        // pose. That is why an opened wardrobe stays open. Reverting the pose as well —
+        // which reads as the more careful thing to do — shuts the door again.
+        (SceneUpdate update, Sink sink) = World("Walk", "door_Walk", "door");
+
+        update.Play("Walk");
+        update.Advance(3.0);
+
+        Assert.Equal(0, update.Animating);
+        Assert.NotEqual(Matrix4x4.Identity, sink.Poses[(0, 0)]);
+    }
+
+    [Fact]
+    public void A_frame_long_enough_to_run_past_the_end_still_poses_the_end()
+    {
+        // Otherwise a slow frame leaves the model wherever the previous frame put it, so a
+        // door that was opening stops half open.
+        (SceneUpdate update, Sink sink) = World("Walk", "door_Walk", "door");
+
+        update.Play("Walk");
+        update.Advance(3.0);
+
+        // Frame thirty of thirty-one, thirty along from where it started.
+        Assert.Equal(30f, sink.Poses[(0, 0)].Translation.X, 3);
     }
 
     [Fact]
