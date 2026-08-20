@@ -299,25 +299,42 @@ public static class Application
     /// Where the enhanced textures are, if the player wants them.
     /// </summary>
     /// <remarks>
-    /// <c>--enhanced &lt;dir&gt;</c> names them outright; <c>--workspace &lt;dir&gt;</c> is
-    /// enough on its own, because they always live in the same place inside one. Neither
-    /// means the game looks exactly as it shipped, which has to stay the default: this
-    /// content is a draft until somebody has reviewed it, and nobody should be shown
-    /// generated art without having asked for it.
+    /// <para>
+    /// <c>--enhanced &lt;dir&gt;</c> names them outright. <c>--workspace &lt;dir&gt;</c> is
+    /// enough on its own, since they always live in the same place inside one, and a bare
+    /// <c>--enhanced</c> with nothing after it takes the workspace beside the repository —
+    /// a flag that reads as "yes please" and quietly does nothing is worse than no flag.
+    /// </para>
+    /// <para>
+    /// None of them means the game looks exactly as it shipped, which has to stay the
+    /// default: this content is a draft until somebody has reviewed it, and nobody should
+    /// be shown generated art without having asked for it.
+    /// </para>
     /// </remarks>
     private static string? EnhancedTextureDirectory(string[] args)
     {
-        if (Option(args, "--enhanced") is { Length: > 0 } named)
+        bool asked = args.Contains("--enhanced", StringComparer.OrdinalIgnoreCase);
+
+        if (Option(args, "--enhanced") is { Length: > 0 } named && !named.StartsWith('-'))
         {
             return Path.IsPathRooted(named) || Option(args, "--workspace") is not { } under
                 ? named
                 : Path.Combine(under, named);
         }
 
-        return Option(args, "--workspace") is { Length: > 0 } workspace
-            ? Path.Combine(workspace, "enhanced", "textures")
-            : null;
+        if (Option(args, "--workspace") is { Length: > 0 } workspace)
+        {
+            return Path.Combine(workspace, "enhanced", "textures");
+        }
+
+        return asked ? Path.Combine(DefaultWorkspaceDirectory(), "enhanced", "textures") : null;
     }
+
+    /// <summary>Where the content workspace usually sits relative to the repository.</summary>
+    /// <remarks>A convenience for development, like <see cref="DefaultDataDirectory"/>.</remarks>
+    private static string DefaultWorkspaceDirectory() =>
+        Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "ContentWorkspace"));
 
     private static string DefaultDataDirectory() =>
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "GK3", "Data"));
