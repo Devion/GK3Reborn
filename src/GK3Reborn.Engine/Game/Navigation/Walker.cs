@@ -26,15 +26,26 @@ namespace GK3Reborn.Game.Navigation;
 /// </remarks>
 public sealed class Walker
 {
-    /// <summary>How fast an actor walks, in scene units a second.</summary>
+    /// <summary>How fast an actor walks when nothing says otherwise, in units a second.</summary>
     /// <remarks>
-    /// R25 is 369 by 386 units across, so this crosses it in about six seconds — near
-    /// enough to the original's pace to feel like the same room.
+    /// R25 is 369 by 386 units across, so this crosses it in about six seconds. It is a
+    /// guess, and a walk that has a clip uses the clip's own pace instead — see
+    /// <see cref="Pace"/>. Gabriel's stride covers 49.9 units in 1.40 seconds, which is 35.6:
+    /// this is nearly twice that, and the difference is a character whose feet slide.
     /// </remarks>
     public const float Speed = 65f;
 
     /// <summary>How fast an actor turns, in radians a second.</summary>
     public const float TurnRate = 6f;
+
+    /// <summary>How far short of a thing an actor stops, when nothing says otherwise.</summary>
+    /// <remarks>
+    /// Gabriel's <c>WalkerHeight</c>, which is what a character with an entry in
+    /// <c>CHARACTERS.TXT</c> uses instead. Standing a person's own height away from what
+    /// they are looking at is about right for a picture on a wall and not obviously wrong
+    /// for anything else.
+    /// </remarks>
+    public const float StandOff = 76f;
 
     /// <summary>How near the first corner an actor may already be standing.</summary>
     /// <remarks>
@@ -64,6 +75,11 @@ public sealed class Walker
     /// heading worked out in advance from the requested destination is a heading towards a
     /// place they never reach — and when the two coincide, no heading at all.
     /// </param>
+    /// <param name="pace">
+    /// How fast they walk, in scene units a second, or null for <see cref="Speed"/>. A walk
+    /// with a stride to play should pass the stride's own pace, or the feet and the ground
+    /// disagree.
+    /// </param>
     /// <remarks>
     /// Arriving facing something is the point of most walks. A scene's named spots each
     /// carry a heading — the way somebody standing there is meant to face — and walking to
@@ -77,9 +93,12 @@ public sealed class Walker
         Vector3 from,
         float facing,
         float? arriveFacing = null,
-        Vector3? arriveLookingAt = null)
+        Vector3? arriveLookingAt = null,
+        float? pace = null)
     {
         ArgumentNullException.ThrowIfNull(actor);
+
+        Pace = pace is { } given && given > 0 ? given : Speed;
 
         Actor = actor;
         Position = from;
@@ -99,6 +118,14 @@ public sealed class Walker
 
     /// <summary>Whose walk it is.</summary>
     public string Actor { get; }
+
+    /// <summary>How fast this actor walks, in scene units a second.</summary>
+    /// <remarks>
+    /// The stride's own speed where there is one, so that the ground covered and the feet
+    /// covering it agree. Everything else about a walk is a rate rather than a duration for
+    /// the same reason: a route's length is not known until it is found.
+    /// </remarks>
+    public float Pace { get; }
 
     /// <summary>Where they are now.</summary>
     public Vector3 Position { get; private set; }
@@ -167,7 +194,7 @@ public sealed class Walker
     }
 
     /// <summary>How long the whole walk will take, in seconds.</summary>
-    public double Seconds => Remaining / Speed;
+    public double Seconds => Remaining / Pace;
 
     /// <summary>Moves along the route.</summary>
     /// <param name="seconds">How much time has passed.</param>
@@ -179,7 +206,7 @@ public sealed class Walker
     /// </remarks>
     public bool Advance(float seconds)
     {
-        float budget = Math.Max(0, seconds) * Speed;
+        float budget = Math.Max(0, seconds) * Pace;
 
         while (budget > 0 && _at < _route.Count)
         {
@@ -302,6 +329,32 @@ public sealed class Walker
     /// </remarks>
     public static float Heading(Vector3 direction) =>
         MathF.Atan2(direction.X, direction.Z);
+
+    /// <summary>Where to stand to look at something, rather than on top of it.</summary>
+    /// <param name="thing">The middle of what is being looked at.</param>
+    /// <param name="from">Where the actor is coming from.</param>
+    /// <param name="distance">How far short to stop, in scene units.</param>
+    /// <returns>A spot on the line between the two.</returns>
+    /// <remarks>
+    /// <para>
+    /// A named spot is where the artists put it and is walked to exactly. A <em>thing</em>
+    /// has no spot, so the aim is the middle of the object — and the middle of a picture on
+    /// a wall is inside the wall. The boundary stops the actor before they get into it, so
+    /// nothing looks broken; they just end up with their nose against it. Measured in R25,
+    /// walking to the middle of the four paintings stops 9, 9, 13 and 35 units off them.
+    /// </para>
+    /// <para>
+    /// Never further away than the thing already is, so an actor standing closer than this
+    /// does not back away from what they were sent to look at.
+    /// </para>
+    /// </remarks>
+    public static Vector3 StandingOff(Vector3 thing, Vector3 from, float distance)
+    {
+        Vector3 back = Flat(from - thing);
+        float away = back.Length();
+
+        return away <= distance || distance <= 0 ? thing : thing + (back / away * distance);
+    }
 
     /// <summary>Drops the vertical, because walking is a thing done on a floor.</summary>
     private static Vector3 Flat(Vector3 v) => new(v.X, 0, v.Z);

@@ -156,7 +156,11 @@ public static class Application
         // The host outlives the room. Its scripts and its registrations belong to the
         // story rather than to the room, and reloading them at every door would lose
         // whatever a script was in the middle of.
-        var host = new ScriptHost(api);
+        // Who the cast are and how each of them walks. Read once: it describes the game's
+        // people rather than any one room, and every room asks the same questions of it.
+        Game.Actors.CharacterLibrary characters = Game.Actors.CharacterLibrary.Open(archives);
+
+                var host = new ScriptHost(api);
 
         // Scripts wait for real here, unlike in the tools, because here there is a clock
         // for them to wait against.
@@ -320,8 +324,11 @@ public static class Application
             // gab alone is 50.2 million samples and nothing deforms yet.
             update.Animations = api.Animations;
             update.Clips = clips;
+            update.Characters = characters;
 
-            Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
+            Console.WriteLine(
+                $"Update: {update.Movable} actor(s) can turn their head, " +
+                $"{characters.Count} character(s) know how to walk");
 
             room?.Silence();
 

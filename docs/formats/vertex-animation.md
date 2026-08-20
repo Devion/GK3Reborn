@@ -161,3 +161,80 @@ every mesh group, orientation gizmos rather than geometry. They are in the verte
 now that vertices are read. They are not indexed by any triangle, so nothing draws them,
 but anything that measures a character's extent from its vertices will be wrong by the 60
 units they sit out at.
+
+## Walking
+
+`CHARACTERS.TXT` is an INI file, one section a character, keyed by the three-letter code
+the models use. Forty-five characters have one. Gabriel's says:
+
+```
+WalkerHeight=76.0
+StartAnim=gabstart
+ContAnim=Gabwalk
+StopAnim=Gabstop
+```
+
+Those name `.ANM` files, which name the `.ACT` that holds the geometry. Only `ContAnim` is
+played: the reference notes that walk-*end* animations appear never to have been used in
+the original at all, and playing the *start* one means the legs accelerate while the walker
+moves at a constant pace, which slides worse than starting mid-stride does.
+
+### The clip carries its own ground, and that is the problem
+
+GK3 authors a walk as **root motion**. Gabriel's stride carries his hips 49.9 units along
+the model's −Z over 1.40 seconds, and the original lets that motion move the actor —
+`animParams.allowMove = true`.
+
+Here `Walker` owns the position instead, because it is what knows the route, the boundary
+and where the walk is supposed to end. The original agrees, in the end: it force-sets the
+final position when the walk finishes, because root motion cannot be trusted to arrive
+anywhere exact.
+
+So the clip is played for its **pose** and the forward travel is taken back out, frame by
+frame. **Only the forward travel.** The hips also sway sideways and rise and fall, and
+removing those flattens the walk into a glide with moving legs. Measured over Gabriel's
+stride:
+
+| | before | after |
+|---|---|---|
+| Forward travel (Z) | 49.9 units | **0.000000** |
+| Sway (X) | 1.93 units | 1.93 units |
+| Bob (Y) | 1.29 units | 1.29 units |
+
+What accumulates is Z, and Z is what comes out. The last frame is the first again — they
+agree to 0.002 units in sway and exactly in bob — so the loop runs over one frame fewer
+than the clip holds, or the stride hitches once a cycle.
+
+### The pace has to come from the same place
+
+The walker's own guess was 65 units a second. The stride is **35.6**. Walking half again as
+fast as the legs is precisely what a sliding character looks like, so a walk with a stride
+goes at the stride's pace and `Walker.Speed` is only what somebody with no entry in the
+file gets.
+
+### Standing off
+
+A named approach spot is where the artists put it and is walked to exactly. A *thing* has
+no spot, so the aim is the middle of the object — and the middle of a picture is inside the
+wall it hangs on. The boundary stops the actor before they get into it, so nothing looks
+broken; they end up with their nose against it. In R25:
+
+| | walking to the middle | standing off |
+|---|---|---|
+| `r25pic01` | 13 units | 77 |
+| `r25pic02` | 9 units | 78 |
+| `r25pic03` | 9 units | 78 |
+| `r25pic04` | 35 units | 75 |
+
+The distance is the character's own `WalkerHeight`, which agrees with what the artists did
+where they placed a spot by hand: the few approaches in the corpus that name both a thing
+and a position stand 68 to 184 units off it. Never further than the thing already is, so
+somebody standing close does not back away from what they were sent to look at.
+
+### Still open
+
+- **The start and turn animations are read and not played.** `StartTurnLeftAnim` and
+  `StartTurnRightAnim` are how the original turns a standing character into a walking one
+  without pivoting on the spot.
+- **Nothing waits for a walk.** A script's `wait` returns before the actor arrives, so a
+  line of dialogue about a painting starts while its speaker is still crossing the room.

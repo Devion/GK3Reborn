@@ -638,7 +638,29 @@ public static class SceneScripting
 
         // A named spot says which way to stand. A thing says to look at it — from wherever
         // the walk actually ends, which the boundary decides, not from where it was aimed.
-        return world.Walk(actor, aim.Destination, aim.Heading, aim.Look);
+        return world.Walk(actor, Approach(world, actor, aim), aim.Heading, aim.Look);
+    }
+
+    /// <summary>Stops an actor short of the thing they were sent to.</summary>
+    /// <remarks>
+    /// The distance is the character's own <c>WalkerHeight</c> out of <c>CHARACTERS.TXT</c> —
+    /// Gabriel is 76 units — which agrees with what the artists did where they placed an
+    /// approach spot by hand: the few in the corpus that name both a thing and a position
+    /// stand 68 to 184 units off it. See <see cref="Navigation.Walker.StandingOff"/> for why
+    /// walking to the middle is not good enough.
+    /// </remarks>
+    private static Vector3 Approach(SceneUpdate world, string actor, Aiming aim)
+    {
+        if (aim.Look is not { } thing || world.Where(actor) is not { } from)
+        {
+            return aim.Destination;
+        }
+
+        float stand = world.Characters?.Of(actor)?.WalkerHeight is { } height && height > 0
+            ? height
+            : Navigation.Walker.StandOff;
+
+        return Navigation.Walker.StandingOff(thing, from, stand);
     }
 
     /// <summary>Where a walking call points, and which way to face when it gets there.</summary>

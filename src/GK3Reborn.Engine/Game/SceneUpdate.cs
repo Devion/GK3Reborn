@@ -299,6 +299,14 @@ public sealed class SceneUpdate
             p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Who the game's characters are, and how each of them walks.</summary>
+    /// <remarks>
+    /// Null leaves everybody sliding: an actor with no stride still crosses the room, in
+    /// whatever pose they were standing in. That is what a partial set has to do — the
+    /// walk is read from <c>CHARACTERS.TXT</c>, and not every model in the game is in it.
+    /// </remarks>
+    public Actors.CharacterLibrary? Characters { get; set; }
+
     /// <summary>How many actors are crossing the room.</summary>
     public int OnTheMove => _walking.Count;
 
@@ -364,7 +372,11 @@ public sealed class SceneUpdate
             // No boundary is no obstacles, so the straight line is the route.
             : new WalkRoute(true, [destination]);
 
-        var walker = new Walker(actor, route, from, facing, arriveFacing, arriveLookingAt);
+        // The stride first, because its pace is what the walk is measured at.
+        WalkCycle? stride = WalkCycle.For(placed, Characters, Animations, Clips);
+
+        var walker = new Walker(
+            actor, route, from, facing, arriveFacing, arriveLookingAt, stride?.Pace);
 
         if (!walker.Walking)
         {
@@ -372,7 +384,11 @@ public sealed class SceneUpdate
             return 0;
         }
 
-        _walking[actor] = new Walking(placed, walker);
+        // Whatever they were doing, they are walking now. Without this a character keeps
+        // the pose of the clip that was playing and slides across the room in it.
+        StopAnimating(placed.Name);
+
+        _walking[actor] = new Walking(placed, walker, stride);
         return walker.Seconds;
     }
 
@@ -533,6 +549,9 @@ public sealed class SceneUpdate
             }
 
             _geometry.MoveModel(walking.Placement, walking.Walker.Transform(walking.Scale));
+
+            // The legs, in the model's own space, on top of wherever the model now is.
+            walking.Stride?.Step(_geometry, (float)seconds);
 
             Follow(who, walking.Walker.Position);
 
@@ -711,19 +730,6 @@ public sealed class SceneUpdate
             return Matrix4x4.CreateTranslation(rest - opens);
         }
 
-        private static Vector3 Average(IEnumerable<Vector3> points)
-        {
-            Vector3 total = Vector3.Zero;
-            int count = 0;
-
-            foreach (Vector3 point in points)
-            {
-                total += point;
-                count++;
-            }
-
-            return count > 0 ? total / count : Vector3.Zero;
-        }
 
         /// <summary>Poses the model for this moment.</summary>
         /// <returns>True while the clip is still running.</returns>
@@ -807,13 +813,36 @@ public sealed class SceneUpdate
         }
     }
 
+    /// <summary>The middle of a set of points, or the origin when there are none.</summary>
+    /// <remarks>
+    /// Both the clip playback and the walk cycle line a clip up against the model it belongs
+    /// to by comparing where the mesh groups sit, so the two share one answer to where that
+    /// is. The original uses the shoes, named per character in <c>CHARACTERS.TXT</c>; the
+    /// average moves with the same rigid motion and differs only by a constant, which a
+    /// difference of two averages cancels.
+    /// </remarks>
+    private static Vector3 Average(IEnumerable<Vector3> points)
+    {
+        Vector3 total = Vector3.Zero;
+        int count = 0;
+
+        foreach (Vector3 point in points)
+        {
+            total += point;
+            count++;
+        }
+
+        return count > 0 ? total / count : Vector3.Zero;
+    }
+
     /// <summary>One actor crossing the room, and what to move when they do.</summary>
     private sealed class Walking
     {
-        public Walking(PlacedModel placed, Walker walker)
+        public Walking(PlacedModel placed, Walker walker, WalkCycle? stride = null)
         {
             Placement = placed.Placement;
             Walker = walker;
+            Stride = stride;
 
             // The placement is scale, then a turn, then a move, so the scale comes back out
             // as the length of a basis vector. Rebuilding the transform without it would
@@ -831,7 +860,161 @@ public sealed class SceneUpdate
 
         public Walker Walker { get; }
 
+        /// <summary>The stride to play while they cross, if this character has one.</summary>
+        public WalkCycle? Stride { get; }
+
         public float Scale { get; }
+    }
+
+    /// <summary>
+    /// A walking character's legs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The clip is played for its <b>pose</b> and not for its ground. GK3 authors a walk as
+    /// root motion — Gabriel's stride carries his hips 49.9 units along the model's −Z over
+    /// 1.40 seconds — and the original lets that motion move the actor. Here
+    /// <see cref="Walker"/> owns the position, because it is what knows the route, the
+    /// boundary and where the walk is supposed to end. Two things writing one position is
+    /// the fault this avoids.
+    /// </para>
+    /// <para>
+    /// So the clip's forward travel is taken back out, frame by frame, and the character
+    /// walks on the spot while the walker carries them. <b>Only the forward travel.</b> The
+    /// hips also sway sideways and rise and fall — X returns to where it started every
+    /// stride and Y bobs twice a stride — and removing those would flatten the walk into a
+    /// glide with moving legs. What accumulates is Z, and Z is what comes out.
+    /// </para>
+    /// <para>
+    /// The pace comes from the same measurement, so the ground covered and the feet
+    /// covering it agree. Get that wrong and the walk reads as a character being dragged.
+    /// </para>
+    /// </remarks>
+    private sealed class WalkCycle
+    {
+        private readonly ActFile _clip;
+        private readonly PlacedModel _target;
+        private readonly Matrix4x4 _rest;
+        private readonly float _opens;
+
+        private double _elapsed;
+
+        private readonly int _period;
+
+        private WalkCycle(ActFile clip, PlacedModel target, Matrix4x4 rest, float opens, float pace)
+        {
+            _clip = clip;
+            _target = target;
+            _rest = rest;
+            _opens = opens;
+            Pace = pace;
+
+            // A stride is authored so that its last frame repeats its first — Gabriel's
+            // twenty-first frame is his first, agreeing to two thousandths of a unit in
+            // sway and exactly in bob. Looping over all of them shows that pose twice and
+            // the walk hitches once a stride.
+            _period = Closes(clip) ? clip.FrameCount - 1 : clip.FrameCount;
+        }
+
+        /// <summary>Whether the clip's last frame is its first again.</summary>
+        private static bool Closes(ActFile clip)
+        {
+            Vector3 first = Mean(clip, 0);
+            Vector3 last = Mean(clip, clip.FrameCount - 1);
+
+            return clip.FrameCount > 2 &&
+                   MathF.Abs(first.X - last.X) < 0.05f &&
+                   MathF.Abs(first.Y - last.Y) < 0.05f;
+        }
+
+        /// <summary>Where the clip's mesh groups sit on a frame.</summary>
+        private static Vector3 Mean(ActFile clip, int frame) => Average(Enumerable
+            .Range(0, clip.MeshCount)
+            .Select(m => clip.PoseOf(m, frame))
+            .Where(p => p is not null)
+            .Select(p => p!.Value.Translation));
+
+        /// <summary>How fast the stride carries its owner, in scene units a second.</summary>
+        public float Pace { get; }
+
+        /// <summary>Finds the stride a character walks with.</summary>
+        /// <returns>The cycle, or null when this character has no walk animation here.</returns>
+        public static WalkCycle? For(
+            PlacedModel target,
+            Actors.CharacterLibrary? characters,
+            Content.AnimationLibrary? animations,
+            Content.ClipLibrary? clips)
+        {
+            if (characters?.Of(target.Name) is not { WalkAnimation: { Length: > 0 } named } ||
+                animations is null ||
+                clips is null)
+            {
+                return null;
+            }
+
+            // CHARACTERS.TXT names an .ANM, which names the .ACT that holds the geometry.
+            if (animations.Read(named) is not { } animation)
+            {
+                return null;
+            }
+
+            foreach (AnimationAction action in animation.Actions)
+            {
+                if (clips.Read(action.Name) is not { } clip ||
+                    !clip.ModelName.Equals(target.Name, StringComparison.OrdinalIgnoreCase) ||
+                    clip.FrameCount < 2 ||
+                    clip.Duration <= 0)
+                {
+                    continue;
+                }
+
+                float opens = Forward(clip, 0);
+                float travel = MathF.Abs(Forward(clip, clip.FrameCount - 1) - opens);
+
+                Matrix4x4 rest = Matrix4x4.CreateTranslation(
+                    Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation)) -
+                    Mean(clip, 0));
+
+                return new WalkCycle(
+                    clip, target, rest, opens, (float)(travel / clip.Duration));
+            }
+
+            return null;
+        }
+
+        /// <summary>Poses the model for however long the walk has been going.</summary>
+        /// <param name="geometry">Where the poses go.</param>
+        /// <param name="seconds">Time since the last frame.</param>
+        public void Step(ISceneSink geometry, float seconds)
+        {
+            _elapsed += Math.Max(0, seconds);
+
+            // Looped, and seamlessly: with the forward travel removed, the last frame sits
+            // exactly where the first does, so the join is invisible.
+            int frame = (int)(_elapsed * AnimationFile.FramesPerSecond) % _period;
+
+            Matrix4x4 correction =
+                Matrix4x4.CreateTranslation(0, 0, _opens - Forward(_clip, frame)) * _rest;
+
+            for (int mesh = 0; mesh < _clip.MeshCount; mesh++)
+            {
+                if (_clip.PoseOf(mesh, frame) is { } pose)
+                {
+                    geometry.PoseMesh(_target.Placement, mesh, pose * correction);
+                }
+
+                foreach (int submesh in _clip.ShapedSubmeshes(mesh))
+                {
+                    if (_clip.ShapeOf(mesh, submesh, frame) is { } shape)
+                    {
+                        geometry.ShapeMesh(_target.Placement, mesh, submesh, shape);
+                    }
+                }
+            }
+        }
+
+        /// <summary>How far along the model's forward axis the body sits on a frame.</summary>
+        private static float Forward(ActFile clip, int frame) => Mean(clip, frame).Z;
     }
 
     /// <summary>One actor's head, and where it is on its way to.</summary>
