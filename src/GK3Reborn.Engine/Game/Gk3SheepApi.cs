@@ -95,6 +95,28 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <inheritdoc/>
     public bool IsWaitable(string name) => _waitable.Contains(name);
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Only the calls whose length is knowable from what has been read. A timer is exactly
+    /// its argument; a camera glide is as long as a glide. Everything else — a line of
+    /// dialogue, an animation — is as long as an asset nothing reads yet, and answering
+    /// with a plausible number would invent pacing the game does not have. Those keep the
+    /// old behaviour of being over as soon as they start.
+    /// </remarks>
+    public double SecondsFor(string name, IReadOnlyList<SheepValue> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        return name.ToUpperInvariant() switch
+        {
+            "SETTIMERSECONDS" => arguments.Count > 0 ? arguments[0].AsFloat() : 0,
+            "SETTIMERMS" => arguments.Count > 0 ? arguments[0].AsInt() / 1000.0 : 0,
+            "GLIDETOCAMERAANGLE" => SceneUpdate.GlideSeconds,
+            _ => 0,
+        };
+    }
+
     /// <summary>Whether a function does something rather than being recorded.</summary>
     /// <param name="name">Function name.</param>
     /// <returns>True when it is registered.</returns>
@@ -331,6 +353,10 @@ public sealed class Gk3SheepApi : ISheepApi
         });
 
         RegisterScreenFunctions();
+
+        // SetTimerSeconds and SetTimerMs are a script sleeping, and are already declared
+        // waitable among the recorded calls. There is nothing for them to do but take the
+        // time, which SecondsFor reports and the scheduler spends.
 
         // Explicitly answered rather than left unknown: scripts poll these constantly and
         // an unregistered warning for each would drown everything else.

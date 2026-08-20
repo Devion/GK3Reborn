@@ -53,6 +53,7 @@ public sealed class SceneUpdate
     private readonly ISceneSink _geometry;
     private readonly ActionResolver? _actions;
     private readonly ActionRunner? _runner;
+    private readonly SheepScheduler? _scripts;
     private readonly LoadedScene _scene;
 
     private string _angle = string.Empty;
@@ -67,13 +68,15 @@ public sealed class SceneUpdate
     /// <param name="geometry">Where the scene was put, so heads can move in it.</param>
     /// <param name="actions">What may be done to things, for timers coming due.</param>
     /// <param name="runner">How to do it.</param>
+    /// <param name="scripts">Scripts that are waiting for something, if anything is.</param>
     public SceneUpdate(
         LoadedScene scene,
         Gk3SheepApi api,
         Glances glances,
         ISceneSink geometry,
         ActionResolver? actions = null,
-        ActionRunner? runner = null)
+        ActionRunner? runner = null,
+        SheepScheduler? scripts = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(api);
@@ -86,6 +89,7 @@ public sealed class SceneUpdate
         _geometry = geometry;
         _actions = actions;
         _runner = runner;
+        _scripts = scripts;
 
         foreach (PlacedModel placed in scene.Models)
         {
@@ -147,6 +151,13 @@ public sealed class SceneUpdate
         }
 
         List<string> happened = [];
+
+        // The scripts first: one carrying on from a wait may cut the camera or set a
+        // timer, and it should take effect in the frame it happened rather than the next.
+        foreach (string carried in _scripts?.Advance(seconds) ?? [])
+        {
+            happened.Add($"{carried} carried on");
+        }
 
         MoveView(seconds);
 

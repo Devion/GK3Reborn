@@ -196,13 +196,48 @@ public static class Application
         var host = new ScriptHost(api);
         SceneScripting.Attach(api, scene, loader.Glances);
 
+        // Scripts wait for real here, unlike in the tools, because here there is a clock
+        // for them to wait against.
+        host.Scheduler = new SheepScheduler(host.Machine);
+
         var update = new SceneUpdate(
-            scene, api, loader.Glances, geometry, scene.Actions, new ActionRunner(api));
+            scene,
+            api,
+            loader.Glances,
+            geometry,
+            scene.Actions,
+            new ActionRunner(api),
+            host.Scheduler);
 
         Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
 
         // Set once the room is standing, which is where a script would set it, so the head
         // turns while the player watches instead of having always been turned.
+        // Doing something is how a script gets started, and a script is what waits.
+        if (Option(args, "--do")?.Split(':') is [string noun, string verb] &&
+            scene.Actions?.Find(noun.Trim(), verb.Trim()) is { } rule)
+        {
+            foreach (string name in archives.Names(".SHP"))
+            {
+                if (archives.Read(name) is { } bytes)
+                {
+                    try
+                    {
+                        host.Add(Sheep.SheepScriptFile.Parse(bytes, name));
+                    }
+                    catch (Formats.FormatParseException)
+                    {
+                    }
+                }
+            }
+
+            ActionOutcome outcome = new ActionRunner(api).Run(rule);
+
+            Console.WriteLine(
+                $"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: " +
+                $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)");
+        }
+
         if (Option(args, "--glide") is { Length: > 0 } destination)
         {
             Sheep.SheepExpression.Evaluate(
@@ -314,7 +349,9 @@ public static class Application
 
             foreach (string happened in update.Advance(delta))
             {
-                Console.WriteLine($"  {happened}");
+                Console.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  [{stopwatch.Elapsed.TotalSeconds:F2}s] {happened}"));
             }
 
             // The story moving the camera takes it back off the player, for as long as it

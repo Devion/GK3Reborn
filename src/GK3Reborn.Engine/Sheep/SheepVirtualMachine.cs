@@ -51,6 +51,19 @@ public interface ISheepApi
     /// <param name="name">Function name.</param>
     /// <returns>True when the function is waitable.</returns>
     bool IsWaitable(string name);
+
+    /// <summary>How long a waited call takes.</summary>
+    /// <param name="name">Function name.</param>
+    /// <param name="arguments">What it was called with, since the wait often is one.</param>
+    /// <returns>Seconds, or zero when the host has no idea and the call is over at once.</returns>
+    /// <remarks>
+    /// Zero by default, which is what the engine did everywhere before anything could take
+    /// time: a script waits and carries straight on. A host that knows better — a timer
+    /// knows exactly, a camera glide knows its own duration — says so, and only then does a
+    /// script's own pacing start to mean anything. Guessing for the calls whose length
+    /// depends on assets that are not read yet would invent timing the game does not have.
+    /// </remarks>
+    double SecondsFor(string name, IReadOnlyList<SheepValue> arguments) => 0;
 }
 
 /// <summary>One running script.</summary>
@@ -91,6 +104,15 @@ public sealed class SheepThread
     internal bool InWaitBlock { get; set; }
 
     internal int PendingWaits { get; set; }
+
+    /// <summary>
+    /// How long the wait block this thread is in still has to run.
+    /// </summary>
+    /// <remarks>
+    /// The longest of the calls inside it, because a wait block waits for all of them and
+    /// is therefore over when the slowest is.
+    /// </remarks>
+    public double WaitSeconds { get; internal set; }
 }
 
 /// <summary>
@@ -204,6 +226,7 @@ public sealed class SheepVirtualMachine
 
         thread.PendingWaits = 0;
         thread.InWaitBlock = false;
+        thread.WaitSeconds = 0;
 
         if (thread.State == SheepThreadState.Blocked)
         {
@@ -322,6 +345,7 @@ public sealed class SheepVirtualMachine
             case SheepOpcode.BeginWait:
                 thread.InWaitBlock = true;
                 thread.PendingWaits = 0;
+                thread.WaitSeconds = 0;
                 break;
 
             case SheepOpcode.EndWait:
@@ -488,6 +512,10 @@ public sealed class SheepVirtualMachine
         if (waited)
         {
             thread.PendingWaits++;
+
+            // The longest call in the block decides when the block is over.
+            thread.WaitSeconds = Math.Max(
+                thread.WaitSeconds, _api.SecondsFor(import.Name, arguments));
         }
 
         thread.Calls.Add(new SheepCall(import.Name, arguments, waited));

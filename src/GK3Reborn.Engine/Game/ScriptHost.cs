@@ -55,6 +55,20 @@ public sealed class ScriptHost
     /// <summary>Diagnostics raised while running.</summary>
     public DiagnosticBag Diagnostics { get; } = new();
 
+    /// <summary>The machine the host runs scripts on, for a scheduler to resume them.</summary>
+    public SheepVirtualMachine Machine => _vm;
+
+    /// <summary>
+    /// Somewhere to leave a script that is waiting for something, if anywhere.
+    /// </summary>
+    /// <remarks>
+    /// Without one, a blocked thread is told everything it waited on has finished and
+    /// carried straight on, which is what this did from the beginning and what every tool
+    /// still wants: a sweep of the corpus has no clock and no reason to want one. With
+    /// one, the script waits, and the pacing it was written with is the pacing it gets.
+    /// </remarks>
+    public SheepScheduler? Scheduler { get; set; }
+
     /// <summary>Makes a script available to call.</summary>
     /// <param name="script">The script.</param>
     public void Add(SheepScriptFile script)
@@ -87,13 +101,19 @@ public sealed class ScriptHost
 
         SheepThread thread = _vm.Execute(script, functionName);
 
-        // The host assumes waited calls finish at once. A scheduler with a real clock
-        // replaces this; the observable order of calls does not change.
-        int resumes = 0;
-        while (thread.State is SheepThreadState.Blocked or SheepThreadState.Yielded && resumes++ < 1000)
+        // With a scheduler, the thread waits its time out and somebody else carries it on.
+        // Without one, the host assumes waited calls finish at once, which is what it did
+        // before anything could take time and what every caller with no clock still needs.
+        if (Scheduler?.Park(thread) != true)
         {
-            SheepVirtualMachine.NotifyWaitsCompleted(thread);
-            _vm.Resume(thread);
+            int resumes = 0;
+
+            while (thread.State is SheepThreadState.Blocked or SheepThreadState.Yielded &&
+                   resumes++ < 1000)
+            {
+                SheepVirtualMachine.NotifyWaitsCompleted(thread);
+                _vm.Resume(thread);
+            }
         }
 
         foreach (Diagnostic diagnostic in thread.Diagnostics.Items)
