@@ -202,6 +202,12 @@ public static class SceneScripting
         api.Register("LookitModel", a => Look(a, quick: false));
         api.Register("LookitModelQuick", a => Look(a, quick: true));
 
+        // The same, aimed at something in the geometry rather than at a prop standing in
+        // it - CS2's script points Grace at a hit test, which is a slab nobody can see and
+        // a perfectly good thing to look at.
+        api.Register("LookitSceneModel", a => Look(a, quick: false));
+        api.Register("LookitSceneModelQuick", a => Look(a, quick: true));
+
         api.Register("LookitCancel", a =>
         {
             if (a.Count > 0)
@@ -288,9 +294,7 @@ public static class SceneScripting
             return Middle(placed);
         }
 
-        return Footprint(scene, name) is var (minimum, maximum)
-            ? new Vector3((minimum.X + maximum.X) * 0.5f, 0f, (minimum.Y + maximum.Y) * 0.5f)
-            : null;
+        return Bounds(scene, name) is var (low, high) ? (low + high) * 0.5f : null;
     }
 
     /// <summary>The middle of a placed model, in world space.</summary>
@@ -369,8 +373,26 @@ public static class SceneScripting
     /// </remarks>
     private static (Vector2 Minimum, Vector2 Maximum)? Footprint(LoadedScene scene, string name)
     {
-        Vector2 minimum = new(float.MaxValue);
-        Vector2 maximum = new(float.MinValue);
+        if (Bounds(scene, name) is not var (low, high))
+        {
+            return null;
+        }
+
+        return (new Vector2(low.X, low.Z), new Vector2(high.X, high.Z));
+    }
+
+    /// <summary>
+    /// The box round everything named that, whether it is a prop or part of the room.
+    /// </summary>
+    /// <remarks>
+    /// The scene files name both the same way, so both are looked for. Height matters
+    /// where a footprint does not: an actor looking at a ceiling fan looks up at it, and
+    /// one told to look at the floor of a wardrobe looks down.
+    /// </remarks>
+    private static (Vector3 Minimum, Vector3 Maximum)? Bounds(LoadedScene scene, string name)
+    {
+        Vector3 minimum = new(float.MaxValue);
+        Vector3 maximum = new(float.MinValue);
         bool found = false;
 
         foreach (PlacedModel placed in scene.Models)
@@ -421,8 +443,8 @@ public static class SceneScripting
 
         void Grow(Vector3 point)
         {
-            minimum = Vector2.Min(minimum, new Vector2(point.X, point.Z));
-            maximum = Vector2.Max(maximum, new Vector2(point.X, point.Z));
+            minimum = Vector3.Min(minimum, point);
+            maximum = Vector3.Max(maximum, point);
             found = true;
         }
     }

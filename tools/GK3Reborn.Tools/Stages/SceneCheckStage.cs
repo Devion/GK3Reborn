@@ -1,6 +1,7 @@
 using System.Globalization;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Audio;
+using GK3Reborn.Game.Actors;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
@@ -406,7 +407,8 @@ public sealed class SceneCheckStage
         _ = new ScriptHost(api);
         SceneScripting.Attach(
             api,
-            new LoadedScene("PROBE", new SceneDefinition(general: null), null, null, 0));
+            new LoadedScene("PROBE", new SceneDefinition(general: null), null, null, 0),
+            new Glances());
 
         List<string> recorded =
             [.. tally.Called.Keys.Where(c => !api.Implements(c)).Order(StringComparer.OrdinalIgnoreCase)];
