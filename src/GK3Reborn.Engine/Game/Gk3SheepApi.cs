@@ -6,6 +6,24 @@ using GK3Reborn.UI;
 
 namespace GK3Reborn.Game;
 
+/// <summary>How an actor gets to the thing they are about to act on.</summary>
+/// <remarks>
+/// An action file writes this beside the script as <c>approach=</c>, and it is not part of
+/// the script: it is what has to be true before the script runs. 3,617 of them across the
+/// corpus, of which 2,120 are <c>WalkToSee</c> and 394 are turns.
+/// </remarks>
+public enum Approaching
+{
+    /// <summary>Go to a named spot on the floor and face the way it says.</summary>
+    Walk,
+
+    /// <summary>Go to a thing and end up looking at it.</summary>
+    WalkToSee,
+
+    /// <summary>Face a thing without going anywhere.</summary>
+    Turn,
+}
+
 /// <summary>A presentation call the script made, recorded rather than performed.</summary>
 /// <param name="Name">Function name.</param>
 /// <param name="Arguments">Arguments rendered as text.</param>
@@ -100,12 +118,11 @@ public sealed class Gk3SheepApi : ISheepApi
     /// What sends an actor across the room, when there is a room to cross.
     /// </summary>
     /// <remarks>
-    /// Given the actor, the place, and whether the place is a model rather than a spot on
-    /// the floor; answers how long the walk will take. Set by
-    /// <see cref="SceneScripting.Attach"/>, so a tool with no scene leaves it null and the
-    /// walking calls stay recorded, as they always were.
+    /// Given the actor, the place and how to get there; answers how long it will take. Set
+    /// by <see cref="SceneScripting.Attach"/>, so a tool with no scene leaves it null and
+    /// the walking calls stay recorded, as they always were.
     /// </remarks>
-    public Func<string, string, bool, double>? Walks { get; set; }
+    public Func<string, string, Approaching, double>? Walks { get; set; }
 
     /// <summary>
     /// What plays an animation, when there is a room to play it in.
@@ -166,8 +183,9 @@ public sealed class Gk3SheepApi : ISheepApi
 
             // A walk is as long as the route is, which is not known until it is found —
             // so this asks for one rather than guessing from the distance.
-            "WALKTO" or "WALKTOANIMATION" => Length(arguments, toModel: false),
-            "WALKTOSEEMODEL" => Length(arguments, toModel: true),
+            "WALKTO" or "WALKTOANIMATION" => Length(arguments, Approaching.Walk),
+            "WALKTOSEEMODEL" => Length(arguments, Approaching.WalkToSee),
+            "TURNTOMODEL" or "TURNTO" => Length(arguments, Approaching.Turn),
 
             _ => 0,
         };
@@ -182,7 +200,7 @@ public sealed class Gk3SheepApi : ISheepApi
     /// is fine and deliberate: a host is only asked how long a call takes when the call is
     /// about to be made.
     /// </remarks>
-    private double Length(IReadOnlyList<SheepValue> arguments, bool toModel)
+    private double Length(IReadOnlyList<SheepValue> arguments, Approaching how)
     {
         if (Walks is null || arguments.Count == 0)
         {
@@ -195,7 +213,7 @@ public sealed class Gk3SheepApi : ISheepApi
 
         string place = arguments.Count > 1 ? arguments[1].AsString() : arguments[0].AsString();
 
-        return Walks(actor, place, toModel);
+        return Walks(actor, place, how);
     }
 
     /// <summary>Whether a function does something rather than being recorded.</summary>

@@ -45,6 +45,8 @@ public sealed class Walker
     private const float Close = 2f;
 
     private readonly List<Vector3> _route;
+    private readonly float? _arrive;
+    private readonly Vector3? _look;
     private int _at;
 
     /// <summary>Starts an actor walking.</summary>
@@ -52,7 +54,30 @@ public sealed class Walker
     /// <param name="route">The corners to walk, in order.</param>
     /// <param name="from">Where they are standing now.</param>
     /// <param name="facing">Which way they are facing now, in radians.</param>
-    public Walker(string actor, WalkRoute route, Vector3 from, float facing)
+    /// <param name="arriveFacing">
+    /// Which way to be facing on arrival, in radians, or null to keep whatever direction the
+    /// last step was going.
+    /// </param>
+    /// <param name="arriveLookingAt">
+    /// A point to be facing on arrival. Taken from wherever the actor actually stops, which
+    /// is not where they were sent: the boundary stops them short of anything solid, so a
+    /// heading worked out in advance from the requested destination is a heading towards a
+    /// place they never reach — and when the two coincide, no heading at all.
+    /// </param>
+    /// <remarks>
+    /// Arriving facing something is the point of most walks. A scene's named spots each
+    /// carry a heading — the way somebody standing there is meant to face — and walking to
+    /// look at a thing means ending up looking at it. Without this an actor arrives facing
+    /// whichever way the last corner of the route happened to point, which is usually a
+    /// wall.
+    /// </remarks>
+    public Walker(
+        string actor,
+        WalkRoute route,
+        Vector3 from,
+        float facing,
+        float? arriveFacing = null,
+        Vector3? arriveLookingAt = null)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
@@ -60,6 +85,8 @@ public sealed class Walker
         Position = from;
         Facing = facing;
         Reaches = route.ReachedGoal;
+        _arrive = arriveFacing;
+        _look = arriveLookingAt;
         _route = [.. route.Points];
 
         // The first corner is usually where the actor already is, and walking to where you
@@ -86,8 +113,35 @@ public sealed class Walker
     /// </remarks>
     public bool Reaches { get; }
 
-    /// <summary>Whether there is any walking left.</summary>
-    public bool Walking => _at < _route.Count;
+    /// <summary>Whether there is any walking left, or any turning after it.</summary>
+    public bool Walking => _at < _route.Count || Turning;
+
+    /// <summary>Whether the route is done and only the arrival turn is left.</summary>
+    private bool Turning =>
+        _at >= _route.Count &&
+        Arrival is { } wanted &&
+        MathF.Abs(Wrap(wanted - Facing)) > 0.01f;
+
+    /// <summary>Which way to be facing once the walking is over, if it matters.</summary>
+    private float? Arrival
+    {
+        get
+        {
+            if (_arrive is { } given)
+            {
+                return given;
+            }
+
+            if (_look is not { } at)
+            {
+                return null;
+            }
+
+            Vector3 towards = Flat(at - Position);
+
+            return towards.LengthSquared() > 1e-4f ? MathF.Atan2(towards.X, towards.Z) : null;
+        }
+    }
 
     /// <summary>How far there is still to go, in scene units.</summary>
     public float Remaining
@@ -155,6 +209,14 @@ public sealed class Walker
             }
         }
 
+        // The route is walked; now turn to face whatever was worth walking to.
+        if (_at >= _route.Count && Arrival is { } wanted)
+        {
+            float most = TurnRate * Math.Max(0, seconds);
+
+            Facing = Wrap(Facing + Math.Clamp(Wrap(wanted - Facing), -most, most));
+        }
+
         return Walking;
     }
 
@@ -164,7 +226,11 @@ public sealed class Walker
     /// something else. An actor left mid-stride is better than one who goes on walking
     /// towards a corner of a room nobody is in.
     /// </remarks>
-    public void Stop() => _at = _route.Count;
+    public void Stop()
+    {
+        _at = _route.Count;
+        Facing = Arrival ?? Facing;
+    }
 
     /// <summary>The transform to place the actor's model with.</summary>
     /// <param name="scale">The scale the model was placed at.</param>

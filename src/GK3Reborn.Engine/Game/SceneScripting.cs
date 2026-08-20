@@ -576,7 +576,8 @@ public static class SceneScripting
     /// </remarks>
     private static void Walking(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
-        api.Walks = (actor, place, toModel) => Send(scene, world, actor, place, toModel);
+        api.Walks = (actor, place, how) => Send(
+            scene, world, actor, place, how != Approaching.Walk, how == Approaching.Turn);
 
         api.Register("WalkTo", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
@@ -587,6 +588,12 @@ public static class SceneScripting
         api.Register("WalkToSeeModel", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true)));
 
+        api.Register("TurnToModel", a => SheepValue.FromInt(
+            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true, turnOnly: true)));
+
+        api.Register("TurnTo", a => SheepValue.FromInt(
+            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false, turnOnly: true)));
+
         api.Register("WalkerBoundaryBlockRegion", _ => SheepValue.FromInt(0));
 
         api.Register("StopWalking", _ =>
@@ -596,25 +603,57 @@ public static class SceneScripting
         });
     }
 
-    /// <summary>Starts a walk, and says how long it will take.</summary>
+    /// <summary>
+    /// Starts a walk or a turn, and says how long it will take.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Arriving facing the right way is most of what a walk is for. A scene's named spots
+    /// carry a heading — the way somebody standing there is meant to face — and walking to
+    /// look at something means ending up looking at it. Without either, an actor arrives
+    /// facing whichever way the last corner of the route pointed, which is usually a wall.
+    /// </para>
+    /// <para>
+    /// A turn goes nowhere. 394 of the corpus's approaches are <c>TurnToModel</c>, and
+    /// walking to the thing instead puts the actor on top of what they meant to look at.
+    /// </para>
+    /// </remarks>
     private static double Send(
-        LoadedScene scene, SceneUpdate world, string actor, string place, bool toModel)
+        LoadedScene scene,
+        SceneUpdate world,
+        string actor,
+        string place,
+        bool toModel,
+        bool turnOnly = false)
     {
-        if (Destination(scene, place, toModel) is not { } destination)
+        if (Aim(scene, place, toModel) is not { } aim)
         {
             return 0;
         }
 
-        return world.Walk(actor, destination);
+        if (turnOnly)
+        {
+            return world.Turn(actor, aim.Look ?? aim.Destination);
+        }
+
+        // A named spot says which way to stand. A thing says to look at it — from wherever
+        // the walk actually ends, which the boundary decides, not from where it was aimed.
+        return world.Walk(actor, aim.Destination, aim.Heading, aim.Look);
     }
+
+    /// <summary>Where a walking call points, and which way to face when it gets there.</summary>
+    /// <param name="Destination">The spot on the floor to stand on.</param>
+    /// <param name="Heading">The authored heading of a named spot, if it is one.</param>
+    /// <param name="Look">What to look at, if the target is a thing rather than a spot.</param>
+    private readonly record struct Aiming(Vector3 Destination, float? Heading, Vector3? Look);
 
     /// <summary>Where a walking call is pointing.</summary>
     /// <remarks>
-    /// A named spot on the floor, or the middle of a model. Tried in that order and
+    /// A named spot on the floor, or the middle of a thing. Tried in that order and
     /// regardless of which call asked, because the corpus is not perfectly consistent about
     /// which kind of name it hands to which function.
     /// </remarks>
-    private static Vector3? Destination(LoadedScene scene, string place, bool toModel)
+    private static Aiming? Aim(LoadedScene scene, string place, bool toModel)
     {
         if (place.Length == 0)
         {
@@ -623,7 +662,7 @@ public static class SceneScripting
 
         if (!toModel && scene.Definition.PositionNamed(place) is { } spot)
         {
-            return spot.Position;
+            return new Aiming(spot.Position, spot.Heading, null);
         }
 
         foreach (PlacedModel placed in scene.Models)
@@ -631,13 +670,22 @@ public static class SceneScripting
             if (string.Equals(placed.Name, place, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(placed.Noun, place, StringComparison.OrdinalIgnoreCase))
             {
-                return Middle(placed);
+                Vector3 middle = Middle(placed);
+
+                return new Aiming(middle, null, middle);
             }
+        }
+
+        if (scene.Definition.PositionNamed(place) is { } named)
+        {
+            return new Aiming(named.Position, named.Heading, null);
         }
 
         // Most of what a script points at is part of the room rather than something
         // standing in it — a door, a rack, a noticeboard.
-        return scene.Definition.PositionNamed(place)?.Position ?? scene.MiddleOf(place);
+        return scene.MiddleOf(place) is { } middleOf
+            ? new Aiming(middleOf, null, middleOf)
+            : null;
     }
 
     /// <summary>

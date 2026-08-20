@@ -56,6 +56,25 @@ public sealed class SceneUpdate
     private readonly Dictionary<string, PlacedModel> _standing =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Where each actor logically is, as against where their model is drawn.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The original keeps these apart and syncs one from the other every frame:
+    /// <c>GKActor::OnLateUpdate</c> calls <c>SyncActorToModelPositionAndRotation</c>. So the
+    /// model is the authority while something is driving it, and the actor's position is a
+    /// follower that walking and scripts read.
+    /// </para>
+    /// <para>
+    /// That settles who owns an actor's position, which walking and animation both wanted
+    /// to. Neither: the model does, and whichever of them is driving the model at the time
+    /// gets it. Starting an animation stops a walk, so only one ever is.
+    /// </para>
+    /// </remarks>
+    private readonly Dictionary<string, Vector3> _logical =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, PlacedModel> _models =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -136,10 +155,12 @@ public sealed class SceneUpdate
             }
 
             _standing[placed.Name] = placed;
+            _logical[placed.Name] = placed.Transform.Translation;
 
             if (placed.Noun is { Length: > 0 } noun)
             {
                 _standing[noun] = placed;
+                _logical[noun] = placed.Transform.Translation;
             }
         }
     }
@@ -250,7 +271,13 @@ public sealed class SceneUpdate
             // The move flag is carried but not yet spent. Committing the ground a clip
             // covered means writing the actor's position, and Walker already owns that —
             // the two have to be reconciled before either may write it.
-            _playing.Add(new Playing(clip, target, action, repeat, moves));
+            // The original does this explicitly: starting a vertex animation on a
+            // character cancels whatever walk was in progress. It is also what keeps the
+            // model to one driver at a time.
+            _walking.Remove(clip.ModelName);
+            _walking.Remove(target.Name);
+
+            _playing.Add(new Playing(clip, target, action, repeat, moves, Where(target.Name)));
             longest = Math.Max(longest, clip.Duration + (action.Frame / 15.0));
         }
 
@@ -282,11 +309,7 @@ public sealed class SceneUpdate
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        return _walking.TryGetValue(actor, out Walking? walking)
-            ? walking.Walker.Position
-            : _standing.TryGetValue(actor, out PlacedModel? placed)
-                ? placed.Transform.Translation
-                : null;
+        return _logical.TryGetValue(actor, out Vector3 where) ? where : null;
     }
 
     /// <summary>
@@ -294,6 +317,10 @@ public sealed class SceneUpdate
     /// </summary>
     /// <param name="actor">Their model name.</param>
     /// <param name="destination">Where to go, in world space.</param>
+    /// <param name="arriveFacing">
+    /// Which way to face on arrival, in radians, or null to keep the direction of travel.
+    /// </param>
+    /// <param name="arriveLookingAt">What to be looking at on arrival, if not a fixed heading.</param>
     /// <returns>How long the walk will take, or zero when there is no walking to do.</returns>
     /// <remarks>
     /// <para>
@@ -307,7 +334,11 @@ public sealed class SceneUpdate
     /// Asking again replaces the walk in progress. A script that changes its mind means it.
     /// </para>
     /// </remarks>
-    public double Walk(string actor, Vector3 destination)
+    public double Walk(
+        string actor,
+        Vector3 destination,
+        float? arriveFacing = null,
+        Vector3? arriveLookingAt = null)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
@@ -333,7 +364,7 @@ public sealed class SceneUpdate
             // No boundary is no obstacles, so the straight line is the route.
             : new WalkRoute(true, [destination]);
 
-        var walker = new Walker(actor, route, from, facing);
+        var walker = new Walker(actor, route, from, facing, arriveFacing, arriveLookingAt);
 
         if (!walker.Walking)
         {
@@ -343,6 +374,50 @@ public sealed class SceneUpdate
 
         _walking[actor] = new Walking(placed, walker);
         return walker.Seconds;
+    }
+
+    /// <summary>Writes an actor's logical position, under every name they answer to.</summary>
+    /// <remarks>
+    /// A scene places <c>gab</c> and calls him GABRIEL, and either name may be asked for.
+    /// </remarks>
+    private void Follow(string actor, Vector3? position)
+    {
+        if (position is not { } where || !_standing.TryGetValue(actor, out PlacedModel? placed))
+        {
+            return;
+        }
+
+        _logical[placed.Name] = where;
+
+        if (placed.Noun is { Length: > 0 } noun)
+        {
+            _logical[noun] = where;
+        }
+    }
+
+    /// <summary>
+    /// Turns an actor on the spot to face something.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <param name="target">What to face, in world space.</param>
+    /// <returns>How long the turn will take, or zero when there is nobody to turn.</returns>
+    /// <remarks>
+    /// 394 of the corpus's approaches are <c>TurnToModel</c>, which means turn where you
+    /// stand rather than go anywhere. Walking to the thing instead puts the actor on top of
+    /// whatever they were meant to be looking at.
+    /// </remarks>
+    public double Turn(string actor, Vector3 target)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (Where(actor) is not { } from)
+        {
+            return 0;
+        }
+
+        Vector3 towards = target - from;
+
+        return Walk(actor, from, MathF.Atan2(towards.X, towards.Z));
     }
 
     /// <summary>Stops everyone where they stand.</summary>
@@ -424,9 +499,23 @@ public sealed class SceneUpdate
         // frame's poses to last frame's position.
         for (int i = _playing.Count - 1; i >= 0; i--)
         {
-            if (!_playing[i].Step(_geometry, (float)seconds))
+            Playing playing = _playing[i];
+            bool running = playing.Step(_geometry, (float)seconds);
+
+            // The actor's position follows the model, every frame, as the original syncs
+            // it in LateUpdate.
+            Follow(playing.Target.Name, playing.Carried);
+
+            if (!running)
             {
-                happened.Add($"{_playing[i].Clip.Name} finished");
+                // A non-move animation puts the actor back where it found them: the pose
+                // stays, the ground does not count. A move animation keeps it.
+                if (playing.Reverts)
+                {
+                    Follow(playing.Target.Name, playing.Began);
+                }
+
+                happened.Add($"{playing.Clip.Name} finished");
                 _playing.RemoveAt(i);
             }
         }
@@ -444,6 +533,8 @@ public sealed class SceneUpdate
             }
 
             _geometry.MoveModel(walking.Placement, walking.Walker.Transform(walking.Scale));
+
+            Follow(who, walking.Walker.Position);
 
             foreach (Turning actor in _actors)
             {
@@ -538,11 +629,17 @@ public sealed class SceneUpdate
         private readonly bool _moves;
         private readonly double _delay;
         private readonly Matrix4x4 _correction;
+        private readonly Vector3 _opened;
 
         private double _elapsed;
 
         public Playing(
-            ActFile clip, PlacedModel target, AnimationAction action, bool repeat, bool moves)
+            ActFile clip,
+            PlacedModel target,
+            AnimationAction action,
+            bool repeat,
+            bool moves,
+            Vector3? began)
         {
             Clip = clip;
             Target = target;
@@ -550,7 +647,19 @@ public sealed class SceneUpdate
             _moves = moves;
             _delay = action.Frame / (double)AnimationFile.FramesPerSecond;
             _correction = Correction(clip, target, action.Placement);
+            _opened = Opens(clip);
+            Began = began;
+            Carried = began;
         }
+
+        /// <summary>Where the actor stood when this started.</summary>
+        public Vector3? Began { get; }
+
+        /// <summary>Where the clip has carried the actor to.</summary>
+        public Vector3? Carried { get; private set; }
+
+        /// <summary>Whether the actor gives back the ground the clip covered.</summary>
+        public bool Reverts => !_moves;
 
         public ActFile Clip { get; }
 
@@ -655,9 +764,29 @@ public sealed class SceneUpdate
             return true;
         }
 
+        /// <summary>Where the clip's mesh groups sit on its opening frame.</summary>
+        private static Vector3 Opens(ActFile clip) => Average(Enumerable
+            .Range(0, clip.MeshCount)
+            .Select(m => clip.PoseOf(m, 0))
+            .Where(p => p is not null)
+            .Select(p => p!.Value.Translation));
+
         /// <summary>Puts the model into one frame of the clip.</summary>
         private void Pose(ISceneSink geometry, int frame)
         {
+            // How far the clip has carried the model since it opened, in the world's terms
+            // rather than the model's. This is what the actor's position follows.
+            if (Began is { } from)
+            {
+                Vector3 moved = Average(Enumerable
+                    .Range(0, Clip.MeshCount)
+                    .Select(m => Clip.PoseOf(m, frame))
+                    .Where(p => p is not null)
+                    .Select(p => p!.Value.Translation)) - _opened;
+
+                Carried = from + Vector3.TransformNormal(moved, Target.Transform);
+            }
+
             for (int mesh = 0; mesh < Clip.MeshCount; mesh++)
             {
                 if (Clip.PoseOf(mesh, frame) is { } pose)

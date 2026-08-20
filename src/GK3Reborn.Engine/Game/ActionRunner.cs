@@ -202,9 +202,8 @@ public sealed class ActionRunner
     /// mean the runner had a clock, which it deliberately does not.
     /// </para>
     /// <para>
-    /// <c>TurnToModel</c> and <c>TurnTo</c> are approaches too, and they are turns rather
-    /// than walks; those go through the same hook with the same effect of pointing the
-    /// actor at the thing, because a walk that is already there is a turn.
+    /// <c>TurnToModel</c> and <c>TurnTo</c> are approaches too and they are turns rather
+    /// than walks, so they go through the same hook saying so. 394 of the corpus's 3,617.
     /// </para>
     /// </remarks>
     private void Approach(NvcAction action)
@@ -220,14 +219,20 @@ public sealed class ActionRunner
         {
             case "WALKTO":
             case "WALKTOANIMATION":
-                _api.Walks(_api.State.Ego, target, false);
+                _api.Walks(_api.State.Ego, target, Approaching.Walk);
                 break;
 
             case "WALKTOSEE":
             case "WALKTOSEEMODEL":
+            case "NEARMODEL":
+                _api.Walks(_api.State.Ego, target, Approaching.WalkToSee);
+                break;
+
+            // A turn is not a walk. Walking to the thing instead puts the player on top of
+            // whatever they meant to look at.
             case "TURNTOMODEL":
             case "TURNTO":
-                _api.Walks(_api.State.Ego, target, true);
+                _api.Walks(_api.State.Ego, target, Approaching.Turn);
                 break;
 
             default:

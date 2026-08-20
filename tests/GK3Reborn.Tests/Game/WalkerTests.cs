@@ -109,6 +109,91 @@ public sealed class WalkerTests
     }
 
     [Fact]
+    public void An_actor_sent_to_a_named_spot_arrives_facing_the_way_it_says()
+    {
+        // A scene's spots each carry a heading — the way somebody standing there is meant
+        // to face. Without it an actor arrives facing whichever way the last corner of the
+        // route pointed, which is usually a wall.
+        var walker = new Walker(
+            "GABRIEL",
+            Route(new Vector3(0, 0, 100)),
+            Vector3.Zero,
+            facing: 0f,
+            arriveFacing: MathF.PI / 2);
+
+        walker.Advance(5f);
+
+        Assert.False(walker.Walking);
+        Assert.Equal(MathF.PI / 2, walker.Facing, 2);
+    }
+
+    [Fact]
+    public void An_actor_sent_to_look_at_something_faces_it_from_where_they_stop()
+    {
+        // The heading cannot be worked out in advance: the boundary stops an actor short of
+        // anything solid, so a heading aimed from the requested destination points at a
+        // place they never reach — and when destination and target are the same point, at
+        // nothing at all.
+        var walker = new Walker(
+            "GABRIEL",
+            Route(new Vector3(0, 0, 100)),
+            Vector3.Zero,
+            facing: 0f,
+            arriveLookingAt: new Vector3(50, 0, 100));
+
+        walker.Advance(5f);
+
+        Assert.False(walker.Walking);
+
+        // Due east of where they stopped.
+        Assert.Equal(MathF.PI / 2, walker.Facing, 2);
+    }
+
+    [Fact]
+    public void The_arrival_turn_is_part_of_the_walk_rather_than_after_it()
+    {
+        // Reporting the walk finished before the turn would let the next thing start while
+        // the actor still had their back to it.
+        var walker = new Walker(
+            "GABRIEL",
+            Route(new Vector3(0, 0, 10)),
+            Vector3.Zero,
+            facing: 0f,
+            arriveFacing: MathF.PI);
+
+        // Far enough to cover the ground, nowhere near enough to complete the turn.
+        Assert.True(walker.Advance(0.2f), "the walk ended before the turn did");
+    }
+
+    [Fact]
+    public void An_actor_with_nothing_to_face_keeps_the_way_they_were_going()
+    {
+        Walker walker = Walking(new Vector3(0, 0, 100));
+
+        walker.Advance(5f);
+
+        Assert.Equal(0f, walker.Facing, 2);
+    }
+
+    [Fact]
+    public void A_turn_on_the_spot_is_a_walk_with_nowhere_to_go()
+    {
+        // What TurnToModel is: 394 of the corpus's 3,617 approaches. Walking to the thing
+        // instead puts the actor on top of what they meant to look at.
+        var walker = new Walker(
+            "GABRIEL",
+            Route(Vector3.Zero),
+            Vector3.Zero,
+            facing: 0f,
+            arriveFacing: MathF.PI / 2);
+
+        walker.Advance(5f);
+
+        Assert.Equal(Vector3.Zero, walker.Position);
+        Assert.Equal(MathF.PI / 2, walker.Facing, 2);
+    }
+
+    [Fact]
     public void Stopping_leaves_the_actor_where_they_stand()
     {
         Walker walker = Walking(new Vector3(1000, 0, 0));
