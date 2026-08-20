@@ -6,6 +6,7 @@ using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Navigation;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Rendering;
 using Xunit;
@@ -137,7 +138,11 @@ public sealed class SceneUpdateTests
                     "GABRIEL",
                     Verb: null,
                     Person(),
-                    Matrix4x4.Identity,
+
+                    // Placed at heading zero, which faces +Z. Said rather than assumed: an
+                    // unrotated placement is a model facing −Z, so Identity here would put
+                    // everything the glance tests look at behind the actor.
+                    Matrix4x4.CreateRotationY(Walker.Rotation(0f)),
                     PlacedModelKind.Actor,
                     new ModelPlacement(0)),
             ]);

@@ -356,7 +356,7 @@ public sealed class SceneUpdate
         Vector3 from = Where(actor) ?? placed.Transform.Translation;
         float facing = _walking.TryGetValue(actor, out Walking? already)
             ? already.Walker.Facing
-            : MathF.Atan2(placed.Transform.M31, placed.Transform.M33);
+            : Walker.HeadingOf(placed.Transform);
 
         WalkRoute route = _scene.Walkable is { } boundary
             ? WalkPath.Find(boundary, from, destination)
@@ -696,7 +696,7 @@ public sealed class SceneUpdate
         {
             if (placement is { } spot)
             {
-                return Matrix4x4.CreateRotationY(spot.Heading) *
+                return Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(spot.Heading)) *
                        Matrix4x4.CreateTranslation(spot.Position);
             }
 
@@ -855,8 +855,9 @@ public sealed class SceneUpdate
             _standing = placed.Transform.Translation;
 
             // The placement is a turn about the up axis and then a move, so the way the
-            // actor faces can be read straight back out of it.
-            _facing = MathF.Atan2(placed.Transform.M31, placed.Transform.M33);
+            // actor faces can be read straight back out of it — as a heading rather than as
+            // the rotation itself, because a glance is worked out from a heading.
+            _facing = Navigation.Walker.HeadingOf(placed.Transform);
             _eyes = CharacterHead.PivotOf(placed.Model, head).Y;
         }
 

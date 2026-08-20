@@ -693,7 +693,8 @@ public sealed class SceneLoader
             // Heading turns about the up axis; the model's own origin is at its feet, so
             // the position needs no vertical adjustment.
             Matrix4x4 placement =
-                Matrix4x4.CreateRotationY(spot.Heading) * Matrix4x4.CreateTranslation(spot.Position);
+                Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(spot.Heading)) *
+                Matrix4x4.CreateTranslation(spot.Position);
 
             ModelPlacement standing =
                 geometry.Add(model, placement, TurnedHead(actor.Name, model, spot));

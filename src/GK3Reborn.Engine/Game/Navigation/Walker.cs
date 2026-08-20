@@ -239,8 +239,44 @@ public sealed class Walker
     /// <returns>The transform.</returns>
     public Matrix4x4 Transform(float scale = 1f) =>
         Matrix4x4.CreateScale(scale) *
-        Matrix4x4.CreateRotationY(Facing) *
+        Matrix4x4.CreateRotationY(Rotation(Facing)) *
         Matrix4x4.CreateTranslation(Position);
+
+    /// <summary>The rotation that points a character's model along a heading.</summary>
+    /// <param name="heading">A heading, in radians, as the game's data measures one.</param>
+    /// <returns>The angle to turn the model about the vertical.</returns>
+    /// <remarks>
+    /// <para>
+    /// GK3 measures a heading the way it measures a camera's — zero along +Z, increasing
+    /// towards +X — and models its characters facing <b>−Z</b>. Every heading in the engine
+    /// is the first kind, and this is the single place the second is applied.
+    /// </para>
+    /// <para>
+    /// R25 is the case that settles it. The room stands an actor arriving from the hall at
+    /// <c>FR_HALL, heading=180</c>, which under that convention faces −Z: away from the door,
+    /// into the room. Its neighbour <c>TO_HALL</c> is at <c>heading=-5.12</c>, facing +Z at
+    /// the door — and the door's own action is <c>approach=walkto, target=To_Hall</c>, so the
+    /// pair say the same thing twice.
+    /// </para>
+    /// <para>
+    /// Worth keeping in one place because the failure never looks like a convention problem.
+    /// The same half turn stands an actor facing the door they just came through, walks them
+    /// backwards, arrives them with their back to what they came to look at, and aims their
+    /// head away from whatever they were told to watch — four bugs that get chased
+    /// separately.
+    /// </para>
+    /// </remarks>
+    public static float Rotation(float heading) => Wrap(heading + MathF.PI);
+
+    /// <summary>Reads a heading back out of a placement.</summary>
+    /// <param name="transform">A placement built as a turn about the vertical and a move.</param>
+    /// <returns>The heading, as the game's data measures one.</returns>
+    /// <remarks>
+    /// The inverse of <see cref="Rotation"/>, and its own inverse: a half turn undoes a half
+    /// turn. It lives here so that the two can never drift apart.
+    /// </remarks>
+    public static float HeadingOf(Matrix4x4 transform) =>
+        Rotation(MathF.Atan2(transform.M31, transform.M33));
 
     /// <summary>Turns towards a direction, at most so far this frame.</summary>
     private void Face(Vector3 direction, float seconds)
@@ -253,32 +289,19 @@ public sealed class Walker
     }
 
     /// <summary>
-    /// The heading at which a character's model looks along a direction.
+    /// The heading that looks along a direction.
     /// </summary>
     /// <param name="direction">Where they should be looking, in world space.</param>
-    /// <returns>A rotation about the vertical, in radians.</returns>
+    /// <returns>A heading, in radians, as the game's data measures one.</returns>
     /// <remarks>
-    /// <para>
-    /// GK3's characters are modelled facing <b>−Z</b>, so a heading whose forward is +Z
-    /// points them the wrong way — they walk backwards and arrive with their back to
-    /// whatever they went to look at.
-    /// </para>
-    /// <para>
-    /// The convention itself is +Z: <c>Heading::FromDirection</c> is <c>atan2(x, z)</c> and
-    /// <c>FromQuaternion</c> takes the heading of a rotated <c>UnitZ</c>. What is −Z is the
-    /// geometry, and the original never has to know: it keeps the actor's heading and the
-    /// model's apart and measures where the model actually faces, from a helper arrow or
-    /// from a triangle through the head and both shoes, both named per character in
-    /// <c>CHARACTERS.TXT</c>. That measurement is not read yet, so this is the one constant
-    /// that stands in for it — and the place to replace when it is.
-    /// </para>
-    /// <para>
-    /// Nothing that comes out of the scene files goes through here. A named spot's heading
-    /// is authored against the model as it is and is already correct.
-    /// </para>
+    /// The game's own convention, which is <c>Heading::FromDirection</c>: zero along +Z,
+    /// increasing towards +X. What a heading means for the <em>model</em> is
+    /// <see cref="Rotation"/>'s business, and only its business — a value that comes out of
+    /// here and one that comes out of a scene file mean the same thing and may be compared,
+    /// subtracted and handed to the same places.
     /// </remarks>
     public static float Heading(Vector3 direction) =>
-        MathF.Atan2(-direction.X, -direction.Z);
+        MathF.Atan2(direction.X, direction.Z);
 
     /// <summary>Drops the vertical, because walking is a thing done on a floor.</summary>
     private static Vector3 Flat(Vector3 v) => new(v.X, 0, v.Z);

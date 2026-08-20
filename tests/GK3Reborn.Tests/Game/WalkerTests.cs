@@ -21,15 +21,16 @@ public sealed class WalkerTests
         new("GABRIEL", Route(points), Vector3.Zero, 0f);
 
     /// <summary>
-    /// Which way the model actually points at a given heading.
+    /// Which way the model actually points, taken from the placement it is given.
     /// </summary>
     /// <remarks>
-    /// GK3's characters are modelled facing −Z, so asserting a raw angle here would only
-    /// restate whatever <see cref="Walker.Heading"/> does. Asserting the direction faced is
-    /// the thing anybody actually cares about, and it caught this being inverted.
+    /// Through <see cref="Walker.Transform"/> rather than off <see cref="Walker.Facing"/>,
+    /// so the −Z the characters are modelled along is exercised rather than restated.
+    /// Asserting a raw angle would only repeat whatever the code under test does, and this
+    /// is what caught it being inverted.
     /// </remarks>
     private static Vector3 Facing(Walker walker) =>
-        Vector3.Transform(-Vector3.UnitZ, Matrix4x4.CreateRotationY(walker.Facing));
+        Vector3.Normalize(Vector3.TransformNormal(-Vector3.UnitZ, walker.Transform()));
 
     private static void AssertFacing(Vector3 towards, Walker walker)
     {
@@ -84,13 +85,13 @@ public sealed class WalkerTests
     public void An_actor_turns_into_a_corner_rather_than_snapping_round_it()
     {
         // Facing is a rate, so after a short step it is on its way and not yet arrived.
-        // Starting at π means starting faced along +Z, so walking to −Z is a half turn.
+        // Heading zero is along +Z, so walking to −Z is a half turn.
         var walker = new Walker(
-            "GABRIEL", Route(new Vector3(0, 0, -100)), Vector3.Zero, facing: MathF.PI);
+            "GABRIEL", Route(new Vector3(0, 0, -100)), Vector3.Zero, facing: 0f);
 
         walker.Advance(0.05f);
 
-        Assert.NotEqual(MathF.PI, walker.Facing, 3);
+        Assert.NotEqual(0f, walker.Facing, 3);
         Assert.True(Facing(walker).Z > -0.99f, "the turn arrived in a single step");
     }
 
@@ -130,14 +131,31 @@ public sealed class WalkerTests
     }
 
     [Fact]
+    public void A_heading_is_measured_from_the_z_axis_the_way_the_game_measures_one()
+    {
+        // Heading::FromDirection is atan2(x, z): zero along +Z, increasing towards +X. Every
+        // heading in the engine is this one, so a value from here and a value out of a scene
+        // file may be compared and subtracted.
+        Assert.Equal(0f, Walker.Heading(Vector3.UnitZ), 3);
+        Assert.Equal(MathF.PI / 2, Walker.Heading(Vector3.UnitX), 3);
+        Assert.Equal(MathF.PI, MathF.Abs(Walker.Heading(-Vector3.UnitZ)), 3);
+    }
+
+    [Fact]
     public void A_character_is_modelled_facing_away_from_the_heading_axis()
     {
-        // The convention is +Z — the original's Heading::FromDirection is atan2(x, z) — and
-        // the geometry is −Z. Getting this backwards makes an actor walk backwards and
-        // arrive with their back to whatever they went to look at, which is exactly how it
-        // was reported.
-        Assert.Equal(MathF.PI, MathF.Abs(Walker.Heading(Vector3.UnitZ)), 3);
-        Assert.Equal(0f, Walker.Heading(-Vector3.UnitZ), 3);
+        // The convention is +Z and the geometry is −Z, so the two differ by a half turn and
+        // Rotation is the only place that knows it. R25 stands an actor arriving from the
+        // hall at heading 180 — facing into the room — and getting this backwards stands
+        // them facing the door they just came through.
+        var placement = Matrix4x4.CreateRotationY(Walker.Rotation(MathF.PI));
+
+        Assert.True(
+            Vector3.TransformNormal(-Vector3.UnitZ, placement).Z < -0.99f,
+            "heading 180 should face along −Z");
+
+        // And back again, because the two have to agree.
+        Assert.Equal(MathF.PI, MathF.Abs(Walker.HeadingOf(placement)), 3);
     }
 
     [Fact]
