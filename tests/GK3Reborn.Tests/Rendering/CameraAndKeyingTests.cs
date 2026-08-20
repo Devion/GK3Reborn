@@ -236,6 +236,8 @@ public sealed class CameraAndKeyingTests
 
         public bool WasClicked(PointerButton button) => false;
 
+        public int ScrollDelta => 0;
+
         public void EndFrame()
         {
         }
@@ -255,6 +257,8 @@ public sealed class CameraAndKeyingTests
         public Vector2 PointerPosition => Vector2.Zero;
 
         public bool WasClicked(PointerButton button) => false;
+
+        public int ScrollDelta => 0;
 
         public void EndFrame()
         {

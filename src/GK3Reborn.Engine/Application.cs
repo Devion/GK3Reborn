@@ -391,6 +391,7 @@ public static class Application
         string? said = null;
         Hover? menu = null;
         Vector2 menuAt = Vector2.Zero;
+        int menuIndex = 0;
         Vector2? pinned = Pinned(options);
         bool forceMenu = options.Contains("--menu", StringComparer.OrdinalIgnoreCase);
 
@@ -494,6 +495,7 @@ public static class Application
             {
                 menu = hover;
                 menuAt = pointer;
+                menuIndex = 0;
             }
 
             if (window.WasClicked(Platform.PointerButton.Secondary))
@@ -503,6 +505,7 @@ public static class Application
                 // was, because a menu that follows the pointer cannot be clicked.
                 menu = menu is null && hover.Actionable ? hover : null;
                 menuAt = pointer;
+                menuIndex = 0;
 
                 // Asking and getting nothing has to look different from asking and being
                 // ignored, or a room where nothing answers is indistinguishable from a
@@ -515,14 +518,33 @@ public static class Application
                 }
             }
 
+            if (menu is { } listed)
+            {
+                // One selection, three ways to move it. The wheel steps through the list
+                // and wraps, because two or three verbs are not worth a dead end at either
+                // end; putting the pointer on a row moves it there instead.
+                if (window.ScrollDelta != 0 && listed.Actions.Count > 0)
+                {
+                    int count = listed.Actions.Count;
+
+                    menuIndex = (((menuIndex - window.ScrollDelta) % count) + count) % count;
+                }
+                else if (hud?.RowAt(pointer) is int row and >= 0)
+                {
+                    menuIndex = row;
+                }
+            }
+
             if (window.WasClicked(Platform.PointerButton.Primary))
             {
-                // A click inside the open menu chooses from it; a click anywhere else
-                // dismisses it without doing anything, which is what every menu does.
-                string? chosen = menu is not null ? hud?.VerbAt(pointer) : null;
+                // A click inside the open menu takes whatever is selected; a click anywhere
+                // else dismisses it without doing anything, which is what every menu does.
+                bool inside = menu is not null && hud?.RowAt(pointer) >= 0;
 
                 ActionOutcome? did = menu is { } open
-                    ? chosen is { Length: > 0 } ? interaction.Do(open, chosen) : null
+                    ? inside && menuIndex < open.Actions.Count
+                        ? interaction.Do(open, open.Actions[menuIndex].LocalizedVerb)
+                        : null
                     : interaction.Do(hover);
 
                 if (menu is not null)
@@ -560,6 +582,7 @@ public static class Application
                         hover.Default,
                         pointer,
                         menu is not null,
+                        menuIndex,
                         menuAt,
                         room?.Speaker,
                         room?.Caption,

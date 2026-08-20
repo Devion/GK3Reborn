@@ -77,6 +77,13 @@ public interface IGameInput
     /// </remarks>
     Vector2 PointerPosition { get; }
 
+    /// <summary>How far the wheel turned since the last poll, in notches.</summary>
+    /// <remarks>
+    /// Positive is away from the player. Whole notches rather than pixels, because what
+    /// reads it is choosing between list items rather than scrolling a surface.
+    /// </remarks>
+    int ScrollDelta { get; }
+
     /// <summary>Whether the pointer was clicked since the last poll.</summary>
     /// <param name="button">Which button.</param>
     /// <returns>True once per press.</returns>

@@ -52,8 +52,9 @@ public sealed class GameHudTests
         bool menu = false,
         Vector2 at = default,
         Vector2? menuAt = null,
+        int index = 0,
         string? caption = null) =>
-        new(noun, verbs ?? ["LOOK", "OPEN"], "LOOK", at, menu, menuAt ?? at,
+        new(noun, verbs ?? ["LOOK", "OPEN"], "LOOK", at, menu, index, menuAt ?? at,
             caption is null ? null : "GABRIEL", caption, [], null,
             InventoryOpen: true, "R25 - 110A");
 
@@ -123,6 +124,39 @@ public sealed class GameHudTests
         Assert.Equal(
             before,
             hud.VerbAt(new Vector2(opened.X + 10, opened.Y + hud.Overlay.LineHeight + 12)));
+    }
+
+    [Fact]
+    public void The_row_under_a_point_can_be_found_by_index()
+    {
+        // What lets the pointer move the same selection the wheel moves, so the highlight
+        // and the click never disagree about which verb is chosen.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(State(menu: true, at: at, menuAt: at), 800, 600);
+
+        Assert.Equal(0, hud.RowAt(new Vector2(at.X + 10, at.Y + hud.Overlay.LineHeight + 12)));
+        Assert.Equal(
+            1,
+            hud.RowAt(new Vector2(at.X + 10, at.Y + (hud.Overlay.LineHeight * 2) + 22)));
+        Assert.Equal(-1, hud.RowAt(new Vector2(500, 400)));
+    }
+
+    [Fact]
+    public void The_chosen_row_is_the_one_the_selection_names_not_the_one_under_the_pointer()
+    {
+        // Otherwise the wheel can move the selection and nothing on screen changes.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(State(menu: true, at: at, menuAt: at, index: 0), 800, 600);
+        int first = hud.Overlay.Quads.Count;
+
+        hud.Build(State(menu: true, at: at, menuAt: at, index: 1), 800, 600);
+
+        // Same number of rectangles either way — the highlight moved rather than appearing.
+        Assert.Equal(first, hud.Overlay.Quads.Count);
     }
 
     [Fact]

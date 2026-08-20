@@ -68,6 +68,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     private Vector2 _pointerDelta;
     private Vector2 _lastPointer;
     private Vector2 _pressedAt;
+    private int _scroll;
     private bool _hasPointer;
 
     private SilkGameWindow(IWindow window)
@@ -183,6 +184,9 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     public bool WasClicked(PointerButton button) => _clicked.Contains(button);
 
     /// <inheritdoc/>
+    public int ScrollDelta => _scroll;
+
+    /// <inheritdoc/>
     public bool IsDragging =>
         _mouse is not null &&
         (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
@@ -202,6 +206,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         _pressed.Clear();
         _clicked.Clear();
         _pointerDelta = Vector2.Zero;
+        _scroll = 0;
     }
 
     /// <inheritdoc/>
@@ -253,6 +258,13 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
             _mouse.MouseDown += (_, _) =>
             {
                 _pressedAt = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+            };
+
+            _mouse.Scroll += (_, wheel) =>
+            {
+                // Rounded away from zero, so the smallest turn a trackpad reports still
+                // counts as one notch rather than being lost.
+                _scroll += Math.Sign(wheel.Y) * (int)Math.Ceiling(Math.Abs(wheel.Y));
             };
 
             _mouse.MouseUp += (_, mouseButton) =>

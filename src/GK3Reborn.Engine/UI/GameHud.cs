@@ -10,6 +10,11 @@ namespace GK3Reborn.UI;
 /// <param name="Verb">The verb a plain click would perform.</param>
 /// <param name="At">Where the pointer is, in pixels.</param>
 /// <param name="MenuOpen">Whether the player asked for the full list of verbs.</param>
+/// <param name="MenuIndex">
+/// Which verb is chosen. The wheel moves it, the pointer moves it by being over a row, and
+/// a click takes it — one selection with three ways to move it, rather than a hover
+/// highlight that the wheel cannot reach.
+/// </param>
 /// <param name="MenuAt">
 /// Where the pointer was when the list was asked for. Separate from <paramref name="At"/>
 /// on purpose: a menu anchored to the live pointer slides away from whoever is reaching
@@ -27,6 +32,7 @@ public readonly record struct HudState(
     string? Verb,
     Vector2 At,
     bool MenuOpen,
+    int MenuIndex,
     Vector2 MenuAt,
     string? Speaker,
     string? Caption,
@@ -127,6 +133,27 @@ public sealed class GameHud
         }
 
         return null;
+    }
+
+    /// <summary>Which row of the open menu a point is on.</summary>
+    /// <param name="point">Where the pointer is, in pixels.</param>
+    /// <returns>The row's index, or -1 when the point is not on one.</returns>
+    /// <remarks>
+    /// So that moving the pointer over a row can move the selection the wheel also moves.
+    /// Both end up pointing at the same thing, which is what stops the highlight and the
+    /// click from disagreeing.
+    /// </remarks>
+    public int RowAt(Vector2 point)
+    {
+        for (int i = 0; i < _rows.Count; i++)
+        {
+            if (Inside(point, _rows[i].Bounds))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>Which inventory item is at a point.</summary>
@@ -244,14 +271,15 @@ public sealed class GameHud
             float top = y + title + (row * i);
             var bounds = new Vector4(x, top, w, row);
 
-            bool under = Inside(state.At, bounds);
+            bool chosen = i == state.MenuIndex;
 
-            if (under)
+            if (chosen)
             {
                 Overlay.Rect(x, top, w, row, new Vector4(0.28f, 0.31f, 0.37f, 1f));
+                Overlay.Rect(x, top, 2, row, Accent);
             }
 
-            Overlay.Text(Pretty(state.Verbs[i]), x + Padding, top + 4, under ? Accent : Ink);
+            Overlay.Text(Pretty(state.Verbs[i]), x + Padding, top + 4, chosen ? Accent : Ink);
             _rows.Add((state.Verbs[i], bounds));
         }
     }
