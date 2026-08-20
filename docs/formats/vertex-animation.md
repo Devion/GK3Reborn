@@ -119,11 +119,42 @@ Verified against the game: `GAB`'s 13 meshes and 17 submeshes match
 `GAB_GABBREATH2.ACT`'s vertex counts exactly — independent confirmation in C# of the
 composition `Plan/06` §4.1 validated in Python.
 
+## Where a clip plays
+
+A clip's mesh transforms are wherever the animator authored them — for a walk, halfway
+across some other room. Played as written the character walks out of frame.
+
+**Relative**, 5,538 of 6,040 action lines (92%): shifted once at the start by however far
+the clip's first frame sits from where the model rests. Root motion within the clip still
+happens, measured from where the actor was standing. Taken **once** and held — recomputing
+per frame cancels exactly the movement it exists to preserve.
+
+**Absolute**, 502 lines: the line carries `x1,y1,z1,angle1,x2,y2,z2,angle2`. Both quirks
+matter. The first offset goes *actor to model* and is wanted the other way round, so it is
+**negated**; and **y and z are swapped** in both, because the assets came out of Maya.
+
+```
+position = worldToModel + rotateY(worldToModelHeading) · modelToActor
+heading  = worldToModelHeading − modelToActorHeading
+```
+
+## When a clip ends
+
+**The pose stays where the clip left it.** GK3 reverts an actor's *position and heading*
+after a non-move animation, not its pose — `GKActor::OnVertexAnimationStop` calls
+`Actor::SetPosition`, and the mesh poses are untouched. That is why an opened wardrobe
+stays open. Reverting the poses as well, which reads as the more careful thing to do, shuts
+the door again the moment it finishes opening.
+
+A frame long enough to run past the end poses the end before stopping, so a slow frame
+leaves a door open rather than half open.
+
 ## What does not
 
-**Root motion.** A character clip's mesh transforms carry it, so playing a walk clip on a
-standing actor takes them out of frame. The walker and the clip both want to say where
-somebody is and nothing decides between them yet.
+**Move animations do not commit their ground.** `StartMoveAnimation` says the actor keeps
+the distance the clip covered. The flag is carried and not spent, because committing it
+means writing the actor's position and `Walker` already owns that. The two have to be
+reconciled before either may write it.
 
 **The axis triads** of `Plan/06` §4.3 — three vertices at (60,0,0), (0,60,0), (0,0,60) in
 every mesh group, orientation gizmos rather than geometry. They are in the vertex streams

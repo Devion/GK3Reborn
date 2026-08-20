@@ -178,3 +178,10 @@ pipeline writes.
 
 Tier 2 should wait until the renderer exists and it is possible to judge results in
 motion under real lighting rather than in an image viewer.
+
+## After the upscale
+
+A larger base colour is one channel of a material. The normal, roughness, metalness,
+height and occlusion maps that make a surface respond to light are a **separate pass over
+the finished base colour**, because deriving them from a 64-pixel original derives
+64 pixels of detail. See [pbr-materials.md](pbr-materials.md) and `Plan/02` stage C4c.
