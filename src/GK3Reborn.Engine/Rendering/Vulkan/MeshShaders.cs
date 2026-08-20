@@ -41,19 +41,21 @@ internal static class MeshShaders
         layout(set = 0, binding = 0) uniform Frame
         {
             mat4 viewProjection;
+            mat4 previousViewProjection;
             vec4 lightDirection;
             vec4 cameraPosition;
 
             // shadowed lights, occlusion rays, rays per shadow, how much the bake counts
             vec4 rays;
 
-            // occlusion radius, frame counter, unused, unused
+            // occlusion radius, unused, and the viewport in pixels
             vec4 tuning;
         } frame;
 
         layout(push_constant) uniform Draw
         {
             mat4 model;
+            mat4 previousModel;
 
             // x selects the lightmap over the rig, y scales the lightmap,
             // z marks a surface that carries its own brightness
@@ -67,20 +69,37 @@ internal static class MeshShaders
         layout(location = 2) in vec2 inTexCoord;
         layout(location = 3) in vec2 inLightmapCoord;
 
+        // The same vertex a pose ago. A rigid batch binds the same buffer to both streams,
+        // so this is its own position and the motion comes out as the transform's alone.
+        layout(location = 4) in vec3 inPreviousPosition;
+
         layout(location = 0) out vec3 outNormal;
         layout(location = 1) out vec2 outTexCoord;
         layout(location = 2) out vec2 outLightmapCoord;
         layout(location = 3) out vec3 outWorld;
 
+        // Where this vertex is now and where it was, both in clip space. The fragment
+        // stage divides them and takes the difference, which it cannot do from an
+        // interpolated screen position: perspective division does not survive
+        // interpolation, so the two clip positions have to travel and be divided there.
+        layout(location = 4) out vec4 outClip;
+        layout(location = 5) out vec4 outPreviousClip;
+
         void main()
         {
             vec4 world = draw.model * vec4(inPosition, 1.0);
+            vec4 clip = frame.viewProjection * world;
 
-            gl_Position = frame.viewProjection * world;
+            gl_Position = clip;
             outNormal = normalize(mat3(draw.model) * inNormal);
             outTexCoord = inTexCoord;
             outLightmapCoord = inLightmapCoord;
             outWorld = world.xyz;
+            outClip = clip;
+
+            outPreviousClip =
+                frame.previousViewProjection *
+                (draw.previousModel * vec4(inPreviousPosition, 1.0));
         }
         """;
 
@@ -89,8 +108,15 @@ internal static class MeshShaders
         layout(location = 1) in vec2 inTexCoord;
         layout(location = 2) in vec2 inLightmapCoord;
         layout(location = 3) in vec3 inWorld;
+        layout(location = 4) in vec4 inClip;
+        layout(location = 5) in vec4 inPreviousClip;
 
         layout(location = 0) out vec4 outColor;
+
+        // The surface, and how far it moved. Nothing in the picture uses either; they are
+        // what lets anything filter over time.
+        layout(location = 1) out vec4 outNormalTarget;
+        layout(location = 2) out vec2 outMotion;
 
         layout(set = 0, binding = 1) uniform Rig
         {
@@ -416,6 +442,30 @@ internal static class MeshShaders
                 discard;
             }
 
+            // Both extra targets, written before anything can return. A fragment that
+            // leaves an output alone does not leave it cleared — it leaves it undefined,
+            // and the self-lit return below used to hand a filter whatever was in the
+            // register: every lamp, and the painted street through the hotel window,
+            // claiming to have crossed the screen since the last frame.
+            vec3 normal = PerturbedNormal(normalize(inNormal));
+
+            outNormalTarget = vec4(normal, 0.0);
+            outMotion = vec2(0.0);
+
+            // In pixels, and from this frame back to the last, which is the direction a
+            // filter reads it in: "the pixel I want from the last frame is this far away".
+            //
+            // Where the fragment is now comes from gl_FragCoord rather than from its own
+            // interpolated clip position. The two agree to within a rounding error, but
+            // clip positions on distant geometry are large enough that subtracting two of
+            // them leaves nothing but that error. A surface that was behind the previous
+            // camera keeps the zero: it had no previous pixel to point at.
+            if (inPreviousClip.w > 1e-4)
+            {
+                vec2 there = inPreviousClip.xy / inPreviousClip.w;
+                outMotion = (there * 0.5 + 0.5) * frame.tuning.zw - gl_FragCoord.xy;
+            }
+
             // A surface the bake never lit: a bulb, a shade with a lamp inside it, the
             // painted view through a window. The original binds a white lightmap and a
             // multiplier of one for these, which comes out as the texture untouched, and
@@ -426,7 +476,6 @@ internal static class MeshShaders
                 return;
             }
 
-            vec3 normal = PerturbedNormal(normalize(inNormal));
             float useLightmap = draw.shading.x;
             vec3 baked = texture(lightmapTexture, inLightmapCoord).rgb * draw.shading.y;
 

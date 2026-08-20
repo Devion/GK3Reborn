@@ -412,6 +412,44 @@ public static class Application
 
         audio?.Dispose();
 
+        // What a temporal filter would read. Reported rather than drawn: a motion vector is
+        // not visible in the picture and is wrong in ways that look plausible, so the only
+        // way to know it is right is to read the numbers. A still camera should give zero
+        // everywhere, and a pan should move very nearly the whole frame.
+        if (args.Contains("--motion", StringComparer.OrdinalIgnoreCase) &&
+            renderer.CaptureMotion() is { } motion)
+        {
+            int pixels = motion.Length / 2;
+            var mask = new byte[pixels];
+            double total = 0;
+            double most = 0;
+            int moving = 0;
+
+            for (int i = 0; i < motion.Length; i += 2)
+            {
+                double length = Math.Sqrt(
+                    (motion[i] * motion[i]) + (motion[i + 1] * motion[i + 1]));
+
+                total += length;
+                most = Math.Max(most, length);
+                mask[i / 2] = (byte)Math.Clamp(length * 24, 0, 255);
+
+                if (length > 0.5)
+                {
+                    moving++;
+                }
+            }
+
+            // Eight bits a pixel, the viewport's size, so that a run that reports something
+            // odd can be looked at rather than only counted.
+            File.WriteAllBytes("motion.raw", mask);
+
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Motion: mean {total / pixels:F2} px, largest {most:F1} px, " +
+                $"{100.0 * moving / pixels:F1}% of the frame moved more than half a pixel"));
+        }
+
         if (screenshotPath is not null && renderer.Capture() is { } capture)
         {
             File.WriteAllBytes(screenshotPath, Formats.Bitmaps.PngWriter.Encode(capture));

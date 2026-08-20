@@ -395,7 +395,7 @@ public static unsafe class SceneDraw
         vk.CmdSetScissor(command, 0, 1, in scissor);
         vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, pipeline.Handle);
 
-        frames.Bind(command, pipeline, frame, camera, (float)width / height);
+        frames.Bind(command, pipeline, frame, camera, (float)width / height, width, height);
         geometry.Record(command, pipeline);
     }
 }

@@ -16,6 +16,10 @@ public readonly record struct MeshVertex(
 
 /// <summary>Constants shared by every draw of a frame.</summary>
 /// <param name="ViewProjection">World to clip space.</param>
+/// <param name="PreviousViewProjection">
+/// The same, as it was last frame. Half of what a motion vector is: where a point that is
+/// here now would have been on the screen a frame ago.
+/// </param>
 /// <param name="LightDirection">Direction the fallback key light travels.</param>
 /// <param name="CameraPosition">Where the eye is, in world space.</param>
 /// <param name="Rays">
@@ -29,6 +33,7 @@ public readonly record struct MeshVertex(
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
     Matrix4x4 ViewProjection,
+    Matrix4x4 PreviousViewProjection,
     Vector4 LightDirection,
     Vector4 CameraPosition,
     Vector4 Rays,
@@ -36,11 +41,17 @@ public readonly record struct FrameUniforms(
 
 /// <summary>Constants that change per draw, delivered as push constants.</summary>
 /// <param name="Model">Model to world space.</param>
+/// <param name="PreviousModel">
+/// The same, as it was last frame. The other half of a motion vector: without it a walking
+/// character reports the movement of the camera and none of his own, which is exactly the
+/// case a temporal filter has to get right.
+/// </param>
 /// <param name="Shading">
 /// How to shade: x selects the lightmap over the rig, y scales the lightmap.
 /// </param>
 [StructLayout(LayoutKind.Sequential)]
-public readonly record struct DrawConstants(Matrix4x4 Model, Vector4 Shading);
+public readonly record struct DrawConstants(
+    Matrix4x4 Model, Matrix4x4 PreviousModel, Vector4 Shading);
 
 /// <summary>
 /// A textured, lit mesh pipeline, optionally with ray tracing compiled in.
@@ -331,14 +342,22 @@ public sealed unsafe class MeshPipeline : IDisposable
                 PName = (byte*)entryPoint,
             };
 
-            var binding = new VertexInputBindingDescription
-            {
-                Binding = 0,
-                Stride = (uint)Marshal.SizeOf<MeshVertex>(),
-                InputRate = VertexInputRate.Vertex,
-            };
+            // Two bindings over the same kind of vertex: this frame's pose and the last
+            // one. Both are whole MeshVertex streams, and only the position is read from
+            // the second.
+            VertexInputBindingDescription* bindings = stackalloc VertexInputBindingDescription[2];
 
-            VertexInputAttributeDescription* attributes = stackalloc VertexInputAttributeDescription[4];
+            for (int i = 0; i < 2; i++)
+            {
+                bindings[i] = new VertexInputBindingDescription
+                {
+                    Binding = (uint)i,
+                    Stride = (uint)Marshal.SizeOf<MeshVertex>(),
+                    InputRate = VertexInputRate.Vertex,
+                };
+            }
+
+            VertexInputAttributeDescription* attributes = stackalloc VertexInputAttributeDescription[5];
             attributes[0] = new VertexInputAttributeDescription
             {
                 Location = 0, Binding = 0, Format = Format.R32G32B32Sfloat, Offset = 0,
@@ -355,13 +374,17 @@ public sealed unsafe class MeshPipeline : IDisposable
             {
                 Location = 3, Binding = 0, Format = Format.R32G32Sfloat, Offset = 32,
             };
+            attributes[4] = new VertexInputAttributeDescription
+            {
+                Location = 4, Binding = 1, Format = Format.R32G32B32Sfloat, Offset = 0,
+            };
 
             var vertexInput = new PipelineVertexInputStateCreateInfo
             {
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 1,
-                PVertexBindingDescriptions = &binding,
-                VertexAttributeDescriptionCount = 4,
+                VertexBindingDescriptionCount = 2,
+                PVertexBindingDescriptions = bindings,
+                VertexAttributeDescriptionCount = 5,
                 PVertexAttributeDescriptions = attributes,
             };
 
@@ -417,25 +440,41 @@ public sealed unsafe class MeshPipeline : IDisposable
                 DepthCompareOp = CompareOp.Less,
             };
 
-            var blendAttachment = new PipelineColorBlendAttachmentState
+            // Three targets: the picture, the surface normal and how far each pixel moved
+            // since the last frame. A pipeline drawing into a set of attachments has to
+            // describe all of them whether it writes to them or not, which is why the sky
+            // and the interface describe three as well and mask two of them off.
+            const ColorComponentFlags All =
+                ColorComponentFlags.RBit | ColorComponentFlags.GBit |
+                ColorComponentFlags.BBit | ColorComponentFlags.ABit;
+
+            PipelineColorBlendAttachmentState* blendAttachments =
+                stackalloc PipelineColorBlendAttachmentState[(int)GBuffer.Targets];
+
+            for (int i = 0; i < (int)GBuffer.Targets; i++)
             {
-                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit |
-                                 ColorComponentFlags.BBit | ColorComponentFlags.ABit,
-            };
+                blendAttachments[i] = new PipelineColorBlendAttachmentState { ColorWriteMask = All };
+            }
 
             var blend = new PipelineColorBlendStateCreateInfo
             {
                 SType = StructureType.PipelineColorBlendStateCreateInfo,
-                AttachmentCount = 1,
-                PAttachments = &blendAttachment,
+                AttachmentCount = GBuffer.Targets,
+                PAttachments = blendAttachments,
             };
 
-            Format color = colorFormat;
+            Format* colors = stackalloc Format[(int)GBuffer.Targets]
+            {
+                colorFormat,
+                GBuffer.NormalFormat,
+                GBuffer.MotionFormat,
+            };
+
             var rendering = new PipelineRenderingCreateInfo
             {
                 SType = StructureType.PipelineRenderingCreateInfo,
-                ColorAttachmentCount = 1,
-                PColorAttachmentFormats = &color,
+                ColorAttachmentCount = GBuffer.Targets,
+                PColorAttachmentFormats = colors,
                 DepthAttachmentFormat = depthFormat,
             };
 

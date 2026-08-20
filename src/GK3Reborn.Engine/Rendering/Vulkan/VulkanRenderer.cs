@@ -82,6 +82,10 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private Camera? _camera;
 
     private bool _rayTracingEnabled;
+    private readonly Image[] _extraImages = new Image[GBuffer.Targets - 1];
+    private readonly DeviceMemory[] _extraMemory = new DeviceMemory[GBuffer.Targets - 1];
+    private readonly ImageView[] _extraViews = new ImageView[GBuffer.Targets - 1];
+
     private Image _depthImage;
     private DeviceMemory _depthMemory;
     private ImageView _depthView;
@@ -191,6 +195,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             renderer.CreateLogicalDevice();
             renderer.CreateSwapchain();
             renderer.CreateDepthBuffer();
+            renderer.CreateGBuffer();
             renderer.CreateCommandResources();
             renderer.CreateSynchronization();
             renderer.CreatePipelines();
@@ -384,6 +389,96 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
     }
 
+    /// <summary>Reads the frame's motion vectors back, in pixels.</summary>
+    /// <returns>
+    /// Two floats a pixel — how far this pixel's surface was from here a frame ago — or
+    /// null if nothing has been drawn yet.
+    /// </returns>
+    /// <remarks>
+    /// For checking them. A motion vector is not visible in the picture and is wrong in
+    /// ways that look plausible, so the only honest way to know it is right is to read the
+    /// numbers: a still camera should give zero everywhere, a pan should give the same
+    /// vector across the whole frame, and a walking character should be the only thing
+    /// moving in an otherwise still room.
+    /// </remarks>
+    public float[]? CaptureMotion()
+    {
+        if (!_presentedAnything || _context is null || _extraImages[GBuffer.Motion - 1].Handle == 0)
+        {
+            return null;
+        }
+
+        _vk.DeviceWaitIdle(_device);
+
+        int width = (int)_extent.Width;
+        int height = (int)_extent.Height;
+        Image image = _extraImages[GBuffer.Motion - 1];
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+
+            // Two channels of sixteen-bit float.
+            Size = (ulong)(width * height * 4),
+            Usage = BufferUsageFlags.TransferDstBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        _vk.CreateBuffer(_device, in bufferInfo, null, out Silk.NET.Vulkan.Buffer buffer);
+        _vk.GetBufferMemoryRequirements(_device, buffer, out MemoryRequirements requirements);
+
+        DeviceMemory memory = _context.Allocate(
+            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        _vk.BindBufferMemory(_device, buffer, memory, 0);
+
+        try
+        {
+            CommandBuffer command = _context.BeginOneShot();
+
+            _context.Transition(
+                command, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal);
+
+            var region = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                },
+                ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+            };
+
+            _vk.CmdCopyImageToBuffer(
+                command, image, ImageLayout.TransferSrcOptimal, buffer, 1, in region);
+
+            _context.Transition(
+                command, image, ImageLayout.TransferSrcOptimal, ImageLayout.ColorAttachmentOptimal);
+
+            _context.EndOneShot(command);
+
+            byte[] raw = new byte[width * height * 4];
+            void* mapped;
+            _vk.MapMemory(_device, memory, 0, (ulong)raw.Length, 0, &mapped);
+            new ReadOnlySpan<byte>(mapped, raw.Length).CopyTo(raw);
+            _vk.UnmapMemory(_device, memory);
+
+            var motion = new float[width * height * 2];
+
+            for (int i = 0; i < motion.Length; i++)
+            {
+                motion[i] = (float)BitConverter.ToHalf(raw, i * 2);
+            }
+
+            return motion;
+        }
+        finally
+        {
+            _vk.DestroyBuffer(_device, buffer, null);
+            _vk.FreeMemory(_device, memory, null);
+        }
+    }
+
     /// <summary>Marks the swapchain as needing rebuilding, after a resize.</summary>
     public void Invalidate() => _needsRecreate = true;
 
@@ -459,6 +554,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             DestroySynchronization();
             DestroyCommandResources();
             DestroyDepthBuffer();
+            DestroyGBuffer();
             DestroySwapchain();
             _vk.DestroyDevice(_device, null);
         }
@@ -948,7 +1044,10 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         Transition(buffer, image, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
 
-        var attachment = new RenderingAttachmentInfo
+        RenderingAttachmentInfo* attachments =
+            stackalloc RenderingAttachmentInfo[(int)GBuffer.Targets];
+
+        attachments[GBuffer.Colour] = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
             ImageView = view,
@@ -958,13 +1057,33 @@ public sealed unsafe class VulkanRenderer : IDisposable
             ClearValue = new ClearValue(new ClearColorValue(r, g, b, 1f)),
         };
 
+        for (int i = 0; i < _extraViews.Length; i++)
+        {
+            Transition(
+                buffer, _extraImages[i], ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
+
+            attachments[i + 1] = new RenderingAttachmentInfo
+            {
+                SType = StructureType.RenderingAttachmentInfo,
+                ImageView = _extraViews[i],
+                ImageLayout = ImageLayout.ColorAttachmentOptimal,
+                LoadOp = AttachmentLoadOp.Clear,
+                StoreOp = AttachmentStoreOp.Store,
+
+                // Zero motion and a zero normal, which is what a pixel the room never
+                // covered should read as: the sky did not move and has no surface.
+                ClearValue = new ClearValue(new ClearColorValue(0f, 0f, 0f, 0f)),
+            };
+        }
+
         var depthAttachment = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
             ImageView = _depthView,
             ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Clear,
-            StoreOp = AttachmentStoreOp.DontCare,
+            // Kept, now that something reads it after the frame is drawn.
+            StoreOp = AttachmentStoreOp.Store,
             ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(1f, 0)),
         };
 
@@ -973,8 +1092,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
             SType = StructureType.RenderingInfo,
             RenderArea = new Rect2D { Extent = _extent },
             LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &attachment,
+            ColorAttachmentCount = GBuffer.Targets,
+            PColorAttachments = attachments,
             PDepthAttachment = _depthView.Handle != 0 ? &depthAttachment : null,
         };
 
@@ -1062,6 +1181,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         _vk.CmdEndRendering(buffer);
 
+        // Where everything was drawn, ready for the next frame's motion vectors.
+        _scene?.Advance();
+
         Transition(buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr);
 
         if (_vk.EndCommandBuffer(buffer) != Result.Success)
@@ -1126,6 +1248,88 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
     }
 
+    /// <summary>Creates the normal and motion targets the frame writes beside its picture.</summary>
+    /// <remarks>
+    /// The same size as the swapchain and rebuilt with it. Both are sampled afterwards, so
+    /// both carry the transfer and sampled usages a filter needs to read them.
+    /// </remarks>
+    private void CreateGBuffer()
+    {
+        Format[] formats = [GBuffer.NormalFormat, GBuffer.MotionFormat];
+
+        for (int i = 0; i < _extraViews.Length; i++)
+        {
+            var imageInfo = new ImageCreateInfo
+            {
+                SType = StructureType.ImageCreateInfo,
+                ImageType = ImageType.Type2D,
+                Format = formats[i],
+                Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+                MipLevels = 1,
+                ArrayLayers = 1,
+                Samples = SampleCountFlags.Count1Bit,
+                Tiling = ImageTiling.Optimal,
+                Usage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit |
+                        ImageUsageFlags.TransferSrcBit,
+                InitialLayout = ImageLayout.Undefined,
+            };
+
+            if (_vk.CreateImage(_device, in imageInfo, null, out _extraImages[i]) != Result.Success)
+            {
+                throw new VulkanException("Could not create a frame target.");
+            }
+
+            _vk.GetImageMemoryRequirements(
+                _device, _extraImages[i], out MemoryRequirements requirements);
+
+            _extraMemory[i] = AllocateDepthMemory(requirements);
+            _vk.BindImageMemory(_device, _extraImages[i], _extraMemory[i], 0);
+
+            var viewInfo = new ImageViewCreateInfo
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = _extraImages[i],
+                ViewType = ImageViewType.Type2D,
+                Format = formats[i],
+                SubresourceRange = new ImageSubresourceRange
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LevelCount = 1,
+                    LayerCount = 1,
+                },
+            };
+
+            if (_vk.CreateImageView(_device, in viewInfo, null, out _extraViews[i]) != Result.Success)
+            {
+                throw new VulkanException("Could not create a frame target's view.");
+            }
+        }
+    }
+
+    private void DestroyGBuffer()
+    {
+        for (int i = 0; i < _extraViews.Length; i++)
+        {
+            if (_extraViews[i].Handle != 0)
+            {
+                _vk.DestroyImageView(_device, _extraViews[i], null);
+                _extraViews[i] = default;
+            }
+
+            if (_extraImages[i].Handle != 0)
+            {
+                _vk.DestroyImage(_device, _extraImages[i], null);
+                _extraImages[i] = default;
+            }
+
+            if (_extraMemory[i].Handle != 0)
+            {
+                _vk.FreeMemory(_device, _extraMemory[i], null);
+                _extraMemory[i] = default;
+            }
+        }
+    }
+
     /// <summary>Creates the depth buffer the swapchain's images are drawn against.</summary>
     private void CreateDepthBuffer()
     {
@@ -1139,7 +1343,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
             ArrayLayers = 1,
             Samples = SampleCountFlags.Count1Bit,
             Tiling = ImageTiling.Optimal,
-            Usage = ImageUsageFlags.DepthStencilAttachmentBit,
+            // Sampled as well as written: everything that filters over time reads the
+            // depth of the frame it is filtering.
+            Usage = ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit,
             InitialLayout = ImageLayout.Undefined,
         };
 
@@ -1274,6 +1480,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         DestroySwapchain();
         CreateSwapchain();
         CreateDepthBuffer();
+        CreateGBuffer();
         _needsRecreate = false;
     }
 

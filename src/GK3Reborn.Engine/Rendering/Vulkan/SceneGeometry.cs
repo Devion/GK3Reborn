@@ -56,7 +56,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <remarks>
     /// Must match <c>VulkanRenderer.FramesInFlight</c>. An animated batch keeps one vertex
     /// buffer per frame so that writing this frame's pose cannot disturb one the device has
-    /// not finished reading.
+    /// not finished reading — and one more besides, because the frame still in flight is
+    /// also reading the pose before it, to know how far the surface moved.
     /// </remarks>
     private const int FramesInFlight = 2;
     private readonly TextureCache _textures;
@@ -409,7 +410,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             int slot = ((frame % buffers.Length) + buffers.Length) % buffers.Length;
 
             buffers[slot].Write<MeshVertex>(shape);
-            _batches[index] = batch with { Live = buffers[slot] };
+
+            // The pose before this one, kept because a motion vector needs where each
+            // vertex was, not only where the model it belongs to was: a character standing
+            // still while it gestures moves nothing but its own vertices.
+            _batches[index] = batch with { Live = buffers[slot], Was = batch.Live ?? buffers[slot] };
         }
 
         _pendingShapes.Clear();
@@ -418,7 +423,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Gives a batch the buffers it needs to be animated.</summary>
     private VulkanBuffer[] Animate(int index, ref Batch batch)
     {
-        VulkanBuffer[] buffers = new VulkanBuffer[FramesInFlight];
+        VulkanBuffer[] buffers = new VulkanBuffer[FramesInFlight + 1];
 
         for (int i = 0; i < buffers.Length; i++)
         {
@@ -696,6 +701,23 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         _traceable.Add(new RayTracingMesh(positions, indices.ToArray()) { Part = part });
     }
 
+    /// <summary>Remembers where everything was drawn, ready for the next frame.</summary>
+    /// <remarks>
+    /// Called after a frame is recorded, not before: what a motion vector needs is where a
+    /// thing was when it was last <em>drawn</em>, and something that moved twice between
+    /// two frames was only ever drawn at the second place.
+    /// </remarks>
+    public void Advance()
+    {
+        for (int i = 0; i < _batches.Count; i++)
+        {
+            if (_batches[i].Previous != _batches[i].Transform)
+            {
+                _batches[i] = _batches[i] with { Previous = _batches[i].Transform };
+            }
+        }
+    }
+
     /// <summary>Makes the traced world agree with the drawn one, once a frame.</summary>
     /// <remarks>
     /// Anything that moved this frame has only been recorded; this is what rebuilds the
@@ -777,6 +799,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         Vk vk = _context.Api;
 
+        // Reused for every batch: two vertex streams, both from the start of their buffer.
+        Silk.NET.Vulkan.Buffer* streams = stackalloc Silk.NET.Vulkan.Buffer[2];
+        ulong* offsets = stackalloc ulong[2] { 0, 0 };
+
         foreach (Batch batch in _batches)
         {
             if (batch.Material.Handle == 0)
@@ -790,18 +816,22 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             pipeline.PushConstants(command, new DrawConstants(
                 batch.Transform,
+                batch.Previous,
                 new Vector4(
                     _lightmap is not null && batch.UseLightmap ? 1f : 0f,
                     LightmapMultiplier,
                     batch.SelfLit ? 1f : 0f,
                     0)));
 
-            ulong offset = 0;
-
             // The animated buffer when something has reshaped this batch, and the one the
             // model was built with otherwise.
-            Silk.NET.Vulkan.Buffer vertices = (batch.Live ?? batch.Vertices).Handle;
-            vk.CmdBindVertexBuffers(command, 0, 1, in vertices, in offset);
+            // Two streams: this pose and the one before it. A batch nothing has animated
+            // binds the same buffer twice, which is the truth about it — its vertices are
+            // where they have always been, and only its transform can have moved.
+            streams[0] = (batch.Live ?? batch.Vertices).Handle;
+            streams[1] = (batch.Was ?? batch.Live ?? batch.Vertices).Handle;
+
+            vk.CmdBindVertexBuffers(command, 0, 2, streams, offsets);
             vk.CmdBindIndexBuffer(command, batch.Indices.Handle, 0, batch.IndexType);
             vk.CmdDrawIndexed(command, batch.IndexCount, 1, 0, 0, 0);
         }
@@ -917,6 +947,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             IndexCount = indexCount,
             IndexType = indexType,
             Transform = transform,
+
+            // Where it was is where it is, on the frame it first appears. A zero matrix
+            // here reports the whole screen as having moved half its width.
+            Previous = transform,
             TextureName = texture,
             UseLightmap = useLightmap,
             SelfLit = selfLit,
@@ -1013,6 +1047,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// <summary>Whichever animated buffer was written most recently.</summary>
         public VulkanBuffer? Live { get; init; }
 
+        /// <summary>The pose before that one.</summary>
+        public VulkanBuffer? Was { get; init; }
+
         public required VulkanBuffer Indices { get; init; }
 
         public required uint IndexCount { get; init; }
@@ -1020,6 +1057,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         public required IndexType IndexType { get; init; }
 
         public required Matrix4x4 Transform { get; init; }
+
+        /// <summary>Where this batch was drawn last frame.</summary>
+        /// <remarks>
+        /// Half of a motion vector. Advanced at the end of a frame rather than when the
+        /// batch moves, because several things may move it between one drawing and the
+        /// next and what a filter needs is where it actually last appeared.
+        /// </remarks>
+        public Matrix4x4 Previous { get; init; }
 
         public required string TextureName { get; init; }
 

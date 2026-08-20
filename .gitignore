@@ -43,3 +43,4 @@ ContentWorkspace/
 # launchSettings.json is intentionally NOT ignored: the profiles that run the
 # importer are worth sharing, and they use paths relative to the project rather
 # than anyone machine-specific directories.
+motion.raw

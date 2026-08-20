@@ -535,7 +535,14 @@ public sealed unsafe class OverlayPipeline : IDisposable
                 DepthCompareOp = CompareOp.Always,
             };
 
-            var blendAttachment = new PipelineColorBlendAttachmentState
+            // Three attachments, because the frame has three and a pipeline has to describe
+            // every one of them. This pass writes the picture and nothing else, so the other
+            // two are masked off rather than left to write whatever the shader happens to
+            // leave in them.
+            PipelineColorBlendAttachmentState* blendAttachments =
+                stackalloc PipelineColorBlendAttachmentState[(int)GBuffer.Targets];
+
+            blendAttachments[GBuffer.Colour] = new PipelineColorBlendAttachmentState
             {
                 BlendEnable = true,
                 SrcColorBlendFactor = BlendFactor.SrcAlpha,
@@ -548,19 +555,29 @@ public sealed unsafe class OverlayPipeline : IDisposable
                                  ColorComponentFlags.BBit | ColorComponentFlags.ABit,
             };
 
+            for (int i = 1; i < (int)GBuffer.Targets; i++)
+            {
+                blendAttachments[i] = default;
+            }
+
             var blend = new PipelineColorBlendStateCreateInfo
             {
                 SType = StructureType.PipelineColorBlendStateCreateInfo,
-                AttachmentCount = 1,
-                PAttachments = &blendAttachment,
+                AttachmentCount = GBuffer.Targets,
+                PAttachments = blendAttachments,
             };
 
-            Format color = colorFormat;
+            Format* colors = stackalloc Format[(int)GBuffer.Targets]
+            {
+                colorFormat,
+                GBuffer.NormalFormat,
+                GBuffer.MotionFormat,
+            };
             var rendering = new PipelineRenderingCreateInfo
             {
                 SType = StructureType.PipelineRenderingCreateInfo,
-                ColorAttachmentCount = 1,
-                PColorAttachmentFormats = &color,
+                ColorAttachmentCount = GBuffer.Targets,
+                PColorAttachmentFormats = colors,
                 DepthAttachmentFormat = depthFormat,
             };
 

@@ -24,6 +24,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
     private readonly bool _rayTracing;
     private DescriptorPool _pool;
     private int _frameCounter;
+    private Matrix4x4? _previousViewProjection;
 
     private FrameUniformSet(
         VulkanContext context,
@@ -237,8 +238,16 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// <param name="frame">Which frame in flight this is.</param>
     /// <param name="camera">The camera.</param>
     /// <param name="aspect">Viewport width divided by height.</param>
+    /// <param name="width">Viewport width in pixels, for the motion vectors.</param>
+    /// <param name="height">Viewport height in pixels, for the motion vectors.</param>
     public void Bind(
-        CommandBuffer command, MeshPipeline pipeline, int frame, Camera camera, float aspect)
+        CommandBuffer command,
+        MeshPipeline pipeline,
+        int frame,
+        Camera camera,
+        float aspect,
+        float width = 0,
+        float height = 0)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(camera);
@@ -249,8 +258,18 @@ public sealed unsafe class FrameUniformSet : IDisposable
             ? Settings
             : RayTracingSettings.For(RayTracingQuality.None);
 
+        Matrix4x4 viewProjection = camera.View * camera.Projection(aspect);
+
+        // The first frame has no previous one, and a motion vector against an identity
+        // matrix is the whole screen moving at once. Its own is the honest answer: nothing
+        // moved, because there was nothing to move from.
+        Matrix4x4 previous = _previousViewProjection ?? viewProjection;
+
+        _previousViewProjection = viewProjection;
+
         var uniforms = new FrameUniforms(
-            camera.View * camera.Projection(aspect),
+            viewProjection,
+            previous,
             new Vector4(Vector3.Normalize(camera.LightDirection), 0),
             new Vector4(camera.Position, 1),
             new Vector4(
@@ -259,9 +278,10 @@ public sealed unsafe class FrameUniformSet : IDisposable
                 settings.ShadowSamples,
                 settings.LightmapIndirect),
 
-            // The frame counter decorrelates the sampling noise between frames, so a still
-            // image is grainy but a moving one is not stuck with the same grain.
-            new Vector4(settings.AmbientOcclusionRadius, _frameCounter++ % 64, 0, 0));
+            // The viewport in pixels, so the motion vectors come out in pixels rather than
+            // in a normalised space nobody can read.
+            new Vector4(
+                settings.AmbientOcclusionRadius, _frameCounter++ % 64, width, height));
 
         _buffers[index].Write<FrameUniforms>([uniforms]);
 

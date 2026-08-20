@@ -191,3 +191,61 @@ Six units is where it flattens, and it puts the character below the room's own d
 than above it. Twelve buys almost nothing and lifts a shadow further from whatever casts it.
 Six units is about fifteen centimetres, which is a lot in the abstract and not much beside a
 character seventy-six units tall in a room three hundred and seventy across.
+
+## What the frame writes besides the picture
+
+Anything that filters a ray-traced signal over time needs to know where each pixel's
+surface was on the previous frame. The mesh pass therefore writes three colour targets
+rather than one, and keeps its depth instead of discarding it:
+
+| Target | Format | Holds |
+| --- | --- | --- |
+| 0 | the swapchain's | the picture |
+| 1 | `R16G16B16A16_SFLOAT` | the shading normal, in world space |
+| 2 | `R16G16_SFLOAT` | how far this pixel's surface moved, in pixels |
+| depth | `D32_SFLOAT` | now stored and sampleable |
+
+The skybox, overlay and triangle pipelines declare all three attachments — a pipeline has
+to describe every one the frame has — and mask the two new ones off, so the sky and the
+interface leave a zero motion behind them, which is the truth about them.
+
+A motion vector points **backwards**: it is the offset from this pixel to where the same
+surface was, because that is the direction anything reading it wants ("the pixel I want
+from the last frame is this far away").
+
+### Getting it right
+
+Two vertex streams are bound for every batch: this frame's pose and the one before it. A
+batch nothing animates binds the same buffer twice, so its motion comes out as its
+transform's alone; an animated character binds the previous pose, so a figure standing
+still while it gestures still reports its arm as having moved. Animated batches keep one
+buffer per frame in flight *and one more*, because the frame still in flight is reading
+the pose before the one being written.
+
+Where the fragment is now comes from `gl_FragCoord`, not from its own interpolated clip
+position. The two agree to within a rounding error, but on distant geometry clip
+coordinates are large enough that subtracting two of them leaves nothing but that error.
+
+Both new targets are written before anything in the fragment shader can return. A
+fragment that leaves an output alone does not leave it cleared — it leaves it
+**undefined**. The self-lit early return (a bulb, a lampshade, the painted street through
+the hotel window) skipped both, and every lamp in the frame reported itself as having
+crossed the screen since the last frame.
+
+### Checking it
+
+`--motion` reports the field and dumps it to `motion.raw`, eight bits a pixel at the
+viewport's size. A motion vector is not visible in the picture and is wrong in ways that
+look entirely plausible, so the numbers are the only honest check. Measured at
+1280×720:
+
+| | mean | largest | moved over half a pixel |
+| --- | --- | --- | --- |
+| `R25` still | 0.00 px | 0.0 px | 0.0% |
+| `MOP` still | 0.00 px | 0.0 px | 0.0% |
+| `R25`, Gabriel walking | 0.18 px | 2.4 px | 8.9% |
+| `R25`, camera gliding | 1.21 px | 3.2 px | 92.7% |
+
+A still frame is exactly zero everywhere, a walking character is the only thing moving in
+a still room, and a glide moves very nearly all of it. Every earlier version of this
+passed the eye and failed these four numbers.
