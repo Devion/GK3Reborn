@@ -43,16 +43,31 @@ internal sealed unsafe class CompositePipeline : IDisposable
         layout(set = 0, binding = 2) uniform sampler2D shadowTarget;
         layout(set = 0, binding = 3) uniform sampler2D occlusionTarget;
 
+        // How much of the traced occlusion to believe. Not all of it: the lightmaps these
+        // rooms ship with were baked with occlusion already in them, so a hemisphere of
+        // rays is measuring something the bake has largely accounted for, and applying it
+        // whole counts it twice. Whole, it also drives a surface to black outright —
+        // enough of the hemisphere above a shoulder is that person's own head that the
+        // shoulder disappears, which is not a shadow anybody would draw.
+        //
+        // What is worth having is the near contact the bake is too coarse to hold: the
+        // seam where an arm meets a body, the line under a table.
+        const float kOcclusionStrength = 0.55;
+
         void main()
         {
             ivec2 pixel = ivec2(gl_FragCoord.xy);
 
-            vec3 indirect = texelFetch(indirectTarget, pixel, 0).rgb;
+            vec4 indirect = texelFetch(indirectTarget, pixel, 0);
             vec3 direct = texelFetch(directTarget, pixel, 0).rgb;
             float shadow = clamp(texelFetch(shadowTarget, pixel, 0).r, 0.0, 1.0);
-            float occlusion = clamp(texelFetch(occlusionTarget, pixel, 0).r, 0.0, 1.0);
+            float open = clamp(texelFetch(occlusionTarget, pixel, 0).r, 0.0, 1.0);
 
-            outColor = vec4((indirect * occlusion) + (direct * shadow), 1.0);
+            // Alpha carries whether occlusion applies here at all. A bulb is not dimmed
+            // by the shade around it.
+            float occlusion = mix(1.0, open, kOcclusionStrength * indirect.a);
+
+            outColor = vec4((indirect.rgb * occlusion) + (direct * shadow), 1.0);
         }
         """;
 

@@ -294,12 +294,22 @@ into the swapchain in one scope.
 | `R25` at High | 156 fps | 163 fps |
 | `MOP` at High | — | 152 fps |
 
-### What it does not fix
+### Characters, and how much occlusion to believe
 
-Characters still smear. Their acceleration structure holds the pose the model was authored
-in — an `.ACT` clip rewrites their vertices every frame and only the transform is handed to
-the structure — so a ray leaving Gabriel's animated shoulder starts inside his rest-pose
-body and reports itself as shadowed. This is the same defect that was there before, and it
-is now the most visible thing in the frame precisely because everything around it came
-clean. Raising the bias does not help: the rest pose is not a fraction of a unit away, it
-is a different shape.
+Two things had to change before people looked right.
+
+The acceleration structure used to hold the pose each model was authored in. A GK3
+character has no skeleton — an `.ACT` clip rewrites its vertices outright, every frame —
+and only the transform was being handed to the structure, so a ray leaving an animated
+shoulder started inside a body still standing at rest. Posed vertices now go to the
+structure as well: everything but the room keeps its vertices where the host can write
+them, and a part whose shape changed is rebuilt in the same submission as the top level.
+The room, which is most of the triangles and never changes shape, stays device-local and
+is built once.
+
+Occlusion is also applied at a little over half strength rather than whole. These rooms
+ship with lightmaps that were baked with occlusion already in them, so a hemisphere of
+rays measures something the bake has largely accounted for, and counting it twice drives
+surfaces to black: enough of the hemisphere above a shoulder is that person's own head
+that the shoulder disappears. What is worth keeping is the near contact the bake is too
+coarse to hold — the seam where an arm meets a body, the line under a table.

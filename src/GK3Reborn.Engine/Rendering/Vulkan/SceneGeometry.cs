@@ -52,6 +52,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Shapes given since the last flush, by batch.</summary>
     private readonly Dictionary<int, IReadOnlyList<Vector3>> _pendingShapes = [];
 
+    /// <summary>Batches whose traced geometry no longer matches what is drawn.</summary>
+    private readonly HashSet<int> _posed = [];
+
     /// <summary>How many frames the renderer keeps in flight.</summary>
     /// <remarks>
     /// Must match <c>VulkanRenderer.FramesInFlight</c>. An animated batch keeps one vertex
@@ -299,7 +302,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     (uint)submesh.Indices.Length,
                     meshToWorld,
                     submesh.TextureName,
-                    useLightmap: false);
+                    useLightmap: false,
+                    selfLit: false,
+                    local: meshToLocal);
             }
         }
 
@@ -415,9 +420,42 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // vertex was, not only where the model it belongs to was: a character standing
             // still while it gestures moves nothing but its own vertices.
             _batches[index] = batch with { Live = buffers[slot], Was = batch.Live ?? buffers[slot] };
+            _posed.Add(index);
         }
 
         _pendingShapes.Clear();
+        Retrace();
+    }
+
+    /// <summary>Hands the acceleration structure the vertices now being drawn.</summary>
+    /// <remarks>
+    /// Without this a character's shadow is the shape the model was authored in, wherever
+    /// the animation has actually put them: rays leaving a raised arm start inside a body
+    /// that is still standing at rest, and report themselves as shadowed. It shows as
+    /// smears across whichever parts of them moved.
+    /// </remarks>
+    private void Retrace()
+    {
+        if (_posed.Count == 0 || _rayTracing is null)
+        {
+            return;
+        }
+
+        foreach (int index in _posed)
+        {
+            Batch batch = _batches[index];
+            MeshVertex[] shape = batch.Shape;
+            var placed = new Vector3[shape.Length];
+
+            for (int i = 0; i < shape.Length; i++)
+            {
+                placed[i] = Vector3.Transform(shape[i].Position, batch.Local);
+            }
+
+            _rayTracing.Reshape(index, placed);
+        }
+
+        _posed.Clear();
     }
 
     /// <summary>Gives a batch the buffers it needs to be animated.</summary>
@@ -456,7 +494,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         foreach (int index in batches)
         {
-            _batches[index] = _batches[index] with { Transform = meshToWorld };
+            _batches[index] = _batches[index] with
+            {
+                Transform = meshToWorld,
+                Local = meshToLocal,
+            };
+
+            _posed.Add(index);
         }
     }
 
@@ -493,7 +537,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             foreach (int index in batches)
             {
-                _batches[index] = _batches[index] with { Transform = meshToWorld };
+                _batches[index] = _batches[index] with
+                {
+                    Transform = meshToWorld,
+                    Local = model.Meshes[mesh].MeshToLocal,
+                };
             }
         }
     }
@@ -698,7 +746,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             return;
         }
 
-        _traceable.Add(new RayTracingMesh(positions, indices.ToArray()) { Part = part });
+        // Keyed by the batch this is about to become, so that reshaping the batch can
+        // reshape the geometry rays see. Recorded before the batch is added, which is
+        // what makes the count the index it will have.
+        _traceable.Add(new RayTracingMesh(positions, indices.ToArray())
+        {
+            Part = part,
+            Key = _batches.Count,
+        });
     }
 
     /// <summary>Remembers where everything was drawn, ready for the next frame.</summary>
@@ -937,9 +992,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         Matrix4x4 transform,
         string texture,
         bool useLightmap,
-        bool selfLit = false) =>
+        bool selfLit = false,
+        Matrix4x4? local = null) =>
         _batches.Add(new Batch
         {
+            // Identity for the room's own geometry, which is already where it belongs.
+            Local = local ?? Matrix4x4.Identity,
             Vertices = VulkanBuffer.CreateDeviceLocal<MeshVertex>(
                 _context, vertices, BufferUsageFlags.VertexBufferBit),
             Shape = [.. vertices],
@@ -1049,6 +1107,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         /// <summary>The pose before that one.</summary>
         public VulkanBuffer? Was { get; init; }
+
+        /// <summary>This mesh's place within its model.</summary>
+        /// <remarks>
+        /// Rays see one structure per model, placed by one transform, so each mesh's own
+        /// transform has to be folded into the vertices handed to it — which means
+        /// knowing what that transform currently is.
+        /// </remarks>
+        public Matrix4x4 Local { get; init; }
 
         public required VulkanBuffer Indices { get; init; }
 

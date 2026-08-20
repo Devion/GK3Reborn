@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
@@ -19,6 +20,15 @@ public readonly record struct RayTracingMesh(Vector3[] Positions, uint[] Indices
     /// the geometry. The room never moves and is always part zero.
     /// </remarks>
     public int Part { get; init; }
+
+    /// <summary>What names this geometry when its shape changes, or minus one.</summary>
+    /// <remarks>
+    /// A character has no skeleton: an <c>.ACT</c> clip rewrites its vertices outright,
+    /// every frame of every animation. The structure has to be given those vertices or it
+    /// goes on holding the pose the model was authored in, and rays leaving an animated
+    /// shoulder start inside a rest-pose body.
+    /// </remarks>
+    public int Key { get; init; } = -1;
 }
 
 /// <summary>
@@ -49,12 +59,20 @@ public sealed unsafe class RayTracingScene : IDisposable
     private readonly KhrAccelerationStructure _api;
     private readonly List<VulkanBuffer> _buffers = [];
 
-    private readonly List<AccelerationStructureKHR> _parts = [];
+    private readonly List<Part> _parts = [];
     private readonly List<AccelerationStructureInstanceKHR> _instances = [];
     private readonly Dictionary<int, int> _instanceOf = [];
 
+    /// <summary>Where each reshapeable mesh's vertices sit, by the key that names it.</summary>
+    private readonly Dictionary<int, (int Part, int Offset, int Count)> _shapes = [];
+
+    /// <summary>Parts whose vertices have been rewritten since they were last built.</summary>
+    private readonly HashSet<int> _reshaped = [];
+
+    private AccelerationStructureGeometryKHR _topLevelGeometry;
     private VulkanBuffer? _instanceBuffer;
-    private AccelerationStructureKHR _topLevel;
+    private Structure _topLevelStructure;
+    private uint _topLevelPrimitives;
     private bool _moved;
 
     private RayTracingScene(VulkanContext context, KhrAccelerationStructure api)
@@ -64,14 +82,13 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>The structure a shader binds.</summary>
-    public AccelerationStructureKHR Handle => _topLevel;
+    public AccelerationStructureKHR Handle => _topLevelStructure.Handle;
 
     /// <summary>How many triangles it holds.</summary>
     public int TriangleCount { get; private set; }
 
     /// <summary>How many separately movable things it holds, the room among them.</summary>
     public int PartCount => _parts.Count;
-
     /// <summary>Builds a structure over some meshes.</summary>
     /// <param name="context">Device context.</param>
     /// <param name="meshes">The geometry, already in world space.</param>
@@ -96,6 +113,7 @@ public sealed unsafe class RayTracingScene : IDisposable
         // and is placed by one transform, so a character walking is a transform rewrite
         // rather than a rebuild of ten thousand triangles.
         var parts = new SortedDictionary<int, (List<Vector3> Positions, List<uint> Indices)>();
+        var shapes = new Dictionary<int, (int Part, int Offset, int Count)>();
 
         foreach (RayTracingMesh mesh in meshes)
         {
@@ -106,6 +124,12 @@ public sealed unsafe class RayTracingScene : IDisposable
             }
 
             uint offset = (uint)group.Item1.Count;
+
+            if (mesh.Key >= 0)
+            {
+                shapes[mesh.Key] = (mesh.Part, (int)offset, mesh.Positions.Length);
+            }
+
             group.Item1.AddRange(mesh.Positions);
 
             foreach (uint index in mesh.Indices)
@@ -123,6 +147,11 @@ public sealed unsafe class RayTracingScene : IDisposable
 
         var scene = new RayTracingScene(context, api) { TriangleCount = triangles };
 
+        foreach ((int key, (int part, int offset, int count)) in shapes)
+        {
+            scene._shapes[key] = (part, offset, count);
+        }
+
         try
         {
             foreach ((int part, (List<Vector3> positions, List<uint> indices)) in parts)
@@ -134,8 +163,10 @@ public sealed unsafe class RayTracingScene : IDisposable
 
                 scene._instanceOf[part] = scene._parts.Count;
 
+                // Everything but the room may be posed, and posing rewrites vertices, so
+                // those parts keep their vertices where the host can write them.
                 scene._parts.Add(scene.BuildBottomLevel(
-                    CollectionsMarshal.AsSpan(positions), CollectionsMarshal.AsSpan(indices)));
+                    [.. positions], CollectionsMarshal.AsSpan(indices), part != 0));
 
                 scene._instances.Add(new AccelerationStructureInstanceKHR
                 {
@@ -144,7 +175,8 @@ public sealed unsafe class RayTracingScene : IDisposable
                     Mask = 0xFF,
                     InstanceShaderBindingTableRecordOffset = 0,
                     Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
-                    AccelerationStructureReference = scene.DeviceAddressOf(scene._parts[^1]),
+                    AccelerationStructureReference =
+                        scene.DeviceAddressOf(scene._parts[^1].Structure.Handle),
                 });
             }
 
@@ -182,6 +214,35 @@ public sealed unsafe class RayTracingScene : IDisposable
         _moved = true;
     }
 
+    /// <summary>Gives a mesh the vertices it is currently drawn with.</summary>
+    /// <param name="key">Which mesh, as <see cref="RayTracingMesh.Key"/> named it.</param>
+    /// <param name="positions">Its vertices now, in the model's own space.</param>
+    /// <remarks>
+    /// Recorded rather than applied, like <see cref="Move"/>: several meshes of one
+    /// character may be posed in a frame and the structure only has to be right by the
+    /// time something traces against it.
+    /// </remarks>
+    public void Reshape(int key, ReadOnlySpan<Vector3> positions)
+    {
+        if (!_shapes.TryGetValue(key, out (int Part, int Offset, int Count) at) ||
+            positions.Length != at.Count ||
+            !_instanceOf.TryGetValue(at.Part, out int index))
+        {
+            return;
+        }
+
+        Part part = _parts[index];
+
+        if (!part.Rewritable)
+        {
+            return;
+        }
+
+        positions.CopyTo(part.Positions.AsSpan(at.Offset, at.Count));
+        _reshaped.Add(index);
+        _moved = true;
+    }
+
     /// <summary>Rebuilds the top level if anything has moved since it last was.</summary>
     /// <remarks>
     /// Only the top level: the geometry inside each thing has not changed, only where the
@@ -200,32 +261,57 @@ public sealed unsafe class RayTracingScene : IDisposable
         _instanceBuffer.Write<AccelerationStructureInstanceKHR>(
             CollectionsMarshal.AsSpan(_instances));
 
-        // The structure is rebuilt rather than refitted. Refitting is quicker and is only
-        // sound for small movements; a character crossing a room is not one.
-        if (_topLevel.Handle != 0)
+        // Every rebuild this frame in one submission: a posed character is two or three
+        // structures and the top level, and waiting on each in turn would cost more than
+        // all of them together.
+        CommandBuffer command = _context.BeginOneShot();
+
+        foreach (int index in _reshaped)
         {
-            _api.DestroyAccelerationStructure(_context.Device, _topLevel, null);
-            _topLevel = default;
+            Part part = _parts[index];
+
+            part.Vertices.Write<Vector3>(part.Positions);
+            Rebuild(command, part.Build(), part.Primitives, part.Structure);
         }
 
-        BuildTopLevel(reuseInstances: true);
+        if (_reshaped.Count > 0)
+        {
+            // The top level reads what those builds wrote.
+            var barrier = new MemoryBarrier
+            {
+                SType = StructureType.MemoryBarrier,
+                SrcAccessMask = AccessFlags.AccelerationStructureWriteBitKhr,
+                DstAccessMask = AccessFlags.AccelerationStructureReadBitKhr,
+            };
+
+            _context.Api.CmdPipelineBarrier(
+                command,
+                PipelineStageFlags.AccelerationStructureBuildBitKhr,
+                PipelineStageFlags.AccelerationStructureBuildBitKhr,
+                0, 1, in barrier, 0, null, 0, null);
+
+            _reshaped.Clear();
+        }
+
+        // Rebuilt rather than refitted. Refitting is quicker and is only sound for small
+        // movements; a character crossing a room is not one. The structure itself is
+        // reused: the instance count never changes, so neither does the size of it, and
+        // creating a new one every frame anything moved used to leak both its buffers.
+        Rebuild(command, TopLevelBuild(), _topLevelPrimitives, _topLevelStructure);
+        _context.EndOneShot(command);
     }
 
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (_topLevel.Handle != 0)
-        {
-            _api.DestroyAccelerationStructure(_context.Device, _topLevel, null);
-            _topLevel = default;
-        }
+        Release(_topLevelStructure);
+        _topLevelStructure = default;
 
-        foreach (AccelerationStructureKHR part in _parts)
+        foreach (Part part in _parts)
         {
-            if (part.Handle != 0)
-            {
-                _api.DestroyAccelerationStructure(_context.Device, part, null);
-            }
+            Release(part.Structure);
+            part.Vertices.Dispose();
+            part.Indices.Dispose();
         }
 
         _parts.Clear();
@@ -239,54 +325,41 @@ public sealed unsafe class RayTracingScene : IDisposable
         _api.Dispose();
     }
 
-    private AccelerationStructureKHR BuildBottomLevel(
-        ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices)
+    private Part BuildBottomLevel(
+        Vector3[] positions, ReadOnlySpan<uint> indices, bool rewritable)
     {
         const BufferUsageFlags InputUsage =
             BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr |
             BufferUsageFlags.ShaderDeviceAddressBit;
 
-        VulkanBuffer vertices = VulkanBuffer.CreateDeviceLocal(_context, positions, InputUsage);
+        // Host visible only where something may rewrite it. The room is most of the
+        // triangles in a scene and never changes shape, and device-local memory is where
+        // a build wants to read from.
+        VulkanBuffer vertices = rewritable
+            ? VulkanBuffer.CreateHostVisible(
+                _context, (ulong)(positions.Length * sizeof(Vector3)), InputUsage, addressable: true)
+            : VulkanBuffer.CreateDeviceLocal<Vector3>(_context, positions, InputUsage);
+
+        if (rewritable)
+        {
+            vertices.Write<Vector3>(positions);
+        }
+
         VulkanBuffer triangles = VulkanBuffer.CreateDeviceLocal(_context, indices, InputUsage);
 
-        _buffers.Add(vertices);
-        _buffers.Add(triangles);
-
-        var geometry = new AccelerationStructureGeometryKHR
+        var part = new Part
         {
-            SType = StructureType.AccelerationStructureGeometryKhr,
-            GeometryType = GeometryTypeKHR.TrianglesKhr,
-
-            // Opaque, because nothing here is alpha tested: keyed geometry never reaches
-            // this point. Saying so lets the traversal skip any-hit entirely.
-            Flags = GeometryFlagsKHR.OpaqueBitKhr,
-            Geometry = new AccelerationStructureGeometryDataKHR
-            {
-                Triangles = new AccelerationStructureGeometryTrianglesDataKHR
-                {
-                    SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
-                    VertexFormat = Format.R32G32B32Sfloat,
-                    VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = vertices.DeviceAddress },
-                    VertexStride = (ulong)sizeof(Vector3),
-                    MaxVertex = (uint)(positions.Length - 1),
-                    IndexType = IndexType.Uint32,
-                    IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = triangles.DeviceAddress },
-                },
-            },
+            Vertices = vertices,
+            Indices = triangles,
+            Positions = positions,
+            Primitives = (uint)(indices.Length / 3),
+            Rewritable = rewritable,
         };
 
-        uint primitives = (uint)(indices.Length / 3);
+        part.Structure = Create(
+            part.Build(), part.Primitives, AccelerationStructureTypeKHR.BottomLevelKhr);
 
-        var build = new AccelerationStructureBuildGeometryInfoKHR
-        {
-            SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
-            Type = AccelerationStructureTypeKHR.BottomLevelKhr,
-            Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
-            GeometryCount = 1,
-            PGeometries = &geometry,
-        };
-
-        return Create(build, primitives, AccelerationStructureTypeKHR.BottomLevelKhr);
+        return part;
     }
 
     private void BuildTopLevel(bool reuseInstances = false)
@@ -307,9 +380,16 @@ public sealed unsafe class RayTracingScene : IDisposable
             _buffers.Add(_instanceBuffer);
         }
 
-        VulkanBuffer instances = _instanceBuffer!;
+        _topLevelPrimitives = (uint)_instances.Count;
+        _topLevelStructure = Create(
+            TopLevelBuild(), _topLevelPrimitives, AccelerationStructureTypeKHR.TopLevelKhr);
+    }
 
-        var geometry = new AccelerationStructureGeometryKHR
+    private AccelerationStructureBuildGeometryInfoKHR TopLevelBuild()
+    {
+        // The geometry description has to outlive this call, because the build reads it.
+        // One per scene, kept alongside the instance buffer it points at.
+        _topLevelGeometry = new AccelerationStructureGeometryKHR
         {
             SType = StructureType.AccelerationStructureGeometryKhr,
             GeometryType = GeometryTypeKHR.InstancesKhr,
@@ -320,21 +400,22 @@ public sealed unsafe class RayTracingScene : IDisposable
                 {
                     SType = StructureType.AccelerationStructureGeometryInstancesDataKhr,
                     ArrayOfPointers = false,
-                    Data = new DeviceOrHostAddressConstKHR { DeviceAddress = instances.DeviceAddress },
+                    Data = new DeviceOrHostAddressConstKHR
+                    {
+                        DeviceAddress = _instanceBuffer!.DeviceAddress,
+                    },
                 },
             },
         };
 
-        var build = new AccelerationStructureBuildGeometryInfoKHR
+        return new AccelerationStructureBuildGeometryInfoKHR
         {
             SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
             Type = AccelerationStructureTypeKHR.TopLevelKhr,
             Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
             GeometryCount = 1,
-            PGeometries = &geometry,
+            PGeometries = (AccelerationStructureGeometryKHR*)Unsafe.AsPointer(ref _topLevelGeometry),
         };
-
-        _topLevel = Create(build, (uint)_instances.Count, AccelerationStructureTypeKHR.TopLevelKhr);
     }
 
     /// <summary>The first three rows of a transform, which is what an instance carries.</summary>
@@ -367,7 +448,12 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>Sizes, allocates and builds one structure.</summary>
-    private AccelerationStructureKHR Create(
+    /// <remarks>
+    /// The scratch is kept rather than freed. It is only needed while a build runs, but a
+    /// structure whose geometry can be rewritten is rebuilt every frame that geometry
+    /// moves, and allocating scratch for each of those would cost more than holding it.
+    /// </remarks>
+    private Structure Create(
         AccelerationStructureBuildGeometryInfoKHR build,
         uint primitives,
         AccelerationStructureTypeKHR type)
@@ -393,8 +479,6 @@ public sealed unsafe class RayTracingScene : IDisposable
             BufferUsageFlags.AccelerationStructureStorageBitKhr,
             addressable: true);
 
-        _buffers.Add(storage);
-
         var createInfo = new AccelerationStructureCreateInfoKHR
         {
             SType = StructureType.AccelerationStructureCreateInfoKhr,
@@ -403,34 +487,62 @@ public sealed unsafe class RayTracingScene : IDisposable
             Type = type,
         };
 
-        if (_api.CreateAccelerationStructure(_context.Device, in createInfo, null, out AccelerationStructureKHR handle)
+        if (_api.CreateAccelerationStructure(
+                _context.Device, in createInfo, null, out AccelerationStructureKHR handle)
             != Result.Success)
         {
+            storage.Dispose();
             throw new VulkanException($"Could not create a {type} acceleration structure.");
         }
 
-        // Scratch is only needed while the build runs, but freeing it means tracking when
-        // the build finished; the builds here are one-shot and waited on, so it is simply
-        // kept until the whole structure is disposed.
         VulkanBuffer scratch = VulkanBuffer.CreateEmpty(
             _context,
             Math.Max(sizes.BuildScratchSize, 1),
             BufferUsageFlags.StorageBufferBit,
             addressable: true);
 
-        _buffers.Add(scratch);
+        var structure = new Structure(handle, storage, scratch);
 
-        build.DstAccelerationStructure = handle;
-        build.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratch.DeviceAddress };
+        CommandBuffer command = _context.BeginOneShot();
+        Rebuild(command, build, primitives, structure);
+        _context.EndOneShot(command);
+
+        return structure;
+    }
+
+    /// <summary>Builds into a structure that already exists.</summary>
+    /// <remarks>
+    /// A full build rather than a refit, and into the same memory: the geometry's shape
+    /// and count do not change when a character is posed, only where its vertices are, so
+    /// nothing about the structure needs to be a different size.
+    /// </remarks>
+    private void Rebuild(
+        CommandBuffer command,
+        AccelerationStructureBuildGeometryInfoKHR build,
+        uint primitives,
+        Structure structure)
+    {
+        build.DstAccelerationStructure = structure.Handle;
+        build.ScratchData = new DeviceOrHostAddressKHR
+        {
+            DeviceAddress = structure.Scratch.DeviceAddress,
+        };
 
         var range = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = primitives };
         AccelerationStructureBuildRangeInfoKHR* ranges = &range;
 
-        CommandBuffer command = _context.BeginOneShot();
         _api.CmdBuildAccelerationStructures(command, 1, in build, &ranges);
-        _context.EndOneShot(command);
+    }
 
-        return handle;
+    private void Release(Structure structure)
+    {
+        if (structure.Handle.Handle != 0)
+        {
+            _api.DestroyAccelerationStructure(_context.Device, structure.Handle, null);
+        }
+
+        structure.Storage?.Dispose();
+        structure.Scratch?.Dispose();
     }
 
     private ulong DeviceAddressOf(AccelerationStructureKHR structure)
@@ -445,6 +557,74 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>The identity, in the three-by-four row-major form instances use.</summary>
+    /// <summary>One structure and the two buffers it cannot live without.</summary>
+    private readonly record struct Structure(
+        AccelerationStructureKHR Handle, VulkanBuffer Storage, VulkanBuffer Scratch);
+
+    /// <summary>One movable thing's geometry.</summary>
+    private sealed class Part
+    {
+        public required VulkanBuffer Vertices { get; init; }
+
+        public required VulkanBuffer Indices { get; init; }
+
+        /// <summary>The vertices as the host last saw them, for rewriting a slice.</summary>
+        public required Vector3[] Positions { get; init; }
+
+        public required uint Primitives { get; init; }
+
+        /// <summary>Whether anything may pose this, and so whether it is host visible.</summary>
+        public required bool Rewritable { get; init; }
+
+        public Structure Structure { get; set; }
+
+        private AccelerationStructureGeometryKHR _geometry;
+
+        /// <summary>Describes this geometry to a build.</summary>
+        /// <returns>The description, pointing at storage this object owns.</returns>
+        public AccelerationStructureBuildGeometryInfoKHR Build()
+        {
+            _geometry = new AccelerationStructureGeometryKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryKhr,
+                GeometryType = GeometryTypeKHR.TrianglesKhr,
+
+                // Opaque, because nothing here is alpha tested: keyed geometry never
+                // reaches this point. Saying so lets the traversal skip any-hit entirely.
+                Flags = GeometryFlagsKHR.OpaqueBitKhr,
+                Geometry = new AccelerationStructureGeometryDataKHR
+                {
+                    Triangles = new AccelerationStructureGeometryTrianglesDataKHR
+                    {
+                        SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
+                        VertexFormat = Format.R32G32B32Sfloat,
+                        VertexData = new DeviceOrHostAddressConstKHR
+                        {
+                            DeviceAddress = Vertices.DeviceAddress,
+                        },
+                        VertexStride = (ulong)sizeof(Vector3),
+                        MaxVertex = (uint)(Positions.Length - 1),
+                        IndexType = IndexType.Uint32,
+                        IndexData = new DeviceOrHostAddressConstKHR
+                        {
+                            DeviceAddress = Indices.DeviceAddress,
+                        },
+                    },
+                },
+            };
+
+            return new AccelerationStructureBuildGeometryInfoKHR
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+                GeometryCount = 1,
+                PGeometries =
+                    (AccelerationStructureGeometryKHR*)Unsafe.AsPointer(ref _geometry),
+            };
+        }
+    }
+
     private static TransformMatrixKHR Identity()
     {
         var transform = default(TransformMatrixKHR);
