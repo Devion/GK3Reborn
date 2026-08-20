@@ -85,6 +85,7 @@ public sealed class SceneLoader
 
     private readonly GameArchives _archives;
     private readonly Action<string>? _log;
+    private int _enhancedUsed;
 
     /// <summary>Creates a loader.</summary>
     /// <param name="archives">Where to read assets from.</param>
@@ -95,6 +96,19 @@ public sealed class SceneLoader
         _archives = archives;
         _log = log;
     }
+
+    /// <summary>
+    /// Higher-resolution textures to use in place of the archives', if there are any.
+    /// </summary>
+    /// <remarks>
+    /// A layer rather than a replacement: a texture with no enhanced version loads from the
+    /// archive as before, so a partial set works. Null or empty means the game looks
+    /// exactly as it shipped.
+    /// </remarks>
+    public EnhancedTextures? Enhanced { get; set; }
+
+    /// <summary>How many textures came from the enhanced set rather than the archives.</summary>
+    public int EnhancedTexturesUsed => _enhancedUsed;
 
     /// <summary>Loads a scene into geometry.</summary>
     /// <param name="geometry">Where to put it.</param>
@@ -155,7 +169,9 @@ public sealed class SceneLoader
 
         List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
         placed.AddRange(PlaceActors(geometry, init, diagnostics));
-        _log?.Invoke($"models: {placed.Count} placed, textures: {geometry.TextureCount}");
+        _log?.Invoke(
+            $"models: {placed.Count} placed, textures: {geometry.TextureCount}" +
+            (_enhancedUsed > 0 ? $", {_enhancedUsed} of them enhanced" : string.Empty));
 
         return new LoadedScene(
             scene,
@@ -582,6 +598,16 @@ public sealed class SceneLoader
                      .Where(n => n.Length > 0)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            // The enhanced version first, when there is one. It falls back on its own if it
+            // will not decode, so a bad file in the enhanced set costs that texture and
+            // nothing else.
+            if (Enhanced?.Read(texture, diagnostics) is { } better)
+            {
+                geometry.AddTexture(texture, better);
+                _enhancedUsed++;
+                continue;
+            }
+
             byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
             if (bytes is null || !BitmapDecoder.CanDecode(bytes))
             {

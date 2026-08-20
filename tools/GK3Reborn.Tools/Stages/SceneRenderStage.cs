@@ -59,6 +59,7 @@ public sealed class SceneRenderStage
     /// </param>
     /// <param name="nounMap">Where to write a map of what is clickable, if anywhere.</param>
     /// <param name="perform">An action to carry out, as <c>noun:verb</c>.</param>
+    /// <param name="enhanced">Higher-resolution textures to prefer, or null for none.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -75,6 +76,7 @@ public sealed class SceneRenderStage
         string? pick,
         string? nounMap,
         string? perform,
+        string? enhanced,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -121,6 +123,13 @@ public sealed class SceneRenderStage
         }
 
         var loader = new SceneLoader(archives, _log);
+
+        if (enhanced is { Length: > 0 })
+        {
+            EnhancedTextures set = EnhancedTextures.Open(enhanced);
+            loader.Enhanced = set;
+            _log($"enhanced: {set.Count} textures available at {enhanced}");
+        }
         LoadedScene? scene = loader.Load(geometry, request, diagnostics);
 
         if (scene is null || geometry.TriangleCount == 0)

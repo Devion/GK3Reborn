@@ -80,6 +80,9 @@ public static class Program
             case "check-scenes":
                 return CheckScenes(options, diagnostics);
 
+            case "import-textures":
+                return ImportTextures(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -118,12 +121,49 @@ public static class Program
                 options.Pick,
                 options.NounMap,
                 options.Perform,
+                EnhancedDirectory(options),
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height, diagnostics);
 
         Report(diagnostics);
         return rendered ? 0 : 3;
+    }
+
+    /// <summary>Where the enhanced textures are, if the caller asked for any.</summary>
+    /// <remarks>
+    /// A relative path is taken from the workspace, because that is where enhanced content
+    /// lives and typing the whole thing every time is how a flag stops being used.
+    /// </remarks>
+    private static string? EnhancedDirectory(Options options)
+    {
+        if (options.Enhanced is not { Length: > 0 } directory)
+        {
+            return null;
+        }
+
+        return Path.IsPathRooted(directory) || options.Workspace is null
+            ? directory
+            : Path.Combine(options.Workspace, directory);
+    }
+
+    private static int ImportTextures(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Workspace is null)
+        {
+            Console.Error.WriteLine("import-textures requires --workspace.");
+            return 2;
+        }
+
+        bool imported = new TextureImportStage(Console.WriteLine).Run(
+            options.Workspace,
+            options.Model ?? "enhanced/textures/imagegen-pilot",
+            options.Variant ?? "_imagegen_2048w",
+            options.Tool ?? "unrecorded",
+            diagnostics);
+
+        Report(diagnostics);
+        return imported ? 0 : 3;
     }
 
     private static int CheckScenes(Options options, DiagnosticBag diagnostics)
@@ -493,6 +533,9 @@ public static class Program
               check-scenes      Load every scene at every point in the story and
                                 report what came out. --model limits it to one
                                 location.
+              import-textures   Check generated texture candidates against the
+                                originals they replace and take the sound ones
+                                into the enhanced set.
 
             options:
               --source <dir>       The game's Data directory. Read only; never modified.
@@ -512,6 +555,13 @@ public static class Program
               --height N           Render height (default 768).
               --deep               check-scenes also loads geometry, bakes and
                                    textures, not only what a scene is made of.
+              --variant SUFFIX     Which of each candidate's files import-textures
+                                   takes (default _imagegen_2048w).
+              --tool NAME          What produced the candidates, recorded as
+                                   provenance by import-textures.
+              --enhanced DIR       Textures to use in place of the archives',
+                                   named without extensions. Relative paths are
+                                   taken from --workspace.
               --walk-overlay       Draw where actors may stand over the floor, shaded
                                    by region: green is open ground, darkening towards
                                    the walls, amber for the regions scripts open.
@@ -566,6 +616,12 @@ public static class Program
 
         public string? Perform { get; init; }
 
+        public string? Variant { get; init; }
+
+        public string? Tool { get; init; }
+
+        public string? Enhanced { get; init; }
+
         public bool Force { get; init; }
 
         public bool Verify { get; init; }
@@ -587,6 +643,9 @@ public static class Program
             string? pick = null;
             string? nounMap = null;
             string? perform = null;
+            string? variant = null;
+            string? tool = null;
+            string? enhanced = null;
             bool force = false;
             bool verify = false;
             bool execute = false;
@@ -656,6 +715,15 @@ public static class Program
                     case "--do" when i + 1 < args.Length:
                         perform = args[++i];
                         break;
+                    case "--variant" when i + 1 < args.Length:
+                        variant = args[++i];
+                        break;
+                    case "--tool" when i + 1 < args.Length:
+                        tool = args[++i];
+                        break;
+                    case "--enhanced" when i + 1 < args.Length:
+                        enhanced = args[++i];
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -684,6 +752,9 @@ public static class Program
                 Pick = pick,
                 NounMap = nounMap,
                 Perform = perform,
+                Variant = variant,
+                Tool = tool,
+                Enhanced = enhanced,
             };
         }
     }

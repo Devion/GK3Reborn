@@ -88,6 +88,85 @@ from the originals needs its tool, model, prompt and settings recorded before it
 considered for distribution, and human review before it ships. Generated output is a
 draft, not an approval.
 
+## Bringing candidates in
+
+A generator produces a directory of pictures. What the game needs is textures under the
+names the geometry already uses, each checked against the original it replaces, with a
+record of where it came from. `import-textures` is the step between:
+
+```bash
+GK3Reborn.Tools import-textures --workspace <ws> \
+    --model enhanced/textures/imagegen-pilot --variant _imagegen_2048w \
+    --tool "Codex imagegen (built-in), resized to 2048 width"
+```
+
+It writes accepted candidates to `enhanced/textures/NAME.PNG` and the provenance record
+to `manifests/enhanced-textures.json`, which keeps **every** candidate — refused ones
+included, with the reason. A name that simply vanished from a manifest would tell nobody
+that the generator needs going back to.
+
+Three checks disqualify a candidate, because each makes the game look wrong rather than
+merely different:
+
+- **aspect ratio**, since UVs are fixed and the geometry stretches whatever it is given;
+- **alpha, in both directions** — an alpha-tested texture that comes back opaque draws a
+  solid block where a chain or a leaf should be, and an opaque one that comes back with
+  holes punches them through a shirt;
+- **flat colours**, which belong in a material as a base-colour factor.
+
+Everything else is recorded and passed on with a verdict of `draft`. **Nothing here
+approves anything.** Surviving every check a machine can make is not the human review
+`Plan/02` section 1 requires.
+
+### What the first pilot produced
+
+351 candidates, **324 accepted and 27 refused**:
+
+| refused | why |
+|---:|---|
+| 19 | aspect ratio — all of them extreme-aspect sources (`64x16`, `16x64`, `8x32`) that the generator padded towards square. `BETDOORSTP` came back 2048×819 where 4:1 wanted 2048×512 |
+| 4 | opaque where the original is alpha-tested: `CHAINS`, `LIGHTBULB`, `MAPLE1TRILEAF`, `OFFLMPSHD` — four of the seven alpha textures in the set |
+| 4 | transparent where the original is opaque: `ABE_SHIRTB`, `BAR_SHIRT`, `HE2_PANT`, `SED_WHEEL`, two of them fully so somewhere |
+
+**279 of the 324 accepted are past the 16× cap above** — mostly 32×, some 64×, two at
+256× from `8x32` sources. That is a remake rather than a restoration, which is a choice
+worth making deliberately rather than by accident; the manifest records the factor per
+texture so the decision can be revisited.
+
+### Coverage is measured on screen, not in the list
+
+324 textures sounds like most of a room and is not. Rendering a view twice — once
+normally, once with every enhanced name replaced by flat red — measures what they
+actually cover:
+
+| scene | of the view |
+|---|---:|
+| CS3 | 46% |
+| R27 | 43% |
+| CSE | 36% |
+| R25 | 7% |
+| RC1 | 3% |
+| HAL | 2% |
+| LBY | 0.3% |
+
+The pilot took tier 0 by reference count, which favours small shared things — door
+latches, hall numbers, bathroom tile — over the wallpaper and carpet that fill a frame.
+Those are mostly tier 1. Finishing tier 0 will not change that; the next pass should be
+tier 1 in room order, as the order below already says.
+
+## Using them
+
+`render-scene --enhanced <dir>` puts them in front of the archives. A relative path is
+taken from `--workspace`. Names are matched without extension or case, so `R25WALLS`,
+`R25WALLS.BMP` and `R25WALLS.PNG` are one texture, and anything with no enhanced version
+loads from the archive as before — a partial set is a perfectly good set. A file that
+will not decode falls back to the original and says so (`GK3R1093`) rather than failing
+the scene.
+
+That also makes the comparison possible: the same camera, twice, side by side. It is the
+only way to judge this work, and `PngReader` exists so the engine can read what the
+pipeline writes.
+
 ## Suggested order
 
 1. A pilot of twenty tier 0 textures spanning stone, wood, fabric and metal, to
