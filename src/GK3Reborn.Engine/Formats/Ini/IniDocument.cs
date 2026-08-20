@@ -205,11 +205,16 @@ public sealed class IniDocument
                 continue;
             }
 
-            if (line[0] == '[' && line[^1] == ']')
+            // A closing bracket is not required. RL2.SIF writes
+            // [AMBIENT={IsCurrentTime("106p") ...} without one, and the original accepts
+            // it - "no ']' at end - still accept it" - so a scene that reads it strictly
+            // loses that section's contents and, worse, hands the header text on as if it
+            // were a line of the section before.
+            if (line[0] == '[')
             {
                 Flush();
 
-                string header = line[1..^1];
+                string header = line[^1] == ']' ? line[1..^1] : line[1..];
                 int equals = header.IndexOf('=', StringComparison.Ordinal);
 
                 if (equals >= 0)

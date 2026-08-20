@@ -201,4 +201,47 @@ public sealed class IniDocumentTests
 
         Assert.Equal(3, document.LinesOf("MODELS", IniDocument.EverySection).Count());
     }
+
+    [Fact]
+    public void A_section_header_missing_its_closing_bracket_is_still_a_section()
+    {
+        // 114 headers in the corpus are written this way, most of them [GENERAL={...},
+        // which is the section that picks a scene's asset and its lighting. The original
+        // accepts them - "no ']' at end - still accept it" - and reading them strictly
+        // does not merely lose the section: its contents fold into the one before, so a
+        // conditional block that should not apply is read as though it were unconditional.
+        IniDocument document = IniDocument.Parse(
+            """
+            [GENERAL]
+            scene=rl2
+
+            [GENERAL={IsCurrentTime("106p")}
+            scene=rl2_e
+            """,
+            "RL2.SIF");
+
+        Assert.Equal(2, document.Sections.Count);
+        Assert.Equal("GENERAL", document.Sections[1].Name);
+        Assert.Equal("IsCurrentTime(\"106p\")", document.Sections[1].Condition);
+
+        // The line belongs to the second section, not the first.
+        Assert.Single(document.Sections[0].Lines);
+        Assert.Equal("rl2_e", document.Sections[1].Lines[0].Value("scene"));
+    }
+
+    [Fact]
+    public void A_header_with_neither_bracket_nor_condition_still_names_its_section()
+    {
+        IniDocument document = IniDocument.Parse(
+            """
+            [AMBIENT
+            RL2Fire.STK
+            """,
+            "RL2.SIF");
+
+        IniSection section = Assert.Single(document.Sections);
+        Assert.Equal("AMBIENT", section.Name);
+        Assert.Null(section.Condition);
+        Assert.Equal("RL2Fire.STK", section.Lines[0].Head.Key);
+    }
 }
