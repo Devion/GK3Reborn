@@ -44,6 +44,10 @@ public sealed class SceneUpdateTests
 
         public bool HasTexture(string name) => false;
 
+        public void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth)
+        {
+        }
+
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,

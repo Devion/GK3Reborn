@@ -145,6 +145,26 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         _textures.Add(name, image);
     }
 
+    /// <summary>The six sides of the room's sky, once it has been given one.</summary>
+    /// <remarks>
+    /// Kept rather than uploaded here: building the pipeline needs the shader compiler and
+    /// the swapchain's formats, which belong to the renderer. The geometry's job is to know
+    /// what the room asked for.
+    /// </remarks>
+    public IReadOnlyList<DecodedImage>? SkyboxFaces { get; private set; }
+
+    /// <summary>How far the sky is turned, in radians.</summary>
+    public float SkyboxAzimuth { get; private set; }
+
+    /// <inheritdoc/>
+    public void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth)
+    {
+        ArgumentNullException.ThrowIfNull(faces);
+
+        SkyboxFaces = faces;
+        SkyboxAzimuth = azimuth;
+    }
+
     /// <inheritdoc/>
     public bool HasTexture(string name)
     {

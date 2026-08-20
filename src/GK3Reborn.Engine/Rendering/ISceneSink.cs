@@ -149,6 +149,19 @@ public interface ISceneSink
     /// </remarks>
     void MoveModel(ModelPlacement placement, Matrix4x4 transform);
 
+    /// <summary>Gives the room its sky.</summary>
+    /// <param name="faces">
+    /// The six sides in the order the hardware wants them — right, left, up, down, front,
+    /// back — all square and all the same size.
+    /// </param>
+    /// <param name="azimuth">How far the sky is turned, in radians about the vertical.</param>
+    /// <remarks>
+    /// 177 of the game's 229 scene assets name a sky. Which one depends on the time of day,
+    /// and that is already decided by which asset the timeblock chose, so nothing here needs
+    /// to know what time it is.
+    /// </remarks>
+    void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth);
+
     /// <summary>Adds a scene's geometry and its baked lighting.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">Its lightmaps, in surface order, if any.</param>

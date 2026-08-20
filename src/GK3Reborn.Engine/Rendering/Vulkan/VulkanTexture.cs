@@ -87,6 +87,250 @@ public sealed unsafe class VulkanTexture : IDisposable
         return new VulkanTexture(context, image, memory, view, sampler, mips);
     }
 
+    /// <summary>
+    /// Uploads six images as a cube map.
+    /// </summary>
+    /// <param name="context">Device context.</param>
+    /// <param name="faces">
+    /// The six sides, in the order the hardware expects them: +X, -X, +Y, -Y, +Z, -Z. For
+    /// GK3 that is right, left, up, down, front, back.
+    /// </param>
+    /// <returns>The texture.</returns>
+    /// <remarks>
+    /// <para>
+    /// A sky is sampled by direction rather than by coordinate, which is why this is a cube
+    /// map and not six quads: the hardware's own convention decides which face a direction
+    /// lands on and which way up it is, so there is no chance of a face coming out mirrored
+    /// or a quarter turn out. Six quads with hand-written coordinates is the version that
+    /// looks almost right.
+    /// </para>
+    /// <para>
+    /// No mip chain. A sky is always at the far plane and never minified, and generating one
+    /// would blend across the face boundaries, which is exactly where a skybox shows its
+    /// seams.
+    /// </para>
+    /// </remarks>
+    public static VulkanTexture CreateCube(
+        VulkanContext context, IReadOnlyList<DecodedImage> faces)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(faces);
+
+        if (faces.Count != 6)
+        {
+            throw new ArgumentException("A cube map needs exactly six faces.", nameof(faces));
+        }
+
+        const Format TextureFormat = Format.R8G8B8A8Srgb;
+
+        int size = faces[0].Width;
+
+        foreach (DecodedImage face in faces)
+        {
+            if (face.Width != size || face.Height != size)
+            {
+                throw new ArgumentException(
+                    "A cube map's faces must all be square and the same size.", nameof(faces));
+            }
+        }
+
+        (Image image, DeviceMemory memory) = CreateCubeImage(context, size, TextureFormat);
+
+        UploadCube(context, image, faces);
+
+        ImageView view = CreateCubeView(context, image, TextureFormat);
+        Sampler sampler = CreateSampler(context, 1, SamplerAddressMode.ClampToEdge);
+
+        return new VulkanTexture(context, image, memory, view, sampler, 1);
+    }
+
+    private static (Image, DeviceMemory) CreateCubeImage(
+        VulkanContext context, int size, Format format)
+    {
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+
+            // Without this flag the image cannot be viewed as a cube, however it is laid out.
+            Flags = ImageCreateFlags.CreateCubeCompatibleBit,
+            ImageType = ImageType.Type2D,
+            Format = format,
+            Extent = new Extent3D((uint)size, (uint)size, 1),
+            MipLevels = 1,
+            ArrayLayers = 6,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+            Usage = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+            InitialLayout = ImageLayout.Undefined,
+        };
+
+        if (context.Api.CreateImage(context.Device, in imageInfo, null, out Image image) != Result.Success)
+        {
+            throw new VulkanException("Could not create a cube map image.");
+        }
+
+        context.Api.GetImageMemoryRequirements(context.Device, image, out MemoryRequirements requirements);
+        DeviceMemory memory = context.Allocate(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        context.Api.BindImageMemory(context.Device, image, memory, 0);
+
+        return (image, memory);
+    }
+
+    private static unsafe void UploadCube(
+        VulkanContext context, Image image, IReadOnlyList<DecodedImage> faces)
+    {
+        int each = faces[0].Pixels.Length;
+        ulong size = (ulong)(each * 6);
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = size,
+            Usage = BufferUsageFlags.TransferSrcBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        if (context.Api.CreateBuffer(context.Device, in bufferInfo, null, out Buffer staging) != Result.Success)
+        {
+            throw new VulkanException("Could not create a cube map staging buffer.");
+        }
+
+        context.Api.GetBufferMemoryRequirements(context.Device, staging, out MemoryRequirements requirements);
+
+        DeviceMemory stagingMemory = context.Allocate(
+            requirements,
+            MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
+
+        try
+        {
+            void* mapped;
+            context.Api.MapMemory(context.Device, stagingMemory, 0, size, 0, &mapped);
+
+            // All six laid end to end, so one copy command per face reads its own slice.
+            for (int face = 0; face < 6; face++)
+            {
+                faces[face].Pixels.AsSpan().CopyTo(
+                    new Span<byte>((byte*)mapped + (face * each), each));
+            }
+
+            context.Api.UnmapMemory(context.Device, stagingMemory);
+
+            CommandBuffer command = context.BeginOneShot();
+
+            TransitionCube(
+                context, command, image, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+            BufferImageCopy* regions = stackalloc BufferImageCopy[6];
+
+            for (int face = 0; face < 6; face++)
+            {
+                regions[face] = new BufferImageCopy
+                {
+                    BufferOffset = (ulong)(face * each),
+                    ImageSubresource = new ImageSubresourceLayers
+                    {
+                        AspectMask = ImageAspectFlags.ColorBit,
+                        MipLevel = 0,
+                        BaseArrayLayer = (uint)face,
+                        LayerCount = 1,
+                    },
+                    ImageExtent = new Extent3D(
+                        (uint)faces[face].Width, (uint)faces[face].Height, 1),
+                };
+            }
+
+            context.Api.CmdCopyBufferToImage(
+                command, staging, image, ImageLayout.TransferDstOptimal, 6, regions);
+
+            TransitionCube(
+                context,
+                command,
+                image,
+                ImageLayout.TransferDstOptimal,
+                ImageLayout.ShaderReadOnlyOptimal);
+
+            context.EndOneShot(command);
+        }
+        finally
+        {
+            context.Api.DestroyBuffer(context.Device, staging, null);
+            context.Api.FreeMemory(context.Device, stagingMemory, null);
+        }
+    }
+
+    private static void TransitionCube(
+        VulkanContext context, CommandBuffer command, Image image, ImageLayout from, ImageLayout to)
+    {
+        var barrier = new ImageMemoryBarrier
+        {
+            SType = StructureType.ImageMemoryBarrier,
+            OldLayout = from,
+            NewLayout = to,
+            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            Image = image,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 6,
+            },
+            SrcAccessMask = from == ImageLayout.Undefined
+                ? AccessFlags.None
+                : AccessFlags.TransferWriteBit,
+            DstAccessMask = to == ImageLayout.ShaderReadOnlyOptimal
+                ? AccessFlags.ShaderReadBit
+                : AccessFlags.TransferWriteBit,
+        };
+
+        context.Api.CmdPipelineBarrier(
+            command,
+            from == ImageLayout.Undefined
+                ? PipelineStageFlags.TopOfPipeBit
+                : PipelineStageFlags.TransferBit,
+            to == ImageLayout.ShaderReadOnlyOptimal
+                ? PipelineStageFlags.FragmentShaderBit
+                : PipelineStageFlags.TransferBit,
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            in barrier);
+    }
+
+    private static ImageView CreateCubeView(VulkanContext context, Image image, Format format)
+    {
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = image,
+            ViewType = ImageViewType.TypeCube,
+            Format = format,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 6,
+            },
+        };
+
+        if (context.Api.CreateImageView(context.Device, in viewInfo, null, out ImageView view)
+            != Result.Success)
+        {
+            throw new VulkanException("Could not create a cube map view.");
+        }
+
+        return view;
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {

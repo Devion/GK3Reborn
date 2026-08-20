@@ -199,7 +199,6 @@ public static class Application
         // itself knows how to do.
         while (true)
         {
-            var building = Stopwatch.StartNew();
             using SceneGeometry geometry = renderer.CreateGeometry();
 
             // A fresh loader each time: it carries the last room's glances and its count of
@@ -218,10 +217,6 @@ public static class Application
                         : $"Enhanced textures: none found in {enhancedDirectory}");
                 }
             }
-
-            Console.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"  geometry ready after {building.Elapsed.TotalMilliseconds:F0} ms"));
 
             var loading = Stopwatch.StartNew();
 
@@ -321,14 +316,8 @@ public static class Application
 
             // The geometry is about to go. Frames are still in flight reading its buffers,
             // and freeing those underneath the device is a crash somewhere else entirely.
-            var leaving = Stopwatch.StartNew();
-
             renderer.SetScene(null, null);
             renderer.Idle();
-
-            Console.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"  device idle after {leaving.Elapsed.TotalMilliseconds:F0} ms"));
 
             request = SceneRequest.Continuing(api, next);
 

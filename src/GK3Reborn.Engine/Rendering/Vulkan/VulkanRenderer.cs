@@ -69,6 +69,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private ShaderCompiler? _shaderCompiler;
     private TrianglePipeline? _triangle;
     private OverlayPipeline? _overlay;
+    private SkyboxPipeline? _skybox;
+    private SceneGeometry? _skyOwner;
     private OverlayAtlas? _overlayAtlas;
 
     private VulkanContext? _context;
@@ -438,6 +440,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _rayTracedPipeline?.Dispose();
             _frames?.Dispose();
             _meshPipeline?.Dispose();
+            _skybox?.Dispose();
             _overlay?.Dispose();
             _triangle?.Dispose();
             _shaderCompiler?.Dispose();
@@ -959,6 +962,30 @@ public sealed unsafe class VulkanRenderer : IDisposable
         TransitionDepth(buffer);
         _vk.CmdBeginRendering(buffer, in rendering);
 
+        // The room's sky, built the first time this geometry is drawn. It needs the shader
+        // compiler and the swapchain's formats, which the geometry does not have.
+        if (_scene is not null && !ReferenceEquals(_scene, _skyOwner))
+        {
+            _skyOwner = _scene;
+            _skybox?.Dispose();
+            _skybox = null;
+
+            if (_scene.SkyboxFaces is { Count: 6 } faces && _shaderCompiler is not null)
+            {
+                try
+                {
+                    _skybox = SkyboxPipeline.Create(
+                        _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler,
+                        faces, _scene.SkyboxAzimuth);
+                }
+                catch (VulkanException)
+                {
+                    // A room without a sky is a room; a room that will not draw is not.
+                    _skybox = null;
+                }
+            }
+        }
+
         if (_scene is not null && _camera is not null && _meshPipeline is not null && _frames is not null)
         {
             bool tracing = Quality != RayTracingQuality.None &&
@@ -1000,6 +1027,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _vk.CmdSetScissor(buffer, 0, 1, in scissor);
             _vk.CmdBindPipeline(buffer, PipelineBindPoint.Graphics, _triangle.Handle);
             _vk.CmdDraw(buffer, 3, 1, 0, 0);
+        }
+
+        // The sky after the room, so it fills only what the room left empty rather than
+        // shading every pixel and being painted over.
+        if (_camera is not null)
+        {
+            _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
         }
 
         // On top of the room and inside the same pass: the interface has no business in

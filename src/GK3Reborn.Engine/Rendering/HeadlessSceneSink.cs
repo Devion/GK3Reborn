@@ -95,6 +95,16 @@ public sealed class HeadlessSceneSink : ISceneSink
     {
     }
 
+    /// <summary>How many sides of a sky the scene gave, for a sweep that wants to count.</summary>
+    public int SkyboxFaces { get; private set; }
+
+    /// <inheritdoc/>
+    public void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth)
+    {
+        ArgumentNullException.ThrowIfNull(faces);
+        SkyboxFaces = faces.Count;
+    }
+
     /// <inheritdoc/>
     /// <remarks>
     /// A sweep counts distinct textures, so it wants to be told about every one; saying no

@@ -249,6 +249,14 @@ public sealed class SceneLoader
 
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init));
+
+        // 177 of the game's 229 scene assets name a sky, and which one is already decided
+        // by the time of day the timeblock chose.
+        if (asset?.Skybox is { IsEmpty: false } sky)
+        {
+            LoadSkybox(geometry, sky, diagnostics);
+        }
+
         ReportDisputedVisibility(init, diagnostics);
 
         List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
@@ -675,6 +683,89 @@ public sealed class SceneLoader
         }
 
         return placed;
+    }
+
+    /// <summary>The cube map's sides, in the order the hardware wants them.</summary>
+    private static readonly string[] Sides = ["right", "left", "up", "down", "front", "back"];
+
+    /// <summary>
+    /// Gives the room its sky, when the scene asset names one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The six sides go to the device in the order the hardware wants — right, left, up,
+    /// down, front, back — which is not the order the file lists them in.
+    /// </para>
+    /// <para>
+    /// A missing side is filled with one that is present, as the original does: the ground
+    /// is usually left out because nothing can see it, but the hardware still requires six.
+    /// A sky whose sides are different sizes is refused rather than resampled, because
+    /// nothing in the corpus has one and guessing would hide a misreading.
+    /// </para>
+    /// </remarks>
+    private void LoadSkybox(ISceneSink geometry, SkyboxDefinition sky, DiagnosticBag diagnostics)
+    {
+        string?[] named = [sky.Right, sky.Left, sky.Up, sky.Down, sky.Front, sky.Back];
+        DecodedImage?[] read = new DecodedImage?[6];
+        DecodedImage? any = null;
+
+        for (int face = 0; face < named.Length; face++)
+        {
+            if (named[face] is not { Length: > 0 } texture)
+            {
+                continue;
+            }
+
+            byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
+
+            if (bytes is null || !BitmapDecoder.CanDecode(bytes))
+            {
+                continue;
+            }
+
+            read[face] = BitmapDecoder.Decode(bytes, texture);
+            any ??= read[face];
+        }
+
+        if (any is not { } fallback)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE020", DiagnosticSeverity.Warning,
+                "A scene names a sky whose textures are not in the archives.",
+                sky.Up ?? sky.Front ?? "skybox", null, "at least one readable side", "none",
+                "The room will draw against an empty background."));
+
+            return;
+        }
+
+        DecodedImage[] faces = new DecodedImage[6];
+
+        for (int face = 0; face < faces.Length; face++)
+        {
+            faces[face] = read[face] ?? fallback;
+
+            if (faces[face].Width == fallback.Width && faces[face].Height == fallback.Width)
+            {
+                continue;
+            }
+
+            diagnostics.Add(new Diagnostic(
+                "SCENE021", DiagnosticSeverity.Warning,
+                "A sky's sides are not all square and the same size, so it cannot be built.",
+                named[face] ?? "skybox", null,
+                $"{fallback.Width} by {fallback.Width}",
+                $"{faces[face].Width} by {faces[face].Height}",
+                "Every side of a cube map must match."));
+
+            return;
+        }
+
+        geometry.SetSkybox(faces, sky.Azimuth);
+
+        _log?.Invoke(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"skybox: {faces[0].Width}px, turned {sky.Azimuth * 180 / MathF.PI:F0} degrees, " +
+            $"sides {string.Join(", ", named.Select((n, i) => read[i] is null ? $"{Sides[i]}=none" : Sides[i]))}"));
     }
 
     private void LoadTextures(
