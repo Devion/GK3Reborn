@@ -341,8 +341,13 @@ internal static class DenoiserShaders
                 }
             }
 
-            bool lit = (litCount * 2) >= samples;
-            bool open = (openCount * 2) >= samples;
+            // Set only where every ray got through. The bit is what the tile
+            // classification reads, and the one thing it does with it is decide that a
+            // whole tile is fully lit and can be written as such — which is only true if
+            // it is true of every ray. A majority would let a tile that is six-tenths lit
+            // be written as ten-tenths.
+            bool lit = litCount == samples;
+            bool open = openCount == samples;
 
             if (inside)
             {
@@ -469,10 +474,14 @@ internal static class DenoiserShaders
     private const string Classify = """
         layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-        #define KERNEL_RADIUS 8
+        // The scale at which a disagreement between a pixel's history and its
+        // neighbourhood counts as evidence that the history is stale, rather than as the
+        // two having drawn different rays. Eight Bernoulli draws give a fraction whose
+        // standard error is a fifth; this is set well above that, so that only a wholesale
+        // change in what a pixel is looking at discards what it has learned.
+        const float kSamplingError = 0.40;
 
         shared int gDissent;
-        shared float gNeighbourhood[8][24];
         shared float gDepth[8][8];
         shared vec2 gVelocity[8][8];
 
@@ -591,88 +600,38 @@ internal static class DenoiserShaders
             return chosen;
         }
 
-        float KernelWeight(int i)
+        // The mean and spread of what the neighbours measured.
+        //
+        // AMD build this out of the bitmask, with a seventeen-by-seventeen Gaussian and a
+        // pair of shared-memory passes, because a bitmask is all they have: their estimate
+        // is one bit and a tile of them is one word. Ours is a fraction of eight rays, and
+        // mixing the two representations was a real defect rather than an inefficiency —
+        // the clamp below is what keeps a reprojected history honest, and clamping a
+        // fraction against bounds derived from a majority vote pinned every uniform region
+        // to nought or one. A wall at six-tenths lit read as fully lit once its history
+        // settled and as six-tenths while the camera moved, so it changed brightness
+        // whenever anything moved.
+        //
+        // Forty-nine fetches of the fraction, and a variance that is the real one.
+        void Neighbourhood(ivec2 pixel, out float mean, out float spread)
         {
-            float sum = exp(0.0);
+            float total = 0.0;
+            float squares = 0.0;
 
-            for (int c = 1; c <= KERNEL_RADIUS; c++)
+            for (int y = -3; y <= 3; y++)
             {
-                sum += 2.0 * exp(-3.0 * float(c * c) /
-                                 ((KERNEL_RADIUS + 1.0) * (KERNEL_RADIUS + 1.0)));
+                for (int x = -3; x <= 3; x++)
+                {
+                    ivec2 at = clamp(pixel + ivec2(x, y), ivec2(0), Size() - 1);
+                    float value = texelFetch(fractionTarget, at, 0).x;
+
+                    total += value;
+                    squares += value * value;
+                }
             }
 
-            return exp(-3.0 * float(i * i) /
-                       ((KERNEL_RADIUS + 1.0) * (KERNEL_RADIUS + 1.0))) / sum;
-        }
-
-        // The horizontal half of a seventeen by seventeen neighbourhood, read straight out
-        // of the bitmask three tiles at a time.
-        float HorizontalNeighbourhood(ivec2 pixel)
-        {
-            if (pixel.y < 0 || pixel.y >= Size().y)
-            {
-                return 0.0;
-            }
-
-            uvec2 tile = TileOf(uvec2(pixel));
-            uint centreIndex = LinearTile(tile, uint(Size().x));
-            uint lastInRow = RoundedDivide(uint(Size().x), TILE_WIDTH) - 1u;
-
-            uint left = tile.x == 0u ? 0u : mask.data[centreIndex - 1u];
-            uint centre = mask.data[centreIndex];
-            uint right = tile.x == lastInRow ? 0u : mask.data[centreIndex + 1u];
-
-            uint row = uint(pixel.y % TILE_HEIGHT) * TILE_WIDTH;
-            uint neighbourhood = ((left >> row) & 0xFFu) |
-                                 (((centre >> row) & 0xFFu) << 8) |
-                                 (((right >> row) & 0xFFu) << 16);
-
-            // Shifted so this pixel lands on bit eight, where the kernel peaks.
-            neighbourhood >>= uint(pixel.x % TILE_WIDTH);
-
-            float moment = 0.0;
-
-            for (int i = 0; i < 8; i++)
-            {
-                moment += ((1u << uint(i)) & neighbourhood) != 0u ? KernelWeight(8 - i) : 0.0;
-            }
-
-            moment += ((1u << 8) & neighbourhood) != 0u ? KernelWeight(0) : 0.0;
-
-            for (int i = 1; i <= 8; i++)
-            {
-                moment += ((1u << uint(8 + i)) & neighbourhood) != 0u ? KernelWeight(i) : 0.0;
-            }
-
-            return moment;
-        }
-
-        float LocalNeighbourhood(ivec2 pixel, ivec2 local)
-        {
-            float upper = HorizontalNeighbourhood(ivec2(pixel.x, pixel.y - 8));
-            float centre = HorizontalNeighbourhood(pixel);
-            float lower = HorizontalNeighbourhood(ivec2(pixel.x, pixel.y + 8));
-
-            gNeighbourhood[local.x][local.y] = upper;
-            gNeighbourhood[local.x][local.y + 8] = centre;
-            gNeighbourhood[local.x][local.y + 16] = lower;
-
-            barrier();
-
-            float total = (centre * KernelWeight(0)) +
-                          ((upper + lower) * KernelWeight(KERNEL_RADIUS));
-
-            for (int i = 1; i < KERNEL_RADIUS; i++)
-            {
-                float weight = KernelWeight(i);
-
-                total += gNeighbourhood[local.x][8 + local.y - i] * weight;
-                total += gNeighbourhood[local.x][8 + local.y + i] * weight;
-            }
-
-            barrier();
-
-            return total;
+            mean = total / 49.0;
+            spread = max((squares / 49.0) - (mean * mean), 0.0);
         }
 
         void WriteMetadata(uvec2 group, uvec2 local, bool cleared, bool allLit)
@@ -712,17 +671,24 @@ internal static class DenoiserShaders
             bool allShadowed = false;
             SearchSpatialRegion(group, allLit, allShadowed);
 
-            if (AllTrue(allLit || allShadowed))
-            {
-                ClearTargets(pixel, local, group, allLit ? 1.0 : 0.0, receiver, allLit);
-                return;
-            }
-
+            // AMD short-circuit a tile whose every bit is set: it is fully lit, so write
+            // one and skip the filtering. That shortcut cannot survive a fractional
+            // estimate. Whether a tile qualifies is decided afresh from this frame's rays,
+            // so a tile sitting at nineteen-twentieths lit qualifies on some frames and
+            // not others, and on the frames it does it is written as fully lit with no
+            // temporal blending at all — a whole eight-by-eight block stepping five per
+            // cent brighter and back, every frame, which is what a hallway of them looks
+            // like when the lights appear to fight.
+            //
+            // The tile metadata is still written, because the filtering stages read it,
+            // and a tile that is genuinely uniform costs them almost nothing anyway.
             WriteMetadata(group, local, false, false);
 
             float depth = LoadDepth(pixel);
             vec2 velocity = ClosestVelocity(pixel, local, depth);
-            float neighbourhood = LocalNeighbourhood(pixel, ivec2(local));
+            float neighbourhood;
+            float spatial;
+            Neighbourhood(pixel, neighbourhood, spatial);
 
             vec2 uv = (vec2(pixel) + 0.5) * InverseSize();
             vec2 historyUv = uv + velocity;
@@ -752,7 +718,6 @@ internal static class DenoiserShaders
                 variance = samples > 1.0 ? sum / (samples - 1.0) : 1.0;
                 moments = vec3(mean, sum, samples);
 
-                float spatial = max(neighbourhood - (neighbourhood * neighbourhood), 0.0);
                 float deviation = sqrt(spatial);
 
                 float previous = current;
@@ -780,8 +745,17 @@ internal static class DenoiserShaders
                 // resets every frame, the blend takes the current sample whole, and
                 // anything that moves shows the single bit it drew rather than an
                 // average of anything.
+                // The floor under the deviation is the estimator's own standard error.
+                // Eight Bernoulli draws give a fraction whose error is at most a fifth,
+                // so a history that differs from the neighbourhood by less than that has
+                // not disagreed about anything — it has drawn different rays. AMD's floor
+                // is a thousandth, which is there to stop a divide by zero and which, on
+                // a signal as smooth as eight rays make, is the number this divides by
+                // nearly everywhere. Measured in HAL, it multiplied the sample count by
+                // 0.62 every frame: the count settled at 1.6, the blend took almost the
+                // whole fresh sample every frame, and the whole picture fizzed.
                 float discontinuity =
-                    (previous - neighbourhood) / max(0.5 * deviation, 0.05);
+                    (previous - neighbourhood) / max(0.5 * deviation, kSamplingError);
 
                 // And never below one sample, because this pixel did take one.
                 moments.z = max(moments.z * exp(-discontinuity * discontinuity / 20.0), 1.0);
@@ -791,6 +765,15 @@ internal static class DenoiserShaders
                     variance = max(variance, spatial) * max(16.0 - moments.z, 1.0);
                 }
 
+                // Capped, because the filter divides by its square root to decide how
+                // much a neighbour of a different value is worth. Boosted sixteenfold on
+                // a signal that only ever runs from zero to one, that division turns every
+                // weight into one and the blur stops caring what it is blurring: a door
+                // and the wall it sits in have the same normal and very nearly the same
+                // depth, so nothing else in the filter tells them apart, and the bright
+                // one bleeds into the other for as long as the camera keeps moving.
+                variance = min(variance, 1.0);
+
                 // A pixel with no history has only what its own rays found, and with
                 // eight of them that is worth something. What it must *not* fall back on
                 // is the seventeen-by-seventeen neighbourhood: that is a flat Gaussian
@@ -799,8 +782,23 @@ internal static class DenoiserShaders
                 // and every camera movement painted a glow around the frame that faded
                 // once the camera stopped. The three filtering stages that follow blur
                 // this with edges in mind, which is the whole reason they exist.
+                // How much of this frame's estimate to take. AMD hold this at a
+                // twentieth once a pixel has eight frames behind it, and hold it there
+                // for ever — so the picture never actually settles. It is an average that
+                // keeps a twentieth of a fresh sample every frame, and with a seed that
+                // moves each frame that is a fifth of a per cent of jitter that never goes
+                // away. In a hallway with a bright fitting and dark panelling that reads
+                // as the lights faintly fighting, and a moving camera, which resets these
+                // counts, makes it far worse.
+                //
+                // One over the sample count is what a converging average actually uses:
+                // the hundredth frame is worth a hundredth. The count is reset by
+                // disocclusion and damped by disagreement, so this still follows a room
+                // whose lighting changes — it simply stops fidgeting when nothing does.
+                float steady = 1.0 / clamp(moments.z, 1.0, 100.0);
                 float weight = sqrt(max(8.0 - moments.z, 0.0) / 8.0);
-                blended = mix(blended, current, mix(0.05, 1.0, weight));
+
+                blended = mix(blended, current, mix(steady, 1.0, weight));
             }
 
             imageStore(reprojection, pixel, vec4(blended, variance, 0.0, 0.0));
@@ -948,11 +946,18 @@ internal static class DenoiserShaders
 
             if (stage.index == 2)
             {
-                // Some of the contrast the blur took out, put back where the estimate is
-                // confident enough to deserve it.
-                float remap = max(1.2 - results.y, 1.0);
-
-                imageStore(result, pixel, vec4(pow(abs(results.x), remap), 0.0, 0.0, 0.0));
+                // AMD put back some of the contrast their blur takes out, by raising the
+                // result to a power that depends on how confident the estimate is. That
+                // makes a settled pixel darker than a moving one *by construction*: the
+                // variance is boosted while a pixel has no history, so the exponent falls
+                // to one exactly when the camera is moving and rises again when it stops.
+                // Walking a hallway, the whole picture brightened and dimmed as the
+                // camera went — which reads as the lights fighting each other.
+                //
+                // Their blur has more to undo than ours does. It is rescuing one bit a
+                // pixel; this is filtering eight rays, and the contrast that recovers is
+                // contrast that was never lost.
+                imageStore(result, pixel, vec4(results.x, 0.0, 0.0, 0.0));
             }
             else
             {

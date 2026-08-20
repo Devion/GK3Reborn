@@ -671,6 +671,11 @@ public static class Application
             Console.WriteLine($"Pointer pinned at {spot.X}, {spot.Y}");
         }
 
+        bool flicker = options.Contains("--flicker", StringComparer.OrdinalIgnoreCase);
+        byte[]? previousFrame = null;
+        double flickerTotal = 0;
+        int flickerFrames = 0;
+
         while (!window.IsClosing && (frameLimit == 0 || presented < frameLimit))
         {
             window.PumpEvents();
@@ -901,6 +906,60 @@ public static class Application
             {
                 presented++;
             }
+
+            // How much the picture changes from one frame to the next, over frames where
+            // the room itself is doing nothing. Anything a temporal filter gets wrong
+            // shows here and nowhere else: a still picture that is quietly different every
+            // frame is what the eye reads as a flicker, and no single screenshot of it
+            // looks wrong.
+            if (flicker && presented > 4)
+            {
+                if (renderer.Capture() is { } captured)
+                {
+                    byte[] frame = captured.Pixels;
+
+                    if (previousFrame is { Length: > 0 } && previousFrame.Length == frame.Length)
+                    {
+                        long total = 0;
+
+                        for (int i = 0; i < frame.Length; i++)
+                        {
+                            total += Math.Abs(frame[i] - previousFrame[i]);
+                        }
+
+                        flickerTotal += (double)total / frame.Length;
+                        flickerFrames++;
+
+                        // The last pair, as a picture. A number says how much moved; only
+                        // this says what.
+                        var map = new byte[frame.Length / 4];
+
+                        for (int i = 0; i < map.Length; i++)
+                        {
+                            int at = i * 4;
+                            int most = Math.Max(
+                                Math.Abs(frame[at] - previousFrame[at]),
+                                Math.Max(
+                                    Math.Abs(frame[at + 1] - previousFrame[at + 1]),
+                                    Math.Abs(frame[at + 2] - previousFrame[at + 2])));
+
+                            map[i] = (byte)Math.Min(255, most * 12);
+                        }
+
+                        File.WriteAllBytes("flicker.raw", map);
+                    }
+
+                    previousFrame = frame;
+                }
+            }
+        }
+
+        if (flickerFrames > 0)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Flicker: {flickerTotal / flickerFrames:F3} of an eight-bit step between " +
+                $"frames, over {flickerFrames} frames"));
         }
 
         Console.WriteLine(string.Create(

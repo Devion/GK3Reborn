@@ -44,3 +44,4 @@ ContentWorkspace/
 # importer are worth sharing, and they use paths relative to the project rather
 # than anyone machine-specific directories.
 motion.raw
+flicker.raw

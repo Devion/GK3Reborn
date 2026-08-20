@@ -342,6 +342,59 @@ surfaces to black: enough of the hemisphere above a shoulder is that person's ow
 that the shoulder disappears. What is worth keeping is the near contact the bake is too
 coarse to hold — the seam where an arm meets a body, the line under a table.
 
+### Measuring a flicker
+
+A temporal filter's failures do not show in a screenshot. `--flicker` reports the mean
+absolute change between consecutive frames and writes the last pair's difference to
+`flicker.raw`, and it is the only instrument that finds these. With ray tracing off and
+nothing moving it reads **0.000**, which makes everything above that attributable.
+
+Reported as the hallway's lights fighting when the camera moved, HAL at High measured
+3.761 of an eight-bit step between frames with the camera *standing still*. Three separate
+faults, none visible in any single frame, and each found by measuring rather than by
+reading the code:
+
+**The reprojection clamped a fraction against bounds built from a bitmask.** AMD compute
+the local neighbourhood as a seventeen-by-seventeen Gaussian over the mask, because a bit
+is all their estimate is. Ours is a fraction of eight rays, and clamping it to
+`neighbourhood ± ½σ` of a *majority vote* pinned every uniform region to nought or one —
+a wall at six-tenths lit read as fully lit once its history settled and as six-tenths
+while the camera moved. The neighbourhood is now a seven-by-seven mean of the fractions
+themselves, with a real variance rather than the binary `n − n²`.
+
+**A tile shortcut wrote a hard value with no temporal blending.** A tile whose every bit
+is set is fully lit, so AMD write one and skip the filtering. Whether a tile qualifies is
+decided afresh from each frame's rays, so a tile at nineteen-twentieths lit qualified on
+some frames and not others — a whole eight-by-eight block stepping brighter and back,
+every frame. The shortcut is gone; the metadata it wrote is still there for the filters.
+
+**The damper was firing constantly.** It discounts the temporal sample count when the
+history disagrees with the neighbourhood, dividing the difference by that neighbourhood's
+standard deviation. On a signal as smooth as eight rays make, that deviation is small and
+AMD's floor of 0.001 is what it divides by nearly everywhere. Measured: the count was
+being multiplied by 0.62 every frame, settling at 1.6, so the blend took almost the whole
+fresh sample every frame and the entire picture fizzed. The floor is now 0.4 — well above
+the fifth of a unit that eight Bernoulli draws are worth — so only a wholesale change in
+what a pixel is looking at discards what it has learned.
+
+AMD also raise the final result to a power that depends on the estimate's confidence, to
+recover contrast their blur takes out. That makes a settled pixel darker than a moving one
+by construction, because the variance is boosted exactly while a pixel has no history.
+Their blur is rescuing one bit a pixel; ours is filtering eight rays, and the contrast it
+recovers was never lost, so it is gone.
+
+| | flicker, still | flicker, gliding |
+| --- | --- | --- |
+| no ray tracing | 0.000 | 6.35 |
+| `HAL` at High, as reported | 3.76 | 7.87 |
+| `HAL` at High, now | 1.25 | 7.05 |
+| `HAL` at Medium, now | 1.77 | — |
+| `R25` at High, now | 0.47 | — |
+| `MOP` at High, now | 0.28 | — |
+
+Gliding changes the picture whether or not anything is traced; what matters is the gap
+above that baseline, and it is now 0.7 of an eight-bit step.
+
 ## The bake, and what the rig is allowed to replace
 
 A GK3 room ships with lightmaps, and they contain two different things: the light these
