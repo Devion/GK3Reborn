@@ -1,6 +1,7 @@
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Actions;
+using GK3Reborn.Formats.Audio;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
@@ -27,6 +28,7 @@ namespace GK3Reborn.Game;
 /// with no state there is nothing to decide it against.
 /// </param>
 /// <param name="Soundtracks">The <c>.STK</c> files the scene plays in the background.</param>
+/// <param name="Ambience">Those soundtracks, read.</param>
 /// <param name="Walkable">Where actors may stand, if the scene declares a boundary.</param>
 /// <param name="Geometry">
 /// The room's parsed geometry. Kept because several things want to ask questions of it
@@ -43,7 +45,8 @@ public sealed record LoadedScene(
     BspFile? Geometry = null,
     IReadOnlyList<PlacedModel>? Placed = null,
     ActionResolver? Actions = null,
-    IReadOnlyList<string>? Soundtracks = null)
+    IReadOnlyList<string>? Soundtracks = null,
+    IReadOnlyList<SoundtrackFile>? Ambience = null)
 {
     /// <summary>The lights the artists authored for this time of day.</summary>
     public IReadOnlyList<AuthoredLight> Lights => Asset?.Lights ?? [];
@@ -56,6 +59,9 @@ public sealed record LoadedScene(
 
     /// <summary>The soundtracks the scene plays, never null.</summary>
     public IReadOnlyList<string> Ambient => Soundtracks ?? [];
+
+    /// <summary>Those soundtracks as read, never null.</summary>
+    public IReadOnlyList<SoundtrackFile> AmbienceRead => Ambience ?? [];
 
     /// <summary>Finds a camera by name, falling back to the scene's default.</summary>
     /// <param name="name">Camera name, or null for the default.</param>
@@ -183,7 +189,8 @@ public sealed class SceneLoader
             bsp,
             placed,
             ReadActions(init, request, diagnostics),
-            init.Soundtracks());
+            init.Soundtracks(),
+            ReadSoundtracks(init, diagnostics));
     }
 
     /// <summary>
@@ -222,7 +229,8 @@ public sealed class SceneLoader
             Geometry: null,
             Placed: null,
             ReadActions(init, request, diagnostics),
-            init.Soundtracks());
+            init.Soundtracks(),
+            ReadSoundtracks(init, diagnostics));
     }
 
     /// <summary>Builds a camera from one of a scene's own viewpoints.</summary>
@@ -704,5 +712,34 @@ public sealed class SceneLoader
             $"most specific first: {string.Join(", ", read)}");
 
         return resolver;
+    }
+
+    /// <summary>Reads the soundtracks a scene names.</summary>
+    /// <remarks>
+    /// A soundtrack is a little script rather than a piece of music — wait a second, play
+    /// the room's theme, wait five to ten seconds, play a mood — so a scene that names one
+    /// and never reads it knows nothing about what the room sounds like. Reading it is
+    /// cheap and separate from playing it, which needs a clock and an audio device.
+    /// </remarks>
+    private List<SoundtrackFile> ReadSoundtracks(SceneDefinition init, DiagnosticBag diagnostics)
+    {
+        List<SoundtrackFile> soundtracks = [];
+
+        foreach (string name in init.Soundtracks())
+        {
+            if (_archives.ReadText(name) is not { } text)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE020",
+                    DiagnosticSeverity.Warning,
+                    $"The scene plays {name}, which no archive contains; the room is silent."));
+
+                continue;
+            }
+
+            soundtracks.Add(SoundtrackFile.Parse(text, name, diagnostics));
+        }
+
+        return soundtracks;
     }
 }

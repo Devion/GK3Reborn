@@ -1,5 +1,6 @@
 using System.Globalization;
 using GK3Reborn.Content;
+using GK3Reborn.Formats.Audio;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
@@ -223,6 +224,17 @@ public sealed class SceneCheckStage
             tally.Soundtracks++;
         }
 
+        foreach (SoundtrackFile soundtrack in loaded.AmbienceRead)
+        {
+            tally.SoundtracksRead.Add(soundtrack.Name);
+            tally.SoundtrackSteps += soundtrack.Nodes.Count;
+
+            foreach (string sound in soundtrack.Sounds)
+            {
+                tally.Sounds.Add(sound);
+            }
+        }
+
         if (loaded.Actions is { } actions)
         {
             HashSet<string> known = new(actions.Nouns, StringComparer.OrdinalIgnoreCase);
@@ -350,7 +362,8 @@ public sealed class SceneCheckStage
             _log($"  declaring none: {string.Join(", ", tally.NoBoundary.Order(StringComparer.Ordinal))}");
         }
 
-        _log($"  {tally.Soundtracks} name a soundtrack");
+        _log($"  {tally.Soundtracks} name a soundtrack: {tally.SoundtracksRead.Count} distinct " +
+             $"files read, {tally.SoundtrackSteps} steps, {tally.Sounds.Count} distinct sounds");
 
         if (tally.NoGeometry.Count > 0)
         {
@@ -452,6 +465,12 @@ public sealed class SceneCheckStage
         public long WalkableTexels { get; set; }
 
         public int Soundtracks { get; set; }
+
+        public int SoundtrackSteps { get; set; }
+
+        public HashSet<string> SoundtracksRead { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> Sounds { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int Nouns { get; set; }
 

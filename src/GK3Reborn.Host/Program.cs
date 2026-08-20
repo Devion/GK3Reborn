@@ -35,7 +35,7 @@ public static class Program
     {
         if (args == null || args.Length == 0)
         {
-            args = ["--scene", "R25", "--timeblock","N", "--camera", "FR_B25", "--rt","high"];
+            args = ["--scene", "R25", "--timeblock","N", "FR_B25", "--rt","high", "--enhanced"];
         }
 
         return GK3Reborn.Application.Run(args, NativeLibraryLocator.LibsRoot);

@@ -115,7 +115,14 @@ so that clicking a doorway walks through it instead of opening the action bar.
 
 `[ACTIONS]` and `[AMBIENT]` carry no `key=`, only names, and for the action files the
 name is the condition — `R25_23ALL.NVC` applies on days two and three. See
-[`actions.md`](actions.md) for that grammar and for which files are in scope.
+[`actions.md`](actions.md) for that grammar and for which files are in scope, and
+[`soundtracks.md`](soundtracks.md) for what an `.STK` turns out to be.
+
+**A section header need not close its bracket.** 114 of them in the corpus do not —
+`[GENERAL={IsCurrentTime("106p") ...}` in RL2, CD1, CDB and a dozen others, some
+`[ACTORS={...}` and one `[AMBIENT={...}`. The original accepts them, and requiring the
+bracket does not merely lose the section: its lines fold into the section before, so a
+conditional block reads as though it were part of an unconditional one.
 
 ### Resolving a click
 
