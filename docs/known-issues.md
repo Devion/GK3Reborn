@@ -207,3 +207,10 @@ See the commit. Two faults: a cube of side two clipped by a near plane of one, a
 varying that never reached the fragment stage. The sky is a screen-covering triangle now,
 with each pixel's ray built from the camera's basis — no vertex buffer, no attribute, no
 varying. A faint seam between faces remains at some headings.
+
+**The faces were also on the wrong sides**, which is why the panorama did not join up.
+Front is +X and right is +Z, not the other way about. Measured off the images rather than
+reasoned from the names, twice: butting each side's right column against every other side's
+left column, the four that join are left→back→right→front at 2.9 to 6.1 mean difference
+against 23 to 34 for every other pairing; and butting each side's top row against the four
+edges of the up face agrees exactly, at 2.9 to 3.2 against 25 to 48.

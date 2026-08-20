@@ -710,7 +710,16 @@ public sealed class SceneLoader
     }
 
     /// <summary>The cube map's sides, in the order the hardware wants them.</summary>
-    private static readonly string[] Sides = ["right", "left", "up", "down", "front", "back"];
+    /// <remarks>
+    /// <b>Front is +X and right is +Z</b>, not the other way about. Measured off the images
+    /// rather than reasoned from the names, twice and independently. Butting each side's
+    /// right-hand column against each other side's left-hand column, the four that join are
+    /// left→back→right→front, with a mean difference of 2.9 to 6.1 against 23 to 34 for
+    /// every other pairing. Butting each side's top row against the four edges of the up
+    /// face agrees: front meets +X, right meets +Z, back meets −X and left meets −Z, at 2.9
+    /// to 3.2 against 25 to 48.
+    /// </remarks>
+    private static readonly string[] Sides = ["front", "back", "up", "down", "right", "left"];
 
     /// <summary>
     /// Gives the room its sky, when the scene asset names one.
@@ -729,8 +738,9 @@ public sealed class SceneLoader
     /// </remarks>
     private void LoadSkybox(ISceneSink geometry, SkyboxDefinition sky, DiagnosticBag diagnostics)
     {
-        string?[] named = [sky.Right, sky.Left, sky.Up, sky.Down, sky.Front, sky.Back];
+        string?[] named = [sky.Front, sky.Back, sky.Up, sky.Down, sky.Right, sky.Left];
         DecodedImage?[] read = new DecodedImage?[6];
+
 
         DecodedImage? any = null;
 
