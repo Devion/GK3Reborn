@@ -117,6 +117,7 @@ public static class Program
                 options.WalkPath,
                 options.Pick,
                 options.NounMap,
+                options.Perform,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height, diagnostics);
@@ -522,6 +523,9 @@ public static class Program
               --noun-map PATH      Write a map of what the player can click, one
                                    colour per noun, from the same camera as the
                                    render. Grey is scenery with no noun.
+              --do NOUN:VERB       Carry out an action and report what it did.
+                                   Needs --timeblock, since a story state is what
+                                   decides which rule applies.
 
             The toolchain never writes to the source installation.
             """);
@@ -560,6 +564,8 @@ public static class Program
 
         public string? NounMap { get; init; }
 
+        public string? Perform { get; init; }
+
         public bool Force { get; init; }
 
         public bool Verify { get; init; }
@@ -580,6 +586,7 @@ public static class Program
             string? walkPath = null;
             string? pick = null;
             string? nounMap = null;
+            string? perform = null;
             bool force = false;
             bool verify = false;
             bool execute = false;
@@ -646,6 +653,9 @@ public static class Program
                     case "--noun-map" when i + 1 < args.Length:
                         nounMap = args[++i];
                         break;
+                    case "--do" when i + 1 < args.Length:
+                        perform = args[++i];
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -673,6 +683,7 @@ public static class Program
                 WalkPath = walkPath,
                 Pick = pick,
                 NounMap = nounMap,
+                Perform = perform,
             };
         }
     }

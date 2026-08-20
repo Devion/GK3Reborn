@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Content;
+using GK3Reborn.Formats;
+using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
@@ -9,6 +11,7 @@ using GK3Reborn.Game.Interaction;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Vulkan;
+using GK3Reborn.Sheep;
 using GK3Reborn.UI.Interaction;
 
 namespace GK3Reborn.Tools.Stages;
@@ -55,6 +58,7 @@ public sealed class SceneRenderStage
     /// A pixel to report what is under, as <c>x,y</c> from the top-left of the image.
     /// </param>
     /// <param name="nounMap">Where to write a map of what is clickable, if anywhere.</param>
+    /// <param name="perform">An action to carry out, as <c>noun:verb</c>.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -70,6 +74,7 @@ public sealed class SceneRenderStage
         string? walkPath,
         string? pick,
         string? nounMap,
+        string? perform,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -171,6 +176,11 @@ public sealed class SceneRenderStage
         if (nounMap is { Length: > 0 })
         {
             WriteNounMap(scene, camera, width, height, nounMap);
+        }
+
+        if (perform is { Length: > 0 })
+        {
+            Perform(archives, scene, request, perform, diagnostics);
         }
 
         DecodedImage image = renderer.Render(geometry, width, height, camera);
@@ -568,5 +578,118 @@ public sealed class SceneRenderStage
             _log($"  nothing can be done to: {string.Join(", ", unknown.Take(12))}" +
                  (unknown.Count > 12 ? $", and {unknown.Count - 12} more" : string.Empty));
         }
+    }
+
+    /// <summary>Carries out an action, and says what it did.</summary>
+    /// <remarks>
+    /// The end of the sentence the rest of this command spells out: a click resolves to a
+    /// noun, the action files say which verbs that noun answers to, and this performs one.
+    /// The scripts are loaded into a <see cref="ScriptHost"/> first, because a fifth of
+    /// every statement in the corpus is <c>CallSheep</c> and without them it would go
+    /// nowhere and look as though the action had done less than it did.
+    /// </remarks>
+    private void Perform(
+        GameArchives archives,
+        LoadedScene scene,
+        SceneRequest request,
+        string wanted,
+        DiagnosticBag diagnostics)
+    {
+        string[] parts = wanted.Split(':');
+
+        if (parts.Length != 2 || scene.Actions is not { } actions || request.Api is not { } api)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE019",
+                DiagnosticSeverity.Error,
+                $"Cannot read '{wanted}' as an action. Give it as noun:verb, and name a " +
+                "point in the story with --timeblock so there is one to act in."));
+
+            return;
+        }
+
+        string noun = parts[0].Trim();
+        string verb = parts[1].Trim();
+
+        if (actions.Find(noun, verb) is not { } rule)
+        {
+            _log($"do {noun}:{verb}: nothing applies here and now");
+
+            foreach (AvailableAction option in actions.Resolve(noun))
+            {
+                _log($"  {noun} does answer to {option.LocalizedVerb}");
+            }
+
+            return;
+        }
+
+        var host = new ScriptHost(api);
+        int loaded = LoadScripts(archives, host);
+        var runner = new ActionRunner(api);
+
+        string before = api.State.ComputeHash();
+        int events = api.Events.Count;
+
+        ActionOutcome outcome = runner.Run(rule);
+
+        _log($"do {noun}:{verb} [{rule.Case}] from {rule.Source}, {loaded} scripts loaded");
+        _log($"  {(outcome.Ran ? "ran" : "refused")} " +
+             $"{outcome.Statements.Count} statement(s): " +
+             string.Join(
+                 "; ",
+                 outcome.Statements.Select(t => t.Waited ? $"wait {t.Call}" : t.Call)));
+
+        foreach (RecordedEvent recorded in api.Events.Skip(events))
+        {
+            _log($"    {recorded.Name}({string.Join(", ", recorded.Arguments)})");
+        }
+
+        if (host.CallStackTrace.Count > 0)
+        {
+            _log($"  entered {string.Join(", ", host.CallStackTrace.Take(8))}" +
+                 (host.CallStackTrace.Count > 8
+                     ? $", and {host.CallStackTrace.Count - 8} more"
+                     : string.Empty));
+        }
+
+        _log(api.State.ComputeHash() == before
+            ? "  the story is where it was"
+            : "  the story moved");
+
+        foreach (Diagnostic diagnostic in runner.Diagnostics.Items.Concat(host.Diagnostics.Items))
+        {
+            diagnostics.Add(diagnostic);
+        }
+    }
+
+    /// <summary>Loads every compiled script the archives hold.</summary>
+    /// <remarks>
+    /// All of them, rather than the ones this location might want, because the names an
+    /// action calls are not knowable without reading its script and the whole set is a few
+    /// hundred small files.
+    /// </remarks>
+    private int LoadScripts(GameArchives archives, ScriptHost host)
+    {
+        int loaded = 0;
+
+        foreach (string name in archives.Names(".SHP"))
+        {
+            if (archives.Read(name) is not { } data)
+            {
+                continue;
+            }
+
+            try
+            {
+                host.Add(SheepScriptFile.Parse(data, name));
+                loaded++;
+            }
+            catch (FormatParseException ex)
+            {
+                _log($"  {name} did not parse: {ex.Diagnostic.Message}");
+            }
+        }
+
+        return loaded;
     }
 }

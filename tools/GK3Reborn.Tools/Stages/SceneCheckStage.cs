@@ -5,6 +5,7 @@ using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Interaction;
 using GK3Reborn.Rendering;
+using GK3Reborn.UI.Interaction;
 
 namespace GK3Reborn.Tools.Stages;
 
@@ -242,7 +243,34 @@ public sealed class SceneCheckStage
                 // know and that still offers nothing is not a mistake — most objects are
                 // only usable at one point in the story — but the diagnostics it raises on
                 // the way are worth having.
-                tally.Verbs += actions.Resolve(noun).Count;
+                IReadOnlyList<AvailableAction> available = actions.Resolve(noun);
+                tally.Verbs += available.Count;
+
+                // Whether the script behind each verb is one the runner could perform.
+                // Reading it changes nothing, so this is safe to do for the whole corpus;
+                // running them would be 24,000 stories at once.
+                foreach (AvailableAction option in available)
+                {
+                    if (actions.Find(noun, option.LocalizedVerb) is not { } rule)
+                    {
+                        continue;
+                    }
+
+                    if (tally.Runner.Read(rule) is { } statements)
+                    {
+                        tally.Runnable++;
+                        tally.Statements += statements.Count;
+
+                        foreach (ActionStatement statement in statements)
+                        {
+                            tally.Called[statement.Call] = tally.Called.GetValueOrDefault(statement.Call) + 1;
+                        }
+                    }
+                    else
+                    {
+                        tally.Unreadable.Add($"{loaded.Name} {noun}:{option.LocalizedVerb}");
+                    }
+                }
             }
         }
 
@@ -339,6 +367,39 @@ public sealed class SceneCheckStage
             $"({tally.NounsWithoutActions * 100f / Math.Max(1, tally.Nouns):F1}%) unknown to the " +
             $"action files, {tally.Unanswered.Count} of them distinct"));
         _log($"  {tally.Verbs} verbs available across the nouns the action files do know");
+        _log(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {tally.Runnable} of those have a script the runner can perform " +
+            $"({tally.Runnable * 100f / Math.Max(1, tally.Verbs):F1}%), " +
+            $"{tally.Statements} statements calling {tally.Called.Count} distinct functions"));
+
+        if (tally.Unreadable.Count > 0)
+        {
+            _log($"  cannot be performed: {string.Join(", ", tally.Unreadable.Take(6))}" +
+                 (tally.Unreadable.Count > 6
+                     ? $", and {tally.Unreadable.Count - 6} more"
+                     : string.Empty));
+        }
+
+        // A call the host does not implement is recorded rather than performed, which is
+        // right for the presentation surface and wrong for anything that moves the story.
+        var api = new Gk3SheepApi(new GameState());
+
+        // Attaching a host is what registers CallSheep and the inventory and location
+        // functions, so probing without one would report a fifth of the corpus's calls as
+        // unimplemented when the game does implement them.
+        _ = new ScriptHost(api);
+
+        List<string> recorded =
+            [.. tally.Called.Keys.Where(c => !api.Implements(c)).Order(StringComparer.OrdinalIgnoreCase)];
+
+        _log($"  {tally.Called.Count - recorded.Count} of those {tally.Called.Count} functions " +
+             $"are performed; the rest are recorded: {string.Join(", ", recorded)}");
+
+        foreach ((string call, int count) in tally.Called.OrderByDescending(p => p.Value).Take(6))
+        {
+            _log($"    {call} x{count}");
+        }
         _log(tally.UnknownFunctions.Count == 0
             ? "  every function the scene files call is implemented"
             : $"  functions no host implements: " +
@@ -390,6 +451,17 @@ public sealed class SceneCheckStage
         public int Nouns { get; set; }
 
         public int Verbs { get; set; }
+
+        public int Runnable { get; set; }
+
+        public int Statements { get; set; }
+
+        /// <summary>Reads scripts without a story to run them against.</summary>
+        public ActionRunner Runner { get; } = new(new Gk3SheepApi(new GameState()));
+
+        public Dictionary<string, int> Called { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> Unreadable { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int NounsWithoutActions { get; set; }
 

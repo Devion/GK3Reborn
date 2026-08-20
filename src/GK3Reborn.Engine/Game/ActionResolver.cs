@@ -111,6 +111,42 @@ public sealed class ActionResolver
             .ThenBy(a => result.IndexOf(a))];
     }
 
+    /// <summary>Finds the rule a verb on a noun would run.</summary>
+    /// <param name="noun">The thing being acted on.</param>
+    /// <param name="verb">What is being done to it.</param>
+    /// <param name="ego">Who the player currently is.</param>
+    /// <returns>The rule, or null when nothing applies.</returns>
+    /// <remarks>
+    /// The same selection <see cref="Resolve"/> makes, for one verb rather than all of
+    /// them, and returning the rule itself rather than something to put in a menu — because
+    /// what a click needs is the script. Selecting still changes nothing; performing is
+    /// <see cref="ActionRunner"/>'s job.
+    /// </remarks>
+    public NvcAction? Find(string noun, string verb, string ego = "GABRIEL")
+    {
+        ArgumentNullException.ThrowIfNull(noun);
+        ArgumentNullException.ThrowIfNull(verb);
+
+        foreach (NvcFile file in _files)
+        {
+            foreach (NvcAction action in file.Actions)
+            {
+                if (!string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(action.Verb, verb, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (IsCaseSatisfied(file, action.Case, ego, action.Noun, action.Verb))
+                {
+                    return action;
+                }
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Evaluates whether a named case currently holds.</summary>
     /// <param name="file">File the case belongs to.</param>
     /// <param name="caseName">Case name.</param>

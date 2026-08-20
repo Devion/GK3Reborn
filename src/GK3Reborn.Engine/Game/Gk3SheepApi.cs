@@ -94,6 +94,21 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <inheritdoc/>
     public bool IsWaitable(string name) => _waitable.Contains(name);
 
+    /// <summary>Whether a function does something rather than being recorded.</summary>
+    /// <param name="name">Function name.</param>
+    /// <returns>True when it is registered.</returns>
+    /// <remarks>
+    /// Asked by tools that want to say what a script would really do before running it. An
+    /// unregistered call is not an error — the presentation surface is deliberately
+    /// recorded rather than performed — but a script whose every call is recorded has not
+    /// moved the story, and the difference is worth being able to see.
+    /// </remarks>
+    public bool Implements(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _functions.ContainsKey(name);
+    }
+
     /// <summary>Registers a function.</summary>
     /// <param name="name">Function name.</param>
     /// <param name="implementation">What it does.</param>

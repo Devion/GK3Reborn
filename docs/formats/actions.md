@@ -185,3 +185,56 @@ engine guessed.
 Asked for `MOSELY` in the lobby, it currently answers: LOOK (inspect), TALK, Z_CHAT,
 ABBE_TAPE, PICKUP, CANDY — nine actions, drawn from the layered files in scope, with the
 first matching rule for a verb winning so a timeblock file overrides a shared one.
+
+`Find(noun, verb)` is the same selection for one verb, returning the rule rather than
+something to put in a menu, because what a click needs is the script.
+
+## Performing
+
+`ActionRunner` carries out what the resolver chose. The two are deliberately separate:
+choosing happens whenever the cursor moves and must not touch the story, while
+performing is what a click is for.
+
+An action's script is a much smaller language than Sheep. Across the corpus's 5,872
+scripts there are **6,842 statements, every one of them a function call**, 5,824 of
+those prefixed with `wait`, drawn from 55 distinct functions of which `StartVoiceOver`
+alone is 4,314. There are no branches, no loops and no locals — the files put that in
+the case conditions and in the `.SHP` scripts the actions call into. So the runner reads
+statements rather than compiling a language, and refuses anything else out loud instead
+of guessing at it. A script with a statement it cannot read is refused **whole**, the
+way a compiler refuses a file: half an action is worse than none, because the half that
+ran has already changed the story.
+
+`wait` is recorded and not obeyed. Calls run inline to completion, which produces the
+same observable order for anything that does not depend on real elapsed time; keeping
+the flag in the record is what lets that stop being true later without the traces
+becoming incomparable.
+
+Two things happen after a script finishes, whatever it said. A **topic** verb — one
+named `T_…` — increments its own topic count, and `Z_CHAT` increments the noun's chat
+count. Ordinary verbs do **not**: an ordinary action increments its count only if its
+script says `IncNounVerbCount`, which 260 of the corpus's scripts do. Counting them all
+would make every `1ST_TIME` rule fire once and never again.
+
+Across the corpus, **all 24,126 reachable verbs have a script the runner can perform** —
+26,552 statements calling 41 distinct functions. 24 of those functions are performed;
+the other 17 are the presentation surface — the driving interface, the binoculars,
+inventory screens, conversation, camera modes — recorded rather than performed, because
+none of those subsystems exists yet.
+
+```bash
+GK3Reborn.Tools render-scene --model R25 --timeblock 202P --do WINDOW:OPEN ...
+```
+
+resolves the rule, loads the compiled scripts, runs it, and prints the statements, the
+calls that were recorded and whether the story moved. Opening R25's window enters
+`R25_ALL:WINDOW_OPEN`, which shows the roof models, hides the backdrop, cuts to the
+`Look_out_window` camera and starts three animations.
+
+**A compiled script names its functions with a `$` on the end.** R25_ALL's disassembly
+reads `Window_Open$`, and the callers routinely leave it off — `CallSheep("R25_ALL",
+"WINDOW_OPEN")` is how the action files spell it, and the original appends the suffix
+when it is missing with the comment "some GK3 data files do this, some don't". Matching
+exactly instead means the call finds nothing, the thread faults and the action appears
+to run and do nothing at all, which is what opening that window did until the VM began
+comparing names with the suffix trimmed off both.

@@ -142,7 +142,7 @@ public sealed class SheepVirtualMachine
         ArgumentNullException.ThrowIfNull(functionName);
 
         (string Name, int Offset)? entry = script.Functions
-            .FirstOrDefault(f => string.Equals(f.Name, functionName, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(f => Same(f.Name, functionName));
 
         if (entry is not { } found || found.Name is null)
         {
@@ -172,6 +172,22 @@ public sealed class SheepVirtualMachine
 
         return Resume(started);
     }
+
+    /// <summary>
+    /// Whether two function names refer to the same function.
+    /// </summary>
+    /// <remarks>
+    /// A compiled script names its functions with a <c>$</c> on the end — the disassembly
+    /// of R25's reads <c>Window_Open$</c> — and the callers routinely leave it off:
+    /// <c>CallSheep("R25_ALL","WINDOW_OPEN")</c> is how the action files spell it. The
+    /// original appends the suffix when it is missing, with the comment "some GK3 data
+    /// files do this, some don't". Matching exactly instead means the call finds nothing,
+    /// the thread faults, and the action appears to run and do nothing at all — which is
+    /// what opening R25's window did.
+    /// </remarks>
+    private static bool Same(string? declared, string wanted) =>
+        declared is not null &&
+        string.Equals(declared.TrimEnd('$'), wanted.TrimEnd('$'), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Tells a blocked thread that everything it waited on has finished.
