@@ -55,7 +55,8 @@ public static class Application
                 int.TryParse(Option(args, "--frames"), out int frames) ? frames : 0,
                 Option(args, "--screenshot"),
                 args.Contains("--verbose", StringComparer.OrdinalIgnoreCase),
-                RayTracingSettings.Parse(Option(args, "--rt")) ?? RayTracingQuality.None);
+                RayTracingSettings.Parse(Option(args, "--rt")) ?? RayTracingQuality.None,
+                EnhancedTextureDirectory(args));
         }
 
         if (args.Contains("--offscreen", StringComparer.OrdinalIgnoreCase))
@@ -82,6 +83,7 @@ public static class Application
     /// <param name="screenshotPath">Where to write the last frame, if anywhere.</param>
     /// <param name="verbose">Whether to list everything that could not be loaded.</param>
     /// <param name="quality">How much ray tracing to start with.</param>
+    /// <param name="enhancedDirectory">Higher-resolution textures to prefer, if any.</param>
     /// <returns>Process exit code.</returns>
     /// <remarks>
     /// The camera starts at one of the scene's own viewpoints, which is what the player
@@ -96,7 +98,8 @@ public static class Application
         int frameLimit,
         string? screenshotPath,
         bool verbose,
-        RayTracingQuality quality)
+        RayTracingQuality quality,
+        string? enhancedDirectory)
     {
         if (!Directory.Exists(dataDirectory))
         {
@@ -126,6 +129,17 @@ public static class Application
         }
 
         var loader = new SceneLoader(archives, Console.WriteLine);
+
+        if (enhancedDirectory is { Length: > 0 })
+        {
+            EnhancedTextures enhanced = EnhancedTextures.Open(enhancedDirectory);
+            loader.Enhanced = enhanced;
+
+            Console.WriteLine(enhanced.Count > 0
+                ? $"Enhanced textures: {enhanced.Count} available in {enhancedDirectory}"
+                : $"Enhanced textures: none found in {enhancedDirectory}");
+        }
+
         LoadedScene? scene = loader.Load(geometry, request, diagnostics);
 
         if (scene is null)
@@ -147,8 +161,11 @@ public static class Application
             : "Ray tracing: unavailable on this device");
 
         Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
-            + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures, "
-            + $"{scene.Lights.Count} authored lights");
+            + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"
+            + (loader.EnhancedTexturesUsed > 0
+                ? $" ({loader.EnhancedTexturesUsed} enhanced)"
+                : string.Empty)
+            + $", {scene.Lights.Count} authored lights");
 
         Diagnostic[] problems = diagnostics.Items
             .Where(d => d.Severity >= DiagnosticSeverity.Warning)
@@ -278,6 +295,30 @@ public static class Application
     /// A convenience for development only. Anything shipped reads its content path from
     /// configuration rather than guessing.
     /// </remarks>
+    /// <summary>
+    /// Where the enhanced textures are, if the player wants them.
+    /// </summary>
+    /// <remarks>
+    /// <c>--enhanced &lt;dir&gt;</c> names them outright; <c>--workspace &lt;dir&gt;</c> is
+    /// enough on its own, because they always live in the same place inside one. Neither
+    /// means the game looks exactly as it shipped, which has to stay the default: this
+    /// content is a draft until somebody has reviewed it, and nobody should be shown
+    /// generated art without having asked for it.
+    /// </remarks>
+    private static string? EnhancedTextureDirectory(string[] args)
+    {
+        if (Option(args, "--enhanced") is { Length: > 0 } named)
+        {
+            return Path.IsPathRooted(named) || Option(args, "--workspace") is not { } under
+                ? named
+                : Path.Combine(under, named);
+        }
+
+        return Option(args, "--workspace") is { Length: > 0 } workspace
+            ? Path.Combine(workspace, "enhanced", "textures")
+            : null;
+    }
+
     private static string DefaultDataDirectory() =>
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "GK3", "Data"));
 
