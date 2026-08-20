@@ -174,12 +174,37 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
+    public void AddTexture(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_textures.Has(name))
+        {
+            TexturesReused++;
+            return;
+        }
+
+        _textures.Add(name, image);
+    }
+
+    /// <inheritdoc/>
+    public void AddNormalMap(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddNormal(name, image);
+    }
+
+    /// <inheritdoc/>
     public bool HasNormalMap(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
 
         return _textures.HasNormal(name);
     }
+
+    /// <summary>Roughly how much video memory the resident textures take.</summary>
+    public long TextureDeviceBytes => _textures.DeviceBytes;
 
     /// <summary>How many of this room's surfaces have a normal map.</summary>
     public int NormalMapCount => _textures.NormalCount;

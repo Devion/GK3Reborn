@@ -190,7 +190,18 @@ public sealed class SceneLoader
     /// </remarks>
     public EnhancedTextures? Normals { get; set; }
 
+    /// <summary>
+    /// The same textures and normal maps, block-compressed, if the pipeline has built them.
+    /// </summary>
+    /// <remarks>
+    /// Preferred over both of the above wherever it has an answer. There is nothing to
+    /// decode, the mip chain is already built, and it takes a quarter of the video memory —
+    /// which is most of what a scene load costs in both time and space.
+    /// </remarks>
+    public CompressedTextures? Compressed { get; set; }
+
     private int _normalsUsed;
+    private int _compressedUsed;
 
     /// <summary>
     /// Who is looking at what as the scene is built.
@@ -783,6 +794,22 @@ public sealed class SceneLoader
     /// <summary>How many surfaces in the last scene were given a normal map.</summary>
     public int NormalMapsUsed => _normalsUsed;
 
+    /// <summary>How many of the last scene's textures came from the compressed set.</summary>
+    public int CompressedUsed => _compressedUsed;
+
+    /// <summary>Where a texture came from, for the counts a load reports.</summary>
+    private enum Source
+    {
+        /// <summary>The archives, as the game shipped.</summary>
+        Original,
+
+        /// <summary>A higher-resolution PNG.</summary>
+        Enhanced,
+
+        /// <summary>A block-compressed DDS.</summary>
+        Compressed,
+    }
+
     /// <summary>How many textures are decoded at once.</summary>
     /// <remarks>
     /// Bounded well below the core count on purpose. Each decode in flight holds about
@@ -838,8 +865,13 @@ public sealed class SceneLoader
             return;
         }
 
-        var read = new (DecodedImage? Normal, DecodedImage? Colour, bool Enhanced, string? Missing)[
-            wanted.Count];
+        var read = new (
+            DecodedImage? Normal,
+            CompressedImage? BlockNormal,
+            DecodedImage? Colour,
+            CompressedImage? Blocks,
+            Source From,
+            string? Missing)[wanted.Count];
 
         // A bag each, merged in order afterwards, so a run says the same thing twice
         // running. A shared one would need a lock and would report in whatever order the
@@ -852,28 +884,46 @@ public sealed class SceneLoader
             var bag = new DiagnosticBag();
             bags[i] = bag;
 
-            DecodedImage? bumps = normal ? Normals?.Read(texture, bag) : null;
+            // The compressed normal map first: BC5 is linear by construction and its chain
+            // is already built, so there is nothing to decode and nothing to say about
+            // colour space.
+            CompressedImage? blockBumps = normal ? Compressed?.ReadNormal(texture, bag) : null;
+            DecodedImage? bumps = normal && blockBumps is null ? Normals?.Read(texture, bag) : null;
 
             if (!colour)
             {
-                read[i] = (bumps, null, false, null);
+                read[i] = (bumps, blockBumps, null, null, Source.Original, null);
                 return;
             }
 
-            // The enhanced version first, when there is one. It falls back on its own if it
-            // will not decode, so a bad file in the enhanced set costs that texture and
-            // nothing else.
+            // The original, read whatever else happens: it is small, and it is the only
+            // thing that can say whether this texture uses GK3 magenta. A colour key cannot
+            // be applied to blocks, so a texture that needs one must not take that path — it
+            // would come out with magenta painted where its holes should be.
+            byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
+            bool readable = bytes is not null && BitmapDecoder.CanDecode(bytes);
+            DecodedImage? original = readable ? BitmapDecoder.Decode(bytes!, texture) : null;
+
+            if (original is not { } first || !TextureKeying.NeedsKey(first))
+            {
+                if (Compressed?.Read(texture, bag) is { } blocks)
+                {
+                    read[i] = (bumps, blockBumps, null, blocks, Source.Compressed, null);
+                    return;
+                }
+            }
+
+            // Then the enhanced version. It falls back on its own if it will not decode, so
+            // a bad file in the enhanced set costs that texture and nothing else.
             if (Enhanced?.Read(texture, bag) is { } better)
             {
-                read[i] = (bumps, better, true, null);
+                read[i] = (bumps, blockBumps, better, null, Source.Enhanced, null);
                 return;
             }
 
-            byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
-
-            read[i] = bytes is null || !BitmapDecoder.CanDecode(bytes)
-                ? (bumps, null, false, texture)
-                : (bumps, BitmapDecoder.Decode(bytes, texture), false, null);
+            read[i] = original is null
+                ? (bumps, blockBumps, null, null, Source.Original, texture)
+                : (bumps, blockBumps, original, null, Source.Original, null);
         });
 
         for (int i = 0; i < wanted.Count; i++)
@@ -883,9 +933,19 @@ public sealed class SceneLoader
                 diagnostics.Add(diagnostic);
             }
 
-            (DecodedImage? bumps, DecodedImage? colour, bool enhanced, string? missing) = read[i];
+            (DecodedImage? bumps,
+             CompressedImage? blockBumps,
+             DecodedImage? colour,
+             CompressedImage? blocks,
+             Source from,
+             string? missing) = read[i];
 
-            if (bumps is { } map)
+            if (blockBumps is { } compressedMap)
+            {
+                geometry.AddNormalMap(wanted[i].Name, compressedMap);
+                _normalsUsed++;
+            }
+            else if (bumps is { } map)
             {
                 geometry.AddNormalMap(wanted[i].Name, map);
                 _normalsUsed++;
@@ -901,11 +961,17 @@ public sealed class SceneLoader
                 continue;
             }
 
-            if (colour is { } image)
+            if (blocks is { } compressed)
+            {
+                geometry.AddTexture(wanted[i].Name, compressed);
+                _compressedUsed++;
+                _enhancedUsed++;
+            }
+            else if (colour is { } image)
             {
                 geometry.AddTexture(wanted[i].Name, image);
 
-                if (enhanced)
+                if (from == Source.Enhanced)
                 {
                     _enhancedUsed++;
                 }

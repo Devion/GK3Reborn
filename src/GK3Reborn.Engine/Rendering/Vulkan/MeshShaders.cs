@@ -313,9 +313,17 @@ internal static class MeshShaders
         // A derivative frame is correct for free, on deforming and rigid geometry alike.
         vec3 PerturbedNormal(vec3 geometric)
         {
-            vec3 mapped = texture(normalTexture, inTexCoord).xyz;
+            // Two channels, not three. BC5 keeps only X and Y — it has no third channel to
+            // keep — and Z is recovered from them, which is exact for a unit vector in
+            // tangent space because Z is never negative there. An uncompressed map stores a
+            // Z as well, and reconstructing it rather than reading it gives the same answer
+            // to within a rounding step, so both sources take this one path.
+            vec2 mapped = texture(normalTexture, inTexCoord).xy;
 
-            vec3 tangentNormal = (mapped * 2.0) - 1.0;
+            vec2 tangentXY = (mapped * 2.0) - 1.0;
+
+            vec3 tangentNormal = vec3(
+                tangentXY, sqrt(max(0.0, 1.0 - dot(tangentXY, tangentXY))));
 
             // Surfaces with no map are given a flat one, and eight bits cannot encode
             // exactly a half: 128 decodes to 0.0039 rather than 0. The tolerance is one

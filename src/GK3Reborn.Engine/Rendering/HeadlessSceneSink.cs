@@ -102,6 +102,13 @@ public sealed class HeadlessSceneSink : ISceneSink
     public void AddNormalMap(string name, DecodedImage image) => NormalMapCount++;
 
     /// <inheritdoc/>
+    public void AddTexture(string name, CompressedImage image) =>
+        AddTexture(name, new DecodedImage(image.Width, image.Height, [], false, "block"));
+
+    /// <inheritdoc/>
+    public void AddNormalMap(string name, CompressedImage image) => NormalMapCount++;
+
+    /// <inheritdoc/>
     public bool HasNormalMap(string name) => false;
 
     /// <summary>How many sides of a sky the scene gave, for a sweep that wants to count.</summary>

@@ -97,6 +97,121 @@ public sealed unsafe class VulkanTexture : IDisposable
     }
 
     /// <summary>
+    /// Uploads a texture that is already in a block format.
+    /// </summary>
+    /// <param name="context">Device context.</param>
+    /// <param name="source">The compressed levels, as the file holds them.</param>
+    /// <param name="addressMode">How the sampler behaves outside 0..1.</param>
+    /// <returns>The texture.</returns>
+    /// <remarks>
+    /// The cheap path, and the one worth taking wherever the content pipeline has produced
+    /// a file for. Nothing is decoded, nothing is filtered, and a quarter of the memory is
+    /// asked for: the blocks go from the file to the staging buffer to the image exactly as
+    /// they are, one copy region per level, and the chain the compressor built is uploaded
+    /// rather than blitted level by level on the device.
+    /// </remarks>
+    public static VulkanTexture Create(
+        VulkanContext context,
+        CompressedImage source,
+        SamplerAddressMode addressMode = SamplerAddressMode.Repeat)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ObjectDisposedException.ThrowIf(source.Blocks.IsEmpty, typeof(CompressedImage));
+
+        Format format = source.Format switch
+        {
+            BlockFormat.Bc7Srgb => Format.BC7SrgbBlock,
+            BlockFormat.Bc7Unorm => Format.BC7UnormBlock,
+            BlockFormat.Bc5Unorm => Format.BC5UnormBlock,
+            _ => throw new VulkanException($"No Vulkan format for {source.Format}."),
+        };
+
+        uint mips = (uint)source.Mips;
+
+        (Image image, DeviceMemory memory) =
+            CreateImage(context, source.Width, source.Height, mips, format);
+
+        UploadBlocks(context, image, source, mips);
+
+        ImageView view = CreateView(context, image, format, mips);
+        Sampler sampler = CreateSampler(context, mips, addressMode);
+
+        return new VulkanTexture(context, image, memory, view, sampler, mips);
+    }
+
+    private static void UploadBlocks(
+        VulkanContext context, Image image, CompressedImage source, uint mips)
+    {
+        ulong size = (ulong)source.Blocks.Length;
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = size,
+            Usage = BufferUsageFlags.TransferSrcBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        context.Api.CreateBuffer(context.Device, in bufferInfo, null, out Buffer staging);
+        context.Api.GetBufferMemoryRequirements(
+            context.Device, staging, out MemoryRequirements requirements);
+
+        DeviceMemory stagingMemory = context.Allocate(
+            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
+
+        try
+        {
+            void* mapped;
+            context.Api.MapMemory(context.Device, stagingMemory, 0, size, 0, &mapped);
+            source.Blocks.Span.CopyTo(new Span<byte>(mapped, source.Blocks.Length));
+            context.Api.UnmapMemory(context.Device, stagingMemory);
+
+            CommandBuffer command = context.BeginOneShot();
+
+            TransitionRange(context, command, image, 0, mips,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+            // One region a level. The extent is in pixels even though the data is in
+            // blocks, which is what the copy expects — a level narrower than four pixels
+            // still occupies a whole block, and the driver reads only the part it needs.
+            BufferImageCopy* regions = stackalloc BufferImageCopy[(int)mips];
+
+            for (uint level = 0; level < mips; level++)
+            {
+                (int offset, _, int width, int height) = source.Level((int)level);
+
+                regions[level] = new BufferImageCopy
+                {
+                    BufferOffset = (ulong)offset,
+                    ImageSubresource = new ImageSubresourceLayers
+                    {
+                        AspectMask = ImageAspectFlags.ColorBit,
+                        MipLevel = level,
+                        BaseArrayLayer = 0,
+                        LayerCount = 1,
+                    },
+                    ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+                };
+            }
+
+            context.Api.CmdCopyBufferToImage(
+                command, staging, image, ImageLayout.TransferDstOptimal, mips, regions);
+
+            TransitionRange(context, command, image, 0, mips,
+                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+
+            context.EndOneShot(command);
+        }
+        finally
+        {
+            context.Api.DestroyBuffer(context.Device, staging, null);
+            context.Api.FreeMemory(context.Device, stagingMemory, null);
+        }
+    }
+
+    /// <summary>
     /// Uploads six images as a cube map.
     /// </summary>
     /// <param name="context">Device context.</param>

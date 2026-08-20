@@ -61,3 +61,58 @@ the BCL.
 
 Result on the reference installation: 6,658 textures converted, 0 failures, every output
 structurally valid — chunk CRCs, zlib streams and scanline counts all verified.
+
+## DDS, and what a room load actually costs
+
+The enhanced set is PNG, and PNG is the wrong thing to hand a graphics device. `PbrLab`
+compresses it to BC7 for colour and BC5 for normal maps, into
+`ContentWorkspace/build/{textures,normals}`, and `DdsFile` reads those. It is preferred
+over both the enhanced PNG and the original wherever it has an answer.
+
+Measured on R25 with `--rt high --enhanced`, which wants 43 enhanced textures and 43
+normal maps at 2048²:
+
+| | PNG | DDS |
+|---|---|---|
+| Scene load | 1,644 ms | 623 ms |
+| Textures on the device | 1,864 MB | 496 MB |
+| Peak working set | 1,942 MB | 1,073 MB |
+
+Three separate reasons, and it is worth keeping them apart:
+
+- **Nothing is decoded.** The blocks go from the file to the staging buffer to the image.
+- **The mip chain is already built**, so the device does not blit level to level, and the
+  compressor filtered it as a tiling texture, which mip generation here does not.
+- **A quarter of the memory**, which is what a block format always gives.
+
+`--uncompressed` turns it off, which is the only way to put the two side by side. Rendering
+R25 both ways, the room differs on **0.55% of its pixels by more than 8 of 255, mean
+absolute difference 0.21** — that is BC7's error and nothing else. The character in the
+frame differs far more, for a reason that has nothing to do with textures: the load is a
+second faster, so his idle animation is a second further along.
+
+### Two things it cannot do
+
+**It cannot carry a colour key.** `TextureKeying` works on texels and these are blocks, so
+a texture whose original uses GK3's magenta has to take the decoded path. The loader reads
+the original — it is 64 pixels square — and asks `TextureKeying.NeedsKey` before choosing.
+Three of the 324 in the pilot set need one: `BUTCRYSTAL`, `GRAHANDLE` and `HOTELHLCHAIN2`.
+Skipping that check does not fail, warn or look broken in a screenshot of the wrong room —
+it paints magenta where the holes should be.
+
+**BC5 keeps two channels.** There is no third to keep, so `PerturbedNormal` reconstructs Z
+as `sqrt(1 - x² - y²)`, which is exact for a unit vector in tangent space because Z is never
+negative there. An uncompressed map does store a Z, and reconstructing it rather than
+reading it agrees to within a rounding step, so both sources take the one path.
+
+### The reader
+
+Deliberately narrow, like `PngReader`: two-dimensional, no arrays, no cube maps, and only
+BC5 and BC7. `DX10` headers are read for the DXGI format, and the older `BC5U` and `ATI2`
+four-character codes are understood. Anything else is refused by name so that a pipeline
+which starts emitting BC1 or a half-float is heard from rather than misread.
+
+The one piece of arithmetic worth testing is the mip chain: nothing in the file says where
+a level begins, and a level narrower than four pixels still occupies a whole block. Divide
+instead of rounding up and the tail of the chain is zero-length and every offset after it
+is wrong — which only shows once a surface is far enough away to be minified.

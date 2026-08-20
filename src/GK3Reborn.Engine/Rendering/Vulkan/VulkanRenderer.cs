@@ -685,7 +685,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
             dynamicRendering.PNext = &addresses;
         }
 
-        var features = new PhysicalDeviceFeatures { SamplerAnisotropy = true };
+        // TextureCompressionBC is what makes a BC5 or BC7 image legal to create. Every
+        // desktop driver has it; asking for it is what the specification requires before
+        // the content pipeline's DDS textures may be uploaded at all.
+        var features = new PhysicalDeviceFeatures
+        {
+            SamplerAnisotropy = true,
+            TextureCompressionBC = true,
+        };
 
         try
         {

@@ -223,9 +223,27 @@ public static class Application
                     ? null
                     : normals;
 
+                // The block-compressed build of the same set, which is preferred over both
+                // wherever it has an answer: nothing to decode, a mip chain already built,
+                // and a quarter of the video memory.
+                CompressedTextures compressed = CompressedTextures.Open(
+                    CompressedTextureDirectory(args, enhancedDirectory));
+
+                loader.Compressed =
+                    args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase)
+                        ? null
+                        : compressed;
+
                 if (first && normals.Count > 0)
                 {
                     Console.WriteLine($"Normal maps: {normals.Count} available");
+                }
+
+                if (first && loader.Compressed is { Count: > 0 })
+                {
+                    Console.WriteLine(
+                        $"Compressed textures: {compressed.Count} available with " +
+                        $"{compressed.NormalCount} normal map(s) in {compressed.Directory}");
                 }
 
                 if (first)
@@ -263,12 +281,14 @@ public static class Application
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Loaded {scene.Name} in {loading.Elapsed.TotalMilliseconds:F0} ms, " +
-                $"{geometry.TextureCount} textures resident, {geometry.TexturesReused} reused"));
+                $"{geometry.TextureCount} textures resident, {geometry.TexturesReused} reused, " +
+                $"{geometry.TextureDeviceBytes / (1024.0 * 1024):F0} MB of them on the device"));
 
             Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
                 + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"
                 + (loader.EnhancedTexturesUsed > 0
-                    ? $" ({loader.EnhancedTexturesUsed} enhanced)"
+                    ? $" ({loader.EnhancedTexturesUsed} enhanced"
+                      + (loader.CompressedUsed > 0 ? $", {loader.CompressedUsed} compressed)" : ")")
                     : string.Empty)
                 + (loader.NormalMapsUsed > 0
                     ? $", {loader.NormalMapsUsed} normal mapped"
@@ -927,6 +947,30 @@ public static class Application
         }
 
         return asked ? Path.Combine(DefaultWorkspaceDirectory(), "enhanced", "textures") : null;
+    }
+
+    /// <summary>Where the block-compressed build of the enhanced textures sits.</summary>
+    /// <remarks>
+    /// Beside the enhanced set rather than under it, because it is a build output and not a
+    /// source: <c>build/textures</c> and <c>build/normals</c> in the same workspace. There
+    /// is no separate flag to ask for it — anybody who has asked for enhanced textures wants
+    /// the cheap form of them — but <c>--uncompressed</c> turns it off, which is what makes
+    /// it possible to put the two side by side and see what the compression cost.
+    /// </remarks>
+    private static string CompressedTextureDirectory(string[] args, string enhancedDirectory)
+    {
+        if (Option(args, "--workspace") is { Length: > 0 } workspace)
+        {
+            return Path.Combine(workspace, "build");
+        }
+
+        // Up out of enhanced/textures, which is where --enhanced points by default.
+        string? enhancedRoot = Path.GetDirectoryName(
+            enhancedDirectory.TrimEnd(Path.DirectorySeparatorChar, '/'));
+
+        string? root = enhancedRoot is null ? null : Path.GetDirectoryName(enhancedRoot);
+
+        return Path.Combine(root ?? DefaultWorkspaceDirectory(), "build");
     }
 
     /// <summary>Where the content workspace usually sits relative to the repository.</summary>

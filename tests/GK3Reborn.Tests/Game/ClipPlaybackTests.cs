@@ -47,6 +47,12 @@ public sealed class ClipPlaybackTests
 
         public void AddTexture(string name, DecodedImage image) => _inner.AddTexture(name, image);
 
+        public void AddTexture(string name, CompressedImage image) =>
+            _inner.AddTexture(name, image);
+
+        public void AddNormalMap(string name, CompressedImage image) =>
+            _inner.AddNormalMap(name, image);
+
         public bool HasTexture(string name) => false;
 
         public void AddNormalMap(string name, DecodedImage image)

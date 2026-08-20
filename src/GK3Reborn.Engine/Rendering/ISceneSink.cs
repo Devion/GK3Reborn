@@ -66,6 +66,21 @@ public interface ISceneSink
     /// </remarks>
     void AddNormalMap(string name, DecodedImage image);
 
+    /// <summary>Adds a texture that is already in a block format.</summary>
+    /// <param name="name">Texture name, matched case-insensitively.</param>
+    /// <param name="image">The compressed levels.</param>
+    /// <remarks>
+    /// Uploaded as it stands, mip chain and all. Nothing may be done to it on the way — a
+    /// colour key cannot be applied to blocks — so a texture that needs one is the loader's
+    /// business to send down the decoded path instead.
+    /// </remarks>
+    void AddTexture(string name, CompressedImage image);
+
+    /// <summary>Gives a surface a normal map that is already in a block format.</summary>
+    /// <param name="name">The <em>colour</em> texture it belongs to.</param>
+    /// <param name="image">The compressed levels.</param>
+    void AddNormalMap(string name, CompressedImage image);
+
     /// <summary>Whether a surface's normal map has already been given.</summary>
     /// <param name="name">The colour texture's name.</param>
     /// <returns>True when there is nothing to read, decode or upload.</returns>

@@ -470,7 +470,14 @@ public sealed unsafe class VulkanContext : IDisposable
 
         // Anisotropic filtering matters for GK3's textures: they are small and viewed at
         // grazing angles across floors and walls, where trilinear alone smears badly.
-        var features = new PhysicalDeviceFeatures { SamplerAnisotropy = true };
+        // TextureCompressionBC is what makes a BC5 or BC7 image legal to create. Every
+        // desktop driver has it; asking for it is what the specification requires before
+        // the content pipeline's DDS textures may be uploaded at all.
+        var features = new PhysicalDeviceFeatures
+        {
+            SamplerAnisotropy = true,
+            TextureCompressionBC = true,
+        };
 
         var createInfo = new DeviceCreateInfo
         {

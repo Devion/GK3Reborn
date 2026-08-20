@@ -119,7 +119,54 @@ public sealed class TextureCache : IDisposable
         }
 
         _textures[name] = VulkanTexture.Create(_context, keyed);
+        DeviceBytes += WithMips(keyed.Width, keyed.Height);
     }
+
+    /// <summary>Uploads a block-compressed texture, or keeps the one already here.</summary>
+    /// <param name="name">Its name, matched without regard to case.</param>
+    /// <param name="image">The compressed levels.</param>
+    /// <remarks>
+    /// No keying. <see cref="TextureKeying"/> works on texels, and these are blocks; the
+    /// loader is what decides that a texture needing a colour key takes the decoded path
+    /// instead. Only three of the 324 textures in the pilot set do.
+    /// </remarks>
+    public void Add(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_textures.ContainsKey(name))
+        {
+            Reused++;
+            return;
+        }
+
+        _textures[name] = VulkanTexture.Create(_context, image);
+        DeviceBytes += image.Blocks.Length;
+    }
+
+    /// <summary>Uploads a block-compressed normal map, or keeps the one already here.</summary>
+    /// <param name="name">The colour texture it belongs to.</param>
+    /// <param name="image">The compressed levels.</param>
+    /// <remarks>
+    /// BC5 is linear by construction — it has no sRGB spelling — so nothing has to be said
+    /// here to keep a direction from being treated as a colour.
+    /// </remarks>
+    public void AddNormal(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_normals.ContainsKey(name))
+        {
+            Reused++;
+            return;
+        }
+
+        _normals[name] = VulkanTexture.Create(_context, image);
+        DeviceBytes += image.Blocks.Length;
+    }
+
+    /// <summary>Roughly how many bytes of video memory the textures here occupy.</summary>
+    public long DeviceBytes { get; private set; }
 
     /// <summary>Whether a surface's normal map is already here.</summary>
     /// <param name="name">The <em>colour</em> texture's name; a normal map is named for it.</param>
@@ -148,7 +195,18 @@ public sealed class TextureCache : IDisposable
 
         _normals[name] = VulkanTexture.Create(
             _context, image, mipmaps: true, SamplerAddressMode.Repeat, linear: true);
+
+        DeviceBytes += WithMips(image.Width, image.Height);
     }
+
+    /// <summary>How much video memory an uncompressed texture and its chain take.</summary>
+    /// <remarks>
+    /// Four bytes a texel and a third again for the chain, which is what the sum of a
+    /// halving series comes to. Close enough to compare a texture set against itself, which
+    /// is the only thing anybody asks this.
+    /// </remarks>
+    private static long WithMips(int width, int height) =>
+        (long)width * height * 4 * 4 / 3;
 
     /// <summary>Finds a surface's normal map, or a flat one.</summary>
     /// <param name="name">The colour texture's name.</param>

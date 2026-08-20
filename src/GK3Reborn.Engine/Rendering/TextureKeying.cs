@@ -24,6 +24,31 @@ public static class TextureKeying
 {
     private const int KeyTolerance = 24;
 
+    /// <summary>Whether an image has anything the colour key would remove.</summary>
+    /// <param name="image">The decoded image.</param>
+    /// <returns>True when at least one texel is magenta or already transparent.</returns>
+    /// <remarks>
+    /// Asked of the <em>original</em>, so that the loader can decide whether a texture may
+    /// take the block-compressed path. Blocks cannot be keyed, and a keyed texture that
+    /// skips this comes out with GK3's magenta painted where its holes should be.
+    /// </remarks>
+    public static bool NeedsKey(DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image.Pixels);
+
+        byte[] pixels = image.Pixels;
+
+        for (int at = 0; at + 3 < pixels.Length; at += 4)
+        {
+            if (IsKey(pixels[at], pixels[at + 1], pixels[at + 2]) || pixels[at + 3] < 128)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Applies the colour key, if the image uses one.</summary>
     /// <param name="image">The decoded image.</param>
     /// <returns>The image with keyed texels made transparent, or the original.</returns>

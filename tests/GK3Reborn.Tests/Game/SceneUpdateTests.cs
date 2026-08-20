@@ -38,6 +38,12 @@ public sealed class SceneUpdateTests
 
         public int TriangleCount => 0;
 
+        public void AddTexture(string name, CompressedImage image) =>
+            AddTexture(name, new DecodedImage(image.Width, image.Height, [], false, "block"));
+
+        public void AddNormalMap(string name, CompressedImage image) =>
+            AddNormalMap(name, new DecodedImage(image.Width, image.Height, [], false, "block"));
+
         public void AddTexture(string name, DecodedImage image)
         {
         }
