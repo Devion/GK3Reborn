@@ -313,10 +313,12 @@ public sealed class GameHud
             Overlay.Text(lines[i], margin + 14, y + 10 + (row * i), Ink);
         }
 
-        if (state.Speaker is { Length: > 0 } speaker)
+        // GK3 writes UNKNOWN for a line with nobody on screen saying it — Gabriel's own
+        // narration, mostly. Writing "Unknown" over it is worse than writing nothing.
+        if (state.Speaker is { Length: > 0 } speaker &&
+            !speaker.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
-            string who = Pretty(speaker);
-            Overlay.Text(who, margin + 14, y - row - 2, Accent);
+            Overlay.Text(Pretty(speaker), margin + 14, y - row - 2, Accent);
         }
     }
 

@@ -126,7 +126,7 @@ public static class Application
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         var diagnostics = new DiagnosticBag();
-        SceneRequest request = SceneRequest.For(sceneName, timeblock);
+        SceneRequest request = Playable(archives, sceneName, timeblock);
         Gk3SheepApi api = request.Api ?? new Gk3SheepApi(new GameState());
 
         // What makes a waited call take time. Without it every line of dialogue in the
@@ -499,6 +499,16 @@ public static class Application
                 // The menu belongs to the thing it was opened over, not to wherever the
                 // pointer wanders next, so what was under it is kept.
                 menu = menu is null && hover.Actionable ? hover : null;
+
+                // Asking and getting nothing has to look different from asking and being
+                // ignored, or a room where nothing answers is indistinguishable from a
+                // right-click that did not register.
+                if (menu is null)
+                {
+                    Console.WriteLine(hover.Noun is { Length: > 0 } asked
+                        ? $"{asked} answers to nothing here and now"
+                        : "nothing under the pointer");
+                }
             }
 
             if (window.WasClicked(Platform.PointerButton.Primary))
@@ -574,6 +584,88 @@ public static class Application
             + $"({presented / Math.Max(0.001, stopwatch.Elapsed.TotalSeconds):F0} fps)"));
 
         return 0;
+    }
+
+    /// <summary>
+    /// Makes sure the scene is loaded at a point in the story, not merely at a time of day.
+    /// </summary>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="scene">The scene's name.</param>
+    /// <param name="timeblock">What the player asked for.</param>
+    /// <returns>A request with a story behind it, where the room has one.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>202P</c> is a point in the story and <c>N</c> is an asset suffix meaning night.
+    /// Both are legitimate — see <see cref="SceneRequest"/> — and the render tooling wants
+    /// the second, because looking at a room's night lighting should not require inventing
+    /// a story to justify it.
+    /// </para>
+    /// <para>
+    /// A game is different. With no story state the scene's conditions go undecided, no
+    /// action files come into scope and no soundtrack is chosen: every object in the room
+    /// answers to nothing and nobody says a word. That is a room, not a game, and it looks
+    /// exactly like a broken one. So the launcher takes a real timeblock instead and says
+    /// which, rather than running a version of the game where nothing can be done.
+    /// </para>
+    /// </remarks>
+    private static SceneRequest Playable(GameArchives archives, string scene, string? timeblock)
+    {
+        SceneRequest asked = SceneRequest.For(scene, timeblock);
+
+        if (asked.State is not null)
+        {
+            return asked;
+        }
+
+        IReadOnlyList<string> known = Timeblocks(archives, scene);
+
+        if (known.Count == 0)
+        {
+            Console.WriteLine(
+                $"Story: {scene} has no timeblock of its own, so its conditions stay " +
+                "undecided and its objects answer to nothing.");
+
+            return asked;
+        }
+
+        string chosen = known[0];
+
+        Console.WriteLine(timeblock is { Length: > 0 } asOfDay
+            ? $"Story: '{asOfDay}' is a time of day, not a point in the story, so nothing " +
+              $"in the room would answer to anything. Using {chosen} instead."
+            : $"Story: no timeblock given, so nothing in the room would answer to " +
+              $"anything. Using {chosen}.");
+
+        Console.WriteLine($"  {scene} knows: {string.Join(" ", known)}");
+
+        return SceneRequest.For(scene, chosen);
+    }
+
+    /// <summary>The story timeblocks a scene has a file for.</summary>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="scene">The scene's name.</param>
+    /// <returns>The codes, in order.</returns>
+    /// <remarks>
+    /// A scene's second file is named for the location and the timeblock together —
+    /// <c>R25202P.SIF</c> — so the timeblocks a room has are what is left after its own
+    /// name. The room's own <c>R25.SIF</c> leaves nothing and is skipped.
+    /// </remarks>
+    private static IReadOnlyList<string> Timeblocks(GameArchives archives, string scene)
+    {
+        string prefix = scene.ToUpperInvariant();
+
+        return
+        [
+            .. archives.Names(".SIF")
+                .Select(Path.GetFileNameWithoutExtension)
+                .Where(n => n is not null &&
+                            n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                            n.Length > prefix.Length)
+                .Select(n => n![prefix.Length..])
+                .Where(c => Timeblock.TryParse(c, out _))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase),
+        ];
     }
 
     /// <summary>
