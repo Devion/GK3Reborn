@@ -73,9 +73,43 @@ GK3Reborn.Tools render-scene --model BEC --timeblock 312P --do EXIT_TO_MAP:EXIT 
 rides the moped out of Le Serpent Rouge and reports `in front of the room now: Driving,
 inventory out of reach`.
 
+## What is drawn
+
+The launcher now draws, and what it draws is the three rules taken literally.
+
+**The pointer says what a click will do, in words, before the click.** Hovering anything
+the room names puts its label under the pointer — `Bathroom Door` in white, `Look` in
+amber — and the amber is present only when there is actually something to do. Hunting for
+a hotspot is not a puzzle, and neither is guessing which icon means "look".
+
+**Everything it answers to is one right-click away**, as a plain list of verbs with the
+noun as its heading, not a ring of icons whose meanings have to be learned. The row under
+the pointer is lit; clicking it performs that verb, clicking anywhere else dismisses it.
+
+**The inventory is a strip along the bottom that never goes away.** The original put it
+behind a mode change, so checking what you were carrying cost you the sight of the room you
+were carrying it in.
+
+**Captions are shown for every spoken line**, with the speaker above them, read out of the
+`[GK3]` section of the animation that carries the audio.
+
+It is laid out fresh every frame — a function from what the game is doing to a list of
+rectangles — so there is no widget tree to keep in step with the world and no way for the
+interface to show something that stopped being true. The verb menu's rows are laid out and
+hit-tested from the same pass, which is what keeps the thing you click and the thing you
+saw from drifting apart.
+
+`GameHud` is the layout, `Overlay` the display list, `OverlayPipeline` the one draw call
+that puts it on the screen, and `docs/formats/fonts.md` covers where the letters come from.
+
+Two switches exist for photographing it, since a label that follows the pointer cannot be
+captured by a headless run: `--pointer X,Y` puts the pointer somewhere fixed and `--menu`
+opens the verb list without a right-click.
+
 ## What is not here
 
-Nothing draws. A screen being open is a fact about the game, not about a window: the
-retained UI tree, text shaping, layout and input bindings of `Plan/03` section 4 sit on
-top of this and do not exist yet. What exists is the contract they have to honour, which
-is the part that decides whether the interface is learnable.
+The retained UI tree of `Plan/03` section 4, and the screens themselves. `ScreenLayers`
+still only says which screens are open; the binoculars, Sidney, the driving map and the
+inventory *screen* draw nothing of their own. Text is laid out rather than shaped — no
+kerning, no bidirectional text — which GK3's own bitmap fonts do not need and a
+retranslation would.

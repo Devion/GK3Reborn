@@ -68,6 +68,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private bool _needsRecreate;
     private ShaderCompiler? _shaderCompiler;
     private TrianglePipeline? _triangle;
+    private OverlayPipeline? _overlay;
+    private OverlayAtlas? _overlayAtlas;
 
     private VulkanContext? _context;
     private MeshPipeline? _meshPipeline;
@@ -354,6 +356,53 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <summary>Marks the swapchain as needing rebuilding, after a resize.</summary>
     public void Invalidate() => _needsRecreate = true;
 
+    /// <summary>Whether an interface can be drawn.</summary>
+    public bool HasOverlay => _overlay is not null;
+
+    /// <summary>Gives the renderer an interface to draw on top of the room.</summary>
+    /// <param name="atlas">The sheet it is drawn from.</param>
+    /// <remarks>
+    /// Deferred rather than created with the renderer, because the sheet comes out of the
+    /// game's archives and the renderer exists before anything has been read. Calling it
+    /// again replaces the sheet, which is what changing font would mean.
+    /// </remarks>
+    public void SetOverlayAtlas(OverlayAtlas atlas)
+    {
+        ArgumentNullException.ThrowIfNull(atlas);
+
+        if (_shaderCompiler is null)
+        {
+            return;
+        }
+
+        _vk.DeviceWaitIdle(_device);
+
+        _overlay?.Dispose();
+        _overlay = OverlayPipeline.Create(
+            _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler, atlas);
+
+        _overlayAtlas = atlas;
+    }
+
+    /// <summary>Sets what the interface looks like this frame.</summary>
+    /// <param name="overlay">The display list, or null to draw nothing over the room.</param>
+    public void SetOverlay(Overlay? overlay)
+    {
+        if (_overlay is null)
+        {
+            return;
+        }
+
+        if (overlay is null)
+        {
+            _overlay.Prepare(new Overlay(_overlayAtlas!));
+            return;
+        }
+
+        _overlayAtlas = overlay.Atlas;
+        _overlay.Prepare(overlay);
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -364,6 +413,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _rayTracedPipeline?.Dispose();
             _frames?.Dispose();
             _meshPipeline?.Dispose();
+            _overlay?.Dispose();
             _triangle?.Dispose();
             _shaderCompiler?.Dispose();
             DestroySynchronization();
@@ -926,6 +976,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _vk.CmdBindPipeline(buffer, PipelineBindPoint.Graphics, _triangle.Handle);
             _vk.CmdDraw(buffer, 3, 1, 0, 0);
         }
+
+        // On top of the room and inside the same pass: the interface has no business in
+        // the depth buffer, and starting a second pass to say so would cost a store and a
+        // load of the whole colour target.
+        _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
 
         _vk.CmdEndRendering(buffer);
 

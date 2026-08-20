@@ -76,6 +76,45 @@ public sealed class AnimationFileTests
     }
 
     [Fact]
+    public void An_ordinary_line_names_its_speaker_and_its_words_separately()
+    {
+        // 7,380 of the game's lines are written this way against 211 of the other, so a
+        // reader that handles only SpeakerCaption understands three percent of the dialogue.
+        AnimationFile animation = Parse(
+            "[HEADER]\n49\n\n[GK3]\n3\n0,SPEAKER,GABRIEL\n" +
+            "0,CAPTION,Knight.  Gabriel Knight.\n46,DIALOGUECUE\n");
+
+        AnimationCaption caption = Assert.Single(animation.Captions);
+
+        Assert.Equal("GABRIEL", caption.Speaker);
+        Assert.Equal("Knight.  Gabriel Knight.", caption.Text);
+    }
+
+    [Fact]
+    public void A_caption_is_not_said_twice()
+    {
+        // The INI reader repeats a bare keyword as its own value, because the files that
+        // need it rely on the value never being empty. Putting a sentence back together from
+        // that naively gives "Way to go=Way to go".
+        AnimationFile animation = Parse(
+            "[HEADER]\n30\n\n[GK3]\n2\n0,SPEAKER,GRACE\n0,CAPTION,Way to go\n");
+
+        Assert.Equal("Way to go", Assert.Single(animation.Captions).Text);
+    }
+
+    [Fact]
+    public void The_lip_synch_nodes_are_passed_over()
+    {
+        // 98,153 of them across the corpus, a mouth shape per frame. Reading one needs a
+        // face with shapes to put it into.
+        AnimationFile animation = Parse(
+            "[HEADER]\n30\n\n[GK3]\n3\n0,LIPSYNCH,MOUTH,A\n" +
+            "0,SPEAKER,GRACE\n0,CAPTION,Yes\n");
+
+        Assert.Equal("Yes", Assert.Single(animation.Captions).Text);
+    }
+
+    [Fact]
     public void A_line_of_dialogue_is_found_under_the_language_prefix()
     {
         // Scripts never write the prefix. The engine adds it, which is why a licence plate

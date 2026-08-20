@@ -1,10 +1,12 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
+using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Foundation;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using GK3Reborn.Rendering;
+using GK3Reborn.UI;
 using GK3Reborn.Rendering.Vulkan;
 
 namespace GK3Reborn;
@@ -285,9 +287,32 @@ public static class Application
             }
         }
 
+        // The interface. GK3's own bitmap fonts rather than anything imported: they are in
+        // the archives, they are the right size for the game's own screens, and reading one
+        // is a smaller job than shaping a scalable typeface would be.
+        var fonts = new FontLibrary(archives);
+        GameHud? hud = null;
+
+        if (fonts.Any("F_ARIAL_T12", "F_ARIAL_T10", "F_ARIAL_T8") is { } font)
+        {
+            OverlayAtlas atlas = OverlayAtlas.Build(font);
+
+            renderer.SetOverlayAtlas(atlas);
+            hud = new GameHud(new Overlay(atlas));
+
+            Console.WriteLine(
+                $"Interface: {font.Name}, {font.Count} glyphs at {font.Height}px, " +
+                $"sheet {atlas.Image.Width}x{atlas.Image.Height}, " +
+                $"{(renderer.HasOverlay ? "drawing" : "NOT drawing")}");
+        }
+        else
+        {
+            Console.WriteLine("Interface: no font found, nothing is drawn over the room");
+        }
+
         int result = FlyScene(
             window, renderer, geometry, scene, cameraName, frameLimit, update,
-            new SceneInteraction(scene, api), room);
+            new SceneInteraction(scene, api), room, hud, api.State, args);
 
         audio?.Dispose();
 
@@ -310,6 +335,9 @@ public static class Application
     /// <param name="update">The world going on by itself.</param>
     /// <param name="interaction">Turns pointing at the room into doing something to it.</param>
     /// <param name="room">What the room sounds like, if there is a device.</param>
+    /// <param name="hud">The interface, if there is a font to draw it with.</param>
+    /// <param name="story">Where the story stands, for the inventory strip.</param>
+    /// <param name="options">The command line, for the debugging switches.</param>
     /// <returns>Process exit code.</returns>
     /// <remarks>
     /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
@@ -325,7 +353,10 @@ public static class Application
         int frameLimit,
         SceneUpdate update,
         SceneInteraction interaction,
-        SceneAudio? room)
+        SceneAudio? room,
+        GameHud? hud,
+        GameState story,
+        string[] options)
     {
         int cameraIndex = Math.Max(
             0,
@@ -358,6 +389,14 @@ public static class Application
         int presented = 0;
         string? hovering = null;
         string? said = null;
+        Hover? menu = null;
+        Vector2? pinned = Pinned(options);
+        bool forceMenu = options.Contains("--menu", StringComparer.OrdinalIgnoreCase);
+
+        if (pinned is { } spot)
+        {
+            Console.WriteLine($"Pointer pinned at {spot.X}, {spot.Y}");
+        }
 
         while (!window.IsClosing && (frameLimit == 0 || presented < frameLimit))
         {
@@ -422,10 +461,14 @@ public static class Application
             // The pointer is in window pixels and the viewport is in framebuffer pixels,
             // which are not the same on a scaled display. Picking in the wrong one puts the
             // ray somewhere the player is not looking, and only on some machines.
+            Vector2 aimed = pinned ?? new Vector2(
+                window.PointerPosition.X * window.DpiScale,
+                window.PointerPosition.Y * window.DpiScale);
+
             Hover hover = interaction.At(
                 view,
-                (int)(window.PointerPosition.X * window.DpiScale),
-                (int)(window.PointerPosition.Y * window.DpiScale),
+                (int)aimed.X,
+                (int)aimed.Y,
                 window.FramebufferWidth,
                 window.FramebufferHeight);
 
@@ -441,19 +484,45 @@ public static class Application
                 }
             }
 
-            if (window.WasClicked(Platform.PointerButton.Secondary) && hover.Actionable)
+            // --pointer puts it somewhere fixed, which is the only way to photograph the
+            // interface: the label follows the mouse, and a headless run has never moved it.
+            Vector2 pointer = aimed;
+
+            // --menu opens it without a right-click, for the same reason --pointer exists.
+            if (forceMenu && menu is null && hover.Actionable)
             {
-                Console.WriteLine($"{hover.Noun} answers to: " +
-                    string.Join(", ", hover.Actions.Select(a => a.LocalizedVerb)));
+                menu = hover;
             }
 
-            if (window.WasClicked(Platform.PointerButton.Primary) &&
-                interaction.Do(hover) is { } did)
+            if (window.WasClicked(Platform.PointerButton.Secondary))
             {
-                Console.WriteLine(
-                    $"{did.Noun}:{did.Verb} [{did.Case}] — " +
-                    $"{(did.Ran ? "ran" : "refused")} {did.Statements.Count} statement(s)" +
-                    (did.Seconds > 0 ? $", {did.Seconds:F1}s" : string.Empty));
+                // The menu belongs to the thing it was opened over, not to wherever the
+                // pointer wanders next, so what was under it is kept.
+                menu = menu is null && hover.Actionable ? hover : null;
+            }
+
+            if (window.WasClicked(Platform.PointerButton.Primary))
+            {
+                // A click inside the open menu chooses from it; a click anywhere else
+                // dismisses it without doing anything, which is what every menu does.
+                string? chosen = menu is not null ? hud?.VerbAt(pointer) : null;
+
+                ActionOutcome? did = menu is { } open
+                    ? chosen is { Length: > 0 } ? interaction.Do(open, chosen) : null
+                    : interaction.Do(hover);
+
+                if (menu is not null)
+                {
+                    menu = null;
+                }
+
+                if (did is { } outcome)
+                {
+                    Console.WriteLine(
+                        $"{outcome.Noun}:{outcome.Verb} [{outcome.Case}] - " +
+                        $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)" +
+                        (outcome.Seconds > 0 ? $", {outcome.Seconds:F1}s" : string.Empty));
+                }
             }
 
             // The device is the clock for dialogue: the next line of a voice-over starts
@@ -464,6 +533,29 @@ public static class Application
             {
                 said = caption;
                 Console.WriteLine($"  {room.Speaker}: {caption}");
+            }
+
+            if (hud is not null)
+            {
+                Hover showing = menu ?? hover;
+
+                hud.Build(
+                    new HudState(
+                        showing.Noun,
+                        [.. showing.Actions.Select(a => a.LocalizedVerb)],
+                        hover.Default,
+                        pointer,
+                        menu is not null,
+                        room?.Speaker,
+                        room?.Caption,
+                        story.Inventory.ItemsOf("GABRIEL"),
+                        story.Inventory.ActiveItemOf("GABRIEL"),
+                        InventoryOpen: true,
+                        $"{scene.Name} - {story.Timeblock}"),
+                    window.FramebufferWidth,
+                    window.FramebufferHeight);
+
+                renderer.SetOverlay(hud.Overlay);
             }
 
             window.EndFrame();
@@ -483,6 +575,23 @@ public static class Application
 
         return 0;
     }
+
+    /// <summary>
+    /// Where <c>--pointer X,Y</c> says the pointer is.
+    /// </summary>
+    /// <param name="args">The command line.</param>
+    /// <returns>The point, or null to follow the mouse.</returns>
+    /// <remarks>
+    /// For screenshots and for saying what is under a place without having to be there
+    /// with a mouse. The rest of the loop cannot tell the difference, which is the point:
+    /// what it photographs is what a player at that spot would see.
+    /// </remarks>
+    private static Vector2? Pinned(string[] args) =>
+        Option(args, "--pointer")?.Split(',') is [string x, string y] &&
+        float.TryParse(x, CultureInfo.InvariantCulture, out float px) &&
+        float.TryParse(y, CultureInfo.InvariantCulture, out float py)
+            ? new Vector2(px, py)
+            : null;
 
     /// <summary>Reads an option's value from the command line.</summary>
     private static string? Option(string[] args, string name)

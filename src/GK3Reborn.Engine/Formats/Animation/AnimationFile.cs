@@ -128,7 +128,7 @@ public sealed class AnimationFile
                     break;
 
                 case "GK3":
-                    Read(section, line => Caption(line, captions));
+                    Spoken(section, captions);
                     break;
 
                 default:
@@ -169,27 +169,88 @@ public sealed class AnimationFile
     }
 
     /// <summary>
-    /// Reads a spoken line.
+    /// Reads the spoken lines.
     /// </summary>
     /// <remarks>
-    /// <c>&lt;frame&gt;,SpeakerCaption,&lt;end frame&gt;,&lt;noun&gt;,&lt;caption&gt;</c>,
-    /// and the caption itself contains commas as often as not — it is a sentence — so
-    /// everything past the fourth field is put back together rather than taken as fields.
+    /// <para>
+    /// Two forms, and the rarer one is the one that reads like documentation.
+    /// <c>SpeakerCaption</c> carries everything on one line — end frame, noun, text — and
+    /// occurs 211 times, in the long cutscenes. The ordinary form is a <c>SPEAKER</c> node
+    /// naming who is talking followed by a <c>CAPTION</c> node with what they say, and that
+    /// is 7,380 of the game's lines. A reader that handles only the first understands three
+    /// percent of the dialogue.
+    /// </para>
+    /// <para>
+    /// A caption is a sentence and contains commas, so everything past the fixed fields is
+    /// put back together rather than taken as more fields.
+    /// </para>
+    /// <para>
+    /// <c>LIPSYNCH</c> is skipped, and it is 98,153 of the corpus's nodes — a mouth shape
+    /// per frame per line. Reading it needs a face with shapes to put them into.
+    /// </para>
     /// </remarks>
-    private static void Caption(IniLine line, List<AnimationCaption> captions)
+    private static void Spoken(IniSection section, List<AnimationCaption> captions)
     {
-        if (line.Entries.Count < 4 ||
-            !line.Entries[1].Key.Equals("SpeakerCaption", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
+        string speaker = string.Empty;
 
-        captions.Add(new AnimationCaption(
-            (int)(line.Entries[0].AsNumber() ?? 0),
-            (int)(line.Entries[2].AsNumber() ?? 0),
-            line.Entries[3].Key,
-            string.Join(
-                ",",
-                line.Entries.Skip(4).Select(e => e.Value.Length > 0 ? $"{e.Key}={e.Value}" : e.Key))));
+        for (int i = 1; i < section.Lines.Count; i++)
+        {
+            IniLine line = section.Lines[i];
+
+            if (line.Entries.Count < 2)
+            {
+                continue;
+            }
+
+            int frame = (int)(line.Entries[0].AsNumber() ?? 0);
+
+            switch (line.Entries[1].Key.ToUpperInvariant())
+            {
+                case "SPEAKER":
+                    speaker = line.Entries.Count > 2 ? line.Entries[2].Key : string.Empty;
+                    break;
+
+                case "CAPTION":
+                    if (line.Entries.Count > 2)
+                    {
+                        captions.Add(new AnimationCaption(frame, 0, speaker, Rest(line, 2)));
+                    }
+
+                    break;
+
+                case "SPEAKERCAPTION":
+                    if (line.Entries.Count > 4)
+                    {
+                        captions.Add(new AnimationCaption(
+                            frame,
+                            (int)(line.Entries[2].AsNumber() ?? 0),
+                            line.Entries[3].Key,
+                            Rest(line, 4)));
+                    }
+
+                    break;
+
+                default:
+                    break;
+            }
+        }
     }
+
+    /// <summary>
+    /// Puts the fields from an index onwards back together as one string.
+    /// </summary>
+    /// <remarks>
+    /// The reader repeats a bare keyword as its own value, because the files that need it
+    /// rely on the value never being empty. A caption is a sentence rather than a keyword,
+    /// so putting it back means writing the key alone unless the two actually differ —
+    /// otherwise every line of dialogue in the game is said twice.
+    /// </remarks>
+    private static string Rest(IniLine line, int from) =>
+        string.Join(
+            ",",
+            line.Entries
+                .Skip(from)
+                .Select(e => string.Equals(e.Key, e.Value, StringComparison.Ordinal)
+                    ? e.Key
+                    : $"{e.Key}={e.Value}"));
 }
