@@ -181,6 +181,18 @@ public sealed class SceneLoader
     public EnhancedTextures? Enhanced { get; set; }
 
     /// <summary>
+    /// Generated normal maps, standing beside the colour textures.
+    /// </summary>
+    /// <remarks>
+    /// A separate set from <see cref="Enhanced"/> because they are a separate pass and a
+    /// separate judgement: a surface may have a better colour texture and no normal map, or
+    /// the other way round. Named for the colour texture they belong to.
+    /// </remarks>
+    public EnhancedTextures? Normals { get; set; }
+
+    private int _normalsUsed;
+
+    /// <summary>
     /// Who is looking at what as the scene is built.
     /// </summary>
     /// <remarks>
@@ -768,6 +780,9 @@ public sealed class SceneLoader
             $"sides {string.Join(", ", named.Select((n, i) => read[i] is null ? $"{Sides[i]}=none" : Sides[i]))}"));
     }
 
+    /// <summary>How many surfaces in the last scene were given a normal map.</summary>
+    public int NormalMapsUsed => _normalsUsed;
+
     private void LoadTextures(
         ISceneSink geometry, IEnumerable<string> names, string owner, DiagnosticBag diagnostics)
     {
@@ -775,6 +790,17 @@ public sealed class SceneLoader
                      .Where(n => n.Length > 0)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            // A generated normal map for this surface, if there is one. 250 of the game's
+            // 6,657 textures have one so far and the rest look exactly as they did — a
+            // partial set is a perfectly good set.
+            if (Normals is not null &&
+                !geometry.HasNormalMap(texture) &&
+                Normals.Read(texture, diagnostics) is { } bumps)
+            {
+                geometry.AddNormalMap(texture, bumps);
+                _normalsUsed++;
+            }
+
             // Already on the device from an earlier room, so there is nothing to read,
             // decode or upload. Most of what a room asks for is something it has met
             // before: the characters are in every room they appear in.

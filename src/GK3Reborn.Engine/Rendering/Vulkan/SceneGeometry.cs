@@ -166,6 +166,25 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
+    public void AddNormalMap(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddNormal(name, image);
+    }
+
+    /// <inheritdoc/>
+    public bool HasNormalMap(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _textures.HasNormal(name);
+    }
+
+    /// <summary>How many of this room's surfaces have a normal map.</summary>
+    public int NormalMapCount => _textures.NormalCount;
+
+    /// <inheritdoc/>
     public bool HasTexture(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -653,7 +672,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         var size = new DescriptorPoolSize
         {
             Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = (uint)(_batches.Count * 2),
+            DescriptorCount = (uint)(_batches.Count * 3),
         };
 
         var poolInfo = new DescriptorPoolCreateInfo
@@ -678,7 +697,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             {
                 Material = CreateMaterialSet(
                     TextureFor(batch.TextureName),
-                    batch.UseLightmap && !batch.SelfLit ? _lightmap ?? _whiteTexture : _whiteTexture),
+                    batch.UseLightmap && !batch.SelfLit ? _lightmap ?? _whiteTexture : _whiteTexture,
+                    _textures.GetNormal(batch.TextureName)),
             };
         }
     }
@@ -854,7 +874,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private VulkanTexture TextureFor(string name) =>
         _textures.Get(name);
 
-    private DescriptorSet CreateMaterialSet(VulkanTexture diffuse, VulkanTexture lightmap)
+    private DescriptorSet CreateMaterialSet(
+        VulkanTexture diffuse, VulkanTexture lightmap, VulkanTexture normal)
     {
         DescriptorSetLayout layout = _pipeline.MaterialLayout;
 
@@ -886,7 +907,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             Sampler = lightmap.Sampler,
         };
 
-        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[2];
+        var normalInfo = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = normal.View,
+            Sampler = normal.Sampler,
+        };
+
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[3];
         writes[0] = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
@@ -906,7 +934,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             PImageInfo = &lightmapInfo,
         };
 
-        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        writes[2] = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = set,
+            DstBinding = 2,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImageInfo = &normalInfo,
+        };
+
+        _context.Api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
         return set;
     }
 

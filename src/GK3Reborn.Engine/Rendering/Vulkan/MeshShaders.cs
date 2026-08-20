@@ -105,6 +105,7 @@ internal static class MeshShaders
 
         layout(set = 1, binding = 0) uniform sampler2D baseColor;
         layout(set = 1, binding = 1) uniform sampler2D lightmapTexture;
+        layout(set = 1, binding = 2) uniform sampler2D normalTexture;
 
         // The original's ambient floor, so a surface no light reaches is dim, not black.
         const vec3 kAmbient = vec3(0.06, 0.08, 0.06);
@@ -303,6 +304,60 @@ internal static class MeshShaders
             return total;
         }
 
+        // A tangent frame, built from the screen-space derivatives of position and texture
+        // coordinate rather than stored on the vertex.
+        //
+        // Stored tangents would have to be rebuilt every frame: GK3's characters have no
+        // skeleton, so an .ACT clip rewrites their vertex positions on every frame of every
+        // animation, and a tangent computed at load would be stale the moment anybody moved.
+        // A derivative frame is correct for free, on deforming and rigid geometry alike.
+        vec3 PerturbedNormal(vec3 geometric)
+        {
+            vec3 mapped = texture(normalTexture, inTexCoord).xyz;
+
+            vec3 tangentNormal = (mapped * 2.0) - 1.0;
+
+            // Surfaces with no map are given a flat one, and eight bits cannot encode
+            // exactly a half: 128 decodes to 0.0039 rather than 0. The tolerance is one
+            // step of an eight-bit channel, not an epsilon — a tighter test never fires,
+            // which is how the first attempt at this ran the derivative maths on all 6,400
+            // textures that have no map at all.
+            if (max(abs(tangentNormal.x), abs(tangentNormal.y)) <= (1.0 / 255.0))
+            {
+                return geometric;
+            }
+
+            vec3 dpx = dFdx(inWorld);
+            vec3 dpy = dFdy(inWorld);
+            vec2 dtx = dFdx(inTexCoord);
+            vec2 dty = dFdy(inTexCoord);
+
+            // Degenerate where a surface is edge-on or its coordinates do not vary, which
+            // happens at silhouettes and on the flat-shaded helpers. Falling back to the
+            // geometric normal there is invisible; dividing by zero is not.
+            float area = (dtx.x * dty.y) - (dty.x * dtx.y);
+
+            if (abs(area) < 1e-12)
+            {
+                return geometric;
+            }
+
+            vec3 tangent = ((dpx * dty.y) - (dpy * dtx.y)) / area;
+
+            // Gram-Schmidt against the interpolated normal, so the frame stays square even
+            // where the derivatives are noisy.
+            tangent = normalize(tangent - (geometric * dot(geometric, tangent)));
+
+            if (any(isnan(tangent)))
+            {
+                return geometric;
+            }
+
+            vec3 bitangent = cross(geometric, tangent);
+
+            return normalize(mat3(tangent, bitangent, geometric) * tangentNormal);
+        }
+
         void main()
         {
             vec4 sampled = texture(baseColor, inTexCoord);
@@ -326,7 +381,7 @@ internal static class MeshShaders
                 return;
             }
 
-            vec3 normal = normalize(inNormal);
+            vec3 normal = PerturbedNormal(normalize(inNormal));
             float useLightmap = draw.shading.x;
             vec3 baked = texture(lightmapTexture, inLightmapCoord).rgb * draw.shading.y;
 

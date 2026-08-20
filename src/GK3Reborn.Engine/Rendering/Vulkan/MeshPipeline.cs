@@ -243,7 +243,7 @@ public sealed unsafe class MeshPipeline : IDisposable
             throw new VulkanException("Could not create the frame descriptor set layout.");
         }
 
-        DescriptorSetLayoutBinding* materialBindings = stackalloc DescriptorSetLayoutBinding[2];
+        DescriptorSetLayoutBinding* materialBindings = stackalloc DescriptorSetLayoutBinding[3];
         materialBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
@@ -259,10 +259,20 @@ public sealed unsafe class MeshPipeline : IDisposable
             StageFlags = ShaderStageFlags.FragmentBit,
         };
 
+        // A surface's normal map. Every batch binds one — a flat map where there is none —
+        // so a partial set of enhanced materials stays a perfectly good set.
+        materialBindings[2] = new DescriptorSetLayoutBinding
+        {
+            Binding = 2,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
         var materialInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
+            BindingCount = 3,
             PBindings = materialBindings,
         };
 

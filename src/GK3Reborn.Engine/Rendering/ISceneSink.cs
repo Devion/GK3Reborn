@@ -56,6 +56,21 @@ public interface ISceneSink
     /// <param name="image">The decoded image.</param>
     void AddTexture(string name, DecodedImage image);
 
+    /// <summary>Gives a surface a normal map.</summary>
+    /// <param name="name">The <em>colour</em> texture it belongs to.</param>
+    /// <param name="image">The decoded map.</param>
+    /// <remarks>
+    /// Uploaded as data rather than colour. A normal map's channels are a direction, and
+    /// putting one through the sRGB path bends every normal towards flat — which reads as a
+    /// weak, waxy surface rather than as the colour-space bug it is.
+    /// </remarks>
+    void AddNormalMap(string name, DecodedImage image);
+
+    /// <summary>Whether a surface's normal map has already been given.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <returns>True when there is nothing to read, decode or upload.</returns>
+    bool HasNormalMap(string name);
+
     /// <summary>Whether a texture has already been given, under this or an earlier room.</summary>
     /// <param name="name">Its name.</param>
     /// <returns>True when there is nothing to read, decode or upload.</returns>

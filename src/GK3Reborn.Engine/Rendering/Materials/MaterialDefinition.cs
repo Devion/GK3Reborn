@@ -22,6 +22,12 @@ public sealed record MaterialPatch
     /// <summary>New normal-map strength, or null to keep.</summary>
     public float? NormalStrength { get; init; }
 
+    /// <summary>A different normal map, or empty to go back to having none.</summary>
+    public string? NormalTexture { get; init; }
+
+    /// <summary>A different packed occlusion/roughness/metalness map.</summary>
+    public string? OrmTexture { get; init; }
+
     /// <summary>New emissive color, or null to keep.</summary>
     public Vector3? Emissive { get; init; }
 
@@ -76,6 +82,28 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
     /// <summary>Strength of the normal map, where one exists.</summary>
     public float NormalStrength { get; init; } = 1.0f;
 
+    /// <summary>
+    /// The surface's normal map, named for the colour texture it belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Null where there is none, which is most of them: 324 of the game's 6,657 textures
+    /// have one so far. A surface without one is given a flat map and looks exactly as it
+    /// did, which is how a partial set stays a perfectly good set.
+    /// </remarks>
+    public string? NormalTexture { get; init; }
+
+    /// <summary>
+    /// The surface's packed occlusion, roughness and metalness.
+    /// </summary>
+    /// <remarks>
+    /// Carried and not yet consumed. <c>docs/pbr-materials.md</c> is explicit that roughness
+    /// and metalness change nothing until the shading model grows a specular lobe, and that
+    /// generating them before that is generating them blind — nobody can review what nobody
+    /// can see. The slot exists so the edit layer can correct one when there is something to
+    /// correct.
+    /// </remarks>
+    public string? OrmTexture { get; init; }
+
     /// <summary>Linear emissive color. Zero for non-emissive surfaces.</summary>
     public Vector3 Emissive { get; init; }
 
@@ -106,6 +134,14 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
             Metallic = patch.Metallic ?? Metallic,
             SpecularReflectance = patch.SpecularReflectance ?? SpecularReflectance,
             NormalStrength = patch.NormalStrength ?? NormalStrength,
+
+            // An empty string means "go back to having none", which a null cannot say.
+            NormalTexture = patch.NormalTexture is null
+                ? NormalTexture
+                : patch.NormalTexture.Length > 0 ? patch.NormalTexture : null,
+            OrmTexture = patch.OrmTexture is null
+                ? OrmTexture
+                : patch.OrmTexture.Length > 0 ? patch.OrmTexture : null,
             Emissive = patch.Emissive ?? Emissive,
             AlphaCutoff = patch.AlphaCutoff ?? AlphaCutoff,
             DoubleSided = patch.DoubleSided ?? DoubleSided,

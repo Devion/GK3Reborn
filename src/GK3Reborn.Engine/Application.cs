@@ -210,6 +210,27 @@ public static class Application
                 EnhancedTextures enhanced = EnhancedTextures.Open(enhancedDirectory);
                 loader.Enhanced = enhanced;
 
+                // Normal maps sit beside the colour textures rather than among them: a
+                // surface may have a better colour and no normal map, or the other way
+                // round, and they are judged separately.
+                EnhancedTextures normals = EnhancedTextures.Open(
+                    Path.Combine(
+                        Path.GetDirectoryName(
+                            enhancedDirectory.TrimEnd(Path.DirectorySeparatorChar, '/')) ??
+                            enhancedDirectory,
+                        "normals"));
+
+                // --flat leaves the colour textures enhanced and the surfaces smooth,
+                // which is the only way to see what the normal pass alone is doing.
+                loader.Normals = args.Contains("--flat", StringComparer.OrdinalIgnoreCase)
+                    ? null
+                    : normals;
+
+                if (first && normals.Count > 0)
+                {
+                    Console.WriteLine($"Normal maps: {normals.Count} available");
+                }
+
                 if (first)
                 {
                     Console.WriteLine(enhanced.Count > 0
@@ -251,6 +272,9 @@ public static class Application
                 + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"
                 + (loader.EnhancedTexturesUsed > 0
                     ? $" ({loader.EnhancedTexturesUsed} enhanced)"
+                    : string.Empty)
+                + (loader.NormalMapsUsed > 0
+                    ? $", {loader.NormalMapsUsed} normal mapped"
                     : string.Empty)
                 + $", {scene.Lights.Count} authored lights");
 

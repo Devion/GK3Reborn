@@ -49,6 +49,12 @@ public sealed class ClipPlaybackTests
 
         public bool HasTexture(string name) => false;
 
+        public void AddNormalMap(string name, DecodedImage image)
+        {
+        }
+
+        public bool HasNormalMap(string name) => false;
+
         public void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth)
         {
         }

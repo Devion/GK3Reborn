@@ -95,6 +95,15 @@ public sealed class HeadlessSceneSink : ISceneSink
     {
     }
 
+    /// <summary>How many normal maps the scene gave, for a sweep that wants to count.</summary>
+    public int NormalMapCount { get; private set; }
+
+    /// <inheritdoc/>
+    public void AddNormalMap(string name, DecodedImage image) => NormalMapCount++;
+
+    /// <inheritdoc/>
+    public bool HasNormalMap(string name) => false;
+
     /// <summary>How many sides of a sky the scene gave, for a sweep that wants to count.</summary>
     public int SkyboxFaces { get; private set; }
 

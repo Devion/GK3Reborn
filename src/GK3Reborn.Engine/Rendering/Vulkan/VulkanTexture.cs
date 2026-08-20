@@ -54,6 +54,10 @@ public sealed unsafe class VulkanTexture : IDisposable
     /// <param name="source">The image to upload.</param>
     /// <param name="mipmaps">Whether to build a mip chain.</param>
     /// <param name="addressMode">How coordinates outside the image behave.</param>
+    /// <param name="linear">
+    /// True for data rather than colour — a normal map, a roughness map — so the hardware
+    /// does not apply the sRGB curve to numbers that are not brightnesses.
+    /// </param>
     /// <returns>The texture.</returns>
     /// <remarks>
     /// A packed atlas must pass <paramref name="mipmaps"/> as false: each coarser level
@@ -64,15 +68,20 @@ public sealed unsafe class VulkanTexture : IDisposable
         VulkanContext context,
         DecodedImage source,
         bool mipmaps = true,
-        SamplerAddressMode addressMode = SamplerAddressMode.Repeat)
+        SamplerAddressMode addressMode = SamplerAddressMode.Repeat,
+        bool linear = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(source.Pixels);
 
-        // The pipeline shades in linear space, so the texture is declared sRGB and the
+        // The pipeline shades in linear space, so a colour texture is declared sRGB and the
         // hardware converts on read. Doing it in the shader instead is a common source of
         // double-corrected, washed-out output.
-        const Format TextureFormat = Format.R8G8B8A8Srgb;
+        //
+        // A normal map is not a colour. Its channels are a direction, and putting one
+        // through the sRGB path bends every normal towards flat — which reads as a weak,
+        // waxy surface rather than as the colour-space bug it is.
+        Format TextureFormat = linear ? Format.R8G8B8A8Unorm : Format.R8G8B8A8Srgb;
 
         uint mips = mipmaps
             ? (uint)(Math.Floor(Math.Log2(Math.Max(source.Width, source.Height))) + 1)
