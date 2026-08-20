@@ -66,6 +66,13 @@ public sealed class SceneUpdateTests
 
         public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal) =>
             Poses[(placement.Id, mesh)] = meshToLocal;
+
+        /// <summary>What each submesh was last reshaped to.</summary>
+        public Dictionary<(int, int, int), IReadOnlyList<Vector3>> Shapes { get; } = [];
+
+        public void ShapeMesh(
+            ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions) =>
+            Shapes[(placement.Id, mesh, submesh)] = positions;
     }
 
     private static ModFile Person()

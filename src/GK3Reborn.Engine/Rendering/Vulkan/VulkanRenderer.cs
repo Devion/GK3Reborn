@@ -219,6 +219,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
         // before a possible early return would deadlock the next wait on it.
         _vk.ResetFences(_device, 1, in fence);
 
+        // Anything that changed shape goes into this frame's own vertex buffers, now that
+        // the fence says the device has finished with them. Doing it earlier would write
+        // over a pose a frame still in flight is drawing.
+        _scene?.Flush(_frame);
+
         RecordClear(_commandBuffers[_frame], _images[imageIndex], _imageViews[imageIndex], red, green, blue);
         _lastImageIndex = imageIndex;
 

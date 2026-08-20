@@ -98,6 +98,31 @@ public interface ISceneSink
     /// </remarks>
     void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal);
 
+    /// <summary>Changes the shape of one submesh of a model that is already standing.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="mesh">Which of the model's meshes.</param>
+    /// <param name="submesh">Which submesh within that mesh.</param>
+    /// <param name="positions">Every vertex, in mesh space, in the model's own order.</param>
+    /// <remarks>
+    /// <para>
+    /// What makes a character animate rather than slide. GK3's characters have no skeleton,
+    /// so a clip stores where every vertex is on every frame and playing one means putting
+    /// them there.
+    /// </para>
+    /// <para>
+    /// Positions only. Normals stay as the model authored them, which is what the original
+    /// does — it swaps the position stream and leaves the rest — so lighting on a deformed
+    /// character is as right or wrong as it was in 1999.
+    /// </para>
+    /// <para>
+    /// A count that does not match the submesh is ignored rather than partly applied. A
+    /// clip aimed at the wrong model would otherwise rewrite whatever it happened to
+    /// overlap.
+    /// </para>
+    /// </remarks>
+    void ShapeMesh(
+        ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions);
+
     /// <summary>Moves a whole model that is already standing.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
     /// <param name="transform">Where it is now, replacing where it was placed.</param>

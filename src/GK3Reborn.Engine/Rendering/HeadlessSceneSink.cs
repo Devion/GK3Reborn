@@ -96,6 +96,13 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
+    /// <remarks>Nothing to reshape, for the same reason as posing.</remarks>
+    public void ShapeMesh(
+        ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions)
+    {
+    }
+
+    /// <inheritdoc/>
     /// <remarks>Nothing to pose: a sweep measures what was loaded rather than keeping it.</remarks>
     public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal)
     {

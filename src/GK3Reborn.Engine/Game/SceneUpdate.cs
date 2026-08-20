@@ -578,6 +578,16 @@ public sealed class SceneUpdate
                 {
                     geometry.PoseMesh(Target.Placement, mesh, pose);
                 }
+
+                // The shapes, where the clip has them. Without these a character is mesh
+                // groups sliding about: 3,085 of the corpus's 3,086 character clips deform.
+                foreach (int submesh in Clip.ShapedSubmeshes(mesh))
+                {
+                    if (Clip.ShapeOf(mesh, submesh, frame) is { } shape)
+                    {
+                        geometry.ShapeMesh(Target.Placement, mesh, submesh, shape);
+                    }
+                }
             }
 
             return true;

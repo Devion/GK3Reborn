@@ -168,7 +168,9 @@ public static class Application
         // The interface. GK3's own bitmap fonts rather than anything imported: they are in
         // the archives, they are the right size for the game's own screens, and reading one
         // is a smaller job than shaping a scalable typeface would be.
-        var clips = new ClipLibrary(archives);
+        // The shapes as well as the transforms: GK3's characters have no skeleton, so
+        // without them a walk is mesh groups sliding about rather than anybody walking.
+        var clips = new ClipLibrary(archives) { KeepVertices = true };
         var fonts = new FontLibrary(archives);
         GameHud? hud = null;
 

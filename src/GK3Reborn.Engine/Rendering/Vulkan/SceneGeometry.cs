@@ -48,6 +48,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>What each placement was, so a mesh can be re-placed from its own space.</summary>
     private readonly List<(ModFile Model, Matrix4x4 Transform)> _placed = [];
+
+    /// <summary>Shapes given since the last flush, by batch.</summary>
+    private readonly Dictionary<int, IReadOnlyList<Vector3>> _pendingShapes = [];
+
+    /// <summary>How many frames the renderer keeps in flight.</summary>
+    /// <remarks>
+    /// Must match <c>VulkanRenderer.FramesInFlight</c>. An animated batch keeps one vertex
+    /// buffer per frame so that writing this frame's pose cannot disturb one the device has
+    /// not finished reading.
+    /// </remarks>
+    private const int FramesInFlight = 2;
     private readonly Dictionary<string, VulkanTexture> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly VulkanTexture _fallbackTexture;
     private readonly VulkanTexture _whiteTexture;
@@ -244,6 +255,100 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             _batches[index] = _batches[index] with { Transform = meshToWorld };
         }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The positions are kept and written into a buffer by <see cref="Flush"/>, not written
+    /// here. A vertex buffer the device may still be reading cannot be overwritten from the
+    /// CPU, and the only place that knows which frame the device has finished with is the
+    /// renderer.
+    /// </remarks>
+    public void ShapeMesh(
+        ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (!_placements[placement.Id].TryGetValue(mesh, out List<int>? batches) ||
+            submesh < 0 || submesh >= batches.Count)
+        {
+            return;
+        }
+
+        _pendingShapes[batches[submesh]] = positions;
+    }
+
+    /// <summary>
+    /// Writes whatever has been reshaped into the buffers for a frame.
+    /// </summary>
+    /// <param name="frame">Which of the frames in flight is about to be recorded.</param>
+    /// <remarks>
+    /// <para>
+    /// One vertex buffer per frame in flight, cycled. Writing a single buffer from the CPU
+    /// while the device is still reading it for an earlier frame gives a character built
+    /// from two different poses at once; waiting for the device instead would give up the
+    /// pipelining that makes it worth having frames in flight at all.
+    /// </para>
+    /// <para>
+    /// A batch is only given animated buffers the first time something reshapes it, so a
+    /// scene where nothing deforms pays nothing.
+    /// </para>
+    /// </remarks>
+    public void Flush(int frame)
+    {
+        if (_pendingShapes.Count == 0)
+        {
+            return;
+        }
+
+        foreach ((int index, IReadOnlyList<Vector3> positions) in _pendingShapes)
+        {
+            Batch batch = _batches[index];
+
+            if (positions.Count != batch.Shape.Length)
+            {
+                continue;
+            }
+
+            VulkanBuffer[] buffers = batch.Animated ?? Animate(index, ref batch);
+            MeshVertex[] shape = batch.Shape;
+
+            for (int i = 0; i < shape.Length; i++)
+            {
+                shape[i] = shape[i] with { Position = positions[i] };
+            }
+
+            int slot = ((frame % buffers.Length) + buffers.Length) % buffers.Length;
+
+            buffers[slot].Write<MeshVertex>(shape);
+            _batches[index] = batch with { Live = buffers[slot] };
+        }
+
+        _pendingShapes.Clear();
+    }
+
+    /// <summary>Gives a batch the buffers it needs to be animated.</summary>
+    private VulkanBuffer[] Animate(int index, ref Batch batch)
+    {
+        VulkanBuffer[] buffers = new VulkanBuffer[FramesInFlight];
+
+        for (int i = 0; i < buffers.Length; i++)
+        {
+            buffers[i] = VulkanBuffer.CreateHostVisible(
+                _context,
+                (ulong)(batch.Shape.Length * Marshal.SizeOf<MeshVertex>()),
+                BufferUsageFlags.VertexBufferBit);
+        }
+
+        batch = batch with { Animated = buffers };
+        _batches[index] = batch;
+
+        return buffers;
     }
 
     /// <inheritdoc/>
@@ -591,7 +696,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     0)));
 
             ulong offset = 0;
-            Silk.NET.Vulkan.Buffer vertices = batch.Vertices.Handle;
+
+            // The animated buffer when something has reshaped this batch, and the one the
+            // model was built with otherwise.
+            Silk.NET.Vulkan.Buffer vertices = (batch.Live ?? batch.Vertices).Handle;
             vk.CmdBindVertexBuffers(command, 0, 1, in vertices, in offset);
             vk.CmdBindIndexBuffer(command, batch.Indices.Handle, 0, batch.IndexType);
             vk.CmdDrawIndexed(command, batch.IndexCount, 1, 0, 0, 0);
@@ -702,6 +810,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             Vertices = VulkanBuffer.CreateDeviceLocal<MeshVertex>(
                 _context, vertices, BufferUsageFlags.VertexBufferBit),
+            Shape = [.. vertices],
             Indices = indices,
             IndexCount = indexCount,
             IndexType = indexType,
@@ -776,6 +885,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private readonly record struct Batch
     {
         public required VulkanBuffer Vertices { get; init; }
+
+        /// <summary>The vertices as the model authored them, reused as scratch when animated.</summary>
+        public required MeshVertex[] Shape { get; init; }
+
+        /// <summary>One buffer per frame in flight, once anything has animated this batch.</summary>
+        public VulkanBuffer[]? Animated { get; init; }
+
+        /// <summary>Whichever animated buffer was written most recently.</summary>
+        public VulkanBuffer? Live { get; init; }
 
         public required VulkanBuffer Indices { get; init; }
 

@@ -56,6 +56,7 @@ public sealed class ActFile
     private static ReadOnlySpan<byte> Trailer => [0x01, 0x00, 0x00, 0x00, 0x00];
 
     private readonly Dictionary<int, List<MeshPose>> _transforms = [];
+    private readonly Dictionary<(int Mesh, int Submesh), List<VertexPose>> _shapes = [];
 
     private ActFile(string name, string model, int frames, int meshes)
     {
@@ -194,6 +195,45 @@ public sealed class ActFile
 
         return found ?? poses[0].MeshToLocal;
     }
+
+    /// <summary>
+    /// The shape of a submesh on a frame.
+    /// </summary>
+    /// <param name="mesh">Which mesh group.</param>
+    /// <param name="submesh">Which submesh within it.</param>
+    /// <param name="frame">Which frame.</param>
+    /// <returns>Its vertices, or null when the clip never shapes it.</returns>
+    /// <remarks>
+    /// The same closest-previous rule as <see cref="PoseOf"/>, and for the same reason: a
+    /// submesh whose shape has not changed is not written again.
+    /// </remarks>
+    public IReadOnlyList<Vector3>? ShapeOf(int mesh, int submesh, int frame)
+    {
+        if (!_shapes.TryGetValue((mesh, submesh), out List<VertexPose>? poses) || poses.Count == 0)
+        {
+            return null;
+        }
+
+        IReadOnlyList<Vector3> found = poses[0].Positions;
+
+        foreach (VertexPose pose in poses)
+        {
+            if (pose.Frame > frame)
+            {
+                break;
+            }
+
+            found = pose.Positions;
+        }
+
+        return found;
+    }
+
+    /// <summary>Which submeshes of a mesh group the clip shapes.</summary>
+    /// <param name="mesh">Which mesh group.</param>
+    /// <returns>Their indices, in order.</returns>
+    public IReadOnlyList<int> ShapedSubmeshes(int mesh) =>
+        [.. _shapes.Keys.Where(k => k.Mesh == mesh).Select(k => k.Submesh).Order()];
 
     /// <summary>Reads every frame.</summary>
     private void Body(ReadOnlySpan<byte> bytes, bool wantVertices)
@@ -417,10 +457,22 @@ public sealed class ActFile
 
         last[(mesh, submesh)] = positions;
 
-        if (wantVertices)
+        if (!wantVertices)
         {
-            Vertices.Add(new VertexPose(frame, mesh, submesh, positions));
+            return;
         }
+
+        var pose = new VertexPose(frame, mesh, submesh, positions);
+
+        Vertices.Add(pose);
+
+        if (!_shapes.TryGetValue((mesh, submesh), out List<VertexPose>? poses))
+        {
+            poses = [];
+            _shapes[(mesh, submesh)] = poses;
+        }
+
+        poses.Add(pose);
     }
 
     /// <summary>

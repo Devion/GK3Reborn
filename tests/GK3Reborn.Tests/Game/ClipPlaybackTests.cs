@@ -59,6 +59,14 @@ public sealed class ClipPlaybackTests
         public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal) =>
             Poses[(placement.Id, mesh)] = meshToLocal;
 
+        /// <summary>What each submesh was last reshaped to.</summary>
+        public Dictionary<(int Placement, int Mesh, int Submesh), IReadOnlyList<Vector3>> Shapes
+        { get; } = [];
+
+        public void ShapeMesh(
+            ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions) =>
+            Shapes[(placement.Id, mesh, submesh)] = positions;
+
         public void MoveModel(ModelPlacement placement, Matrix4x4 transform) =>
             _inner.MoveModel(placement, transform);
 
@@ -70,7 +78,10 @@ public sealed class ClipPlaybackTests
     }
 
     /// <summary>A one-mesh clip whose mesh moves along X, a unit a frame.</summary>
-    private static byte[] Clip(string model, int frames)
+    /// <param name="model">The model its header names.</param>
+    /// <param name="frames">How many frames.</param>
+    /// <param name="deform">Whether to also give it a one-vertex shape that climbs in Y.</param>
+    private static byte[] Clip(string model, int frames, bool deform = false)
     {
         List<byte> body = [];
         List<int> offsets = [];
@@ -87,6 +98,22 @@ public sealed class ClipPlaybackTests
                      { 1, 0, 0, 0, 1, 0, 0, 0, 1, frame, 0, 0 })
             {
                 block.AddRange(BitConverter.GetBytes(value));
+            }
+
+            if (deform)
+            {
+                // An uncompressed shape every frame: one vertex, climbing in Y. Real clips
+                // use deltas after frame 0; what is checked here is that the shape reaches
+                // the renderer, not the compression, which ActFileTests covers.
+                List<byte> shape = [.. BitConverter.GetBytes((ushort)0)];
+                shape.AddRange(BitConverter.GetBytes((ushort)1));
+                shape.AddRange(BitConverter.GetBytes(0f));
+                shape.AddRange(BitConverter.GetBytes((float)frame));
+                shape.AddRange(BitConverter.GetBytes(0f));
+
+                block.Add(0);
+                block.AddRange(BitConverter.GetBytes(shape.Count));
+                block.AddRange(shape);
             }
 
             body.AddRange(BitConverter.GetBytes((ushort)0));
@@ -142,7 +169,8 @@ public sealed class ClipPlaybackTests
         string clipName,
         string model,
         string? standing = null,
-        bool clipExists = true)
+        bool clipExists = true,
+        bool deform = false)
     {
         var sink = new Sink();
 
@@ -166,10 +194,13 @@ public sealed class ClipPlaybackTests
                     ? $"[HEADER]\n31\n\n[ACTIONS]\n1\n0,{clipName},0,0,0,0\n"
                     : null),
 
+            // Shapes kept, as the launcher keeps them: without that a clip's vertex poses
+            // are decoded and thrown away, and a character plays as sliding mesh groups.
             Clips = new ClipLibrary(n =>
                 clipExists && n.Equals($"{clipName}.ACT", StringComparison.OrdinalIgnoreCase)
-                    ? Clip(model, 31)
-                    : null),
+                    ? Clip(model, 31, deform)
+                    : null)
+            { KeepVertices = true },
         };
 
         return (update, sink);
@@ -188,6 +219,33 @@ public sealed class ClipPlaybackTests
 
         // Half a second in: frame seven, and the mesh has moved seven along.
         Assert.Equal(7f, sink.Poses[(0, 0)].Translation.X, 3);
+    }
+
+    [Fact]
+    public void A_clip_that_deforms_reshapes_the_submesh_as_well_as_posing_the_mesh()
+    {
+        // 3,085 of the corpus's 3,086 character clips deform. Without this a character is
+        // mesh groups sliding about rather than anybody moving.
+        (SceneUpdate update, Sink sink) = World("Breathe", "door_Breathe", "door", deform: true);
+
+        update.Play("Breathe");
+        update.Advance(0.5);
+
+        // Frame seven: the mesh is seven along and its one vertex is seven up.
+        Assert.Equal(7f, sink.Poses[(0, 0)].Translation.X, 3);
+        Assert.Equal(7f, Assert.Single(sink.Shapes[(0, 0, 0)]).Y, 3);
+    }
+
+    [Fact]
+    public void A_rigid_clip_reshapes_nothing()
+    {
+        (SceneUpdate update, Sink sink) = World("WrdbOpen", "door_WrdbOpen", "door");
+
+        update.Play("WrdbOpen");
+        update.Advance(0.5);
+
+        Assert.NotEmpty(sink.Poses);
+        Assert.Empty(sink.Shapes);
     }
 
     [Fact]
