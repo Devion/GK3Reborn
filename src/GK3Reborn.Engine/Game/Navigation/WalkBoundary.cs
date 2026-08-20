@@ -159,6 +159,68 @@ public sealed class WalkBoundary
         return new Vector3((u * Size.X) - Offset.X, 0f, (v * Size.Y) - Offset.Y);
     }
 
+    /// <summary>Whether an actor may stand on a texel.</summary>
+    /// <param name="x">Column, from the left.</param>
+    /// <param name="y">Row, from the top.</param>
+    /// <returns>True when the region there is open.</returns>
+    public bool IsTexelWalkable(int x, int y) => IsRegionOpen(RegionOf(x, y));
+
+    /// <summary>The nearest texel an actor may stand on.</summary>
+    /// <param name="world">The point. Only X and Z are read.</param>
+    /// <returns>Column and row, or null when nothing in the bitmap is open.</returns>
+    /// <remarks>
+    /// A brute-force sweep of the bitmap. These are sixty-four pixels square and this is
+    /// asked once at the ends of a walk, so the obvious thing is fast enough; the nearest
+    /// open texel to a point outside the room is what makes a click on a wall still walk
+    /// the actor up to it.
+    /// </remarks>
+    public (int X, int Y)? NearestWalkableTexel(Vector3 world)
+    {
+        (int x, int y) = ToTexel(world);
+
+        if (IsTexelWalkable(x, y))
+        {
+            return (x, y);
+        }
+
+        (int X, int Y)? nearest = null;
+        long nearestDistance = long.MaxValue;
+
+        for (int row = 0; row < Height; row++)
+        {
+            for (int column = 0; column < Width; column++)
+            {
+                if (!IsTexelWalkable(column, row))
+                {
+                    continue;
+                }
+
+                long dx = column - x;
+                long dy = row - y;
+                long distance = (dx * dx) + (dy * dy);
+
+                if (distance < nearestDistance)
+                {
+                    nearestDistance = distance;
+                    nearest = (column, row);
+                }
+            }
+        }
+
+        return nearest;
+    }
+
+    /// <summary>The nearest point an actor may stand on.</summary>
+    /// <param name="world">The point. Only X and Z are read.</param>
+    /// <returns>
+    /// The point itself when it is already open, the middle of the nearest open texel
+    /// otherwise, or null when the boundary has no open texel at all.
+    /// </returns>
+    public Vector3? NearestWalkable(Vector3 world) =>
+        IsWalkable(world)
+            ? world
+            : NearestWalkableTexel(world) is { } texel ? ToWorld(texel.X, texel.Y) : null;
+
     /// <summary>The region at a texel.</summary>
     /// <param name="x">Column, from the left.</param>
     /// <param name="y">Row, from the top.</param>

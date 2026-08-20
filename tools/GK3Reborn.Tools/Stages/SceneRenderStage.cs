@@ -1,6 +1,8 @@
-﻿using System.Globalization;
+using System.Globalization;
+using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Navigation;
@@ -43,6 +45,10 @@ public sealed class SceneRenderStage
     /// <param name="width">Image width.</param>
     /// <param name="height">Image height.</param>
     /// <param name="walkOverlay">Whether to draw the walk boundary over the floor.</param>
+    /// <param name="walkPath">
+    /// Two points to find a way between, as <c>from:to</c>. Either may be the name of one
+    /// of the scene's positions or a pair of world coordinates, <c>x,z</c>.
+    /// </param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -55,6 +61,7 @@ public sealed class SceneRenderStage
         int width,
         int height,
         bool walkOverlay,
+        string? walkPath,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -111,6 +118,11 @@ public sealed class SceneRenderStage
         if (walkOverlay)
         {
             DrawWalkOverlay(geometry, scene);
+        }
+
+        if (walkPath is { Length: > 0 })
+        {
+            DrawWalkPath(geometry, scene, walkPath, diagnostics);
         }
 
         renderer.SetLights(scene.Lights);
@@ -176,5 +188,103 @@ public sealed class SceneRenderStage
 
         _log($"walk overlay: {patches.Sum(p => p.Indices.Length / 6)} texels over the floor, " +
              $"regions {string.Join(", ", patches.Select(p => p.Region))}");
+    }
+
+    /// <summary>Finds a way across the scene and draws it.</summary>
+    /// <remarks>
+    /// The same check the region overlay is for, one step further on. A boundary can be
+    /// laid down correctly and still be unusable — a doorway one texel wide that no route
+    /// ever goes through, a gradient that pushes actors into a wall — and the only way to
+    /// see that is to ask for a walk across the room and look at what comes back.
+    /// </remarks>
+    private void DrawWalkPath(
+        SceneGeometry geometry, LoadedScene scene, string request, DiagnosticBag diagnostics)
+    {
+        if (scene.Walkable is not { } boundary || scene.Geometry is not { } bsp)
+        {
+            _log("walk path: the scene declares no boundary");
+            return;
+        }
+
+        string[] ends = request.Split(':');
+
+        if (ends.Length != 2 ||
+            Endpoint(scene, ends[0]) is not { } from ||
+            Endpoint(scene, ends[1]) is not { } to)
+        {
+            IEnumerable<string> names = scene.Definition.Positions().Select(p => p.Name);
+
+            diagnostics.Add(new Diagnostic(
+                "SCENE012",
+                DiagnosticSeverity.Error,
+                $"Cannot read '{request}' as a walk. Give it as from:to, where each end is " +
+                "a pair of world coordinates, x,z, or one of this scene's positions: " +
+                $"{string.Join(", ", names)}."));
+
+            return;
+        }
+
+        WalkRoute route = WalkPath.Find(boundary, from, to);
+
+        if (route.IsEmpty)
+        {
+            _log("walk path: nowhere to stand at either end");
+            return;
+        }
+
+        _log(string.Create(
+            CultureInfo.InvariantCulture,
+            $"walk path: {(route.ReachedGoal ? "arrives" : "gets as close as it can")} in " +
+            $"{route.Points.Count} leg(s), {route.Length():F1} units"));
+
+        foreach (Vector3 point in route.Points)
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  ({point.X:F1}, {point.Z:F1}) region " +
+                $"{boundary.RegionAt(point)}"));
+        }
+
+        // Blue when it arrives, red when it could only get near, so a route that stops at a
+        // shut door reads as one at a glance rather than looking like a short walk.
+        Vector3 colour = route.ReachedGoal
+            ? new Vector3(0.2f, 0.6f, 1f)
+            : new Vector3(0.95f, 0.2f, 0.2f);
+
+        if (WalkOverlay.Route(
+                bsp, scene.Definition.FloorObject(), boundary, route.Points, colour)
+            is not { } patch)
+        {
+            _log("walk path: no floor under the route to draw it on");
+            return;
+        }
+
+        geometry.AddOverlay("walk-route", patch.Positions, patch.Indices, patch.Colour);
+    }
+
+    /// <summary>Reads one end of a requested walk.</summary>
+    /// <returns>
+    /// The point, or null when the text is neither one of the scene's positions nor a pair
+    /// of coordinates.
+    /// </returns>
+    private static Vector3? Endpoint(LoadedScene scene, string text)
+    {
+        text = text.Trim();
+
+        foreach (ScenePosition position in scene.Definition.Positions())
+        {
+            if (string.Equals(position.Name, text, StringComparison.OrdinalIgnoreCase))
+            {
+                return position.Position;
+            }
+        }
+
+        string[] parts = text.Split(',');
+
+        return parts.Length == 2 &&
+            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
+            ? new Vector3(x, 0f, z)
+            : null;
     }
 }

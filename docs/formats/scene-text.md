@@ -192,6 +192,39 @@ out all produce a mask that looks perfectly reasonable until you put it on the f
 GK3Reborn.Tools render-scene --model R25 --timeblock 202P --walk-overlay --camera FR_DU1 ...
 ```
 
+### Finding a way across one
+
+`WalkPath.Find` answers it, following G-Engine's `WalkerBoundary::FindPath`: a
+breadth-first search over the texels, then two passes of conditioning. Not A* — G-Engine's
+note that the graph is enormous and its edges effectively unweighted holds here too, and a
+heuristic buys nothing the queue was not already giving.
+
+The search runs on a sparse lattice first, taking every fourth texel, and halves the step
+only when that fails. RC1's boundary is 392×507 — nearly 200,000 nodes — and most walks
+across it are over open ground that the coarsest pass finds at once. Stepping between
+lattice nodes still tests the texels in between, so a sparse search cannot cut through a
+wall; it can only miss a gap, which is what forces the halving. A doorway one texel wide
+at an odd column needs the full grid.
+
+Then the gradient earns its keep. The interior of the route is nudged towards lower
+indices until it is clear of the walls, and the route is string-pulled — where the walk
+from one node to the node after next is open, the one in between was an artefact of the
+grid. Both ends are left exactly where they were asked for: an actor told to stand on a
+mark stands on the mark. Either end is first snapped to the nearest open texel, so a walk
+that starts inside a wall leaves it and a click on the scenery walks up to the scenery.
+
+A route that cannot arrive is still returned, as the best effort at getting close, with
+`ReachedGoal` false. That is the difference between an actor who walks as far as the shut
+door and one who ignores the click.
+
+```bash
+GK3Reborn.Tools render-scene --model RC1 --timeblock 110A --walk-overlay     --walk-path GABRIEL_INIT:BOOKSTORE ...
+```
+
+draws it over the regions, blue when it arrives and red when it could not, and prints
+every corner with the region it stands on. Either end may be a position name or a pair of
+world coordinates, `x,z`; naming neither lists the scene's positions.
+
 ### Where actors stand
 
 `[ACTORS]` lines carry `pos=`, naming a spot in `[POSITIONS]` — `pos=GRACE_INIT`, and

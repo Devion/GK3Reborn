@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using GK3Reborn.Content.Manifests;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
@@ -111,6 +111,7 @@ public static class Program
                 options.Width,
                 options.Height,
                 options.WalkOverlay,
+                options.WalkPath,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height, diagnostics);
@@ -488,6 +489,10 @@ public static class Program
               --walk-overlay       Draw where actors may stand over the floor, shaded
                                    by region: green is open ground, darkening towards
                                    the walls, amber for the regions scripts open.
+              --walk-path FROM:TO  Find a way across the boundary and draw it, blue if
+                                   it arrives and red if it could only get near. Each
+                                   end is one of the scene's position names or a pair
+                                   of world coordinates, x,z.
 
             The toolchain never writes to the source installation.
             """);
@@ -518,6 +523,8 @@ public static class Program
 
         public bool WalkOverlay { get; init; }
 
+        public string? WalkPath { get; init; }
+
         public bool Force { get; init; }
 
         public bool Verify { get; init; }
@@ -534,6 +541,7 @@ public static class Program
             string? timeblock = null, camera = null, rayTracing = null;
             int width = 1024, height = 768;
             bool walkOverlay = false;
+            string? walkPath = null;
             bool force = false;
             bool verify = false;
             bool execute = false;
@@ -588,6 +596,9 @@ public static class Program
                     case "--walk-overlay":
                         walkOverlay = true;
                         break;
+                    case "--walk-path" when i + 1 < args.Length:
+                        walkPath = args[++i];
+                        break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
                 }
@@ -611,6 +622,7 @@ public static class Program
                 Width = width,
                 Height = height,
                 WalkOverlay = walkOverlay,
+                WalkPath = walkPath,
             };
         }
     }

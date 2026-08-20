@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using GK3Reborn.Formats.Scenes;
 
 namespace GK3Reborn.Game.Navigation;
@@ -43,6 +43,13 @@ public static class WalkOverlay
     /// than as the overlay.
     /// </remarks>
     private const float Lift = 0.4f;
+
+    /// <summary>How far above the floor a route floats, in scene units.</summary>
+    /// <remarks>
+    /// Higher than <see cref="Lift"/> so a route drawn over the region overlay wins the
+    /// depth test against it rather than fighting with it texel by texel.
+    /// </remarks>
+    private const float RouteLift = 1.2f;
 
     /// <summary>Builds the overlay for a scene.</summary>
     /// <param name="bsp">The scene's geometry, for the floor to lie on.</param>
@@ -103,6 +110,87 @@ public static class WalkOverlay
                 .Select(p => new WalkOverlayPatch(
                     p.Key, ColourOf(p.Key), [.. p.Value.Positions], [.. p.Value.Indices])),
         ];
+    }
+
+    /// <summary>Draws a route across the floor.</summary>
+    /// <param name="bsp">The scene's geometry, for the floor to lie on.</param>
+    /// <param name="floorObject">Which object in it is the floor; null tests all of them.</param>
+    /// <param name="boundary">The boundary the route was found on, for its scale.</param>
+    /// <param name="points">The route's corners, as <see cref="WalkPath"/> returned them.</param>
+    /// <param name="colour">What to draw it in, each channel from zero to one.</param>
+    /// <returns>
+    /// One patch carrying the whole route, or null when it has no points or no floor
+    /// beneath it. Its region is -1: a route is not a region of the boundary.
+    /// </returns>
+    /// <remarks>
+    /// A ribbon of overlapping squares sampled along the route rather than one quad per
+    /// segment, because each sample takes the height of the floor under it — so the ribbon
+    /// climbs a step and follows a ramp instead of sinking through either. It is drawn one
+    /// texel wide, the same as the cells it crosses, so a route reads at the scale of the
+    /// boundary that produced it rather than as a hairline nobody can see. It is drawn
+    /// above the region overlay so the two can be shown together, which is the check worth
+    /// doing: a route that leaves the green is a bug in one of them.
+    /// </remarks>
+    public static WalkOverlayPatch? Route(
+        BspFile bsp,
+        string? floorObject,
+        WalkBoundary boundary,
+        IReadOnlyList<Vector3> points,
+        Vector3 colour)
+    {
+        ArgumentNullException.ThrowIfNull(bsp);
+        ArgumentNullException.ThrowIfNull(boundary);
+        ArgumentNullException.ThrowIfNull(points);
+
+        if (points.Count == 0)
+        {
+            return null;
+        }
+
+        List<(Vector3 A, Vector3 B, Vector3 C)> floor = FloorTriangles(bsp, floorObject);
+        Vector2 texel = boundary.TexelSize;
+        float half = MathF.Max(0.5f, MathF.Min(texel.X, texel.Y) * 0.5f);
+
+        List<Vector3> positions = [];
+        List<uint> indices = [];
+
+        Mark(points[0]);
+
+        for (int i = 1; i < points.Count; i++)
+        {
+            Vector3 from = points[i - 1];
+            Vector3 to = points[i];
+            Vector3 step = to - from;
+            float distance = MathF.Sqrt((step.X * step.X) + (step.Z * step.Z));
+            int samples = Math.Max(1, (int)MathF.Ceiling(distance / half));
+
+            for (int sample = 1; sample <= samples; sample++)
+            {
+                Mark(Vector3.Lerp(from, to, (float)sample / samples));
+            }
+        }
+
+        return positions.Count == 0
+            ? null
+            : new WalkOverlayPatch(-1, colour, [.. positions], [.. indices]);
+
+        void Mark(Vector3 at)
+        {
+            if (HeightAt(floor, at.X, at.Z) is not { } height)
+            {
+                return;
+            }
+
+            float top = height + RouteLift;
+            uint start = (uint)positions.Count;
+
+            positions.Add(new Vector3(at.X - half, top, at.Z - half));
+            positions.Add(new Vector3(at.X + half, top, at.Z - half));
+            positions.Add(new Vector3(at.X + half, top, at.Z + half));
+            positions.Add(new Vector3(at.X - half, top, at.Z + half));
+
+            indices.AddRange([start, start + 1, start + 2, start, start + 2, start + 3]);
+        }
     }
 
     /// <summary>
