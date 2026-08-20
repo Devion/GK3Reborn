@@ -83,6 +83,22 @@ public interface ISceneSink
     /// </remarks>
     void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn);
 
+    /// <summary>Moves a whole model that is already standing.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="transform">Where it is now, replacing where it was placed.</param>
+    /// <remarks>
+    /// <para>
+    /// An actor walking. Every mesh moves together, keeping whatever <see cref="TurnMesh"/>
+    /// has done to any of them, because a head that is turned stays turned while its owner
+    /// crosses the room.
+    /// </para>
+    /// <para>
+    /// The same reasoning as turning a head: GK3's characters have no skeleton, so there is
+    /// nothing to animate but where their meshes are.
+    /// </para>
+    /// </remarks>
+    void MoveModel(ModelPlacement placement, Matrix4x4 transform);
+
     /// <summary>Adds a scene's geometry and its baked lighting.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">Its lightmaps, in surface order, if any.</param>

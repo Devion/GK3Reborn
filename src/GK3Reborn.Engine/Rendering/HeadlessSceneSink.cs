@@ -96,6 +96,15 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing to do: this counts what a scene contains rather than drawing it, and an
+    /// actor who has walked contains exactly what they did before.
+    /// </remarks>
+    public void MoveModel(ModelPlacement placement, Matrix4x4 transform)
+    {
+    }
+
+    /// <inheritdoc/>
     public void AddScene(
         BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null)
     {

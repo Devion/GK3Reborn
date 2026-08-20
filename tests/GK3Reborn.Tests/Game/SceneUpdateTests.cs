@@ -54,6 +54,12 @@ public sealed class SceneUpdateTests
 
         public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn) =>
             Turns[(placement.Id, mesh)] = turn;
+
+        /// <summary>Where each placed model has been moved to.</summary>
+        public Dictionary<int, Matrix4x4> Moves { get; } = [];
+
+        public void MoveModel(ModelPlacement placement, Matrix4x4 transform) =>
+            Moves[placement.Id] = transform;
     }
 
     private static ModFile Person()

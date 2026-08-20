@@ -114,6 +114,8 @@ public sealed class ActionRunner
             return new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: false);
         }
 
+        Approach(action);
+
         for (int i = 0; i < sources.Count; i++)
         {
             try
@@ -184,6 +186,55 @@ public sealed class ActionRunner
     }
 
     /// <summary>Reads a script into statements, or explains why it cannot.</summary>
+    /// <summary>
+    /// Takes the player to the thing before doing anything to it.
+    /// </summary>
+    /// <param name="action">The action, whose <c>approach</c> says how.</param>
+    /// <remarks>
+    /// <para>
+    /// An action file says <c>approach=WalkTo, target=TO_B25</c> beside the script, and it
+    /// is not part of the script: it is what has to be true before the script runs. Nothing
+    /// performed it, so Gabriel opened doors from across the room.
+    /// </para>
+    /// <para>
+    /// The walk is started and the script runs without waiting for it. That is what the
+    /// original does — the line of dialogue plays over the walk — and waiting here would
+    /// mean the runner had a clock, which it deliberately does not.
+    /// </para>
+    /// <para>
+    /// <c>TurnToModel</c> and <c>TurnTo</c> are approaches too, and they are turns rather
+    /// than walks; those go through the same hook with the same effect of pointing the
+    /// actor at the thing, because a walk that is already there is a turn.
+    /// </para>
+    /// </remarks>
+    private void Approach(NvcAction action)
+    {
+        if (_api.Walks is null ||
+            action.Approach is not { Length: > 0 } approach ||
+            action.Target is not { Length: > 0 } target)
+        {
+            return;
+        }
+
+        switch (approach.ToUpperInvariant())
+        {
+            case "WALKTO":
+            case "WALKTOANIMATION":
+                _api.Walks(_api.State.Ego, target, false);
+                break;
+
+            case "WALKTOSEE":
+            case "WALKTOSEEMODEL":
+            case "TURNTOMODEL":
+            case "TURNTO":
+                _api.Walks(_api.State.Ego, target, true);
+                break;
+
+            default:
+                break;
+        }
+    }
+
     /// <summary>
     /// Works out how long a waited statement takes without performing it.
     /// </summary>

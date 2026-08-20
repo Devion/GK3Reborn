@@ -246,10 +246,6 @@ public static class Application
 
             Report(diagnostics, verbose);
 
-            // Registered again for the new room: the scene functions close over the room
-            // they were given, and the last registration wins.
-            SceneScripting.Attach(api, scene, loader.Glances, room);
-
             // Whatever was waiting was waiting on the room that has gone.
             host.Scheduler.Clear();
 
@@ -261,6 +257,11 @@ public static class Application
                 scene.Actions,
                 new ActionRunner(api),
                 host.Scheduler);
+
+            // Registered again for the new room, and after the update exists because the
+            // walking functions need something to walk in. The scene functions close over
+            // the room they were given and the last registration wins.
+            SceneScripting.Attach(api, scene, loader.Glances, room, update);
 
             Console.WriteLine($"Update: {update.Movable} actor(s) can turn their head");
 

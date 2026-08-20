@@ -246,6 +246,39 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every batch of every mesh is re-placed against the new transform. A mesh that has
+    /// been turned keeps its turn, because the turn is folded in when it is applied and the
+    /// model's own <c>MeshToLocal</c> is what is being rebuilt from — so a head that was
+    /// looking at something goes on looking at it while its owner crosses the room.
+    /// </remarks>
+    public void MoveModel(ModelPlacement placement, Matrix4x4 transform)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        (ModFile model, Matrix4x4 _) = _placed[placement.Id];
+        _placed[placement.Id] = (model, transform);
+
+        foreach ((int mesh, List<int> batches) in _placements[placement.Id])
+        {
+            if (mesh >= model.Meshes.Count)
+            {
+                continue;
+            }
+
+            Matrix4x4 meshToWorld = model.Meshes[mesh].MeshToLocal * transform;
+
+            foreach (int index in batches)
+            {
+                _batches[index] = _batches[index] with { Transform = meshToWorld };
+            }
+        }
+    }
+
     /// <summary>
     /// Adds a flat, unlit, single-colour mesh drawn over the scene.
     /// </summary>

@@ -2,6 +2,7 @@ using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Actors;
+using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 
 namespace GK3Reborn.Game;
@@ -48,6 +49,11 @@ public sealed class SceneUpdate
     public const float TurnRate = 3f;
 
     private readonly List<Turning> _actors = [];
+    private readonly Dictionary<string, Walking> _walking =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, PlacedModel> _standing =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly Gk3SheepApi _api;
     private readonly Glances _glances;
     private readonly ISceneSink _geometry;
@@ -102,6 +108,109 @@ public sealed class SceneUpdate
 
             _actors.Add(new Turning(placed, head));
         }
+
+        // Under both names. A scene places `gab` and calls him GABRIEL, and scripts use
+        // whichever they feel like — the state's ego is the noun, an action's target is
+        // usually the model. Keying by one of them means half the walks find nobody.
+        foreach (PlacedModel placed in scene.Models)
+        {
+            if (placed.Kind != PlacedModelKind.Actor || !placed.Placement.Exists)
+            {
+                continue;
+            }
+
+            _standing[placed.Name] = placed;
+
+            if (placed.Noun is { Length: > 0 } noun)
+            {
+                _standing[noun] = placed;
+            }
+        }
+    }
+
+    /// <summary>How many actors are crossing the room.</summary>
+    public int OnTheMove => _walking.Count;
+
+    /// <summary>Where an actor is now, if the scene has one by that name.</summary>
+    /// <param name="actor">The actor's model name.</param>
+    /// <returns>Their position, or null.</returns>
+    public Vector3? Where(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        return _walking.TryGetValue(actor, out Walking? walking)
+            ? walking.Walker.Position
+            : _standing.TryGetValue(actor, out PlacedModel? placed)
+                ? placed.Transform.Translation
+                : null;
+    }
+
+    /// <summary>
+    /// Sets an actor walking to a place on the floor.
+    /// </summary>
+    /// <param name="actor">Their model name.</param>
+    /// <param name="destination">Where to go, in world space.</param>
+    /// <returns>How long the walk will take, or zero when there is no walking to do.</returns>
+    /// <remarks>
+    /// <para>
+    /// The route is found across the walk boundary rather than aimed straight at the
+    /// destination, so an actor asked to cross a room goes round the bed rather than
+    /// through it. A boundary that cannot reach the destination gives the closest it can,
+    /// which is what the original does: getting as near as the floor allows beats refusing
+    /// to move.
+    /// </para>
+    /// <para>
+    /// Asking again replaces the walk in progress. A script that changes its mind means it.
+    /// </para>
+    /// </remarks>
+    public double Walk(string actor, Vector3 destination)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (!_standing.TryGetValue(actor, out PlacedModel? placed))
+        {
+            Diagnostics.Add(new Diagnostic(
+                "GK3R3310", DiagnosticSeverity.Warning,
+                "A script asked an actor to walk who is not in the room.",
+                _scene.Name, null, "an actor the scene placed", actor,
+                "Check the name against the scene's [ACTORS] section."));
+
+            return 0;
+        }
+
+        Vector3 from = Where(actor) ?? placed.Transform.Translation;
+        float facing = _walking.TryGetValue(actor, out Walking? already)
+            ? already.Walker.Facing
+            : MathF.Atan2(placed.Transform.M31, placed.Transform.M33);
+
+        WalkRoute route = _scene.Walkable is { } boundary
+            ? WalkPath.Find(boundary, from, destination)
+
+            // No boundary is no obstacles, so the straight line is the route.
+            : new WalkRoute(true, [destination]);
+
+        var walker = new Walker(actor, route, from, facing);
+
+        if (!walker.Walking)
+        {
+            _walking.Remove(actor);
+            return 0;
+        }
+
+        _walking[actor] = new Walking(placed, walker);
+        return walker.Seconds;
+    }
+
+    /// <summary>Stops everyone where they stand.</summary>
+    /// <remarks>For leaving the room, where a walk in progress has nowhere to arrive.</remarks>
+    public void StopWalking()
+    {
+        foreach (Walking walking in _walking.Values)
+        {
+            walking.Walker.Stop();
+        }
+
+        _walking.Clear();
     }
 
     /// <summary>Diagnostics raised while the world went on by itself.</summary>
@@ -164,6 +273,26 @@ public sealed class SceneUpdate
         foreach (GameTimer timer in _api.State.Timers.Advance(seconds))
         {
             happened.Add(Fire(timer));
+        }
+
+        // Walking before turning heads: a head that is looking at something has to be
+        // aimed from where its owner is now, not from where they were a frame ago.
+        foreach (string who in _walking.Keys.ToList())
+        {
+            Walking walking = _walking[who];
+
+            if (!walking.Walker.Advance((float)seconds))
+            {
+                _walking.Remove(who);
+                happened.Add($"{who} arrived");
+            }
+
+            _geometry.MoveModel(walking.Placement, walking.Walker.Transform(walking.Scale));
+
+            foreach (Turning actor in _actors)
+            {
+                actor.MovedTo(who, walking.Walker.Position, walking.Walker.Facing);
+            }
         }
 
         foreach (Turning actor in _actors)
@@ -246,13 +375,41 @@ public sealed class SceneUpdate
                (outcome.Ran ? "ran" : "was refused");
     }
 
+    /// <summary>One actor crossing the room, and what to move when they do.</summary>
+    private sealed class Walking
+    {
+        public Walking(PlacedModel placed, Walker walker)
+        {
+            Placement = placed.Placement;
+            Walker = walker;
+
+            // The placement is scale, then a turn, then a move, so the scale comes back out
+            // as the length of a basis vector. Rebuilding the transform without it would
+            // resize the actor the moment they took a step.
+            Scale = new Vector3(
+                placed.Transform.M11, placed.Transform.M12, placed.Transform.M13).Length();
+
+            if (Scale <= 0)
+            {
+                Scale = 1f;
+            }
+        }
+
+        public ModelPlacement Placement { get; }
+
+        public Walker Walker { get; }
+
+        public float Scale { get; }
+    }
+
     /// <summary>One actor's head, and where it is on its way to.</summary>
     private sealed class Turning
     {
         private readonly string _name;
-        private readonly Vector3 _standing;
-        private readonly float _facing;
         private readonly float _eyes;
+
+        private Vector3 _standing;
+        private float _facing;
 
         private float _yaw;
         private float _pitch;
@@ -274,6 +431,23 @@ public sealed class SceneUpdate
         public ModelPlacement Placement { get; }
 
         public int Head { get; }
+
+        /// <summary>Tells a head where its owner has got to.</summary>
+        /// <remarks>
+        /// A glance is worked out from where the looker is standing, so an actor who walks
+        /// while looking at something would go on aiming their head at where the thing was
+        /// relative to where they set off from.
+        /// </remarks>
+        public void MovedTo(string actor, Vector3 standing, float facing)
+        {
+            if (!string.Equals(actor, _name, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _standing = standing;
+            _facing = facing;
+        }
 
         /// <summary>Moves the head towards wherever it is meant to be looking.</summary>
         /// <returns>True when it moved, and the geometry needs telling.</returns>

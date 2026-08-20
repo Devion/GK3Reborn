@@ -58,6 +58,72 @@ public sealed record LoadedScene(
     /// <summary>The props and actors loaded from files, never null.</summary>
     public IReadOnlyList<PlacedModel> Models => Placed ?? [];
 
+    /// <summary>
+    /// The middle of a named piece of the room's own geometry.
+    /// </summary>
+    /// <param name="objectName">The BSP object's name, such as <c>bthdr_scene</c>.</param>
+    /// <returns>Its centre in world space, or null when the room has no such object.</returns>
+    /// <remarks>
+    /// Most of what a script points at is not a model standing in the room but part of the
+    /// room itself — a door, a rack, a noticeboard. 2,120 of the corpus's 3,617 approaches
+    /// are <c>WalkToSee</c> and most of their targets are these, so without this a walk is
+    /// asked for and there is nowhere to walk to.
+    /// </remarks>
+    public Vector3? MiddleOf(string objectName)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        if (Geometry is not { } bsp)
+        {
+            return null;
+        }
+
+        int index = -1;
+
+        for (int i = 0; i < bsp.ObjectNames.Count; i++)
+        {
+            if (string.Equals(bsp.ObjectNames[i], objectName, StringComparison.OrdinalIgnoreCase))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+        {
+            return null;
+        }
+
+        Vector3 minimum = new(float.MaxValue);
+        Vector3 maximum = new(float.MinValue);
+        bool any = false;
+
+        foreach (BspPolygon polygon in bsp.Polygons)
+        {
+            if (polygon.SurfaceIndex < 0 ||
+                polygon.SurfaceIndex >= bsp.Surfaces.Count ||
+                bsp.Surfaces[polygon.SurfaceIndex].ObjectIndex != index)
+            {
+                continue;
+            }
+
+            foreach ((ushort a, ushort b, ushort c) in bsp.Triangulate(polygon))
+            {
+                minimum = Vector3.Min(minimum, bsp.Vertices[a]);
+                minimum = Vector3.Min(minimum, bsp.Vertices[b]);
+                minimum = Vector3.Min(minimum, bsp.Vertices[c]);
+
+                maximum = Vector3.Max(maximum, bsp.Vertices[a]);
+                maximum = Vector3.Max(maximum, bsp.Vertices[b]);
+                maximum = Vector3.Max(maximum, bsp.Vertices[c]);
+
+                any = true;
+            }
+        }
+
+        return any ? (minimum + maximum) / 2 : null;
+    }
+
     /// <summary>The soundtracks the scene plays, never null.</summary>
     public IReadOnlyList<string> Ambient => Soundtracks ?? [];
 

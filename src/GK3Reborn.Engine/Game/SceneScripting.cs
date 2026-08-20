@@ -35,15 +35,25 @@ public static class SceneScripting
     /// <param name="scene">The scene they act on.</param>
     /// <param name="glances">Where to record who is looking at what, if anywhere.</param>
     /// <param name="audio">The room's audio, or null to leave the sound calls recorded.</param>
+    /// <param name="world">What moves actors, or null to leave the walking calls recorded.</param>
     /// <remarks>
     /// Call it again for the next scene: the functions close over this one, and the last
     /// registration wins, which is what changing rooms means.
     /// </remarks>
     public static void Attach(
-        Gk3SheepApi api, LoadedScene scene, Glances? glances = null, SceneAudio? audio = null)
+        Gk3SheepApi api,
+        LoadedScene scene,
+        Glances? glances = null,
+        SceneAudio? audio = null,
+        SceneUpdate? world = null)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(scene);
+
+        if (world is not null)
+        {
+            Walking(api, scene, world);
+        }
 
         if (audio is not null)
         {
@@ -542,5 +552,106 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
     }
+
+    /// <summary>
+    /// Makes the walking calls move somebody.
+    /// </summary>
+    /// <param name="api">The host.</param>
+    /// <param name="scene">The room being crossed.</param>
+    /// <param name="world">What moves them.</param>
+    /// <remarks>
+    /// <para>
+    /// Both forms take a name and mean different things by it. <c>WalkTo</c> names a spot
+    /// the scene declares — <c>TO_B25</c>, the patch of floor in front of the bathroom door
+    /// — and <c>WalkToSee</c> names a <em>model</em>, meaning walk until you can see it.
+    /// Seeing is not worked out yet, so it walks to the model instead, which is the same
+    /// answer for anything in the open and too close for anything behind something else.
+    /// </para>
+    /// <para>
+    /// These say how long they take through <see cref="Gk3SheepApi.SecondsFor"/>, so a
+    /// waited walk holds up the line of dialogue that follows it rather than being spoken
+    /// over on the way.
+    /// </para>
+    /// </remarks>
+    private static void Walking(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
+    {
+        api.Walks = (actor, place, toModel) => Send(scene, world, actor, place, toModel);
+
+        api.Register("WalkTo", a => SheepValue.FromInt(
+            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
+
+        api.Register("WalkToAnimation", a => SheepValue.FromInt(
+            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
+
+        api.Register("WalkToSeeModel", a => SheepValue.FromInt(
+            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true)));
+
+        api.Register("WalkerBoundaryBlockRegion", _ => SheepValue.FromInt(0));
+
+        api.Register("StopWalking", _ =>
+        {
+            world.StopWalking();
+            return SheepValue.FromInt(0);
+        });
+    }
+
+    /// <summary>Starts a walk, and says how long it will take.</summary>
+    private static double Send(
+        LoadedScene scene, SceneUpdate world, string actor, string place, bool toModel)
+    {
+        if (Destination(scene, place, toModel) is not { } destination)
+        {
+            return 0;
+        }
+
+        return world.Walk(actor, destination);
+    }
+
+    /// <summary>Where a walking call is pointing.</summary>
+    /// <remarks>
+    /// A named spot on the floor, or the middle of a model. Tried in that order and
+    /// regardless of which call asked, because the corpus is not perfectly consistent about
+    /// which kind of name it hands to which function.
+    /// </remarks>
+    private static Vector3? Destination(LoadedScene scene, string place, bool toModel)
+    {
+        if (place.Length == 0)
+        {
+            return null;
+        }
+
+        if (!toModel && scene.Definition.PositionNamed(place) is { } spot)
+        {
+            return spot.Position;
+        }
+
+        foreach (PlacedModel placed in scene.Models)
+        {
+            if (string.Equals(placed.Name, place, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(placed.Noun, place, StringComparison.OrdinalIgnoreCase))
+            {
+                return Middle(placed);
+            }
+        }
+
+        // Most of what a script points at is part of the room rather than something
+        // standing in it — a door, a rack, a noticeboard.
+        return scene.Definition.PositionNamed(place)?.Position ?? scene.MiddleOf(place);
+    }
+
+    /// <summary>
+    /// The actor a walking call is about.
+    /// </summary>
+    /// <remarks>
+    /// The first argument when there is one, and whoever the player is otherwise. Scripts
+    /// write both, and a walk with no name is always about ego.
+    /// </remarks>
+    private static string Actor(Gk3SheepApi api, IReadOnlyList<SheepValue> arguments, int index) =>
+        index < arguments.Count && arguments[index].AsString() is { Length: > 0 } named
+            ? named
+            : api.State.Ego;
+
+    private static string Name(IReadOnlyList<SheepValue> arguments, int index) =>
+        index < arguments.Count ? arguments[index].AsString() : string.Empty;
 
 }

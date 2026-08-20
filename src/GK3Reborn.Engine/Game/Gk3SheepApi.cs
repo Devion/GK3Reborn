@@ -97,6 +97,17 @@ public sealed class Gk3SheepApi : ISheepApi
     public bool IsWaitable(string name) => _waitable.Contains(name);
 
     /// <summary>
+    /// What sends an actor across the room, when there is a room to cross.
+    /// </summary>
+    /// <remarks>
+    /// Given the actor, the place, and whether the place is a model rather than a spot on
+    /// the floor; answers how long the walk will take. Set by
+    /// <see cref="SceneScripting.Attach"/>, so a tool with no scene leaves it null and the
+    /// walking calls stay recorded, as they always were.
+    /// </remarks>
+    public Func<string, string, bool, double>? Walks { get; set; }
+
+    /// <summary>
     /// The animations, for the calls whose length is a frame count.
     /// </summary>
     /// <remarks>
@@ -144,8 +155,38 @@ public sealed class Gk3SheepApi : ISheepApi
             "STARTMORPHANIMATION" or "STARTMOM" =>
                 Animations?.SecondsOf(first) ?? 0,
 
+            // A walk is as long as the route is, which is not known until it is found —
+            // so this asks for one rather than guessing from the distance.
+            "WALKTO" or "WALKTOANIMATION" => Length(arguments, toModel: false),
+            "WALKTOSEEMODEL" => Length(arguments, toModel: true),
+
             _ => 0,
         };
+    }
+
+    /// <summary>
+    /// How long a walking call takes, by asking what the route would be.
+    /// </summary>
+    /// <remarks>
+    /// Answering this <em>starts</em> the walk, because the length of a route is not known
+    /// until it has been found and finding it twice would be the same work done twice. That
+    /// is fine and deliberate: a host is only asked how long a call takes when the call is
+    /// about to be made.
+    /// </remarks>
+    private double Length(IReadOnlyList<SheepValue> arguments, bool toModel)
+    {
+        if (Walks is null || arguments.Count == 0)
+        {
+            return 0;
+        }
+
+        string actor = arguments[0].AsString() is { Length: > 0 } named && arguments.Count > 1
+            ? named
+            : State.Ego;
+
+        string place = arguments.Count > 1 ? arguments[1].AsString() : arguments[0].AsString();
+
+        return Walks(actor, place, toModel);
     }
 
     /// <summary>Whether a function does something rather than being recorded.</summary>
