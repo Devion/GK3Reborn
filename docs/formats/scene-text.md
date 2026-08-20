@@ -85,7 +85,8 @@ Sections used so far:
 | `ACTORS` | `model=`, `noun=`, `idle=`, `talk=`, `ego` |
 | `MODELS` | `model=`, `noun=`, `type=`, `hidden` |
 | `ROOM_CAMERAS` | name, `angle={yaw, pitch}` in degrees, `pos={…}`, `Default` |
-| `CINEMATIC_CAMERAS`, `INSPECT_CAMERAS`, `DIALOGUE_CAMERAS` | same shape, different use |
+| `CINEMATIC_CAMERAS`, `DIALOGUE_CAMERAS` | same shape; a script may cut to any of them by name |
+| `INSPECT_CAMERAS` | keyed by `noun=` rather than named, so not somewhere a script cuts to |
 | `POSITIONS` | named spots with `pos`, `heading`, and the `camera` to cut to |
 | `REGIONS`, `TRIGGERS` | rectangles the game reacts to |
 | `ACTIONS`, `AMBIENT` | bare file names, one per line: the `.NVC` action files in scope and the `.STK` soundtracks to play |
@@ -243,6 +244,44 @@ out all produce a mask that looks perfectly reasonable until you put it on the f
 ```bash
 GK3Reborn.Tools render-scene --model R25 --timeblock 202P --walk-overlay --camera FR_DU1 ...
 ```
+
+### Pointing the camera
+
+A camera angle is a **name the scene gives** — `OPEN_WARDROBE`, `LONG_FROM_STAIRS` — so
+`SceneScripting` registers these beside the walker functions, and they mean nothing in
+the next room. Four sections of the file declare cameras and three of them are named:
+`ROOM_CAMERAS`, `CINEMATIC_CAMERAS` and `DIALOGUE_CAMERAS` are all fair game for a cut.
+`INSPECT_CAMERAS` is a different shape — keyed by `noun=` rather than named — and
+belongs to inspecting a thing rather than to pointing the camera somewhere.
+
+| function | who it obeys |
+| --- | --- |
+| `CutToCameraAngle(name)` | cuts only if the player left cinematics on, or a script has insisted |
+| `ForceCutToCameraAngle(name)` | cuts regardless — some things the story has to show |
+| `GlideToCameraAngle(name)` | the same, taking a moment it cannot take yet |
+| `SetForcedCameraCuts(n)`, `ClearForcedCameraCuts()` | the script's insisting |
+| `EnableCinematics()`, `DisableCinematics()` | the player's preference |
+
+The difference between the first two is the player's, and it is the original's own
+design: somebody who does not want the story steering the view keeps it, right up to the
+point where not seeing something would leave them stuck. `CinematicsEnabled` is in the
+state hash for that reason — two runs made with different answers to it diverge, and a
+harness should see why rather than wonder.
+
+A camera the scene does not name is reported (`GK3R3202`) rather than ignored, and the
+view stays where it was, as it does in the original. `AnyCameraNamed` does not fall back
+to the default the way `CameraNamed` does: a script asking for a camera that is not there
+is a mistake worth hearing about, not a reason to point the view somewhere else.
+
+```bash
+GK3Reborn.Tools render-scene --model CS3 --timeblock 212P --do WARDROBE:OPEN ...
+```
+
+Opening the wardrobe cuts to `OPEN_WARDROBE`, and with no `--camera` of its own the
+render shows where the story left the view rather than where the scene starts —
+`camera: OPEN_WARDROBE at (-93.9, 66.1, 266.5)`, looking straight at the wardrobe. The
+doors are still drawn shut, because the animation the same script starts is not played;
+what changed is the angle and the walk boundary.
 
 ### Putting something in the way
 

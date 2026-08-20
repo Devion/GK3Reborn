@@ -157,11 +157,18 @@ public sealed class SceneRenderStage
         _log($"lights: {scene.Lights.Count} authored " +
              $"({scene.Lights.Count(l => l.CastsShadows)} casting shadows in the bake)");
 
-        Camera camera = SceneLoader.CameraFor(scene, geometry, cameraName);
+        // An action can point the camera somewhere - CS3's wardrobe cuts to OPEN_WARDROBE
+        // as it swings open - so unless the caller asked for a particular angle, the render
+        // shows where the story left the view rather than where the scene starts.
+        string? angle = cameraName is { Length: > 0 }
+            ? cameraName
+            : request.State?.CameraAngle is { Length: > 0 } cut ? cut : null;
+
+        Camera camera = SceneLoader.CameraFor(scene, geometry, angle);
 
         _log(string.Create(
             CultureInfo.InvariantCulture,
-            $"camera: {scene.CameraNamed(cameraName)?.Name ?? "framed"} at " +
+            $"camera: {scene.CameraNamed(angle)?.Name ?? "framed"} at " +
             $"({camera.Position.X:F1}, {camera.Position.Y:F1}, {camera.Position.Z:F1})"));
 
         _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches");

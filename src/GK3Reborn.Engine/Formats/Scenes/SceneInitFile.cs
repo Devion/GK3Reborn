@@ -225,6 +225,19 @@ public sealed class SceneInitFile
     public IReadOnlyList<SceneCamera> CinematicCameras(bool includeConditional = true) =>
         CamerasIn("CINEMATIC_CAMERAS", includeConditional);
 
+    /// <summary>The cameras a conversation cuts between.</summary>
+    /// <param name="includeConditional">Whether to include conditional sections.</param>
+    /// <returns>The cameras.</returns>
+    /// <remarks>
+    /// Named like the others and carrying a <c>dialogue=</c> saying which conversation
+    /// they belong to, which is why they are read the same way: a script may cut to one by
+    /// name whether or not anybody is talking. <c>[INSPECT_CAMERAS]</c> is a different
+    /// shape — keyed by <c>noun=</c> rather than named — and belongs to inspecting a thing
+    /// rather than to pointing the camera somewhere.
+    /// </remarks>
+    public IReadOnlyList<SceneCamera> DialogueCameras(bool includeConditional = true) =>
+        CamerasIn("DIALOGUE_CAMERAS", includeConditional);
+
     /// <summary>The camera a scene opens on.</summary>
     /// <returns>The default camera, the first one, or null if the scene defines none.</returns>
     public SceneCamera? DefaultCamera()

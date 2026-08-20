@@ -47,6 +47,37 @@ public sealed class GameState
     /// <summary>What each character is carrying.</summary>
     public Inventory Inventory { get; } = new();
 
+    /// <summary>
+    /// Which of the scene's cameras the view is at, or empty for the scene's default.
+    /// </summary>
+    /// <remarks>
+    /// A name rather than a position, because that is what the scripts deal in and what
+    /// survives a scene being rebuilt. Cleared on changing location, where the names belong
+    /// to a room that is no longer there.
+    /// </remarks>
+    public string CameraAngle { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the story may cut the camera about even with cinematics turned off.
+    /// </summary>
+    /// <remarks>
+    /// <c>SetForcedCameraCuts</c>: a script about to show something the player has to see
+    /// says so, and the preference gives way for as long as it holds.
+    /// </remarks>
+    public bool ForcedCameraCuts { get; set; }
+
+    /// <summary>
+    /// Whether the player wants the story moving the camera at all.
+    /// </summary>
+    /// <remarks>
+    /// A preference the original also has, and one that changes what a script does:
+    /// <c>CutToCameraAngle</c> only cuts when this or <see cref="ForcedCameraCuts"/> is on,
+    /// while <c>ForceCutToCameraAngle</c> ignores both. It is in the state hash for that
+    /// reason — two runs made with different answers to it will diverge, and the harness
+    /// should see why rather than wonder.
+    /// </remarks>
+    public bool CinematicsEnabled { get; set; } = true;
+
     /// <summary>What is in front of the room.</summary>
     /// <remarks>
     /// State rather than presentation: scripts ask what is showing — <c>IsTopLayerInventory</c>
@@ -302,6 +333,9 @@ public sealed class GameState
         builder.Append(CultureInfo.InvariantCulture, $"score={Score}\n");
         builder.Append(CultureInfo.InvariantCulture, $"randomdraws={RandomDraws}\n");
         builder.Append(CultureInfo.InvariantCulture, $"mustchoose={MustChooseAnAction}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"camera={CameraAngle}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"forcedcuts={ForcedCameraCuts}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"cinematics={CinematicsEnabled}\n");
         builder.Append(
             CultureInfo.InvariantCulture,
             $"screens={string.Join(">", Screens.Open)}\n");

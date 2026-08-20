@@ -99,6 +99,30 @@ public sealed class SceneDefinition
     public IReadOnlyList<string> Soundtracks() =>
         Join(_general?.Soundtracks(), _specific?.Soundtracks());
 
+    /// <summary>The cameras a conversation cuts between.</summary>
+    public IReadOnlyList<SceneCamera> DialogueCameras() =>
+        Join(_general?.DialogueCameras(), _specific?.DialogueCameras());
+
+    /// <summary>Any camera the scene names, of whatever kind.</summary>
+    /// <param name="name">The camera's name.</param>
+    /// <returns>The camera, or null when the scene names none such.</returns>
+    /// <remarks>
+    /// What a script means by a camera angle: the original looks in every named list and
+    /// complains if it finds nothing. Unlike <see cref="CameraNamed"/> this does not fall
+    /// back to the default, because a script asking for a camera that is not there is a
+    /// mistake worth hearing about rather than a reason to point the view somewhere else.
+    /// </remarks>
+    public SceneCamera? AnyCameraNamed(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        bool Match(SceneCamera c) => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase);
+
+        return RoomCameras().FirstOrDefault(Match)
+            ?? CinematicCameras().FirstOrDefault(Match)
+            ?? DialogueCameras().FirstOrDefault(Match);
+    }
+
     /// <summary>Where the player starts.</summary>
     public ScenePosition? StartPosition() =>
         PositionNamed("START") ?? (Positions() is [ScenePosition first, ..] ? first : null);
@@ -152,11 +176,7 @@ public sealed class SceneDefinition
             return DefaultCamera();
         }
 
-        bool Match(SceneCamera c) => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase);
-
-        return RoomCameras().FirstOrDefault(Match)
-            ?? CinematicCameras().FirstOrDefault(Match)
-            ?? DefaultCamera();
+        return AnyCameraNamed(name) ?? DefaultCamera();
     }
 
     private static string? Later(string? specific, string? general) =>
