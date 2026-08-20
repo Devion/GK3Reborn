@@ -118,6 +118,13 @@ internal static class MeshShaders
         layout(location = 1) out vec4 outNormalTarget;
         layout(location = 2) out vec2 outMotion;
 
+        #ifdef RAY_TRACING
+        // The rig's light with nothing in the way. Kept apart from the rest so the
+        // denoised shadow can multiply it after the geometry is gone; a fragment shader
+        // cannot wait for a filter that has not run yet.
+        layout(location = 3) out vec4 outDirect;
+        #endif
+
         layout(set = 0, binding = 1) uniform Rig
         {
             // x is how many of the array are in use
@@ -452,6 +459,10 @@ internal static class MeshShaders
             outNormalTarget = vec4(normal, 0.0);
             outMotion = vec2(0.0);
 
+            #ifdef RAY_TRACING
+            outDirect = vec4(0.0);
+            #endif
+
             // In pixels, and from this frame back to the last, which is the direction a
             // filter reads it in: "the pixel I want from the last frame is this far away".
             //
@@ -472,7 +483,9 @@ internal static class MeshShaders
             // no amount of ray tracing should dim something that is its own light source.
             if (draw.shading.z > 0.5)
             {
-                outColor = vec4(albedo, 1.0);
+                // Alpha says how much occlusion applies to this pixel: none, here. A bulb
+                // does not get darker for being in a corner.
+                outColor = vec4(albedo, 0.0);
                 return;
             }
 
@@ -500,23 +513,20 @@ internal static class MeshShaders
                 return;
             }
 
-            vec3 direct = EvaluateRig(inWorld, normal, shadowed, shadowSamples);
-
-            float occlusion = 1.0;
-
-            #ifdef RAY_TRACING
-            if (occlusionRays > 0)
-            {
-                occlusion = Occlusion(inWorld, normal, occlusionRays, frame.tuning.x);
-            }
-            #endif
-
             // Indirect light. There is no gathered bounce yet, so the bake stands in for
             // it: scaled down, because it also contains the direct light being computed
-            // afresh above, and weighted less the higher the quality goes.
-            vec3 indirect = mix(kAmbient, baked * useLightmap, bakedWeight * useLightmap) * occlusion;
+            // afresh below, and weighted less the higher the quality goes.
+            vec3 indirect = mix(kAmbient, baked * useLightmap, bakedWeight * useLightmap);
 
-            outColor = vec4(albedo * (indirect + direct), 1.0);
+            #ifdef RAY_TRACING
+            // Neither term is occluded here. Both occlusions are traced once a pixel and
+            // filtered over many frames, which is the only way one ray a pixel becomes a
+            // smooth number, and neither is available until this pass has finished.
+            outColor = vec4(albedo * indirect, 1.0);
+            outDirect = vec4(albedo * EvaluateRig(inWorld, normal, 0, 1), 1.0);
+            #else
+            outColor = vec4(albedo * (indirect + EvaluateRig(inWorld, normal, 0, 1)), 1.0);
+            #endif
         }
         """;
 

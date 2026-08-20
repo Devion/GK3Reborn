@@ -572,6 +572,7 @@ public sealed unsafe class OverlayPipeline : IDisposable
                 colorFormat,
                 GBuffer.NormalFormat,
                 GBuffer.MotionFormat,
+                GBuffer.LightFormat,
             };
             var rendering = new PipelineRenderingCreateInfo
             {

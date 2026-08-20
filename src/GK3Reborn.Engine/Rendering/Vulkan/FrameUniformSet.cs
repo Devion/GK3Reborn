@@ -42,6 +42,14 @@ public sealed unsafe class FrameUniformSet : IDisposable
         _rayTracing = rayTracing;
     }
 
+    /// <summary>The buffer of lights, for anything outside this pass that needs them.</summary>
+    /// <remarks>
+    /// The tracing stage samples a light to shadow, and it has to sample by the same
+    /// weights the shading uses or the fraction it estimates is a fraction of something
+    /// else. Sharing the buffer is what keeps the two from drifting apart.
+    /// </remarks>
+    public VulkanBuffer Rig => _rig;
+
     /// <summary>How much ray tracing the shader is asked to do.</summary>
     public RayTracingSettings Settings { get; set; } = RayTracingSettings.For(RayTracingQuality.None);
 

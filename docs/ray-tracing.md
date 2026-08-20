@@ -249,3 +249,57 @@ look entirely plausible, so the numbers are the only honest check. Measured at
 A still frame is exactly zero everywhere, a walking character is the only thing moving in
 a still room, and a glide moves very nearly all of it. Every earlier version of this
 passed the eye and failed these four numbers.
+
+## Denoising
+
+Ray-traced occlusion is now traced once a pixel, in a compute pass of its own, and
+filtered rather than averaged on the spot. The filter is a port of AMD's FidelityFX
+denoiser (SDK 1.1.4, MIT); `DenoiserShaders` lists what changed in the port and why.
+
+### Why one ray beats eight
+
+The mesh shader used to trace several rays per light per pixel and average them. Eight
+rays cannot smooth a shadow edge — they can only sample it eight ways — and nothing
+averaged across frames, so the seed had to stay pinned to the pixel or the grain crawled.
+The result was a dither pattern locked to the screen, which is what read as dirt on
+Gabriel's face.
+
+One ray a pixel with a seed that changes every frame is a much worse *frame* and a much
+better *estimate*: the filter has motion vectors, so it can remember what each pixel
+answered over dozens of frames and turn a stream of single bits into a fraction.
+
+### What is denoised
+
+Not a sun's shadow — a GK3 room has a rig of lamps and any of them may be behind a wall,
+so there is no single light whose visibility means anything on its own. Each pixel picks
+one light with a probability proportional to what that light contributes to it, and traces
+one ray at it. The answer is one bit, and its expected value is exactly the fraction of
+the direct light that arrives, because sampling by contribution weights each light the way
+the shading already does. Occlusion rides the same five stages with its own copy of the
+buffers: one cosine-weighted ray, one bit, one fraction.
+
+### What that costs the frame
+
+The mesh pass can no longer finish a pixel, because neither occlusion term exists until
+its own depth and normals have been traced against. So it writes the two halves of the
+lighting to separate targets — the bake and the ambient in one, the rig's light in the
+other, neither occluded — and a pass afterwards multiplies each by its term and adds them.
+The sky and the interface moved into that second pass, on top of the picture rather than
+underneath it. Nothing changes when ray tracing is off: that path still draws straight
+into the swapchain in one scope.
+
+| | before | after |
+| --- | --- | --- |
+| rays a pixel | up to 8 per light, plus 8 for occlusion | 2 |
+| `R25` at High | 156 fps | 163 fps |
+| `MOP` at High | — | 152 fps |
+
+### What it does not fix
+
+Characters still smear. Their acceleration structure holds the pose the model was authored
+in — an `.ACT` clip rewrites their vertices every frame and only the transform is handed to
+the structure — so a ray leaving Gabriel's animated shoulder starts inside his rest-pose
+body and reports itself as shadowed. This is the same defect that was there before, and it
+is now the most visible thing in the frame precisely because everything around it came
+clean. Raising the bias does not help: the rest pose is not a fraction of a unit away, it
+is a different shape.

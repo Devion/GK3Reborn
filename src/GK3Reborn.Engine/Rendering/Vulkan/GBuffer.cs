@@ -21,7 +21,7 @@ namespace GK3Reborn.Rendering.Vulkan;
 public static class GBuffer
 {
     /// <summary>How many colour attachments a frame has, the picture included.</summary>
-    public const uint Targets = 3;
+    public const uint Targets = 4;
 
     /// <summary>The picture's attachment index.</summary>
     public const int Colour = 0;
@@ -31,6 +31,15 @@ public static class GBuffer
 
     /// <summary>The motion vector's attachment index.</summary>
     public const int Motion = 2;
+
+    /// <summary>The unshadowed direct light's attachment index.</summary>
+    /// <remarks>
+    /// Only the ray-traced variant writes it. The occlusion terms are not known while the
+    /// geometry is being drawn — they are traced from this pass's own depth and normals
+    /// and then filtered across frames — so the light the rig gives each pixel is kept
+    /// apart from the rest and multiplied by them afterwards.
+    /// </remarks>
+    public const int Direct = 3;
 
     /// <summary>World-space normals, signed and with room to spare.</summary>
     /// <remarks>
@@ -46,4 +55,12 @@ public static class GBuffer
     /// FidelityFX's passes expect and what makes the numbers readable when they are wrong.
     /// </remarks>
     public const Format MotionFormat = Format.R16G16Sfloat;
+
+    /// <summary>Light, in a format that has somewhere to put values above one.</summary>
+    /// <remarks>
+    /// Both colour targets are this while ray tracing, the picture included: the picture
+    /// at that point holds only half the lighting, and clamping half of a sum to one and
+    /// then adding the other half loses the highlights the two would have made together.
+    /// </remarks>
+    public const Format LightFormat = Format.R16G16B16A16Sfloat;
 }

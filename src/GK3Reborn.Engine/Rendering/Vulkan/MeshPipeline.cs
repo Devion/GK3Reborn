@@ -468,6 +468,7 @@ public sealed unsafe class MeshPipeline : IDisposable
                 colorFormat,
                 GBuffer.NormalFormat,
                 GBuffer.MotionFormat,
+                GBuffer.LightFormat,
             };
 
             var rendering = new PipelineRenderingCreateInfo

@@ -498,6 +498,7 @@ public sealed unsafe class SkyboxPipeline : IDisposable
                 colorFormat,
                 GBuffer.NormalFormat,
                 GBuffer.MotionFormat,
+                GBuffer.LightFormat,
             };
             var rendering = new PipelineRenderingCreateInfo
             {

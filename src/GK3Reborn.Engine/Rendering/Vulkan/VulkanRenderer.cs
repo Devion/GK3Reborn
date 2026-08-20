@@ -82,6 +82,22 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private Camera? _camera;
 
     private bool _rayTracingEnabled;
+    private ShadowDenoiser? _denoiser;
+    private CompositePipeline? _composite;
+    private bool _composed;
+    private bool _denoiserFailed;
+
+    /// <summary>The picture, while it is only half of one.</summary>
+    /// <remarks>
+    /// Ray tracing draws the room into this rather than into the swapchain, because what
+    /// the mesh pass produces at that point is the indirect half of the lighting and not
+    /// yet a picture. The two halves and their two occlusion terms meet in a pass of their
+    /// own afterwards.
+    /// </remarks>
+    private Image _sceneImage;
+    private DeviceMemory _sceneMemory;
+    private ImageView _sceneView;
+
     private readonly Image[] _extraImages = new Image[GBuffer.Targets - 1];
     private readonly DeviceMemory[] _extraMemory = new DeviceMemory[GBuffer.Targets - 1];
     private readonly ImageView[] _extraViews = new ImageView[GBuffer.Targets - 1];
@@ -196,6 +212,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             renderer.CreateSwapchain();
             renderer.CreateDepthBuffer();
             renderer.CreateGBuffer();
+            renderer.CreateSceneTarget();
             renderer.CreateCommandResources();
             renderer.CreateSynchronization();
             renderer.CreatePipelines();
@@ -555,6 +572,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
             DestroyCommandResources();
             DestroyDepthBuffer();
             DestroyGBuffer();
+            DestroySceneTarget();
+            _denoiser?.Dispose();
+            _denoiser = null;
+            _composite?.Dispose();
+            _composite = null;
+            _composed = false;
             DestroySwapchain();
             _vk.DestroyDevice(_device, null);
         }
@@ -1044,13 +1067,28 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         Transition(buffer, image, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
 
+        PrepareDeferred(buffer);
+
+        // Whether the room's pass produces a picture or only the raw materials of one.
+        bool deferred = Quality != RayTracingQuality.None &&
+                        _scene?.RayTracing is not null &&
+                        _rayTracedPipeline is not null &&
+                        _denoiser is not null &&
+                        _composite is not null;
+
         RenderingAttachmentInfo* attachments =
             stackalloc RenderingAttachmentInfo[(int)GBuffer.Targets];
+
+        if (deferred)
+        {
+            Transition(
+                buffer, _sceneImage, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
+        }
 
         attachments[GBuffer.Colour] = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
-            ImageView = view,
+            ImageView = deferred ? _sceneView : view,
             ImageLayout = ImageLayout.ColorAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
@@ -1167,22 +1205,32 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _vk.CmdDraw(buffer, 3, 1, 0, 0);
         }
 
-        // The sky after the room, so it fills only what the room left empty rather than
-        // shading every pixel and being painted over.
-        if (_camera is not null)
+        // The sky and the interface only belong here when this scope is producing the
+        // picture. When it is not, they wait for the pass that turns its parts into one.
+        if (!deferred)
         {
-            _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
-        }
+            // The sky after the room, so it fills only what the room left empty rather
+            // than shading every pixel and being painted over.
+            if (_camera is not null)
+            {
+                _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+            }
 
-        // On top of the room and inside the same pass: the interface has no business in
-        // the depth buffer, and starting a second pass to say so would cost a store and a
-        // load of the whole colour target.
-        _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+            // On top of the room and inside the same pass: the interface has no business
+            // in the depth buffer, and starting a second pass to say so would cost a store
+            // and a load of the whole colour target.
+            _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+        }
 
         _vk.CmdEndRendering(buffer);
 
         // Where everything was drawn, ready for the next frame's motion vectors.
         _scene?.Advance();
+
+        if (deferred)
+        {
+            Compose(buffer, image, view);
+        }
 
         Transition(buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr);
 
@@ -1190,6 +1238,163 @@ public sealed unsafe class VulkanRenderer : IDisposable
         {
             throw new VulkanException("Could not record the frame.");
         }
+    }
+
+    /// <summary>Builds the denoiser and the compositing pass, and keeps them pointed
+    /// at the right things.</summary>
+    /// <param name="buffer">Command buffer being recorded.</param>
+    /// <remarks>
+    /// Not at startup: none of it can be built until there is a scene with an acceleration
+    /// structure to trace against, and the quality setting can turn the whole path off.
+    /// </remarks>
+    private void PrepareDeferred(CommandBuffer buffer)
+    {
+        // Once it has failed it will fail the same way every frame, and retrying five
+        // shader compilations a frame is slow enough to look like the renderer hanging.
+        if (_denoiserFailed ||
+            Quality == RayTracingQuality.None ||
+            _context is null ||
+            _shaderCompiler is null ||
+            _scene?.RayTracing is null ||
+            _rayTracedFrames is null)
+        {
+            return;
+        }
+
+        if (_denoiser is null)
+        {
+            try
+            {
+                _denoiser = ShadowDenoiser.Create(
+                    _context, _shaderCompiler, (int)_extent.Width, (int)_extent.Height);
+
+                _composite ??= CompositePipeline.Create(_context, _shaderCompiler, _format);
+            }
+            catch (VulkanException error)
+            {
+                // Said out loud, because the room still draws without it — with the
+                // lighting it had before any of this existed — and a renderer that
+                // quietly loses a whole stage looks like one that never had it.
+                Console.Error.WriteLine(
+                    "WARNING GK3R3410: The occlusion denoiser could not be built, so " +
+                    "the room is lit without it. (" + error.Message + ")");
+
+                _denoiser?.Dispose();
+                _denoiser = null;
+                _composed = false;
+                _denoiserFailed = true;
+
+                return;
+            }
+
+            if (_denoiser is null)
+            {
+                return;
+            }
+
+            _denoiser.Settle(buffer);
+            _composed = false;
+        }
+
+        if (!_composed)
+        {
+            _denoiser.Bind(
+                _depthView,
+                _extraViews[GBuffer.Normal - 1],
+                _extraViews[GBuffer.Motion - 1],
+                _scene.RayTracing.Handle,
+                _rayTracedFrames.Rig.Handle,
+                _rayTracedFrames.Rig.Size);
+
+            _composite!.Bind(
+                _sceneView,
+                _extraViews[GBuffer.Direct - 1],
+                _denoiser.Shadow,
+                _denoiser.Occlusion);
+
+            _composed = true;
+        }
+
+        _denoiser.Point(_scene.RayTracing.Handle);
+    }
+
+    /// <summary>Traces the occlusion, filters it, and puts the picture together.</summary>
+    /// <param name="buffer">Command buffer being recorded.</param>
+    /// <param name="image">The swapchain image the frame is going to.</param>
+    /// <param name="view">Its view.</param>
+    /// <remarks>
+    /// Between the two scopes rather than inside either: the tracing reads the depth and
+    /// the normals the first one wrote, which cannot be sampled while they are still
+    /// attachments, and the sky and the interface belong on top of what this produces
+    /// rather than underneath it.
+    /// </remarks>
+    private void Compose(CommandBuffer buffer, Image image, ImageView view)
+    {
+        Transition(
+            buffer, _sceneImage, ImageLayout.ColorAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal);
+
+        for (int i = 0; i < _extraViews.Length; i++)
+        {
+            Transition(
+                buffer, _extraImages[i], ImageLayout.ColorAttachmentOptimal,
+                ImageLayout.ShaderReadOnlyOptimal);
+        }
+
+        _context!.Transition(
+            buffer, _depthImage, ImageLayout.DepthStencilAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
+
+        _denoiser!.Record(
+            buffer, _camera!, _depthImage, RayTracingSettings.For(Quality).AmbientOcclusionRadius);
+
+        _context.Transition(
+            buffer, _depthImage, ImageLayout.ShaderReadOnlyOptimal,
+            ImageLayout.DepthStencilAttachmentOptimal, ImageAspectFlags.DepthBit);
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = view,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+
+            // Nothing to load: the first thing drawn covers every pixel of it.
+            LoadOp = AttachmentLoadOp.DontCare,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        // The room's own depth, kept so the sky can still be told where the room is not.
+        var depthAttachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _depthView,
+            ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.DontCare,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = _extent },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+            PDepthAttachment = _depthView.Handle != 0 ? &depthAttachment : null,
+        };
+
+        _vk.CmdBeginRendering(buffer, in rendering);
+
+        _composite!.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+
+        if (_camera is not null)
+        {
+            _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+        }
+
+        _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+
+        _vk.CmdEndRendering(buffer);
     }
 
     private void Transition(CommandBuffer buffer, Image image, ImageLayout from, ImageLayout to)
@@ -1255,7 +1460,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// </remarks>
     private void CreateGBuffer()
     {
-        Format[] formats = [GBuffer.NormalFormat, GBuffer.MotionFormat];
+        Format[] formats = [GBuffer.NormalFormat, GBuffer.MotionFormat, GBuffer.LightFormat];
 
         for (int i = 0; i < _extraViews.Length; i++)
         {
@@ -1303,6 +1508,74 @@ public sealed unsafe class VulkanRenderer : IDisposable
             {
                 throw new VulkanException("Could not create a frame target's view.");
             }
+        }
+    }
+
+    /// <summary>Builds the half-lit picture the compositing pass finishes.</summary>
+    private void CreateSceneTarget()
+    {
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Format = GBuffer.LightFormat,
+            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+            Usage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit,
+            InitialLayout = ImageLayout.Undefined,
+        };
+
+        if (_vk.CreateImage(_device, in imageInfo, null, out _sceneImage) != Result.Success)
+        {
+            throw new VulkanException("Could not create the scene target.");
+        }
+
+        _vk.GetImageMemoryRequirements(_device, _sceneImage, out MemoryRequirements requirements);
+
+        _sceneMemory = AllocateDepthMemory(requirements);
+        _vk.BindImageMemory(_device, _sceneImage, _sceneMemory, 0);
+
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = _sceneImage,
+            ViewType = ImageViewType.Type2D,
+            Format = GBuffer.LightFormat,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LevelCount = 1,
+                LayerCount = 1,
+            },
+        };
+
+        if (_vk.CreateImageView(_device, in viewInfo, null, out _sceneView) != Result.Success)
+        {
+            throw new VulkanException("Could not create the scene target's view.");
+        }
+    }
+
+    private void DestroySceneTarget()
+    {
+        if (_sceneView.Handle != 0)
+        {
+            _vk.DestroyImageView(_device, _sceneView, null);
+            _sceneView = default;
+        }
+
+        if (_sceneImage.Handle != 0)
+        {
+            _vk.DestroyImage(_device, _sceneImage, null);
+            _sceneImage = default;
+        }
+
+        if (_sceneMemory.Handle != 0)
+        {
+            _vk.FreeMemory(_device, _sceneMemory, null);
+            _sceneMemory = default;
         }
     }
 
@@ -1476,11 +1749,23 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
 
         _vk.DeviceWaitIdle(_device);
+
+        // The denoiser holds a frame's worth of history at one size, and none of it means
+        // anything at another.
+        _denoiser?.Dispose();
+        _denoiser = null;
+        _composite?.Dispose();
+        _composite = null;
+        _composed = false;
+
         DestroyDepthBuffer();
+        DestroyGBuffer();
+        DestroySceneTarget();
         DestroySwapchain();
         CreateSwapchain();
         CreateDepthBuffer();
         CreateGBuffer();
+        CreateSceneTarget();
         _needsRecreate = false;
     }
 
