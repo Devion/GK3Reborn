@@ -122,6 +122,7 @@ public static class Program
                 options.NounMap,
                 options.Perform,
                 options.Advance,
+                options.Glance,
                 EnhancedDirectory(options),
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
@@ -579,6 +580,8 @@ public static class Program
                                    decides which rule applies.
               --advance SECONDS    Let that much time pass afterwards and perform
                                    whatever the story had asked for by then.
+              --glance ACTOR:AT    Turn an actor's head towards another actor, a
+                                   prop or an object in the geometry.
 
             The toolchain never writes to the source installation.
             """);
@@ -621,6 +624,8 @@ public static class Program
 
         public double Advance { get; init; }
 
+        public string? Glance { get; init; }
+
         public string? Variant { get; init; }
 
         public string? Tool { get; init; }
@@ -649,6 +654,7 @@ public static class Program
             string? nounMap = null;
             string? perform = null;
             double advance = 0;
+            string? glance = null;
             string? variant = null;
             string? tool = null;
             string? enhanced = null;
@@ -724,6 +730,9 @@ public static class Program
                     case "--advance" when i + 1 < args.Length:
                         advance = double.Parse(args[++i], CultureInfo.InvariantCulture);
                         break;
+                    case "--glance" when i + 1 < args.Length:
+                        glance = args[++i];
+                        break;
                     case "--variant" when i + 1 < args.Length:
                         variant = args[++i];
                         break;
@@ -762,6 +771,7 @@ public static class Program
                 NounMap = nounMap,
                 Perform = perform,
                 Advance = advance,
+                Glance = glance,
                 Variant = variant,
                 Tool = tool,
                 Enhanced = enhanced,

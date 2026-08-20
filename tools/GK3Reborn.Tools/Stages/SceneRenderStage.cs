@@ -60,6 +60,7 @@ public sealed class SceneRenderStage
     /// <param name="nounMap">Where to write a map of what is clickable, if anywhere.</param>
     /// <param name="perform">An action to carry out, as <c>noun:verb</c>.</param>
     /// <param name="advanceSeconds">How much time to let pass afterwards.</param>
+    /// <param name="glance">An actor to point at something, as <c>actor:target</c>.</param>
     /// <param name="enhanced">Higher-resolution textures to prefer, or null for none.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
@@ -78,6 +79,7 @@ public sealed class SceneRenderStage
         string? nounMap,
         string? perform,
         double advanceSeconds,
+        string? glance,
         string? enhanced,
         DiagnosticBag diagnostics)
     {
@@ -132,6 +134,12 @@ public sealed class SceneRenderStage
             loader.Enhanced = set;
             _log($"enhanced: {set.Count} textures available at {enhanced}");
         }
+
+        if (glance is { Length: > 0 })
+        {
+            PointSomebody(loader, archives, request, glance, diagnostics);
+        }
+
         LoadedScene? scene = loader.Load(geometry, request, diagnostics);
 
         if (scene is null || geometry.TriangleCount == 0)
@@ -789,6 +797,55 @@ public sealed class SceneRenderStage
         }
 
         foreach (Diagnostic diagnostic in runner.Diagnostics.Items.Concat(host.Diagnostics.Items))
+        {
+            diagnostics.Add(diagnostic);
+        }
+    }
+
+    /// <summary>Points an actor at something before the scene is built.</summary>
+    /// <remarks>
+    /// Two loads, because of an ordering that cannot be got round here: turning a head
+    /// means placing one of an actor's meshes differently, so the glance has to be decided
+    /// before the actor is placed — and where the thing being looked at <em>is</em> is only
+    /// known once everything has been placed. The first load is thrown away and exists to
+    /// answer that. A script does not have this problem: by the time one runs the room is
+    /// already standing, which is what an update loop will let this do too.
+    /// </remarks>
+    private void PointSomebody(
+        SceneLoader loader,
+        GameArchives archives,
+        SceneRequest request,
+        string wanted,
+        DiagnosticBag diagnostics)
+    {
+        string[] ends = wanted.Split(':');
+
+        if (ends.Length != 2)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE021",
+                DiagnosticSeverity.Error,
+                $"Cannot read '{wanted}' as a glance. Give it as actor:target."));
+
+            return;
+        }
+
+        var probe = new HeadlessSceneSink();
+        var quiet = new DiagnosticBag();
+
+        if (new SceneLoader(archives).Load(probe, request, quiet) is not { } standing)
+        {
+            _log($"glance: {request.Scene} would not load, so nobody is looking anywhere");
+            return;
+        }
+
+        var api = new Gk3SheepApi(request.State ?? new GameState());
+        SceneScripting.Attach(api, standing, loader.Glances);
+
+        SheepExpression.Evaluate(
+            $"LookitActor(\"{ends[0].Trim()}\", \"{ends[1].Trim()}\", \"\", 0)", api);
+
+        foreach (Diagnostic diagnostic in api.Diagnostics.Items)
         {
             diagnostics.Add(diagnostic);
         }

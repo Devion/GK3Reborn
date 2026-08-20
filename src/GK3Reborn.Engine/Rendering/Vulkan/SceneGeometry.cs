@@ -130,15 +130,26 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Loads a model.</summary>
     /// <param name="model">The parsed model.</param>
     /// <param name="transform">Where to place it, or null for its authored position.</param>
-    public void Add(ModFile model, Matrix4x4? transform = null)
+    /// <param name="meshTurns">Extra rotations for particular meshes, about their own origins.</param>
+    public void Add(
+        ModFile model,
+        Matrix4x4? transform = null,
+        IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
         Matrix4x4 placement = transform ?? Matrix4x4.Identity;
 
-        foreach (ModMesh mesh in model.Meshes)
+        for (int index = 0; index < model.Meshes.Count; index++)
         {
-            Matrix4x4 meshToWorld = mesh.MeshToLocal * placement;
+            ModMesh mesh = model.Meshes[index];
+
+            // Before the mesh's own transform, so the turn happens about the mesh's origin
+            // - which for a head is where the neck is, because that is where the artist
+            // put it - rather than about the model's feet.
+            Matrix4x4 meshToWorld = meshTurns is not null && meshTurns.TryGetValue(index, out Matrix4x4 turn)
+                ? turn * mesh.MeshToLocal * placement
+                : mesh.MeshToLocal * placement;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {

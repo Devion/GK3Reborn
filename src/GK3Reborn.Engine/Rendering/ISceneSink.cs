@@ -44,7 +44,15 @@ public interface ISceneSink
     /// <summary>Adds a model.</summary>
     /// <param name="model">The parsed model.</param>
     /// <param name="transform">Where to place it, or null for its authored position.</param>
-    void Add(ModFile model, Matrix4x4? transform = null);
+    /// <param name="meshTurns">
+    /// Extra rotations for particular meshes, applied about each mesh's own origin before
+    /// it is placed on the model. GK3's people have no skeleton — a character is a dozen
+    /// separate meshes, each with its own transform — so this is how a head turns.
+    /// </param>
+    void Add(
+        ModFile model,
+        Matrix4x4? transform = null,
+        IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null);
 
     /// <summary>Adds a scene's geometry and its baked lighting.</summary>
     /// <param name="scene">The parsed scene.</param>

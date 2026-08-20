@@ -54,16 +54,23 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
-    public void Add(ModFile model, Matrix4x4? transform = null)
+    public void Add(
+        ModFile model,
+        Matrix4x4? transform = null,
+        IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
         Matrix4x4 placement = transform ?? Matrix4x4.Identity;
         ModelCount++;
 
-        foreach (ModMesh mesh in model.Meshes)
+        for (int index = 0; index < model.Meshes.Count; index++)
         {
-            Matrix4x4 toWorld = mesh.MeshToLocal * placement;
+            ModMesh mesh = model.Meshes[index];
+
+            Matrix4x4 toWorld = meshTurns is not null && meshTurns.TryGetValue(index, out Matrix4x4 turn)
+                ? turn * mesh.MeshToLocal * placement
+                : mesh.MeshToLocal * placement;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {

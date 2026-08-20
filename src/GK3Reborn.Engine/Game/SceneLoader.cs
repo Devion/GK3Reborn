@@ -2,6 +2,7 @@ using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Audio;
+using GK3Reborn.Game.Actors;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
@@ -112,6 +113,17 @@ public sealed class SceneLoader
     /// exactly as it shipped.
     /// </remarks>
     public EnhancedTextures? Enhanced { get; set; }
+
+    /// <summary>
+    /// Who is looking at what as the scene is built.
+    /// </summary>
+    /// <remarks>
+    /// A glance is applied where an actor is placed, because a character has no skeleton
+    /// and turning a head means placing one of its meshes differently. Live glancing —
+    /// somebody turning to watch you cross the room — needs an update loop that does not
+    /// exist yet; this is the same mechanism, decided once.
+    /// </remarks>
+    public Glances Glances { get; } = new();
 
     /// <summary>How many textures came from the enhanced set rather than the archives.</summary>
     public int EnhancedTexturesUsed => _enhancedUsed;
@@ -587,7 +599,7 @@ public sealed class SceneLoader
             Matrix4x4 placement =
                 Matrix4x4.CreateRotationY(spot.Heading) * Matrix4x4.CreateTranslation(spot.Position);
 
-            geometry.Add(model, placement);
+            geometry.Add(model, placement, TurnedHead(actor.Name, model, spot));
 
             _log?.Invoke(
                 $"actor: {actor.Name} ({actor.Noun}) at {spot.Name}{(actor.IsEgo ? ", ego" : string.Empty)}");
@@ -741,5 +753,40 @@ public sealed class SceneLoader
         }
 
         return soundtracks;
+    }
+
+    /// <summary>
+    /// Where an actor's head should be pointing, if they are looking at anything.
+    /// </summary>
+    /// <remarks>
+    /// Null unless somebody has asked. A character with nothing to look at stands as the
+    /// artist modelled them, which is what every actor in the game has done until now.
+    /// </remarks>
+    private Dictionary<int, Matrix4x4>? TurnedHead(
+        string name, ModFile model, ScenePosition spot)
+    {
+        if (Glances.Of(name) is not { } glance || CharacterHead.Find(model) is not { } head)
+        {
+            return null;
+        }
+
+        // The head's own origin is where the neck is, and its height above the feet is
+        // what decides whether the actor has to look up or down.
+        float eyes = CharacterHead.PivotOf(model, head).Y;
+
+        (float yaw, float pitch) = Glances.Turn(spot.Position, spot.Heading, eyes, glance.Point);
+
+        _log?.Invoke(string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"glance: {name} looks at {glance.Target ?? "a point"}, head mesh {head} " +
+            $"turned {float.RadiansToDegrees(yaw):F0} degrees and " +
+            $"{float.RadiansToDegrees(pitch):F0} up"));
+
+        // Pitch about the mesh's own sideways axis, then yaw about its up axis: nodding
+        // inside a turn rather than turning a nodded head, which is what a neck does.
+        return new Dictionary<int, Matrix4x4>
+        {
+            [head] = Matrix4x4.CreateRotationX(-pitch) * Matrix4x4.CreateRotationY(yaw),
+        };
     }
 }
