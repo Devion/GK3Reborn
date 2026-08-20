@@ -256,17 +256,41 @@ Ray-traced occlusion is now traced once a pixel, in a compute pass of its own, a
 filtered rather than averaged on the spot. The filter is a port of AMD's FidelityFX
 denoiser (SDK 1.1.4, MIT); `DenoiserShaders` lists what changed in the port and why.
 
-### Why one ray beats eight
+### Rays across time, and rays within a frame
 
-The mesh shader used to trace several rays per light per pixel and average them. Eight
-rays cannot smooth a shadow edge — they can only sample it eight ways — and nothing
-averaged across frames, so the seed had to stay pinned to the pixel or the grain crawled.
-The result was a dither pattern locked to the screen, which is what read as dirt on
-Gabriel's face.
+The mesh shader used to trace several rays per light per pixel and average them on the
+spot, with nothing averaging across frames — so the seed had to stay pinned to the pixel
+or the grain crawled, and the result was a dither pattern locked to the screen. That is
+what read as dirt on Gabriel's face.
 
-One ray a pixel with a seed that changes every frame is a much worse *frame* and a much
-better *estimate*: the filter has motion vectors, so it can remember what each pixel
-answered over dozens of frames and turn a stream of single bits into a fraction.
+Averaging across frames is what fixes that, and it is what the filter is for. It does not
+follow that one ray a frame is enough. A single ray is an unbiased estimate of the
+fraction and a terrible one — its error is half, on every pixel, every frame — and only a
+long history hides that. **Anything that moves has no long history**: a walking character
+is uncovering new pixels and deforming under the ones it keeps, and a camera that is
+moving does the same to the whole frame. With one ray those surfaces showed the bit they
+drew rather than an average of anything.
+
+So the trace spends the quality level's ray budget within the frame as well: eight rays a
+pixel at High, four at Medium, for each of the two signals. The bitmask the filter chain
+is built on still gets one bit — the tile classification reads a whole tile as one word
+and has to — but the estimate itself reads a *fraction* written alongside it. Eight rays
+cut the per-frame error by two thirds before the filter sees it, and the filter then does
+what it is good at.
+
+Two things in the reprojection also had to be corrected before a moving surface could keep
+any history at all:
+
+- The damper that reduces the sample count when history disagrees with the local
+  neighbourhood divides by the neighbourhood's standard deviation, with a floor of 0.001
+  under it. That floor stops a divide by zero and does nothing about a divide by *nearly*
+  zero — and most of a character is a uniform neighbourhood, which sent the count to zero
+  every frame. The floor is a thousand times larger now, and the count never falls below
+  the one sample the pixel did take.
+- A pixel with no history to lean on now falls back to the seventeen-by-seventeen
+  neighbourhood the pass has already computed, over sixteen frames rather than eight. It
+  is the same quantity measured across space instead of across time, and it is what the
+  edge of a walking character has instead of a past.
 
 ### What is denoised
 
@@ -290,9 +314,10 @@ into the swapchain in one scope.
 
 | | before | after |
 | --- | --- | --- |
-| rays a pixel | up to 8 per light, plus 8 for occlusion | 2 |
-| `R25` at High | 156 fps | 163 fps |
-| `MOP` at High | — | 152 fps |
+| rays a pixel | up to 8 per light, plus 8 for occlusion | 8 and 8 at High, 4 and 4 at Medium |
+| `R25` at High | 156 fps | 155 fps |
+| `R25` at High, walking | — | 160 fps |
+| `MOP` at High | — | 159 fps |
 
 ### Characters, and how much occlusion to believe
 

@@ -113,6 +113,12 @@ internal static class DenoiserShaders
             uint data[];
         } occlusionMask;
 
+        // What each pixel actually measured, as a number rather than a coin flip. The
+        // bitmask above is still written, because the tile classification is built on it
+        // and reads a whole tile as one word; this is what the estimate itself uses.
+        layout(set = 0, binding = 6, r16f) writeonly uniform image2D shadowFraction;
+        layout(set = 0, binding = 7, r16f) writeonly uniform image2D occlusionFraction;
+
         layout(set = 0, binding = 5) uniform Rig
         {
             vec4 counts;
@@ -125,6 +131,8 @@ internal static class DenoiserShaders
             ivec2 size;
             float radius;
             float seed;
+            int samples;
+            int padding;
         } trace;
 
         const float kRayBias = 0.75;
@@ -213,7 +221,7 @@ internal static class DenoiserShaders
         // this way is what makes a single bit an unbiased estimate of the fraction of the
         // direct light that arrives: a light worth twice as much is picked twice as often,
         // so the average over frames weights each light exactly as the shading does.
-        bool ShadowRay(vec3 position, vec3 normal, vec2 pixel)
+        bool ShadowRay(vec3 position, vec3 normal, vec2 pixel, float salt)
         {
             int count = int(rig.counts.x);
             float total = 0.0;
@@ -231,7 +239,7 @@ internal static class DenoiserShaders
                 return true;
             }
 
-            float pick = Random(pixel, 5.0) * total;
+            float pick = Random(pixel, 5.0 + salt) * total;
             float running = 0.0;
 
             for (int i = 0; i < count; i++)
@@ -254,8 +262,8 @@ internal static class DenoiserShaders
                 vec3 bitangent;
                 Basis(toLight / distance, tangent, bitangent);
 
-                float angle = 6.2831853 * Random(pixel, 6.0);
-                float offset = rig.lights[i].cone.w * sqrt(Random(pixel, 7.0));
+                float angle = 6.2831853 * Random(pixel, 6.0 + salt);
+                float offset = rig.lights[i].cone.w * sqrt(Random(pixel, 7.0 + salt));
 
                 vec3 target = toLight +
                               (tangent * cos(angle) * offset) +
@@ -270,14 +278,14 @@ internal static class DenoiserShaders
             return true;
         }
 
-        bool OcclusionRay(vec3 position, vec3 normal, vec2 pixel)
+        bool OcclusionRay(vec3 position, vec3 normal, vec2 pixel, float salt)
         {
             vec3 tangent;
             vec3 bitangent;
             Basis(normal, tangent, bitangent);
 
-            float u = Random(pixel, 8.0);
-            float angle = 6.2831853 * Random(pixel, 9.0);
+            float u = Random(pixel, 8.0 + salt);
+            float angle = 6.2831853 * Random(pixel, 9.0 + salt);
             float radial = sqrt(u);
 
             vec3 direction = normalize(
@@ -303,8 +311,9 @@ internal static class DenoiserShaders
             float depth = inside ? texelFetch(depthTarget, pixel, 0).x : 1.0;
 
             // Sky, or nothing drawn. Lit and unoccluded, so an empty tile stays uniform.
-            bool lit = true;
-            bool open = true;
+            int samples = max(trace.samples, 1);
+            int litCount = samples;
+            int openCount = samples;
 
             if (inside && depth > 0.0 && depth < 1.0)
             {
@@ -315,8 +324,33 @@ internal static class DenoiserShaders
                 vec3 position = homogeneous.xyz / homogeneous.w;
                 vec3 normal = normalize(texelFetch(normalTarget, pixel, 0).xyz);
 
-                lit = ShadowRay(position, normal, vec2(pixel));
-                open = OcclusionRay(position, normal, vec2(pixel));
+                litCount = 0;
+                openCount = 0;
+
+                // Several rays rather than one. A single ray is an unbiased estimate of
+                // the fraction and a terrible one — its error is half, every frame — and
+                // only a long history hides that. A camera that is moving, or anything
+                // that is, has no long history, so what the filter is handed has to be
+                // worth something on its own.
+                for (int i = 0; i < samples; i++)
+                {
+                    float salt = float(i) * 13.0;
+
+                    litCount += ShadowRay(position, normal, vec2(pixel), salt) ? 1 : 0;
+                    openCount += OcclusionRay(position, normal, vec2(pixel), salt) ? 1 : 0;
+                }
+            }
+
+            bool lit = (litCount * 2) >= samples;
+            bool open = (openCount * 2) >= samples;
+
+            if (inside)
+            {
+                imageStore(shadowFraction, pixel,
+                    vec4(float(litCount) / float(samples), 0.0, 0.0, 0.0));
+
+                imageStore(occlusionFraction, pixel,
+                    vec4(float(openCount) / float(samples), 0.0, 0.0, 0.0));
             }
 
             uint bit = BitInTile(uvec2(gl_LocalInvocationID.xy));
@@ -374,6 +408,9 @@ internal static class DenoiserShaders
         // Three matrices will not fit in the guaranteed hundred and twenty-eight bytes of
         // push constants, so only what changes between the three blurring stages is
         // pushed.
+        // What this pixel measured this frame, as a fraction of its rays.
+        layout(set = 0, binding = 15) uniform texture2D fractionTarget;
+
         layout(set = 0, binding = 14) uniform Denoise
         {
             mat4 projectionInverse;
@@ -691,15 +728,16 @@ internal static class DenoiserShaders
             vec2 historyUv = uv + velocity;
             ivec2 historyPixel = ivec2(historyUv * vec2(Size()));
 
-            uint tile = mask.data[LinearTile(TileOf(uvec2(pixel)), uint(Size().x))];
-
             vec3 moments = vec3(0.0);
             float variance = 0.0;
             float blended = 0.0;
 
             if (receiver)
             {
-                float current = (tile & BitInTile(uvec2(pixel))) != 0u ? 1.0 : 0.0;
+                // The fraction, not the bit. The bitmask is what the tile classification
+                // and the neighbourhood are built on — both read a tile as one word —
+                // but the estimate itself should use everything the rays found.
+                float current = texelFetch(fractionTarget, pixel, 0).x;
 
                 vec3 before = IsDisoccluded(pixel, depth, velocity)
                     ? vec3(0.0)
@@ -733,18 +771,42 @@ internal static class DenoiserShaders
                 // A history that disagrees with where it landed is worth less. Rather
                 // than dropping it outright the sample count is damped, which lets the
                 // next few frames rebuild it.
+                //
+                // The floor under the deviation is a thousand times AMD's. Theirs is
+                // there to stop a divide by zero; at that size it does not stop the
+                // divide by *nearly* zero, and a neighbourhood that happens to be
+                // uniform — which most of a character is — sends the discontinuity into
+                // the hundreds and the exponential straight to zero. The count then
+                // resets every frame, the blend takes the current sample whole, and
+                // anything that moves shows the single bit it drew rather than an
+                // average of anything.
                 float discontinuity =
-                    (previous - neighbourhood) / max(0.5 * deviation, 0.001);
+                    (previous - neighbourhood) / max(0.5 * deviation, 0.05);
 
-                moments.z *= exp(-discontinuity * discontinuity / 20.0);
+                // And never below one sample, because this pixel did take one.
+                moments.z = max(moments.z * exp(-discontinuity * discontinuity / 20.0), 1.0);
 
                 if (moments.z < 16.0)
                 {
                     variance = max(variance, spatial) * max(16.0 - moments.z, 1.0);
                 }
 
+                // With little or no history to lean on, the seventeen-by-seventeen
+                // neighbourhood already computed is a far better estimate of this
+                // fraction than the one bit this pixel happened to draw. It is the same
+                // quantity measured across space instead of across time, and it is what
+                // a freshly uncovered pixel — the edge of a walking character, the wall
+                // behind them — has instead of a past.
+                // Sixteen frames rather than eight, because a character is not only
+                // uncovering new pixels as they walk — they are deforming, so the
+                // surface under a pixel is a different surface even where the history
+                // reprojects onto it, and the spatial estimate stays the better one for
+                // longer than a static disocclusion would need.
+                float trusted = clamp(moments.z / 16.0, 0.0, 1.0);
+                float fresh = mix(neighbourhood, current, trusted);
+
                 float weight = sqrt(max(8.0 - moments.z, 0.0) / 8.0);
-                blended = mix(blended, current, mix(0.05, 1.0, weight));
+                blended = mix(blended, fresh, mix(0.05, 1.0, weight));
             }
 
             imageStore(reprojection, pixel, vec4(blended, variance, 0.0, 0.0));

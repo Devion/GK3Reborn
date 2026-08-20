@@ -119,7 +119,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         Device device = context.Device;
 
         ComputePipeline trace = ComputePipeline.Create(
-            context, compiler, DenoiserShaders.ComposeTrace(), TraceBindings(), 80);
+            context, compiler, DenoiserShaders.ComposeTrace(), TraceBindings(), 88);
 
         ComputePipeline classify = ComputePipeline.Create(
             context, compiler, DenoiserShaders.ComposeClassify(), DenoiseBindings(), 8);
@@ -292,6 +292,14 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
             writes.Add(Buffered(
                 _traceSet, (uint)(3 + c), DescriptorType.StorageBuffer, &maskInfo));
 
+            var fractionInfo = new DescriptorImageInfo
+            {
+                ImageView = channel.Fraction.View,
+                ImageLayout = ImageLayout.General,
+            };
+
+            writes.Add(Storage(_traceSet, (uint)(6 + c), &fractionInfo));
+
             channel.Sets = Allocate(_classify.SetLayout, 5);
 
             for (int i = 0; i < 5; i++)
@@ -378,6 +386,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
                 writes.Add(Storage(set, 12, &outputInfo));
                 writes.Add(Storage(set, 13, &resultInfo));
                 writes.Add(Buffered(set, 14, DescriptorType.UniformBuffer, &uniformInfo));
+                writes.Add(Sampled(set, 15, &fractionInfo));
 
                 Commit(writes);
             }
@@ -429,7 +438,9 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
     /// <param name="camera">The camera the frame was drawn from.</param>
     /// <param name="depthImage">The frame's depth image, to keep for next time.</param>
     /// <param name="radius">How far an occlusion ray looks.</param>
-    public void Record(CommandBuffer command, Camera camera, Image depthImage, float radius)
+    /// <param name="samples">How many rays each pixel spends on each signal.</param>
+    public void Record(
+        CommandBuffer command, Camera camera, Image depthImage, float radius, int samples)
     {
         ArgumentNullException.ThrowIfNull(camera);
 
@@ -472,14 +483,16 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
 
             // A different seed each frame. Grain that stands still cannot be averaged
             // away, and averaging it away is now somebody's job.
-            (_frame % 64) * 0.61803398875f);
+            (_frame % 64) * 0.61803398875f,
+            Math.Max(samples, 1),
+            0);
 
         _vk.CmdBindPipeline(command, PipelineBindPoint.Compute, _trace.Handle);
         _vk.CmdBindDescriptorSets(
             command, PipelineBindPoint.Compute, _trace.Layout, 0, 1, in _traceSet, 0, null);
 
         _vk.CmdPushConstants(
-            command, _trace.Layout, ShaderStageFlags.ComputeBit, 0, 80, &push);
+            command, _trace.Layout, ShaderStageFlags.ComputeBit, 0, 88, &push);
 
         _vk.CmdDispatch(
             command,
@@ -640,6 +653,8 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         Binding(3, DescriptorType.StorageBuffer),
         Binding(4, DescriptorType.StorageBuffer),
         Binding(5, DescriptorType.UniformBuffer),
+        Binding(6, DescriptorType.StorageImage),
+        Binding(7, DescriptorType.StorageImage),
     ];
 
     private static DescriptorSetLayoutBinding[] DenoiseBindings() =>
@@ -659,6 +674,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         Binding(12, DescriptorType.StorageImage),
         Binding(13, DescriptorType.StorageImage),
         Binding(14, DescriptorType.UniformBuffer),
+        Binding(15, DescriptorType.SampledImage),
     ];
 
     private static DescriptorSetLayoutBinding Binding(uint index, DescriptorType type) =>
@@ -855,10 +871,13 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         /// <summary>What everything else reads.</summary>
         public required Surface Result { get; init; }
 
+        /// <summary>What this frame's rays actually found, before any filtering.</summary>
+        public required Surface Fraction { get; init; }
+
         public DescriptorSet[] Sets { get; set; } = [];
 
         public IEnumerable<Surface> Surfaces =>
-            [Scratch0, Scratch1, Moments[0], Moments[1], Result];
+            [Scratch0, Scratch1, Moments[0], Moments[1], Result, Fraction];
 
         public static Channel Create(VulkanContext context, int width, int height, int tiles)
         {
@@ -891,6 +910,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
                     Make(Format.R32G32B32A32Sfloat),
                 ],
                 Result = Make(Format.R32Sfloat),
+                Fraction = Make(Format.R16Sfloat),
             };
         }
 
@@ -911,7 +931,13 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
     /// <summary>What the tracing stage is told, in eighty bytes.</summary>
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct TraceConstants(
-        Matrix4x4 ViewProjectionInverse, int Width, int Height, float Radius, float Seed);
+        Matrix4x4 ViewProjectionInverse,
+        int Width,
+        int Height,
+        float Radius,
+        float Seed,
+        int Samples,
+        int Padding);
 
     /// <summary>Which of the three blurs this is, and how far apart its taps are.</summary>
     [StructLayout(LayoutKind.Sequential)]

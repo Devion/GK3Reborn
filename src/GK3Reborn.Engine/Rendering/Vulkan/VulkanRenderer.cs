@@ -1376,8 +1376,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
             buffer, _depthImage, ImageLayout.DepthStencilAttachmentOptimal,
             ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
 
+        RayTracingSettings settings = RayTracingSettings.For(Quality);
+
         _denoiser!.Record(
-            buffer, _camera!, _depthImage, RayTracingSettings.For(Quality).AmbientOcclusionRadius);
+            buffer,
+            _camera!,
+            _depthImage,
+            settings.AmbientOcclusionRadius,
+            settings.AmbientOcclusionRays);
 
         // Last frame's picture, which is the one there is to reflect. It ends every frame
         // as the source of the copy to the screen, so that is where it is coming from.
