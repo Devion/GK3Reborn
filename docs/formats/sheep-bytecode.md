@@ -234,6 +234,45 @@ state hash, since which character holds what decides whether puzzles can be solv
 place would let a player combine the same pair repeatedly, which is a puzzle-semantics
 question rather than a bookkeeping one.
 
+Carrying an item and having it **in hand** are different. GK3's inventory screen has one
+item selected at a time, and using an item on something is written in the action files as
+a verb named for the item, so `IsActiveInvItem` asks which of the things in the bag is the
+one about to be used. `SetEgoActiveInvItem` puts it there — not refused when the character
+is not carrying it, because the original logs a warning and does it anyway and scripts
+rely on that. Removing an item empties the hand that held it.
+
+## The six the corpus asked for and nothing answered
+
+`check-scenes` names every function a scene calls and no host implements. Six came from
+the action files' own case conditions, where an unimplemented function returns zero and
+warns once — so the condition reads as false, the action leaves the game, and nothing says
+so at the point it matters.
+
+| function | what it asks |
+| --- | --- |
+| `IsActiveInvItem` | is this the item in ego's hand |
+| `DoesSidneyFileExist` | has the player gathered this evidence in Sidney, the in-game computer |
+| `GetNounVerbCountInt`, `GetTopicCountInt` | the same counts as the named forms |
+| `GetRandomInt` | a number in a range, both ends inclusive |
+| `IsTopLayerInventory` | is the inventory screen on top |
+
+The `Int` forms exist because the original numbers nouns and verbs: its script host can
+only pass integers between a case and a function, so `n$` and `v$` are indices into the
+action manager's tables. Here they carry the names themselves, so the two spellings ask
+the same question and the suffix is only history.
+
+`GetRandomInt` is drawn from the state's own generator, seeded fixed — ADR 0004 forbids
+ambient nondeterminism in engine code, and the differential harness compares two runs of
+the same story. How many numbers have been drawn is part of the state hash: two runs that
+have drawn a different number of times will disagree about everything random from then
+on, and that should show up at once rather than at the first visible consequence.
+
+Sidney's files and the item in hand are in the hash for the same reason. Nothing writes
+Sidney's files yet — that is the analysis screen — so it reads as an investigation nobody
+has started, and `IsTopLayerInventory` is answered no because there is no inventory screen
+to be on top of.
+
 Together these took the unimplemented surface from 80 functions to 71, and faults across
 the whole corpus from 4 to 1 — `CallSheep` doing real work means the loops that poll for
-its effects now terminate.
+its effects now terminate. With the six above, `check-scenes` reports that every function
+the scene files and their action files call is implemented.

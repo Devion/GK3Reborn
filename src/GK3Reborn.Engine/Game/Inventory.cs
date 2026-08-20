@@ -18,6 +18,7 @@ namespace GK3Reborn.Game;
 public sealed class Inventory
 {
     private readonly Dictionary<string, HashSet<string>> _byOwner = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _active = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gives an item to someone.</summary>
     /// <param name="owner">Who receives it.</param>
@@ -45,7 +46,49 @@ public sealed class Inventory
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(item);
 
+        if (string.Equals(ActiveItemOf(owner), item.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            // An item that is gone cannot still be the one held ready.
+            _active.Remove(owner);
+        }
+
         return _byOwner.TryGetValue(owner, out HashSet<string>? items) && items.Remove(item.Trim());
+    }
+
+    /// <summary>What someone is holding ready to use on things.</summary>
+    /// <param name="owner">Whose hand to look in.</param>
+    /// <returns>The item, or null when they are holding nothing.</returns>
+    /// <remarks>
+    /// Distinct from carrying it. GK3's inventory screen has one item selected at a time,
+    /// and using an item on something is written in the action files as a verb named for
+    /// the item — so <c>IsActiveInvItem</c> asks which of the things in the bag is the one
+    /// currently in hand.
+    /// </remarks>
+    public string? ActiveItemOf(string owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        return _active.GetValueOrDefault(owner);
+    }
+
+    /// <summary>Puts an item in someone's hand, or empties it.</summary>
+    /// <param name="owner">Whose hand.</param>
+    /// <param name="item">The item, or null for none.</param>
+    /// <remarks>
+    /// Not refused when they are not carrying it. The original logs a warning and does it
+    /// anyway, and a script that sets an item active before granting it is relying on that.
+    /// </remarks>
+    public void SetActive(string owner, string? item)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+
+        if (item is { Length: > 0 })
+        {
+            _active[owner] = item.Trim();
+        }
+        else
+        {
+            _active.Remove(owner);
+        }
     }
 
     /// <summary>Whether someone is carrying an item.</summary>
@@ -71,6 +114,11 @@ public sealed class Inventory
             ? [.. items.OrderBy(i => i, StringComparer.OrdinalIgnoreCase)]
             : [];
     }
+
+    /// <summary>Everyone holding an item ready, and what, in a stable order.</summary>
+    public IReadOnlyList<(string Owner, string Item)> ActiveItems =>
+        [.. _active.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kv => (kv.Key, kv.Value))];
 
     /// <summary>Everyone who is carrying something, in a stable order.</summary>
     public IReadOnlyList<string> Owners =>

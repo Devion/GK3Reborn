@@ -228,10 +228,42 @@ public sealed class Gk3SheepApi : ISheepApi
         Register("DoesEgoHaveInvItem", a =>
             SheepValue.FromInt(State.Inventory.Has(State.Ego, Arg(a, 0)) ? 1 : 0));
 
+        // Which of the things in the bag is the one in hand. Using an item on something is
+        // written in the action files as a verb named for the item, so this is how a rule
+        // asks whether the player is about to use that one.
+        Register("IsActiveInvItem", a => SheepValue.FromInt(
+            string.Equals(
+                State.Inventory.ActiveItemOf(State.Ego),
+                Arg(a, 0),
+                StringComparison.OrdinalIgnoreCase) ? 1 : 0));
+        Register("SetEgoActiveInvItem", a =>
+        {
+            State.Inventory.SetActive(State.Ego, Arg(a, 0));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("DoesSidneyFileExist", a =>
+            SheepValue.FromInt(State.HasSidneyFile(Arg(a, 0)) ? 1 : 0));
+
+        Register("GetRandomInt", a => SheepValue.FromInt(State.NextRandom(Int(a, 0), Int(a, 1))));
+
+        // The Int forms take the noun and the verb as the identifiers a case's n$ and v$
+        // carry. The original numbers those, because its script host can only pass integers
+        // between a case and a function; this binds the names themselves, so the two forms
+        // ask the same question and the Int suffix is only history.
+        Register("GetNounVerbCountInt", a =>
+            SheepValue.FromInt(State.GetNounVerbCount(Arg(a, 0), Arg(a, 1))));
+        Register("GetTopicCountInt", a =>
+            SheepValue.FromInt(State.GetTopicCount(Arg(a, 0), Arg(a, 1))));
+
         // Explicitly answered rather than left unknown: scripts poll these constantly and
         // an unregistered warning for each would drown everything else.
         Register("IsActorNear", Zero);
         Register("IsWalkingActorNear", Zero);
+
+        // There is no inventory screen to be on top, and until there is, saying so is more
+        // honest than warning that the question cannot be answered.
+        Register("IsTopLayerInventory", Zero);
     }
 
     /// <summary>

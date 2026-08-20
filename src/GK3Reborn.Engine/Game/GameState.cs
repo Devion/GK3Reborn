@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using GK3Reborn.Foundation;
 
 namespace GK3Reborn.Game;
 
@@ -28,6 +29,19 @@ public sealed class GameState
     private readonly Dictionary<string, string> _actorLocations = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _locationCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _chatCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _sidneyFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DeterministicRandom _random = new(DefaultRandomSeed);
+
+    /// <summary>
+    /// Where the game's luck starts.
+    /// </summary>
+    /// <remarks>
+    /// Fixed, and the sequence is reproducible from it, because ADR 0004 forbids ambient
+    /// nondeterminism in engine code and the differential harness compares two runs of the
+    /// same story. A script asking for a random number is asking the state for one, and how
+    /// many it has asked for is part of what makes two runs comparable.
+    /// </remarks>
+    private const ulong DefaultRandomSeed = 0x9E3779B97F4A7C15;
 
     /// <summary>What each character is carrying.</summary>
     public Inventory Inventory { get; } = new();
@@ -51,6 +65,24 @@ public sealed class GameState
 
     /// <summary>The player's score.</summary>
     public int Score { get; private set; }
+
+    /// <summary>How many random numbers scripts have drawn.</summary>
+    /// <remarks>
+    /// Observable state, not a statistic: two runs that have drawn a different number of
+    /// times will disagree about everything random from then on, and a differential run
+    /// should see that immediately rather than at the first visible consequence.
+    /// </remarks>
+    public int RandomDraws { get; private set; }
+
+    /// <summary>The files the player has gathered in Sidney, in a stable order.</summary>
+    /// <remarks>
+    /// Sidney is the in-game computer, and its files are evidence: a photograph scanned in,
+    /// a shape traced off a map, a text translated. Scripts ask whether one is there before
+    /// letting the story move on. Nothing puts them there yet — that is the analysis screen
+    /// — so this reads as an investigation nobody has started.
+    /// </remarks>
+    public IReadOnlyList<string> SidneyFiles =>
+        [.. _sidneyFiles.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>Reads a game variable. Unset variables read as zero.</summary>
     public int GetVariable(string name) => _variables.GetValueOrDefault(Key(name));
@@ -176,6 +208,32 @@ public sealed class GameState
     /// <summary>Adds to the score.</summary>
     public void ChangeScore(int by) => Score += by;
 
+    /// <summary>Whether a file has been gathered in Sidney.</summary>
+    /// <param name="file">The file's name.</param>
+    /// <returns>True when the player has it.</returns>
+    public bool HasSidneyFile(string file) => _sidneyFiles.Contains(Key(file));
+
+    /// <summary>Records that a file has been gathered in Sidney.</summary>
+    /// <param name="file">The file's name.</param>
+    public void AddSidneyFile(string file) => _sidneyFiles.Add(Key(file));
+
+    /// <summary>Draws a random number, both ends included.</summary>
+    /// <param name="lower">Smallest value it may take.</param>
+    /// <param name="upper">Largest value it may take.</param>
+    /// <returns>The number.</returns>
+    /// <remarks>
+    /// Both ends are inclusive because the original's documentation says so, which is worth
+    /// stating because the generator underneath is upper-exclusive like every other. A
+    /// range the wrong way round yields its lower bound rather than throwing: scripts pass
+    /// computed bounds, and a crash is a worse answer than a dull one.
+    /// </remarks>
+    public int NextRandom(int lower, int upper)
+    {
+        RandomDraws++;
+
+        return upper <= lower ? lower : _random.NextInt32(lower, upper + 1);
+    }
+
     /// <summary>
     /// A hash of everything observable, for comparing runs.
     /// </summary>
@@ -192,6 +250,7 @@ public sealed class GameState
         builder.Append(CultureInfo.InvariantCulture, $"lastlocation={LastLocation}\n");
         builder.Append(CultureInfo.InvariantCulture, $"ego={Ego}\n");
         builder.Append(CultureInfo.InvariantCulture, $"score={Score}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"randomdraws={RandomDraws}\n");
 
         Append(builder, "flag", _flags.OrderBy(f => f, StringComparer.Ordinal).Select(f => (f, "1")));
         Append(builder, "var", Ordered(_variables));
@@ -203,12 +262,17 @@ public sealed class GameState
             .OrderBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => (kv.Key, kv.Value)));
 
+        Append(builder, "sidney", SidneyFiles.Select(f => (f, "1")));
+
         // Inventory is part of the comparable state: which character holds what decides
-        // whether puzzles can be solved.
+        // whether puzzles can be solved, and which of it is in hand decides what using it
+        // does.
         foreach (string owner in Inventory.Owners)
         {
             Append(builder, $"inv:{owner}", Inventory.ItemsOf(owner).Select(i => (i, "1")));
         }
+
+        Append(builder, "active", Inventory.ActiveItems.Select(a => (a.Owner, a.Item)));
 
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
