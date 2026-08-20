@@ -22,6 +22,7 @@
     <PackageReference Include="Silk.NET.Maths" />
     <PackageReference Include="Silk.NET.OpenAL" />
     <PackageReference Include="Silk.NET.OpenAL.Extensions.Soft" />
+    <PackageReference Include="Silk.NET.OpenAL.Extensions.Creative" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
     <PackageReference Include="Silk.NET.Shaderc" />
     <PackageReference Include="Silk.NET.Vulkan" />

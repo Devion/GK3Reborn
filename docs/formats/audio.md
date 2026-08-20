@@ -75,6 +75,40 @@ every room is silent while every line of dialogue plays.
 twenty-four sources handed out as things play, and a sound that cannot get one is dropped
 rather than queued — a footstep that arrives late is worse than one that never arrives.
 
+### In the room, not at the head
+
+A `.STK` either gives its sound a place or does not, and that is the whole of whether a
+fountain sounds like it is across the square. RC1's is at `{3113, 114, -2337}` and carries
+1,200 units; CSE's is 85 to 1,000. Room tone has no place because it comes from everywhere.
+
+The rolloff is **inverse, clamped at both ends**, which is what FMOD gives the original and
+what the two distances in a `.STK` mean: full volume within the minimum, the reciprocal of
+distance after it, and level again past the maximum. Where a sound is placed but says no
+distances, the game's own defaults are 200 and 2,000 units.
+
+| distance from RC1's fountain | gain |
+|---|---|
+| within 100 | 0 dB |
+| 200 | −6 dB |
+| 400 | −12 dB |
+| 800 | −18 dB |
+| 1,200 and beyond | −21.6 dB |
+
+The default OpenAL model is inverse *unclamped*, which keeps getting quieter for ever and
+never levels off; it has to be asked for.
+
+**Distance also takes the top off a sound**, and that is most of what tells a listener
+something is far away rather than merely quiet — a fountain across a square is a hiss, and
+the same fountain turned down is still a fountain at your feet. A low-pass through EFX,
+straight-line from no filtering at the sound's minimum distance to a quarter of the high
+frequencies at its maximum. It is a stand-in for air absorption rather than a model of it,
+and it knows nothing about what is in the way. A device with no EFX skips it and still
+places its sounds.
+
+**Only mono sounds can be placed.** OpenAL plays a stereo buffer flat at the head whatever
+position it is given. Every ambience in the game is mono, so this has not bitten, but a
+stereo one would silently ignore its own soundtrack.
+
 Buses are gain multipliers, and each voice remembers which bus it is on, so turning
 dialogue down turns down the line being spoken rather than only the next one.
 
@@ -89,6 +123,9 @@ No device is a warning and a quiet game, never a refusal to start.
 - **Soundtracks are a program**, not a file: pick one of these, wait four to nine seconds,
   repeat twice. The first sound of the first track is looped, which gives a room its tone
   but not its variety.
-- **Nothing is placed in the room.** Every voice is head-relative; positioning one needs the
-  emitter, which is a scene concern.
+- **A sound that follows something stays where it started.** `Follow=blk_sedan` means the
+  emitter moves with a model, and `Move` exists for it, but nothing asks the room where that
+  model has got to.
+- **One soundtrack a room.** A scene may list several — RC1 at ten in the morning names a
+  fountain, a room tone and birdsong — and only the first sound of the first one is played.
 - **No fades, no `StopMethod`**, both of which the `.STK` files specify.

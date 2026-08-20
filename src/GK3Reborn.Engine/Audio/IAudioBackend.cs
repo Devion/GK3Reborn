@@ -1,3 +1,4 @@
+using System.Numerics;
 using GK3Reborn.Formats.Audio;
 
 namespace GK3Reborn.Audio;
@@ -58,8 +59,28 @@ public interface IAudioBackend : IDisposable
     /// <param name="sound">The decoded sound.</param>
     /// <param name="bus">Which bus it is mixed on.</param>
     /// <param name="repeat">Whether it repeats until stopped.</param>
+    /// <param name="at">
+    /// Where it is coming from, or null to play it at the listener's head. A voice-over and
+    /// a menu click belong at the head; a fountain does not.
+    /// </param>
     /// <returns>A handle, or <see cref="AudioVoice.None"/> when nothing could play it.</returns>
-    AudioVoice Play(WavFile sound, AudioBus bus, bool repeat = false);
+    AudioVoice Play(WavFile sound, AudioBus bus, bool repeat = false, AudioPlacement? at = null);
+
+    /// <summary>Moves a sound that is already playing.</summary>
+    /// <param name="voice">The handle.</param>
+    /// <param name="position">Where it is now.</param>
+    /// <remarks>For an emitter that follows something — a car going past, a person walking.</remarks>
+    void Move(AudioVoice voice, Vector3 position);
+
+    /// <summary>Puts the listener where the player is.</summary>
+    /// <param name="position">Where they are.</param>
+    /// <param name="forward">Which way they are looking.</param>
+    /// <param name="up">Which way is up for them.</param>
+    /// <remarks>
+    /// Called once a frame from the camera. Without it every sound is at the origin facing
+    /// nowhere, which is a room where the far fountain is as loud as the near one.
+    /// </remarks>
+    void Listen(Vector3 position, Vector3 forward, Vector3 up);
 
     /// <summary>Stops a sound.</summary>
     /// <param name="voice">The handle <see cref="Play"/> returned.</param>
@@ -79,6 +100,36 @@ public interface IAudioBackend : IDisposable
 
     /// <summary>Reclaims whatever has finished. Called once a frame.</summary>
     void Update();
+}
+
+/// <summary>Where a sound is in the room, and how far it carries.</summary>
+/// <param name="Position">Where it comes from, in world space.</param>
+/// <param name="Minimum">
+/// How near you can get before it stops getting louder, in scene units. The game's own
+/// default is 200; a fountain is authored at 85 to 100.
+/// </param>
+/// <param name="Maximum">
+/// How far it carries before it stops getting quieter. The game's default is 2000.
+/// </param>
+/// <remarks>
+/// The two distances are the game's own, out of the <c>.STK</c> files, and they describe an
+/// inverse rolloff clamped at both ends: full volume within <paramref name="Minimum"/>,
+/// falling as the reciprocal of distance after that, and level again past
+/// <paramref name="Maximum"/>.
+/// </remarks>
+public readonly record struct AudioPlacement(Vector3 Position, float Minimum, float Maximum)
+{
+    /// <summary>How near a sound has to be for full volume when nothing says.</summary>
+    public const float DefaultMinimum = 200f;
+
+    /// <summary>How far a sound carries when nothing says.</summary>
+    public const float DefaultMaximum = 2000f;
+
+    /// <summary>A placement with the game's own default distances.</summary>
+    /// <param name="position">Where the sound is.</param>
+    /// <returns>The placement.</returns>
+    public static AudioPlacement At(Vector3 position) =>
+        new(position, DefaultMinimum, DefaultMaximum);
 }
 
 /// <summary>A sound that is playing.</summary>

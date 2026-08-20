@@ -1,3 +1,4 @@
+using System.Numerics;
 using GK3Reborn.Audio;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
@@ -83,10 +84,22 @@ public sealed class SceneAudio
     /// <summary>Starts the room's looping bed, replacing whatever was there.</summary>
     /// <param name="name">Its name, or null to stop.</param>
     /// <returns>True when something is now playing.</returns>
-    public bool Loop(string? name)
+    public bool Loop(string? name) => Loop(name, null);
+
+    /// <summary>Starts a looping ambience, somewhere in the room.</summary>
+    /// <param name="name">The sound, or null to stop whatever is playing.</param>
+    /// <param name="at">Where it is, or null to play it at the listener's head.</param>
+    /// <returns>True when something is playing.</returns>
+    /// <remarks>
+    /// A soundtrack says where its sound is and how far it carries — RC1's fountain is at
+    /// (3113, 114, −2337) and reaches 1,200 units. Played at the head instead, it is as loud
+    /// across the square as it is standing in it.
+    /// </remarks>
+    public bool Loop(string? name, AudioPlacement? at)
     {
         _pending = null;
         _waiting = null;
+        _where = null;
 
         if (_ambience.Exists)
         {
@@ -101,14 +114,19 @@ public sealed class SceneAudio
             return false;
         }
 
-        _ambience = _backend.Play(sound, AudioBus.Ambience, repeat: true);
+        _ambience = _backend.Play(sound, AudioBus.Ambience, repeat: true, at);
         Ambience = _ambience.Exists ? name : null;
+        AmbienceAt = _ambience.Exists ? at : null;
 
         return _ambience.Exists;
     }
 
     private Task<WavFile?>? _pending;
     private string? _waiting;
+    private AudioPlacement? _where;
+
+    /// <summary>Where the ambience is in the room, or null when it plays at the head.</summary>
+    public AudioPlacement? AmbienceAt { get; private set; }
 
     // Where a run of lines has got to, so that ContinueDialogue knows what "the next two"
     // means without the script repeating the plate.
@@ -150,6 +168,11 @@ public sealed class SceneAudio
                         Silence();
 
                         _waiting = sound.Name;
+                        _where = PlacementOf(sound);
+
+                        // Said now rather than when the decode lands, because the caller
+                        // asks straight away and a soundtrack takes a moment to decode.
+                        AmbienceAt = _where;
                         _pending = Task.Run(() => _sounds.Read(sound.Name));
 
                         return sound.Name;
@@ -160,6 +183,38 @@ public sealed class SceneAudio
 
         return null;
     }
+
+    /// <summary>Where a soundtrack's sound is, if it says.</summary>
+    /// <param name="sound">The sound, as its soundtrack describes it.</param>
+    /// <returns>Its placement, or null when it belongs at the listener.</returns>
+    /// <remarks>
+    /// <para>
+    /// A <c>.STK</c> either gives a sound a place in the room or does not. Those that do
+    /// carry <c>3D=1</c> with a position and a pair of distances — CSE's fountain is 85 to
+    /// 1,000 units, a passing car is 250 to 2,500 — and those that do not are room tone,
+    /// which belongs at the head because it comes from everywhere.
+    /// </para>
+    /// <para>
+    /// A sound that follows something is not placed here. <c>Follow=blk_sedan</c> means the
+    /// emitter moves with a model, and where that model is at any moment is the room's
+    /// business rather than this file's; until something asks the room, following sounds
+    /// play at their authored spot, which is where the model starts.
+    /// </para>
+    /// </remarks>
+    public static AudioPlacement? PlacementOf(SoundtrackSound sound) =>
+        sound.Is3D
+            ? new AudioPlacement(
+                sound.Position,
+                sound.MinDistance > 0 ? sound.MinDistance : AudioPlacement.DefaultMinimum,
+                sound.MaxDistance > 0 ? sound.MaxDistance : AudioPlacement.DefaultMaximum)
+            : null;
+
+    /// <summary>Puts the listener where the player is looking from.</summary>
+    /// <param name="position">The camera's position.</param>
+    /// <param name="forward">Which way it looks.</param>
+    /// <param name="up">Which way is up for it.</param>
+    public void Listen(Vector3 position, Vector3 forward, Vector3 up) =>
+        _backend.Listen(position, forward, up);
 
     /// <summary>Says a run of lines, one after another.</summary>
     /// <param name="plate">The licence plate the script gave.</param>
@@ -271,9 +326,11 @@ public sealed class SceneAudio
             _pending = null;
             _waiting = null;
 
+            AudioPlacement? at = _where;
+
             if (finished.IsCompletedSuccessfully && finished.Result is not null)
             {
-                Loop(name);
+                Loop(name, at);
             }
         }
 

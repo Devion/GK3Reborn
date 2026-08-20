@@ -357,7 +357,14 @@ public static class Application
             // What the room sounds like when nothing is happening in it.
             if (room?.StartAmbience(scene.AmbienceRead) is { } bed)
             {
-                Console.WriteLine($"Ambience: {bed}");
+                Console.WriteLine(
+                    $"Ambience: {bed}" +
+                    (room.AmbienceAt is { } at
+                        ? string.Create(
+                            CultureInfo.InvariantCulture,
+                            $" at {at.Position:F0}, full within {at.Minimum:F0} units and " +
+                            $"as quiet as it gets past {at.Maximum:F0}")
+                        : ", at the listener"));
             }
 
             if (first)
@@ -661,6 +668,14 @@ public static class Application
             camera.Update(window, delta);
 
             Camera view = camera.ToCamera(template);
+
+            // Where the player's ears are. Without this every sound plays at the origin
+            // facing nowhere, so the fountain across the square is as loud as the one you
+            // are standing in.
+            room?.Listen(
+                view.Position,
+                Vector3.Normalize(view.Target - view.Position),
+                view.Up);
 
             // What the pointer is over. Asked every frame and free of consequences by
             // design — the resolver evaluates conditions to answer, so anything that wrote
