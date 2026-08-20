@@ -11,8 +11,11 @@ publish/
 # Content workspace: generated content never enters source control.
 # See Plan/02-content-pipeline.md section 3.
 ContentWorkspace/
-content/
-libs/
+/content/
+/libs/
+
+# Renders written next to the solution by a headless run.
+/*.png
 
 # Original game data must never be committed. See Plan/README.md item 10.
 *.brn
