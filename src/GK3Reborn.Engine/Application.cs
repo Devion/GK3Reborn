@@ -341,6 +341,17 @@ public static class Application
                 $"{characters.Count} character(s) know how to walk, " +
                 $"{verbs.TopicCount} topic(s) can be raised");
 
+            // What the room does when somebody walks into it, which is mostly deciding
+            // where they are standing. A scene places its actors wherever its [ACTORS]
+            // section says — usually START — and this is what moves the player to the spot
+            // matching the door they came through. Without it every arrival is the front
+            // door, however the player got in.
+            if (scene.Actions?.Find("SCENE", "ENTER") is { } entering)
+            {
+                new ActionRunner(api).Run(entering);
+                Console.WriteLine($"entered: SCENE:ENTER [{entering.Case}]");
+            }
+
             room?.Silence();
 
             // What the room sounds like when nothing is happening in it.

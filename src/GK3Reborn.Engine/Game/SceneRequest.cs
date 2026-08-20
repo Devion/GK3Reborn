@@ -91,7 +91,10 @@ public sealed class SceneRequest
         string name = scene.ToUpperInvariant();
         GameState state = api.State;
 
-        state.Location = name;
+        // EnterLocation sets the location, and setting it first is what stops it: it only
+        // remembers where the player came from when the two differ, so assigning here left
+        // LastLocation empty for ever and WasLastLocation always answering no. That is the
+        // question every room asks to decide which door the player walked in through.
         state.EnterLocation(state.Ego, name);
 
         return new SceneRequest(name, null, state, api);

@@ -412,6 +412,53 @@ public sealed class SceneUpdate
     }
 
     /// <summary>
+    /// Stands an actor at a spot outright, without walking them there.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <param name="position">Where to stand them, in world space.</param>
+    /// <param name="heading">Which way to face, as the game's data measures a heading.</param>
+    /// <returns>True when there was somebody of that name to move.</returns>
+    /// <remarks>
+    /// This is how a room decides where the player is standing when they walk into it.
+    /// A scene places its actors at whatever its <c>[ACTORS]</c> section says — usually
+    /// <c>START</c> — and then its <c>SCENE:ENTER</c> action moves the player to the spot
+    /// that matches the door they came through. Without it, every arrival is the front door.
+    /// </remarks>
+    public bool Place(string actor, Vector3 position, float heading)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (!_standing.TryGetValue(actor, out PlacedModel? placed))
+        {
+            return false;
+        }
+
+        // Whatever they were doing, they are standing here now.
+        _walking.Remove(actor);
+        _walking.Remove(placed.Name);
+        StopAnimating(placed.Name);
+
+        // The placement is scale, then a turn, then a move, and the scale has to survive.
+        float scale = new Vector3(
+            placed.Transform.M11, placed.Transform.M12, placed.Transform.M13).Length();
+
+        _geometry.MoveModel(
+            placed.Placement,
+            Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) *
+            Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(heading)) *
+            Matrix4x4.CreateTranslation(position));
+
+        Follow(actor, position);
+
+        foreach (Turning turning in _actors)
+        {
+            turning.MovedTo(actor, position, heading);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Turns an actor on the spot to face something.
     /// </summary>
     /// <param name="actor">Their model name or noun.</param>

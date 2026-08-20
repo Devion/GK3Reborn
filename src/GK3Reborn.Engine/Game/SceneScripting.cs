@@ -53,6 +53,7 @@ public static class SceneScripting
         if (world is not null)
         {
             Walking(api, scene, world);
+            Stand(api, scene, world);
             Animating(api, world);
         }
 
@@ -692,6 +693,83 @@ public static class SceneScripting
             : Navigation.Walker.StandOff;
 
         return Navigation.Walker.StandingOff(thing, from, stand);
+    }
+
+    /// <summary>Standing somebody at a named spot, without walking them there.</summary>
+    /// <remarks>
+    /// <para>
+    /// <c>InitEgoPosition</c> is how a room decides where the player is standing when they
+    /// arrive. A scene's <c>SCENE:ENTER</c> action asks <c>WasLastLocation</c> which door
+    /// they came through and stands them at the matching spot — the hallway alone has one
+    /// for the lobby stairs and one for each of the guest rooms. Left recorded, every
+    /// arrival is wherever the scene's <c>[ACTORS]</c> section put them, which is the front
+    /// door however you got in.
+    /// </para>
+    /// <para>
+    /// It moves the camera as well, when the spot names one. That is the original's
+    /// behaviour and it is the difference between arriving in a room and being teleported
+    /// into it while the view stays where it was.
+    /// </para>
+    /// </remarks>
+    private static void Stand(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
+    {
+        api.Register("InitEgoPosition", arguments =>
+        {
+            if (arguments.Count > 0)
+            {
+                At(api, scene, world, api.State.Ego, arguments[0].AsString(), moveCamera: true);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("SetActorPosition", arguments =>
+        {
+            if (arguments.Count > 1)
+            {
+                At(api, scene, world,
+                    arguments[0].AsString(), arguments[1].AsString(), moveCamera: false);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+    }
+
+    private static void At(
+        Gk3SheepApi api,
+        LoadedScene scene,
+        SceneUpdate world,
+        string actor,
+        string spot,
+        bool moveCamera)
+    {
+        if (scene.Definition.PositionNamed(spot) is not { } named)
+        {
+            api.Diagnostics.Add(new Diagnostic(
+                "GK3R3320", DiagnosticSeverity.Warning,
+                $"'{spot}' is not a position this scene names.",
+                scene.Name, null, "a spot in the POSITIONS section", spot,
+                "The actor stays where the scene put them."));
+
+            return;
+        }
+
+        if (!world.Place(actor, named.Position, named.Heading))
+        {
+            api.Diagnostics.Add(new Diagnostic(
+                "GK3R3321", DiagnosticSeverity.Info,
+                "A script stood somebody somewhere who is not in the room.",
+                scene.Name, null, "an actor the scene placed", actor,
+                "Common when a room is entered as one character and scripted for another."));
+
+            return;
+        }
+
+        if (moveCamera && named.Camera is { Length: > 0 } camera)
+        {
+            api.State.CameraGliding = false;
+            api.State.CameraAngle = camera;
+        }
     }
 
     /// <summary>Where a walking call points, and which way to face when it gets there.</summary>

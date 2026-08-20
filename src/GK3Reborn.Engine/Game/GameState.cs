@@ -109,15 +109,38 @@ public sealed class GameState
     public Timeblock Timeblock { get; set; } = new(1, 10, IsAfternoon: false);
 
     /// <summary>Three-letter code of the current location.</summary>
-    public string Location { get; set; } = string.Empty;
+    /// <remarks>
+    /// Moving remembers where you moved from, whoever does the moving. A script says
+    /// <c>SetLocation("mop")</c> and the room loop follows with the arrival, so two
+    /// separate places set this — and each of them treating the other as the one that
+    /// records the change is how <see cref="LastLocation"/> stayed empty for ever.
+    /// </remarks>
+    public string Location
+    {
+        get => _location;
+
+        set
+        {
+            if (!string.Equals(_location, value, StringComparison.OrdinalIgnoreCase))
+            {
+                LastLocation = _location;
+            }
+
+            _location = value;
+        }
+    }
 
     /// <summary>Three-letter code of the location before this one.</summary>
     /// <remarks>
     /// Scenes are built differently depending on where the player came from — which door
     /// stands open, which backdrop is visible through it — so this is state a scene reads,
-    /// not a breadcrumb.
+    /// not a breadcrumb. It is also what decides <em>where the player is standing</em> on
+    /// arrival: a room's <c>SCENE:ENTER</c> asks <c>WasLastLocation</c> and stands them at
+    /// the matching spot. Left empty, every arrival is the room's default.
     /// </remarks>
     public string LastLocation { get; private set; } = string.Empty;
+
+    private string _location = string.Empty;
 
     /// <summary>Name of the actor the player controls.</summary>
     public string Ego { get; set; } = "GABRIEL";
@@ -321,9 +344,11 @@ public sealed class GameState
         _locationCounts[key] = _locationCounts.GetValueOrDefault(key) + 1;
         _actorLocations[Key(actor)] = location;
 
-        if (IsEgo(actor) && !string.Equals(Location, location, StringComparison.OrdinalIgnoreCase))
+        if (IsEgo(actor))
         {
-            LastLocation = Location;
+            // Which remembers where they came from, if this is a move at all. A script
+            // that already called SetLocation has moved them; this is then the arrival
+            // being counted rather than a second move.
             Location = location;
         }
     }
