@@ -160,6 +160,11 @@ public static class Application
         // people rather than any one room, and every room asks the same questions of it.
         Game.Actors.CharacterLibrary characters = Game.Actors.CharacterLibrary.Open(archives);
 
+        // Which verbs are things to say rather than things to do. Without it a topic is
+        // indistinguishable from a verb, every line of it is offered at once, and none of
+        // them is ever used up.
+        Game.Actions.VerbLibrary verbs = Game.Actions.VerbLibrary.Open(archives);
+
                 var host = new ScriptHost(api);
 
         // Scripts wait for real here, unlike in the tools, because here there is a clock
@@ -326,9 +331,15 @@ public static class Application
             update.Clips = clips;
             update.Characters = characters;
 
+            if (scene.Actions is { } actions)
+            {
+                actions.Verbs = verbs;
+            }
+
             Console.WriteLine(
                 $"Update: {update.Movable} actor(s) can turn their head, " +
-                $"{characters.Count} character(s) know how to walk");
+                $"{characters.Count} character(s) know how to walk, " +
+                $"{verbs.TopicCount} topic(s) can be raised");
 
             room?.Silence();
 

@@ -27,6 +27,7 @@ public sealed class GameState
     private readonly HashSet<string> _flags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _nounVerbCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _topicCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _saidTopics = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _actorLocations = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _locationCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _chatCounts = new(StringComparer.OrdinalIgnoreCase);
@@ -233,6 +234,38 @@ public sealed class GameState
     public void SetTopicCount(string noun, string topic, int value) =>
         _topicCounts[Pair(noun, topic)] = value;
 
+    /// <summary>Whether one particular line of a topic has already been said.</summary>
+    /// <param name="noun">Who it was said to.</param>
+    /// <param name="topic">The topic.</param>
+    /// <param name="condition">The case under which that line applies.</param>
+    /// <returns>True when it has been said before.</returns>
+    /// <remarks>
+    /// Keyed by the case as well as the topic, because a topic is written as several lines
+    /// under different conditions and each is said once. The count alone cannot say which:
+    /// two conditions may both hold, and asking again should give the one not yet heard
+    /// rather than the first one again.
+    /// </remarks>
+    public bool HasSaid(string noun, string topic, string condition) =>
+        _saidTopics.Contains(Line(noun, topic, condition));
+
+    /// <summary>Records that a line of a topic has been said.</summary>
+    /// <param name="noun">Who it was said to.</param>
+    /// <param name="topic">The topic.</param>
+    /// <param name="condition">The case under which that line applied.</param>
+    public void Said(string noun, string topic, string condition) =>
+        _saidTopics.Add(Line(noun, topic, condition));
+
+    private static string Line(string noun, string topic, string condition) =>
+        $"{noun}\u0001{topic}\u0001{condition}";
+
+    /// <summary>The conversation the player is in, or null when they are not in one.</summary>
+    /// <remarks>
+    /// Set by <c>SetConversation</c> and cleared by <c>EndConversation</c>. While it is set
+    /// the interface offers topics rather than verbs, and the scene may use its dialogue
+    /// cameras.
+    /// </remarks>
+    public string? Conversation { get; set; }
+
     /// <summary>Where an actor currently is.</summary>
     public string GetActorLocation(string actor) =>
         _actorLocations.GetValueOrDefault(Key(actor), string.Empty);
@@ -365,6 +398,7 @@ public sealed class GameState
         Append(builder, "var", Ordered(_variables));
         Append(builder, "nounverb", Ordered(_nounVerbCounts));
         Append(builder, "topic", Ordered(_topicCounts));
+        Append(builder, "said", _saidTopics.OrderBy(t => t, StringComparer.Ordinal).Select(t => (t, "1")));
         Append(builder, "chat", Ordered(_chatCounts));
         Append(builder, "visited", Ordered(_locationCounts));
         Append(builder, "actor", _actorLocations

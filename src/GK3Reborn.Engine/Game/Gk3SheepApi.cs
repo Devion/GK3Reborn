@@ -399,6 +399,34 @@ public sealed class Gk3SheepApi : ISheepApi
         // ask the same question and the Int suffix is only history.
         Register("GetNounVerbCountInt", a =>
             SheepValue.FromInt(State.GetNounVerbCount(Arg(a, 0), Arg(a, 1))));
+        // Not the game's functions. A topic is written as several lines under different
+        // conditions and each is said once, so the resolver has to ask which have been —
+        // and it reaches the story only through here, the same way it asks for a noun-verb
+        // count. Named so that nobody mistakes them for something a script may call.
+        Register("EngineHasSaidTopicLine", a => SheepValue.FromInt(
+            State.HasSaid(Arg(a, 0), Arg(a, 1), Arg(a, 2)) ? 1 : 0));
+
+        Register("EngineRecordTopicLine", a =>
+        {
+            State.Said(Arg(a, 0), Arg(a, 1), Arg(a, 2));
+            return SheepValue.FromInt(0);
+        });
+
+        Register("SetConversation", a =>
+        {
+            State.Conversation = Arg(a, 0);
+            return SheepValue.FromInt(0);
+        });
+
+        Register("EndConversation", _ =>
+        {
+            State.Conversation = null;
+            return SheepValue.FromInt(0);
+        });
+
+        Register("InConversation", _ =>
+            SheepValue.FromInt(State.Conversation is { Length: > 0 } ? 1 : 0));
+
         Register("GetTopicCountInt", a =>
             SheepValue.FromInt(State.GetTopicCount(Arg(a, 0), Arg(a, 1))));
 

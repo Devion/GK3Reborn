@@ -178,6 +178,12 @@ public sealed class ActionRunner
         {
             _api.State.SetTopicCount(
                 action.Noun, action.Verb, _api.State.GetTopicCount(action.Noun, action.Verb) + 1);
+
+            // Which line of the topic, not just how many times. A topic is written as
+            // several lines under different conditions and each is said once, so the count
+            // alone cannot say which is left: two conditions may both hold, and asking
+            // again should give the one not yet heard.
+            _api.State.Said(action.Noun, action.Verb, action.Case);
         }
         else if (action.Verb.Equals("Z_CHAT", StringComparison.OrdinalIgnoreCase))
         {

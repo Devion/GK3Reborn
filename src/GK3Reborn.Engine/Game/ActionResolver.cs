@@ -40,6 +40,14 @@ public sealed class ActionResolver
         _api = api;
     }
 
+    /// <summary>Which verbs are topics, and which of those recur.</summary>
+    /// <remarks>
+    /// Null treats every verb as an ordinary one, which offers every line of every topic at
+    /// once and never uses any of them up. The launcher reads <c>VERBS.TXT</c> once and
+    /// sets it.
+    /// </remarks>
+    public Actions.VerbLibrary? Verbs { get; set; }
+
     /// <summary>Diagnostics raised while resolving.</summary>
     public DiagnosticBag Diagnostics { get; } = new();
 
@@ -160,10 +168,30 @@ public sealed class ActionResolver
         ArgumentNullException.ThrowIfNull(file);
         ArgumentNullException.ThrowIfNull(caseName);
 
+        bool topic = Verbs?.IsTopic(verb) ?? false;
+
+        // A topic is said once. Its case says when a line becomes available and never says
+        // when it stops being — the original keeps the lines it has played and refuses them
+        // however the case reads. Without that, a conversation offers the same line for
+        // ever. The one verb in the game declared recurring is exempt.
+        if (topic && !(Verbs?.IsRecurring(verb) ?? false) && HasSaid(noun, verb, caseName))
+        {
+            return false;
+        }
+
         if (NvcFile.BuiltInCases.Contains(caseName))
         {
             return caseName.ToUpperInvariant() switch
             {
+                // On a topic, ALL is not "always". It is the last thing there is to say
+                // about it, available only once every other line has been used. Read as
+                // "always", a topic's closing line is offered from the very start and can
+                // be repeated for ever — which is how a conversation comes to show
+                // something the player has not got to yet.
+                "ALL" or "DEFAULT" when topic => IsLastWord(noun, verb),
+                "GABE_ALL" when topic => IsGabriel(ego) && IsLastWord(noun, verb),
+                "GRACE_ALL" when topic => !IsGabriel(ego) && IsLastWord(noun, verb),
+
                 "ALL" or "DEFAULT" => true,
                 "GABE_ALL" => IsGabriel(ego),
                 "GRACE_ALL" => !IsGabriel(ego),
@@ -235,6 +263,59 @@ public sealed class ActionResolver
 
     private static bool IsGabriel(string ego) =>
         ego.StartsWith("GAB", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a topic has exactly one line left, which its closing case is for.</summary>
+    /// <remarks>
+    /// Counted over every file in scope, because a topic's lines are spread between the
+    /// location's general action file and its timeblock ones.
+    /// </remarks>
+    private bool IsLastWord(string noun, string verb)
+    {
+        int lines = 0;
+
+        foreach (NvcFile file in _files)
+        {
+            foreach (NvcAction action in file.Actions)
+            {
+                if (string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(action.Verb, verb, StringComparison.OrdinalIgnoreCase))
+                {
+                    lines++;
+                }
+            }
+        }
+
+        return lines > 0 && Raised(noun, verb) == lines - 1;
+    }
+
+    /// <summary>Whether one line of a topic has already been said.</summary>
+    private bool HasSaid(string noun, string verb, string caseName) =>
+        Ask("EngineHasSaidTopicLine",
+            [SheepValue.FromString(noun),
+             SheepValue.FromString(verb),
+             SheepValue.FromString(caseName)]) != 0;
+
+    /// <summary>How many times a topic has been raised.</summary>
+    private int Raised(string noun, string verb) =>
+        Ask("GetTopicCount", [SheepValue.FromString(noun), SheepValue.FromString(verb)]);
+
+    /// <remarks>
+    /// Through the host, like every other question this class asks about the story. A host
+    /// that does not answer gives zero, and a topic then reads as never said — which is
+    /// what an unplayed game should look like.
+    /// </remarks>
+    private int Ask(string function, IReadOnlyList<SheepValue> arguments)
+    {
+        try
+        {
+            return _api.Invoke(function, arguments).AsInt();
+        }
+        catch (FormatParseException ex)
+        {
+            Diagnostics.Add(ex.Diagnostic);
+            return 0;
+        }
+    }
 
     /// <summary>How often the player has already done this to this.</summary>
     /// <remarks>
