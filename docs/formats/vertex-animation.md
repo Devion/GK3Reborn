@@ -101,14 +101,32 @@ Every figure here matches the Python prototype in `DonorWorkspace/rigsolve/` ind
 
 ## What plays
 
-**The rigid 37.8%, exactly.** A clip's mesh transforms are applied through
-`ISceneSink.PoseMesh` — distinct from `TurnMesh`, which applies a rotation *on top of* a
-mesh's own transform where a clip stores the transform outright.
+**All of it.** Mesh transforms through `ISceneSink.PoseMesh` — distinct from `TurnMesh`,
+which applies a rotation *on top of* a mesh's own transform where a clip stores the
+transform outright — and vertex positions through `ShapeMesh`.
 
-A character plays as mesh groups that move about without deforming. That is where the
-geometry goes and it looks wrong. Deformation needs either the rig solve of `Plan/06` or a
-vertex buffer that can change between frames; neither exists.
+Positions only. Normals stay as the model authored them, which is what the original does:
+it swaps the position stream and leaves the rest. Lighting on a deformed character is
+therefore as right or wrong as it was in 1999.
 
-The axis triads of `Plan/06` §4.3 — three vertices at (60,0,0), (0,60,0), (0,0,60) in every
-mesh group, which are orientation gizmos and not geometry — do not matter yet, because
-nothing reads vertices at runtime. They will matter the moment anything does.
+**Vertex buffers that change need care.** Writing one from the CPU while the device is
+still reading it for an earlier frame gives a character built from two different poses at
+once. So an animated batch gets one vertex buffer per frame in flight, and the shapes are
+written in `DrawFrame` after the fence says the device has finished with that frame's
+buffer. A batch only gets those buffers the first time something reshapes it.
+
+Verified against the game: `GAB`'s 13 meshes and 17 submeshes match
+`GAB_GABBREATH2.ACT`'s vertex counts exactly — independent confirmation in C# of the
+composition `Plan/06` §4.1 validated in Python.
+
+## What does not
+
+**Root motion.** A character clip's mesh transforms carry it, so playing a walk clip on a
+standing actor takes them out of frame. The walker and the clip both want to say where
+somebody is and nothing decides between them yet.
+
+**The axis triads** of `Plan/06` §4.3 — three vertices at (60,0,0), (0,60,0), (0,0,60) in
+every mesh group, orientation gizmos rather than geometry. They are in the vertex streams
+now that vertices are read. They are not indexed by any triangle, so nothing draws them,
+but anything that measures a character's extent from its vertices will be wrong by the 60
+units they sit out at.
