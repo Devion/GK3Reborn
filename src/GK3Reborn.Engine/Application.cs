@@ -390,6 +390,7 @@ public static class Application
         string? hovering = null;
         string? said = null;
         Hover? menu = null;
+        Vector2 menuAt = Vector2.Zero;
         Vector2? pinned = Pinned(options);
         bool forceMenu = options.Contains("--menu", StringComparer.OrdinalIgnoreCase);
 
@@ -492,13 +493,16 @@ public static class Application
             if (forceMenu && menu is null && hover.Actionable)
             {
                 menu = hover;
+                menuAt = pointer;
             }
 
             if (window.WasClicked(Platform.PointerButton.Secondary))
             {
                 // The menu belongs to the thing it was opened over, not to wherever the
-                // pointer wanders next, so what was under it is kept.
+                // pointer wanders next, so what was under it is kept — and so is where it
+                // was, because a menu that follows the pointer cannot be clicked.
                 menu = menu is null && hover.Actionable ? hover : null;
+                menuAt = pointer;
 
                 // Asking and getting nothing has to look different from asking and being
                 // ignored, or a room where nothing answers is indistinguishable from a
@@ -556,6 +560,7 @@ public static class Application
                         hover.Default,
                         pointer,
                         menu is not null,
+                        menuAt,
                         room?.Speaker,
                         room?.Caption,
                         story.Inventory.ItemsOf("GABRIEL"),

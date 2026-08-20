@@ -10,6 +10,11 @@ namespace GK3Reborn.UI;
 /// <param name="Verb">The verb a plain click would perform.</param>
 /// <param name="At">Where the pointer is, in pixels.</param>
 /// <param name="MenuOpen">Whether the player asked for the full list of verbs.</param>
+/// <param name="MenuAt">
+/// Where the pointer was when the list was asked for. Separate from <paramref name="At"/>
+/// on purpose: a menu anchored to the live pointer slides away from whoever is reaching
+/// for it, so there is nothing to click.
+/// </param>
 /// <param name="Speaker">Who is talking, or null.</param>
 /// <param name="Caption">What they are saying, or null.</param>
 /// <param name="Inventory">What the player is carrying.</param>
@@ -22,6 +27,7 @@ public readonly record struct HudState(
     string? Verb,
     Vector2 At,
     bool MenuOpen,
+    Vector2 MenuAt,
     string? Speaker,
     string? Caption,
     IReadOnlyList<string> Inventory,
@@ -203,7 +209,14 @@ public sealed class GameHud
         }
     }
 
-    /// <summary>The full list of verbs, at the pointer.</summary>
+    /// <summary>
+    /// The full list of verbs, where the pointer was when they were asked for.
+    /// </summary>
+    /// <remarks>
+    /// Anchored to <see cref="HudState.MenuAt"/> and not to where the pointer is now. The
+    /// two are only the same on the frame it opened, and using the live position means the
+    /// menu moves with the hand reaching for it and can never be clicked.
+    /// </remarks>
     private void Menu(HudState state, int width, int height)
     {
         const float Padding = 8f;
@@ -219,8 +232,8 @@ public sealed class GameHud
 
         float title = Overlay.LineHeight + 8f;
         float h = title + (row * state.Verbs.Count) + Padding;
-        float x = Math.Clamp(state.At.X, 0, Math.Max(0, width - w));
-        float y = Math.Clamp(state.At.Y, 0, Math.Max(0, height - h));
+        float x = Math.Clamp(state.MenuAt.X, 0, Math.Max(0, width - w));
+        float y = Math.Clamp(state.MenuAt.Y, 0, Math.Max(0, height - h));
 
         Overlay.Rect(x, y, w, h, PanelLit);
         Overlay.Text(Pretty(state.Noun ?? string.Empty), x + Padding, y + 4, Accent);

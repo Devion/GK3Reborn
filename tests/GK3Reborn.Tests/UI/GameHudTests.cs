@@ -51,9 +51,11 @@ public sealed class GameHudTests
         IReadOnlyList<string>? verbs = null,
         bool menu = false,
         Vector2 at = default,
+        Vector2? menuAt = null,
         string? caption = null) =>
-        new(noun, verbs ?? ["LOOK", "OPEN"], "LOOK", at, menu, caption is null ? null : "GABRIEL",
-            caption, [], null, InventoryOpen: true, "R25 - 110A");
+        new(noun, verbs ?? ["LOOK", "OPEN"], "LOOK", at, menu, menuAt ?? at,
+            caption is null ? null : "GABRIEL", caption, [], null,
+            InventoryOpen: true, "R25 - 110A");
 
     [Fact]
     public void An_empty_room_still_draws_the_bars_that_are_always_there()
@@ -98,6 +100,29 @@ public sealed class GameHudTests
         ];
 
         Assert.Equal(["LOOK", "OPEN"], found);
+    }
+
+    [Fact]
+    public void The_menu_stays_where_it_was_opened_when_the_pointer_moves()
+    {
+        // Anchoring it to the live pointer means it slides away from the hand reaching for
+        // it, and no row can ever be clicked.
+        GameHud hud = Hud();
+        var opened = new Vector2(100, 100);
+
+        hud.Build(State(menu: true, at: opened, menuAt: opened), 800, 600);
+        string? before = hud.VerbAt(new Vector2(opened.X + 10, opened.Y + hud.Overlay.LineHeight + 12));
+
+        // The pointer has travelled towards the row; the menu must not have travelled too.
+        hud.Build(
+            State(menu: true, at: new Vector2(140, 160), menuAt: opened),
+            800,
+            600);
+
+        Assert.Equal("LOOK", before);
+        Assert.Equal(
+            before,
+            hud.VerbAt(new Vector2(opened.X + 10, opened.Y + hud.Overlay.LineHeight + 12)));
     }
 
     [Fact]
