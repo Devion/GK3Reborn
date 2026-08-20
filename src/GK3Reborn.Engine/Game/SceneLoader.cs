@@ -783,9 +783,35 @@ public sealed class SceneLoader
     /// <summary>How many surfaces in the last scene were given a normal map.</summary>
     public int NormalMapsUsed => _normalsUsed;
 
+    /// <summary>How many textures are decoded at once.</summary>
+    /// <remarks>
+    /// Bounded well below the core count on purpose. Each decode in flight holds about
+    /// 33 MB — the compressed file, the inflated rows and the pixels — so the ceiling here
+    /// is what the load costs in memory at its peak, and past a point the machine is waiting
+    /// on memory bandwidth rather than on arithmetic.
+    /// </remarks>
+    private static int Decoders => Math.Max(1, Environment.ProcessorCount);
+
+    /// <summary>Reads, decodes and uploads the textures a room asks for.</summary>
+    /// <remarks>
+    /// <para>
+    /// In three passes rather than one, because the middle one is worth spreading over the
+    /// machine. Deciding what is missing has to be in order — asking the sink what it holds
+    /// is not something two threads may do at once, and the answer counts what was reused —
+    /// and uploading has to be in order because that is the device. Decoding is neither: it
+    /// is pure arithmetic over bytes nobody else is looking at.
+    /// </para>
+    /// <para>
+    /// It is also nearly all of the time. An enhanced texture is 2048², which is 48 ms and
+    /// 33 MB of decode apiece, and a room wants dozens of them with a normal map each; done
+    /// one after another that is ten seconds of a scene load with thirty-one cores idle.
+    /// </para>
+    /// </remarks>
     private void LoadTextures(
         ISceneSink geometry, IEnumerable<string> names, string owner, DiagnosticBag diagnostics)
     {
+        var wanted = new List<(string Name, bool Normal, bool Colour)>();
+
         foreach (string texture in names
                      .Where(n => n.Length > 0)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
@@ -793,44 +819,97 @@ public sealed class SceneLoader
             // A generated normal map for this surface, if there is one. 250 of the game's
             // 6,657 textures have one so far and the rest look exactly as they did — a
             // partial set is a perfectly good set.
-            if (Normals is not null &&
-                !geometry.HasNormalMap(texture) &&
-                Normals.Read(texture, diagnostics) is { } bumps)
-            {
-                geometry.AddNormalMap(texture, bumps);
-                _normalsUsed++;
-            }
+            bool normal = Normals is not null && !geometry.HasNormalMap(texture);
 
             // Already on the device from an earlier room, so there is nothing to read,
             // decode or upload. Most of what a room asks for is something it has met
-            // before: the characters are in every room they appear in.
-            if (geometry.HasTexture(texture))
+            // before: the characters are in every room they appear in. HasTexture is what
+            // counts a reuse, so it is asked exactly once for each name.
+            bool colour = !geometry.HasTexture(texture);
+
+            if (normal || colour)
             {
-                continue;
+                wanted.Add((texture, normal, colour));
+            }
+        }
+
+        if (wanted.Count == 0)
+        {
+            return;
+        }
+
+        var read = new (DecodedImage? Normal, DecodedImage? Colour, bool Enhanced, string? Missing)[
+            wanted.Count];
+
+        // A bag each, merged in order afterwards, so a run says the same thing twice
+        // running. A shared one would need a lock and would report in whatever order the
+        // threads happened to finish.
+        var bags = new DiagnosticBag[wanted.Count];
+
+        Parallel.For(0, wanted.Count, new ParallelOptions { MaxDegreeOfParallelism = Decoders }, i =>
+        {
+            (string texture, bool normal, bool colour) = wanted[i];
+            var bag = new DiagnosticBag();
+            bags[i] = bag;
+
+            DecodedImage? bumps = normal ? Normals?.Read(texture, bag) : null;
+
+            if (!colour)
+            {
+                read[i] = (bumps, null, false, null);
+                return;
             }
 
             // The enhanced version first, when there is one. It falls back on its own if it
             // will not decode, so a bad file in the enhanced set costs that texture and
             // nothing else.
-            if (Enhanced?.Read(texture, diagnostics) is { } better)
+            if (Enhanced?.Read(texture, bag) is { } better)
             {
-                geometry.AddTexture(texture, better);
-                _enhancedUsed++;
-                continue;
+                read[i] = (bumps, better, true, null);
+                return;
             }
 
             byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
-            if (bytes is null || !BitmapDecoder.CanDecode(bytes))
+
+            read[i] = bytes is null || !BitmapDecoder.CanDecode(bytes)
+                ? (bumps, null, false, texture)
+                : (bumps, BitmapDecoder.Decode(bytes, texture), false, null);
+        });
+
+        for (int i = 0; i < wanted.Count; i++)
+        {
+            foreach (Diagnostic diagnostic in bags[i].Items)
+            {
+                diagnostics.Add(diagnostic);
+            }
+
+            (DecodedImage? bumps, DecodedImage? colour, bool enhanced, string? missing) = read[i];
+
+            if (bumps is { } map)
+            {
+                geometry.AddNormalMap(wanted[i].Name, map);
+                _normalsUsed++;
+            }
+
+            if (missing is not null)
             {
                 diagnostics.Add(new Diagnostic(
                     "SCENE007",
                     DiagnosticSeverity.Warning,
-                    $"{owner} references a texture no archive contains: {texture}."));
+                    $"{owner} references a texture no archive contains: {missing}."));
 
                 continue;
             }
 
-            geometry.AddTexture(texture, BitmapDecoder.Decode(bytes, texture));
+            if (colour is { } image)
+            {
+                geometry.AddTexture(wanted[i].Name, image);
+
+                if (enhanced)
+                {
+                    _enhancedUsed++;
+                }
+            }
         }
     }
 
