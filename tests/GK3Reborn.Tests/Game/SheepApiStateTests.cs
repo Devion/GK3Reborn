@@ -105,6 +105,34 @@ public sealed class SheepApiStateTests
     }
 
     [Fact]
+    public void What_one_character_has_already_done_says_nothing_about_the_other()
+    {
+        // Gabriel and Grace investigate the same places, so 1ST_TIME means the first time
+        // for whoever is being played. The game has a function whose only purpose is to
+        // set both counts at once, which is what gives the distinction away.
+        var state = new GameState();
+
+        state.IncrementNounVerbCount("WINDOW", "OPEN");
+
+        Assert.Equal(1, state.GetNounVerbCount("WINDOW", "OPEN"));
+        Assert.Equal(0, state.GetNounVerbCount("GRACE", "WINDOW", "OPEN"));
+
+        state.Ego = "GRACE";
+        Assert.Equal(0, state.GetNounVerbCount("WINDOW", "OPEN"));
+    }
+
+    [Fact]
+    public void A_door_opened_is_open_for_whoever_walks_in_next()
+    {
+        var state = new GameState();
+
+        Assert.Equal(0, Eval(state, "SetNounVerbCountBoth(\"WINDOW\", \"OPEN\", 1)"));
+
+        Assert.Equal(1, state.GetNounVerbCount("GABRIEL", "WINDOW", "OPEN"));
+        Assert.Equal(1, state.GetNounVerbCount("GRACE", "WINDOW", "OPEN"));
+    }
+
+    [Fact]
     public void A_random_number_falls_inside_the_range_at_both_ends()
     {
         var state = new GameState();

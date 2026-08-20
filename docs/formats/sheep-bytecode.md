@@ -234,6 +234,13 @@ state hash, since which character holds what decides whether puzzles can be solv
 place would let a player combine the same pair repeatedly, which is a puzzle-semantics
 question rather than a bookkeeping one.
 
+Noun/verb counts are kept **per character**. Gabriel and Grace investigate the same
+places, and what one of them has already looked at says nothing about the other, so
+`1ST_TIME` means the first time for whoever is being played and `GetNounVerbCount(noun,
+verb)` reads the current ego's. The game has a function whose only purpose is to set both
+at once — `SetNounVerbCountBoth` — which is what gives the distinction away, and what
+opening R25's window calls so the window stays open for whoever walks in next.
+
 Carrying an item and having it **in hand** are different. GK3's inventory screen has one
 item selected at a time, and using an item on something is written in the action files as
 a verb named for the item, so `IsActiveInvItem` asks which of the things in the bag is the

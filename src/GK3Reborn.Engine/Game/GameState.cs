@@ -109,22 +109,46 @@ public sealed class GameState
     public void ClearFlag(string name) => _flags.Remove(Key(name));
 
     /// <summary>
-    /// How many times a noun/verb pair has been used.
+    /// How many times the player has done a verb to a noun.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// GK3 gates a great deal of dialogue on these counts — the second time you ask about
     /// something you get a different answer — so they are game state, not statistics.
+    /// </para>
+    /// <para>
+    /// Counted <em>per character</em>. Gabriel and Grace investigate the same places and
+    /// what one of them has already looked at says nothing about the other, so
+    /// <c>1ST_TIME</c> means the first time for whoever is being played. The game has a
+    /// function whose only purpose is to set both at once, <c>SetNounVerbCountBoth</c>,
+    /// which is what gives the distinction away.
+    /// </para>
     /// </remarks>
-    public int GetNounVerbCount(string noun, string verb) =>
-        _nounVerbCounts.GetValueOrDefault(Pair(noun, verb));
+    public int GetNounVerbCount(string noun, string verb) => GetNounVerbCount(Ego, noun, verb);
 
-    /// <summary>Sets a noun/verb count.</summary>
+    /// <summary>How many times one character has done a verb to a noun.</summary>
+    /// <param name="actor">Whose count to read.</param>
+    /// <param name="noun">The thing.</param>
+    /// <param name="verb">What was done to it.</param>
+    /// <returns>The count, zero if it has never been done.</returns>
+    public int GetNounVerbCount(string actor, string noun, string verb) =>
+        _nounVerbCounts.GetValueOrDefault(Triple(actor, noun, verb));
+
+    /// <summary>Sets the current character's noun/verb count.</summary>
     public void SetNounVerbCount(string noun, string verb, int value) =>
-        _nounVerbCounts[Pair(noun, verb)] = value;
+        SetNounVerbCount(Ego, noun, verb, value);
 
-    /// <summary>Adds one to a noun/verb count.</summary>
+    /// <summary>Sets one character's noun/verb count.</summary>
+    /// <param name="actor">Whose count to write.</param>
+    /// <param name="noun">The thing.</param>
+    /// <param name="verb">What was done to it.</param>
+    /// <param name="value">The new count.</param>
+    public void SetNounVerbCount(string actor, string noun, string verb, int value) =>
+        _nounVerbCounts[Triple(actor, noun, verb)] = value;
+
+    /// <summary>Adds one to the current character's noun/verb count.</summary>
     public void IncrementNounVerbCount(string noun, string verb) =>
-        _nounVerbCounts[Pair(noun, verb)] = GetNounVerbCount(noun, verb) + 1;
+        SetNounVerbCount(Ego, noun, verb, GetNounVerbCount(Ego, noun, verb) + 1);
 
     /// <summary>How many times a conversation topic has come up.</summary>
     public int GetTopicCount(string noun, string topic) =>
@@ -312,4 +336,7 @@ public sealed class GameState
         $"{Key(actor)}|{Key(location)}|{timeblock}";
 
     private static string Pair(string first, string second) => $"{Key(first)}|{Key(second)}";
+
+    private static string Triple(string first, string second, string third) =>
+        $"{Key(first)}|{Key(second)}|{Key(third)}";
 }

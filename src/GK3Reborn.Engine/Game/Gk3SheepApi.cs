@@ -166,6 +166,15 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // Both characters at once. It exists because the counts are per character, and a
+        // door that has been opened is open for whoever walks in next.
+        Register("SetNounVerbCountBoth", a =>
+        {
+            State.SetNounVerbCount("GABRIEL", Arg(a, 0), Arg(a, 1), Int(a, 2));
+            State.SetNounVerbCount("GRACE", Arg(a, 0), Arg(a, 1), Int(a, 2));
+            return SheepValue.FromInt(0);
+        });
+
         Register("GetTopicCount", a => SheepValue.FromInt(State.GetTopicCount(Arg(a, 0), Arg(a, 1))));
         Register("SetTopicCount", a =>
         {
