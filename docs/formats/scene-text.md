@@ -277,6 +277,41 @@ draws it over the regions, blue when it arrives and red when it could not, and p
 every corner with the region it stands on. Either end may be a position name or a pair of
 world coordinates, `x,z`; naming neither lists the scene's positions.
 
+### Loading all of it
+
+`check-scenes` loads every location at every point in the story and reports what came
+out. The loading is the engine's own — the same `SceneLoader` the game uses, writing
+into a `HeadlessSceneSink` that counts instead of drawing — so a pass means the game
+can build these scenes rather than that a second implementation agrees with the first.
+That is P6's exit criterion, `Plan/04`.
+
+```bash
+GK3Reborn.Tools check-scenes --source <GK3>/Data          # composition only, 4 seconds
+GK3Reborn.Tools check-scenes --source <GK3>/Data --deep   # geometry too, 80 seconds
+```
+
+Without `--deep` it stops at what a scene *is* — which state the room is in, who is in
+it, where they may stand, what may be done to them — all of which is decided by text
+files. With it, the geometry, the bakes and every texture load too. `--model` limits it
+to one location.
+
+The baseline, which is what a regression shows up against:
+
+- **1,343** location and timeblock pairs compose; **493** have a timeblock file of
+  their own.
+- 45,945 models, 1,944 actors, 5,807 room cameras, 10,577 positions.
+- **1,292** load a walk boundary, over **78** distinct bitmaps, all present and
+  decoding. Only `DU1`, `DU2` and `MA2` declare none — the dumbwaiter shafts are
+  ridden rather than walked.
+- 845 name a soundtrack; 19,651 nouns hang on their objects.
+- **1,315 of 1,343 load their geometry**: 14.5M triangles, 52,464 named objects,
+  90,314 textures, 63,270 things a click can land on. The other 28 have no geometry at
+  that point in the story, which is the story rather than a fault — `ARM` names its
+  scene asset only inside conditional blocks, so at ten of the timeblocks it names
+  none; `MA2` names one the installation does not contain at any timeblock; `RC1` has
+  none at `212P`. The sweep tells that apart from a failure by asking whether an asset
+  was found, not by whether loading returned something.
+
 ### Where actors stand
 
 `[ACTORS]` lines carry `pos=`, naming a spot in `[POSITIONS]` — `pos=GRACE_INIT`, and

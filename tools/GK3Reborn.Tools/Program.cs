@@ -77,6 +77,9 @@ public static class Program
             case "render-scene":
                 return Render(options, diagnostics);
 
+            case "check-scenes":
+                return CheckScenes(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -120,6 +123,21 @@ public static class Program
 
         Report(diagnostics);
         return rendered ? 0 : 3;
+    }
+
+    private static int CheckScenes(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("check-scenes requires --source.");
+            return 2;
+        }
+
+        bool ok = new SceneCheckStage(Console.WriteLine).Run(
+            options.Source, options.Model, options.Deep, diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
     }
 
     private static int ImportVideo(Options options, DiagnosticBag diagnostics)
@@ -471,6 +489,9 @@ public static class Program
               actions           Read the noun/verb/case files and resolve against them.
               render-model      Render one model from the archives to a PNG.
               render-scene      Render a scene, its props and its lighting, to a PNG.
+              check-scenes      Load every scene at every point in the story and
+                                report what came out. --model limits it to one
+                                location.
 
             options:
               --source <dir>       The game's Data directory. Read only; never modified.
@@ -488,6 +509,8 @@ public static class Program
               --output PATH        Where render-model writes its PNG.
               --width N            Render width (default 1024).
               --height N           Render height (default 768).
+              --deep               check-scenes also loads geometry, bakes and
+                                   textures, not only what a scene is made of.
               --walk-overlay       Draw where actors may stand over the floor, shaded
                                    by region: green is open ground, darkening towards
                                    the walls, amber for the regions scripts open.
@@ -527,6 +550,8 @@ public static class Program
 
         public int Height { get; init; } = 768;
 
+        public bool Deep { get; init; }
+
         public bool WalkOverlay { get; init; }
 
         public string? WalkPath { get; init; }
@@ -550,6 +575,7 @@ public static class Program
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
             string? timeblock = null, camera = null, rayTracing = null;
             int width = 1024, height = 768;
+            bool deep = false;
             bool walkOverlay = false;
             string? walkPath = null;
             string? pick = null;
@@ -605,6 +631,9 @@ public static class Program
                     case "--height" when i + 1 < args.Length:
                         height = int.Parse(args[++i], CultureInfo.InvariantCulture);
                         break;
+                    case "--deep":
+                        deep = true;
+                        break;
                     case "--walk-overlay":
                         walkOverlay = true;
                         break;
@@ -639,6 +668,7 @@ public static class Program
                 Output = output,
                 Width = width,
                 Height = height,
+                Deep = deep,
                 WalkOverlay = walkOverlay,
                 WalkPath = walkPath,
                 Pick = pick,

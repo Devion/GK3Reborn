@@ -170,6 +170,45 @@ public sealed class SceneLoader
             init.Soundtracks());
     }
 
+    /// <summary>
+    /// Assembles what a scene <em>is</em>, without loading anything that has to be drawn.
+    /// </summary>
+    /// <param name="request">Which scene, and where the story is.</param>
+    /// <param name="diagnostics">Receives loading diagnostics.</param>
+    /// <returns>The scene, or null if it has no initialisation file at all.</returns>
+    /// <remarks>
+    /// The composition — which state the room is in, who is in it, where they may stand,
+    /// what may be done to them — is decided entirely by text files, and answering
+    /// questions about it does not need the fifty megabytes of geometry and the hundred
+    /// textures that go with drawing it. A sweep of the whole corpus is the case that
+    /// makes the difference worth having: 1,343 pairs at a few milliseconds each rather
+    /// than at a second each.
+    /// </remarks>
+    public LoadedScene? Compose(SceneRequest request, DiagnosticBag diagnostics)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(diagnostics);
+
+        SceneDefinition init = ReadDefinition(request.Scene, request, diagnostics);
+
+        if (init.IsEmpty)
+        {
+            return null;
+        }
+
+        return new LoadedScene(
+            request.Scene,
+            init,
+            ReadAsset(request.Scene, request.AssetSuffix, init, diagnostics),
+            Lightmaps: null,
+            ModelsPlaced: 0,
+            ReadBoundary(init, diagnostics),
+            Geometry: null,
+            Placed: null,
+            ReadActions(init, request, diagnostics),
+            init.Soundtracks());
+    }
+
     /// <summary>Builds a camera from one of a scene's own viewpoints.</summary>
     /// <param name="scene">The loaded scene.</param>
     /// <param name="geometry">Its geometry, for a fallback framing.</param>
