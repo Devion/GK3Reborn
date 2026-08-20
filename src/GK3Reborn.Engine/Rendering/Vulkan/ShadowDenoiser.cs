@@ -307,9 +307,18 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
                 // Which scratch image each stage reads and writes. The reprojection lands
                 // in the first; the blurs then walk it back and forth, and the last one
                 // writes the result instead.
+                //
+                // The two must alternate. Written the other way round, the first blur read
+                // and wrote the same image while the second read the one nothing had
+                // written that frame — its own output from the frame before — so it blurred
+                // its own result over and over, decaying towards nothing. That buffer is
+                // also what the reprojection reads back as its history, so every pixel's
+                // past was a thing quietly fading out: a room that started at the right
+                // brightness and went dark over half a second, and did it again every time
+                // the camera moved and reset the counts.
                 bool reprojecting = i < 2;
                 Surface input = reprojecting || i == 2 || i == 4 ? channel.Scratch0 : channel.Scratch1;
-                Surface output = reprojecting || i == 3 ? channel.Scratch1 : channel.Scratch0;
+                Surface output = reprojecting || i == 2 ? channel.Scratch1 : channel.Scratch0;
                 Surface older = channel.Moments[reprojecting ? i : 0];
                 Surface newer = channel.Moments[reprojecting ? 1 - i : 1];
 

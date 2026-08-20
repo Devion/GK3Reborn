@@ -383,6 +383,22 @@ by construction, because the variance is boosted exactly while a pixel has no hi
 Their blur is rescuing one bit a pixel; ours is filtering eight rays, and the contrast it
 recovers was never lost, so it is gone.
 
+**And the filter chain was feeding on itself.** The three blurs are meant to alternate
+between two scratch images: the reprojection lands in the first, the first blur writes the
+second, the second blur writes the first, the third reads it and writes the result. The
+wiring had the two outputs the wrong way round, so the first blur read and wrote the same
+image while the second read the one nothing had written that frame — its own output from
+the frame before. It blurred its own result over and over, decaying towards nothing. That
+buffer is also what the reprojection reads back as its history, so every pixel's past was
+a thing quietly fading out.
+
+This is what a room starting at the right brightness and going dark over half a second
+was, and what made it happen again every time the camera moved and reset the counts. It
+was also most of the noise, because a history that is decaying is a history worth nothing.
+Measured in HAL: the raw eight-ray fraction reads 0.641 on every frame from the third to
+the four-hundredth, while the denoised output fell from 0.609 to 0.239. The rays were
+never the problem.
+
 Three more, found in the lobby, where the walls are lit from every direction:
 
 **Low was tracing one ray a pixel.** The ray count had been taken from the
@@ -404,15 +420,18 @@ over a rig's cumulative brightness clump and leave gaps, and the gaps move every
 which is a blotch on a wall that will not sit still. Both the light a shadow ray picks and
 the direction an occlusion ray takes are stratified again.
 
-| | flicker, still | flicker, gliding |
-| --- | --- | --- |
-| no ray tracing | 0.000 | 6.35 |
-| `HAL` at High, as reported | 3.76 | 7.87 |
-| `HAL` at High, now | 0.73 | 7.05 |
-| `LBY` at High, now | 0.82 | — |
-| `LBY` at Medium, now | 0.94 | — |
-| `LBY` at Low, now | 1.13 | — |
-| `R25` at High, now | 0.30 | — |
+| | flicker, still |
+| --- | --- |
+| no ray tracing | 0.000 |
+| `HAL` at High, as reported | 3.76 |
+| `HAL` at High, now | 0.07 |
+| `LBY` at High, now | 0.43 |
+| `LBY` at Low, now | 0.51 |
+| `R25` at High, now | 0.09 |
+
+Brightness no longer depends on how long a pixel has been looked at either: HAL reads 66.0
+five frames in and 62.9 four hundred frames in, against 60.3 for the bake alone. Before
+the chain was rewired it went from 59.7 to 37.4.
 
 Gliding changes the picture whether or not anything is traced; what matters is the gap
 above that baseline, and it is now 0.7 of an eight-bit step.
