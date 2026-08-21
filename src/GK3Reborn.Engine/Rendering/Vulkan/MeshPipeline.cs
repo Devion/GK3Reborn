@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
@@ -47,11 +47,23 @@ public readonly record struct FrameUniforms(
 /// case a temporal filter has to get right.
 /// </param>
 /// <param name="Shading">
-/// How to shade: x selects the lightmap over the rig, y scales the lightmap.
+/// How to shade: x selects the lightmap over the rig, y scales the lightmap, z marks a
+/// surface that carries its own brightness, w is how deep its height map goes.
 /// </param>
+/// <param name="Material">
+/// The surface's finish where no map says otherwise: x roughness, y metalness,
+/// z specular reflectance at normal incidence, w how much of the normal map to believe.
+/// </param>
+/// <remarks>
+/// A hundred and sixty bytes, which is past the hundred and twenty-eight Vulkan
+/// guarantees. Every desktop driver this renderer has run on offers 256, and the two
+/// matrices alone were already past the floor — but it is the number to look at first if
+/// a device ever refuses the pipeline layout, and the fix is a uniform buffer rather than
+/// a smaller struct.
+/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct DrawConstants(
-    Matrix4x4 Model, Matrix4x4 PreviousModel, Vector4 Shading);
+    Matrix4x4 Model, Matrix4x4 PreviousModel, Vector4 Shading, Vector4 Material);
 
 /// <summary>
 /// A textured, lit mesh pipeline, optionally with ray tracing compiled in.
@@ -258,7 +270,7 @@ public sealed unsafe class MeshPipeline : IDisposable
             throw new VulkanException("Could not create the frame descriptor set layout.");
         }
 
-        DescriptorSetLayoutBinding* materialBindings = stackalloc DescriptorSetLayoutBinding[3];
+        DescriptorSetLayoutBinding* materialBindings = stackalloc DescriptorSetLayoutBinding[5];
         materialBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
@@ -284,10 +296,36 @@ public sealed unsafe class MeshPipeline : IDisposable
             StageFlags = ShaderStageFlags.FragmentBit,
         };
 
+        // The surface's packed occlusion, roughness and metalness. Every batch binds one —
+        // a neutral map where there is none — so switching the specular lobe on before the
+        // maps exist changes nothing about what is drawn.
+        materialBindings[3] = new DescriptorSetLayoutBinding
+        {
+            Binding = 3,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        // The surface's height field, for parallax. Bound the same way and for the same
+        // reason: a level map where there is none, and a height scale of zero to go with it.
+        materialBindings[4] = new DescriptorSetLayoutBinding
+        {
+            Binding = 4,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
         var materialInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
+
+            // Raised with the array above and not after it. A binding written into the
+            // array without this count moving is not a binding: the driver does not
+            // complain, it corrupts binding 0, and every surface draws the fallback
+            // checkerboard. That cost a debugging round the first time.
+            BindingCount = 5,
             PBindings = materialBindings,
         };
 

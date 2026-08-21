@@ -1,8 +1,9 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Audio;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Formats.Animation;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Interaction;
@@ -85,6 +86,8 @@ public sealed class SceneCheckStage
                 Check(loader, scene, timeblock, deep, tally);
             }
         }
+
+        Behaviours(archives, tally);
 
         Report(tally, deep);
 
@@ -195,6 +198,48 @@ public sealed class SceneCheckStage
         }
     }
 
+    /// <summary>
+    /// Reads every behaviour script in the game and says how much of them can be run.
+    /// </summary>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="tally">Receives the totals.</param>
+    /// <remarks>
+    /// Read from the archives rather than from the scenes, because a scene names a
+    /// fraction of them: the rest are reached by <c>NEWIDLE</c> from another script or by
+    /// <c>SetIdleGAS</c> from Sheep, and a sweep that only counted the named ones would
+    /// report a coverage it had not measured.
+    /// </remarks>
+    private static void Behaviours(GameArchives archives, Tally tally)
+    {
+        foreach (string name in archives.Names(".GAS"))
+        {
+            if (archives.Read(name) is not { } bytes)
+            {
+                continue;
+            }
+
+            GasFile script = GasFile.Parse(bytes);
+
+            tally.Behaviours.Add(name);
+
+            if (script.Complete)
+            {
+                tally.BehavioursRun.Add(name);
+            }
+
+            foreach (string keyword in script.Unsupported)
+            {
+                tally.BehavioursUnread.Add(keyword);
+            }
+
+            foreach (GasStep step in script.Steps)
+            {
+                tally.BehaviourSteps[step.Action] =
+                    tally.BehaviourSteps.GetValueOrDefault(step.Action) + 1;
+            }
+        }
+    }
+
     /// <summary>Adds one loaded scene to the running totals.</summary>
     private static void Measure(LoadedScene loaded, HeadlessSceneSink sink, bool deep, Tally tally)
     {
@@ -229,6 +274,7 @@ public sealed class SceneCheckStage
         {
             tally.Soundtracks++;
         }
+
 
         foreach (SoundtrackFile soundtrack in loaded.AmbienceRead)
         {
@@ -398,6 +444,21 @@ public sealed class SceneCheckStage
             $"  {tally.Nouns} nouns on their objects, {tally.NounsWithoutActions} " +
             $"({tally.NounsWithoutActions * 100f / Math.Max(1, tally.Nouns):F1}%) unknown to the " +
             $"action files, {tally.Unanswered.Count} of them distinct"));
+        if (tally.Behaviours.Count > 0)
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {tally.Behaviours.Count} behaviour scripts, " +
+                $"{tally.BehavioursRun.Count} of them fully understood, " +
+                $"{tally.BehaviourSteps.Values.Sum()} instructions"));
+
+            if (tally.BehavioursUnread.Count > 0)
+            {
+                _log("    keywords nothing runs: " +
+                     string.Join(", ", tally.BehavioursUnread.Order(StringComparer.Ordinal)));
+            }
+        }
+
         _log($"  {tally.Verbs} verbs available across the nouns the action files do know");
         _log(string.Create(
             CultureInfo.InvariantCulture,
@@ -490,6 +551,18 @@ public sealed class SceneCheckStage
         public long WalkableTexels { get; set; }
 
         public int Soundtracks { get; set; }
+
+        /// <summary>Behaviour scripts the scenes name, by name.</summary>
+        public HashSet<string> Behaviours { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Those of them every instruction of which can be run.</summary>
+        public HashSet<string> BehavioursRun { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Instructions found in them, by keyword.</summary>
+        public Dictionary<GasAction, int> BehaviourSteps { get; } = [];
+
+        /// <summary>Keywords found in them that nothing runs.</summary>
+        public HashSet<string> BehavioursUnread { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int SoundtrackSteps { get; set; }
 

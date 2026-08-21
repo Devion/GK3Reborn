@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Text;
 using GK3Reborn.Formats.Audio;
 using GK3Reborn.Formats.Bitmaps;
@@ -101,6 +101,121 @@ public sealed class FontAndSoundTests
 
         // Second row, one pixel down from the top of it.
         Assert.Equal(5, font['D']!.Value.Y);
+    }
+
+    /// <summary>
+    /// A sheet of several rows whose markers are given outright, with optional ink.
+    /// </summary>
+    /// <remarks>
+    /// For the terminator cases. Ink is a single lit pixel just under the sheet's last
+    /// column, which is how a row whose final letter runs to the edge differs from one
+    /// whose final mark is only saying where the letter before it stopped.
+    /// </remarks>
+    private static DecodedImage Marked(int[][] rows, bool inkAtEnd = false)
+    {
+        const int Width = 12;
+        int height = 4 * rows.Length;
+        byte[] pixels = new byte[Width * height * 4];
+
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i + 3] = 255;
+        }
+
+        for (int line = 0; line < rows.Length; line++)
+        {
+            foreach (int x in rows[line])
+            {
+                pixels[(((line * 4 * Width) + x) * 4) + 0] = 255;
+            }
+
+            if (inkAtEnd)
+            {
+                // White, under the row's last mark: a letter rather than padding.
+                int at = ((((line * 4) + 2) * Width) + Width - 1) * 4;
+                pixels[at] = 255;
+                pixels[at + 1] = 255;
+                pixels[at + 2] = 255;
+            }
+        }
+
+        return new DecodedImage(Width, height, pixels, HasAlpha: false, "test");
+    }
+
+    [Fact]
+    public void A_rows_last_marker_is_a_terminator_when_the_counts_say_so()
+    {
+        // Four marks a row over two rows is eight for six characters, which is one spare
+        // per row: each row's last mark says where its last letter stopped rather than
+        // being a letter of its own. Reading it as one cost the row a character and shifted
+        // every character after it, which is how the caption sheets wrote "Gabqiel Lnnk".
+        var bag = new DiagnosticBag();
+
+        FontFile font = FontFile.Parse(
+            "Font=ABCDEF\nLine Count=2\n",
+            Marked([[1, 3, 6, 10], [1, 3, 6, 10]]),
+            "TEST",
+            bag);
+
+        Assert.Equal(6, font.Count);
+
+        // Three letters a row, and the last of each stops at the terminator rather than
+        // running to the sheet's edge.
+        Assert.Equal(new Glyph(6, 1, 4, 3), font['C']);
+        Assert.Equal(new Glyph(1, 5, 2, 3), font['D']);
+        Assert.Equal(new Glyph(6, 5, 4, 3), font['F']);
+        Assert.DoesNotContain(bag.Items, d => d.Code == "GK3R1142");
+    }
+
+    [Fact]
+    public void A_row_that_fills_its_width_keeps_its_last_marker_as_a_letter()
+    {
+        // The other convention, and the one every single-row sheet in the game uses: the
+        // last letter ends at the sheet's edge and nothing has to say so.
+        FontFile font = FontFile.Parse(
+            "Font=ABCDEFGH\nLine Count=2\n",
+            Marked([[1, 3, 6, 10], [1, 3, 6, 10]]),
+            "TEST",
+            new DiagnosticBag());
+
+        Assert.Equal(8, font.Count);
+        Assert.Equal(new Glyph(10, 1, 2, 3), font['D']);
+        Assert.Equal(new Glyph(10, 5, 2, 3), font['H']);
+    }
+
+    [Fact]
+    public void A_row_the_counts_cannot_settle_is_judged_on_whether_there_is_ink_after_it()
+    {
+        // Seven characters over two rows of four marks: neither "all terminated" nor "none
+        // terminated" adds up, so each row is looked at. Both have ink under the last mark
+        // here, so both keep it, and the count comes out one over — which is what the
+        // mismatch diagnostic exists to say.
+        var bag = new DiagnosticBag();
+
+        FontFile font = FontFile.Parse(
+            "Font=ABCDEFG\nLine Count=2\n",
+            Marked([[1, 3, 6, 10], [1, 3, 6, 10]], inkAtEnd: true),
+            "TEST",
+            bag);
+
+        Assert.Equal(7, font.Count);
+        Assert.Equal(new Glyph(10, 1, 2, 3), font['D']);
+    }
+
+    [Fact]
+    public void A_sheet_that_cuts_into_the_wrong_number_of_pieces_says_so()
+    {
+        // The check that would have caught the terminator the first time. A font whose
+        // letters are all somebody else's looks entirely normal from every other angle.
+        var bag = new DiagnosticBag();
+
+        FontFile.Parse(
+            "Font=ABCDEFGHIJ\nLine Count=2\n",
+            Marked([[1, 3, 6, 10], [1, 3, 6, 10]]),
+            "TEST",
+            bag);
+
+        Assert.Contains(bag.Items, d => d.Code == "GK3R1142");
     }
 
     [Fact]

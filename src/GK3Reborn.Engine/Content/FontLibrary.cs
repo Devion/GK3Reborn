@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Ui;
 using GK3Reborn.Foundation.Diagnostics;
@@ -90,6 +90,49 @@ public sealed class FontLibrary
     }
 
     /// <summary>Finds and decodes the bitmap a font is cut from.</summary>
+    /// <summary>
+    /// Reads a ladder of fonts and returns the one whose letters are nearest a wanted size.
+    /// </summary>
+    /// <param name="wantedHeight">How tall a capital should be, in pixels.</param>
+    /// <param name="names">The ladder, in any order.</param>
+    /// <returns>The nearest one that loads, or null when none of them does.</returns>
+    /// <remarks>
+    /// <para>
+    /// A bitmap font has one size and there is no scaling it: drawing a 17-pixel sheet at
+    /// 34 pixels is a blurry 17-pixel sheet. So "make the text bigger" means picking a
+    /// different sheet, and GK3 shipped the ladder to pick from — its caption font exists
+    /// at 16, 20 and 26 point, which cut to 20, 26 and 33 pixel letters.
+    /// </para>
+    /// <para>
+    /// Reading a candidate to measure it is the only way to know how tall it is: the height
+    /// is not in the <c>.FON</c>, it is the sheet divided by the row count. They are a few
+    /// kilobytes each and the answer is cached, so the ladder costs one read per rung for
+    /// the life of the process.
+    /// </para>
+    /// </remarks>
+    public FontFile? Nearest(int wantedHeight, params string[] names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+
+        FontFile? best = null;
+
+        foreach (string name in names)
+        {
+            if (Read(name) is not { Count: > 0 } font)
+            {
+                continue;
+            }
+
+            if (best is null ||
+                Math.Abs(font.Height - wantedHeight) < Math.Abs(best.Height - wantedHeight))
+            {
+                best = font;
+            }
+        }
+
+        return best;
+    }
+
     private DecodedImage? Sheet(string definition, string bare)
     {
         string? named = null;

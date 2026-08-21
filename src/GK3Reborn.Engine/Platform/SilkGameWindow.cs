@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
@@ -56,12 +56,49 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         [CameraAction.Quit] = [Key.Escape],
     };
 
+    /// <summary>Which key does which editing job.</summary>
+    /// <remarks>
+    /// Grave and Escape both appear here and in the camera bindings, which is deliberate:
+    /// the key is one key and what it means depends on whether the console has the
+    /// keyboard. Deciding that here would put a piece of the interface in the platform
+    /// layer.
+    /// </remarks>
+    private static readonly (EditKey Edit, Key Which)[] Editing =
+    [
+        (EditKey.Backspace, Key.Backspace),
+        (EditKey.Enter, Key.Enter),
+        (EditKey.Enter, Key.KeypadEnter),
+        (EditKey.Tab, Key.Tab),
+        (EditKey.Up, Key.Up),
+        (EditKey.Down, Key.Down),
+        (EditKey.Escape, Key.Escape),
+        (EditKey.Console, Key.GraveAccent),
+    ];
+
     private readonly IWindow _window;
     /// <summary>How far the pointer may travel between press and release and still be a click.</summary>
     private const float DragThreshold = 4f;
 
+    /// <summary>How long a second click may take to arrive and still pair, in seconds.</summary>
+    /// <remarks>
+    /// Windows' own default. Worth matching rather than choosing, because a player's idea
+    /// of how fast a double-click is comes from the rest of their machine.
+    /// </remarks>
+    private const double DoubleClickWindow = 0.5;
+
+    /// <summary>How far apart two clicks may land and still pair, in pixels.</summary>
+    /// <remarks>
+    /// Two clicks at opposite ends of the room are two decisions, however quickly they were
+    /// made. Looser than <see cref="DragThreshold"/>: a hand that is hurrying wanders.
+    /// </remarks>
+    private const float DoubleClickDistance = 8f;
+
     private readonly HashSet<CameraAction> _pressed = [];
     private readonly HashSet<PointerButton> _clicked = [];
+    private readonly HashSet<PointerButton> _doubleClicked = [];
+    private readonly HashSet<EditKey> _edits = [];
+    private readonly System.Text.StringBuilder _typed = new();
+    private readonly Dictionary<PointerButton, (double At, Vector2 Where)> _lastClick = [];
     private IInputContext? _input;
     private IKeyboard? _keyboard;
     private IMouse? _mouse;
@@ -183,6 +220,15 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     /// <inheritdoc/>
     public bool WasClicked(PointerButton button) => _clicked.Contains(button);
 
+    /// <inheritdoc />
+    public bool WasDoubleClicked(PointerButton button) => _doubleClicked.Contains(button);
+
+    /// <inheritdoc />
+    public string Typed => _typed.ToString();
+
+    /// <inheritdoc />
+    public bool WasPressed(EditKey key) => _edits.Contains(key);
+
     /// <inheritdoc/>
     public int ScrollDelta => _scroll;
 
@@ -205,6 +251,9 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     {
         _pressed.Clear();
         _clicked.Clear();
+        _doubleClicked.Clear();
+        _edits.Clear();
+        _typed.Clear();
         _pointerDelta = Vector2.Zero;
         _scroll = 0;
     }
@@ -276,21 +325,66 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
                     return;
                 }
 
-                if (mouseButton == MouseButton.Left)
+                PointerButton? which = mouseButton switch
                 {
-                    _clicked.Add(PointerButton.Primary);
+                    MouseButton.Left => PointerButton.Primary,
+                    MouseButton.Right => PointerButton.Secondary,
+                    _ => null,
+                };
+
+                if (which is not { } button)
+                {
+                    return;
                 }
-                else if (mouseButton == MouseButton.Right)
+
+                _clicked.Add(button);
+
+                // The window's own clock, which is the one this layer is allowed to read.
+                double now = _window.Time;
+
+                if (_lastClick.TryGetValue(button, out (double At, Vector2 Where) previous) &&
+                    now - previous.At <= DoubleClickWindow &&
+                    (at - previous.Where).Length() <= DoubleClickDistance)
                 {
-                    _clicked.Add(PointerButton.Secondary);
+                    _doubleClicked.Add(button);
+
+                    // Forgotten, so a third click in quick succession starts a new pair
+                    // rather than making every click after the second a double one.
+                    _lastClick.Remove(button);
+                }
+                else
+                {
+                    _lastClick[button] = (now, at);
                 }
             };
         }
 
         if (_keyboard is not null)
         {
+            // What the player meant to write, with the layout and the shift state already
+            // applied by the platform. Reconstructing this from key codes is how a console
+            // ends up working on one keyboard layout and no others.
+            _keyboard.KeyChar += (_, c) =>
+            {
+                if (c >= ' ' && c != (char)127)
+                {
+                    _typed.Append(c);
+                }
+            };
+
             _keyboard.KeyDown += (_, key, _) =>
             {
+                // Recorded whether or not anything is reading them. Which of the two
+                // meanings a key has — a camera action or an edit — is decided by whoever
+                // is listening this frame, and a console that is open takes the keyboard.
+                foreach ((EditKey edit, Key which) in Editing)
+                {
+                    if (key == which)
+                    {
+                        _edits.Add(edit);
+                    }
+                }
+
                 foreach ((CameraAction action, Key[] keys) in Bindings)
                 {
                     if (Array.IndexOf(keys, key) >= 0)

@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace GK3Reborn.Game.Navigation;
 
@@ -127,6 +127,21 @@ public sealed class Walker
     /// </remarks>
     public float Pace { get; }
 
+    /// <summary>How high the ground is under a point, when the room can say.</summary>
+    /// <remarks>
+    /// <para>
+    /// Set by whoever starts the walk, because the answer belongs to the room rather than to
+    /// the actor. Null keeps the old behaviour — hold the height set off at — which is what
+    /// a room with no floor object named has to do.
+    /// </para>
+    /// <para>
+    /// Applied after every move rather than baked into the route, and that is the point: a
+    /// route is corners on a flat bitmap, so the only place the shape of the ground can get
+    /// in is where the actor actually is.
+    /// </para>
+    /// </remarks>
+    public Func<Vector3, float?>? Ground { get; set; }
+
     /// <summary>Where they are now.</summary>
     public Vector3 Position { get; private set; }
 
@@ -227,13 +242,13 @@ public sealed class Walker
 
             if (distance <= budget)
             {
-                Position = new Vector3(_route[_at].X, Position.Y, _route[_at].Z);
+                Position = Grounded(new Vector3(_route[_at].X, Position.Y, _route[_at].Z));
                 budget -= distance;
                 _at++;
             }
             else
             {
-                Position += toCorner / distance * budget;
+                Position = Grounded(Position + (toCorner / distance * budget));
                 budget = 0;
             }
         }
@@ -248,6 +263,15 @@ public sealed class Walker
 
         return Walking;
     }
+
+    /// <summary>Puts a point on the floor, if the room knows where the floor is.</summary>
+    /// <remarks>
+    /// The height that goes in is the one the actor is already at, which is what lets a
+    /// floor covering the same ground twice answer with the storey they are on rather than
+    /// the one above it.
+    /// </remarks>
+    private Vector3 Grounded(Vector3 to) =>
+        Ground?.Invoke(to) is { } height ? new Vector3(to.X, height, to.Z) : to;
 
     /// <summary>Stops where they stand.</summary>
     /// <remarks>

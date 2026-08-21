@@ -1,4 +1,4 @@
-using GK3Reborn.Sheep;
+﻿using GK3Reborn.Sheep;
 
 namespace GK3Reborn.Game;
 
@@ -46,10 +46,28 @@ public sealed class SheepScheduler
     public IReadOnlyList<string> Pending =>
         [.. _waiting.Select(w => $"{w.Thread.Script.Name}:{w.Thread.FunctionName}")];
 
+    /// <summary>
+    /// What to carry a resumed script out inside, so that anything it calls can be waited
+    /// on in turn.
+    /// </summary>
+    /// <remarks>
+    /// A function's second wait block is reached by being resumed, not by being started, so
+    /// a <c>wait CallSheep(...)</c> there is issued from in here rather than from
+    /// <see cref="ScriptHost.Run"/>. Given the work to do; answers which scripts it started.
+    /// Null leaves a resumed script's calls unwaited, which is what a host with no notion
+    /// of nested scripts wants.
+    /// </remarks>
+    public Func<Action, IReadOnlyList<SheepThread>>? Calls { get; set; }
+
     /// <summary>Takes charge of a script that has blocked.</summary>
     /// <param name="thread">The thread.</param>
+    /// <param name="until">
+    /// Scripts this one called and is waiting on, if any. A <c>wait CallSheep(...)</c> is
+    /// over when the function it called is over, and that is not a length of time — it is
+    /// another script, which may itself be waiting on an animation, a walk or a timer.
+    /// </param>
     /// <returns>True when it was parked rather than being already finished.</returns>
-    public bool Park(SheepThread thread)
+    public bool Park(SheepThread thread, IReadOnlyList<SheepThread>? until = null)
     {
         ArgumentNullException.ThrowIfNull(thread);
 
@@ -58,7 +76,7 @@ public sealed class SheepScheduler
             return false;
         }
 
-        _waiting.Add(new Waiting(thread, thread.WaitSeconds));
+        _waiting.Add(new Waiting(thread, thread.WaitSeconds) { Until = until });
         return true;
     }
 
@@ -78,25 +96,69 @@ public sealed class SheepScheduler
             Waiting waiting = _waiting[i];
             waiting.Remaining -= seconds;
 
-            if (waiting.Remaining > 0)
+            if (waiting.Remaining > 0 || Outstanding(waiting.Until))
             {
                 continue;
             }
 
             _waiting.RemoveAt(i);
 
-            SheepVirtualMachine.NotifyWaitsCompleted(waiting.Thread);
-            _vm.Resume(waiting.Thread);
+            SheepThread carried = waiting.Thread;
 
-            resumed.Add($"{waiting.Thread.Script.Name}:{waiting.Thread.FunctionName}");
-
-            if (waiting.Thread.State is SheepThreadState.Blocked or SheepThreadState.Yielded)
+            void Carry()
             {
-                _waiting.Add(new Waiting(waiting.Thread, waiting.Thread.WaitSeconds));
+                SheepVirtualMachine.NotifyWaitsCompleted(carried);
+                _vm.Resume(carried);
+            }
+
+            IReadOnlyList<SheepThread>? called = null;
+
+            if (Calls is { } within)
+            {
+                called = within(Carry);
+            }
+            else
+            {
+                Carry();
+            }
+
+            resumed.Add($"{carried.Script.Name}:{carried.FunctionName}");
+
+            if (carried.State is SheepThreadState.Blocked or SheepThreadState.Yielded)
+            {
+                _waiting.Add(new Waiting(carried, carried.WaitSeconds) { Until = called });
             }
         }
 
         return resumed;
+    }
+
+    /// <summary>Whether any of the scripts a thread called is still going.</summary>
+    /// <remarks>
+    /// Being here is what "still going" means: a thread that finished was taken off this
+    /// list, and one that blocked again went back on it. A caller that waited on a
+    /// function which never blocked at all sees an empty answer and carries straight on,
+    /// which is the ordinary case and costs nothing.
+    /// </remarks>
+    private bool Outstanding(IReadOnlyList<SheepThread>? until)
+    {
+        if (until is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        foreach (SheepThread thread in until)
+        {
+            foreach (Waiting waiting in _waiting)
+            {
+                if (ReferenceEquals(waiting.Thread, thread))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Gives up on everything that is waiting.</summary>
@@ -111,5 +173,8 @@ public sealed class SheepScheduler
         public SheepThread Thread { get; } = thread;
 
         public double Remaining { get; set; } = remaining;
+
+        /// <summary>Scripts this one called and cannot carry on without.</summary>
+        public IReadOnlyList<SheepThread>? Until { get; init; }
     }
 }

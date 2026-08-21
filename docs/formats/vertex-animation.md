@@ -1,4 +1,4 @@
-# Vertex animation (`.ACT`)
+﻿# Vertex animation (`.ACT`)
 
 5,796 clips, 399 MB, 280,617 keyframes across 709 models. All of the game's movement.
 
@@ -121,15 +121,30 @@ composition `Plan/06` §4.1 validated in Python.
 
 ## Where a clip plays
 
-A clip's mesh transforms are wherever the animator authored them — for a walk, halfway
-across some other room. Played as written the character walks out of frame.
+A clip's mesh transforms replace the model's own, and the model's placement is applied on
+top. What that means depends entirely on what is being animated.
 
-**Relative**, 5,538 of 6,040 action lines (92%): shifted once at the start by however far
-the clip's first frame sits from where the model rests. Root motion within the clip still
-happens, measured from where the actor was standing. Taken **once** and held — recomputing
-per frame cancels exactly the movement it exists to preserve.
+**A prop plays its clip exactly as authored.** A prop is placed by the identity: the room's
+coordinates *are* the model's coordinates, so a clip written for that room is already in
+the right place. That is also what the original does — it swaps the mesh transforms and
+stops there.
 
-**Absolute**, 502 lines: the line carries `x1,y1,z1,angle1,x2,y2,z2,angle2`. Both quirks
+It has to be measured to be believed, so it was: of the game's prop clips, 1,722 put the
+thing somewhere other than where its model rests, because moving it is the point. A book
+being picked up is 59 units above the shelf. Wilkes's moped rides seventeen hundred units
+across RC1, from (2371, 22, −2489) to (4060, 61, −1294), while its model sits at the
+origin. Correcting those back to the model is what left him riding past the world origin
+while Gabriel watched an empty square and said "A bike! Man, I need one of those."
+
+**An actor's clip is shifted to them.** An actor is placed where the scene stands them, and
+their clip is wherever the animator authored it — for a walk, halfway across some other
+room. Played as written the character walks out of frame. So it is shifted once at the
+start by however far the clip's first frame sits from where the model rests; root motion
+within the clip still happens, measured from where the actor was standing. Taken **once**
+and held — recomputing per frame cancels exactly the movement it exists to preserve.
+
+**Absolute**, 502 of 6,040 action lines: the line carries
+`x1,y1,z1,angle1,x2,y2,z2,angle2`, and is put there whatever it belongs to. Both quirks
 matter. The first offset goes *actor to model* and is wanted the other way round, so it is
 **negated**; and **y and z are swapped** in both, because the assets came out of Maya.
 
@@ -137,6 +152,42 @@ matter. The first offset goes *actor to model* and is wanted the other way round
 position = worldToModel + rotateY(worldToModelHeading) · modelToActor
 heading  = worldToModelHeading − modelToActorHeading
 ```
+
+That heading is used **as it stands**. It is a transform, not a character's heading, so the
+half turn that turns one into the other — GK3 measures a heading zero-along-+Z and models
+its people facing −Z, see `Walker.Rotation` — must not be applied here. It was, and it left
+RC1's fountain spraying its water two hundred and fifty units from the fountain.
+
+## Between one recorded pose and the next
+
+A clip records fifteen poses a second and a screen shows sixty frames a second, so playing
+the poses as they stand shows each of them four times over. On anything slow that reads as
+the original's stiffness; on anything fast it reads as strobing, and the lobby's ceiling
+fans — six degrees a recorded pose, ninety a second — are the clearest case in the game.
+
+So a moment between two recorded poses is the two of them mixed, which is what
+`ActFile.PoseAt` and `ShapeAt` are for. Three things about that are worth writing down.
+
+**The mix is of the recorded poses either side, not of consecutive frame numbers.** A mesh
+that does not move is not written again; reading a held pose as a keyframe would make a
+mesh that moves once every ten frames drift the whole way instead of waiting and then
+moving.
+
+**Every basis in the corpus is mirrored.** GK3's world is left-handed and its mesh
+transforms carry a determinant of −1. `Matrix4x4.Decompose` deals with that by picking an
+axis to call negative, and it need not pick the same one twice running — which turns a fan
+blade inside out between one pose and the next, and reads as the fan flickering in and out
+of existence rather than as a mistake about handedness. The mirror is taken out first, the
+rotation mixed as a rotation, and the mirror put back. A basis that is not a rotation at
+all — some of the fan housings are squashed flat — falls back to a straight component-wise
+mix, which at these step sizes costs about a tenth of a percent of length and cannot go
+wrong.
+
+**A clip that loops runs its last pose into its first.** Held instead, it freezes for a
+fifteenth of a second at the top of every turn. A scenery script that is one animation and
+a jump back to it — `ANIM lbyfan_spin`, `loop`, and nearly every fan, fountain, fire and
+flashing clock in the game — is therefore played as a looping *clip* rather than restarted
+as a script each time round.
 
 ## When a clip ends
 

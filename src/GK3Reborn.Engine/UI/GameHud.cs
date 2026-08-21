@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Rendering;
 
@@ -26,6 +26,7 @@ namespace GK3Reborn.UI;
 /// <param name="Held">Which of it is in hand, or null.</param>
 /// <param name="InventoryOpen">Whether the inventory is showing.</param>
 /// <param name="Place">Where this is, for the corner.</param>
+/// <param name="Console">The developer console, when it is showing.</param>
 public readonly record struct HudState(
     string? Noun,
     IReadOnlyList<string> Verbs,
@@ -39,7 +40,8 @@ public readonly record struct HudState(
     IReadOnlyList<string> Inventory,
     string? Held,
     bool InventoryOpen,
-    string Place);
+    string Place,
+    GameConsole? Console = null);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -76,6 +78,17 @@ public sealed class GameHud
     private static readonly Vector4 Accent = new(0.95f, 0.76f, 0.35f, 1f);
     private static readonly Vector4 Rule = new(0.30f, 0.32f, 0.36f, 0.8f);
 
+    /// <summary>The console's own ground, darker and more opaque than the rest.</summary>
+    /// <remarks>
+    /// Nearly solid on purpose. Everything else here is a label over a room the player is
+    /// looking at; this is a surface being read line by line, and the room behind it is a
+    /// distraction rather than context.
+    /// </remarks>
+    private static readonly Vector4 Console = new(0.03f, 0.04f, 0.06f, 0.97f);
+
+    private static readonly Vector4 Complaint = new(0.92f, 0.45f, 0.40f, 1f);
+    private static readonly Vector4 Answer = new(0.60f, 0.85f, 0.70f, 1f);
+
     private readonly List<(string Verb, Vector4 Bounds)> _rows = [];
     private readonly List<(string Item, Vector4 Bounds)> _slots = [];
 
@@ -88,10 +101,45 @@ public sealed class GameHud
     }
 
     /// <summary>The display list it fills in.</summary>
-    public Overlay Overlay { get; }
+    public Overlay Overlay { get; private set; }
+
+    /// <summary>
+    /// How much bigger everything is than the layout was written against.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every measurement here — padding, panel heights, the gap between inventory slots —
+    /// is written in the units of a nineteen-pixel line, which is what <c>F_ARIAL_T12</c>
+    /// gives, and multiplied by this. So changing the font changes the whole interface
+    /// together rather than leaving 1999-sized gaps around 2026-sized letters.
+    /// </para>
+    /// <para>
+    /// It is derived from the font rather than set, because a bitmap font has exactly one
+    /// size: there is no scaling a sheet, and drawing a seventeen-pixel one at thirty-four
+    /// pixels is a blurry seventeen-pixel one. Making the text bigger means picking a
+    /// bigger sheet, and everything else follows from which sheet was picked.
+    /// </para>
+    /// </remarks>
+    public float Scale => Math.Max(1f, Overlay.LineHeight / 19f);
+
+    /// <summary>Draws the interface with a different font.</summary>
+    /// <param name="atlas">The new atlas.</param>
+    /// <remarks>
+    /// For a window that changed size enough to want a different rung of the font ladder.
+    /// The interface object survives it, because the room loop holds one and hands it the
+    /// same instance every frame.
+    /// </remarks>
+    public void Retarget(OverlayAtlas atlas)
+    {
+        ArgumentNullException.ThrowIfNull(atlas);
+
+        Overlay = new Overlay(atlas);
+        _rows.Clear();
+        _slots.Clear();
+    }
 
     /// <summary>How tall the inventory strip is.</summary>
-    public float InventoryHeight => Overlay.LineHeight + 14f;
+    public float InventoryHeight => Overlay.LineHeight + (14f * Scale);
 
     /// <summary>Lays the interface out.</summary>
     /// <param name="state">What to show.</param>
@@ -116,6 +164,115 @@ public sealed class GameHud
         else
         {
             Pointing(state, width, height);
+        }
+
+        // Later still. The console is a different mode rather than a part of the interface,
+        // and while it is up it is what the player is looking at.
+        if (state.Console is { Open: true } console)
+        {
+            Terminal(console, width, height);
+        }
+    }
+
+    /// <summary>
+    /// The developer console.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Across the top rather than the bottom, because the inventory strip and the captions
+    /// both live along the bottom edge and a console over either of them would hide the
+    /// thing a command was about to change.
+    /// </para>
+    /// <para>
+    /// The completion list hangs below the input line and is the reason the console is worth
+    /// having: the command language is the game's own 139 Sheep functions, and nobody can be
+    /// expected to know their names. Each row carries its prototype, so the arguments are
+    /// visible before they are typed rather than after they are wrong.
+    /// </para>
+    /// </remarks>
+    private void Terminal(GameConsole console, int width, int height)
+    {
+        float unit = Scale;
+        float row = Overlay.LineHeight;
+        float margin = 10f * unit;
+
+        // Enough for the scrollback, an input line and a full completion list, or half the
+        // screen — whichever is less. A console covering the room it is being used on is a
+        // console that has to be closed to see what it did.
+        float panel = Math.Min(height * 0.5f, (row * 14) + (24f * unit));
+        float input = panel - row - (10f * unit);
+
+        Overlay.Rect(0, 0, width, panel, Console);
+        Overlay.Rect(0, panel - 1, width, 1, Accent);
+
+        // The scrollback, newest at the bottom against the input line, which is where the
+        // eye already is.
+        int fits = Math.Max(0, (int)((input - margin) / row));
+        int from = Math.Max(0, console.Lines.Count - fits);
+
+        for (int i = from; i < console.Lines.Count; i++)
+        {
+            ConsoleLine line = console.Lines[i];
+
+            Overlay.Text(
+                line.Kind == ConsoleLineKind.Echo ? "> " + line.Text : line.Text,
+                margin + (4 * unit),
+                margin + (row * (i - from)),
+                line.Kind switch
+                {
+                    ConsoleLineKind.Complaint => Complaint,
+                    ConsoleLineKind.Result => Answer,
+                    ConsoleLineKind.Echo => Ink,
+                    _ => Dim,
+                });
+        }
+
+        Overlay.Rect(0, input - (2 * unit), width, 1, Rule);
+
+        float caret = Overlay.Text("> ", margin + (4 * unit), input + (4 * unit), Accent);
+        caret = Overlay.Text(console.Typed, caret, input + (4 * unit), Ink);
+
+        // A block rather than a bar, and not blinking. There is no clock in this layer —
+        // ADR 0004 keeps wall time in the platform — and a caret that blinks would need
+        // one.
+        Overlay.Rect(caret + 1, input + (4 * unit), 8 * unit, row - (6 * unit), Accent);
+
+        if (console.Completions.Count == 0)
+        {
+            return;
+        }
+
+        // Widest prototype plus a margin, so the list is a column rather than a ragged edge.
+        float widest = 0;
+
+        foreach (Completion completion in console.Completions)
+        {
+            widest = Math.Max(widest, Overlay.Measure(completion.Signature));
+        }
+
+        float listWidth = Math.Min(width - (margin * 2), widest + (28f * unit));
+        float listHeight = (row * console.Completions.Count) + (10f * unit);
+        float listY = panel + (2 * unit);
+
+        Overlay.Rect(margin, listY, listWidth, listHeight, Console);
+        Overlay.Rect(margin, listY, 3 * unit, listHeight, Accent);
+
+        for (int i = 0; i < console.Completions.Count; i++)
+        {
+            float y = listY + (5 * unit) + (row * i);
+            bool chosen = i == console.Chosen;
+
+            if (chosen)
+            {
+                Overlay.Rect(
+                    margin + (3 * unit), y - (2 * unit), listWidth - (3 * unit), row, PanelLit);
+            }
+
+            Overlay.Text(
+                console.Completions[i].Signature,
+                margin + (12 * unit),
+                y,
+                chosen ? Accent : Dim);
         }
     }
 
@@ -179,14 +336,15 @@ public sealed class GameHud
     /// <summary>The corner that says where you are.</summary>
     private void Where(HudState state, int width)
     {
-        float height = Overlay.LineHeight + 10f;
+        float unit = Scale;
+        float height = Overlay.LineHeight + (10f * unit);
 
         Overlay.Rect(0, 0, width, height, Panel);
         Overlay.Rect(0, height - 1, width, 1, Rule);
-        Overlay.Text(state.Place, 12, 5, Dim);
+        Overlay.Text(state.Place, 12 * unit, 5 * unit, Dim);
 
         string hint = "right-click for everything it answers to";
-        Overlay.Text(hint, width - Overlay.Measure(hint) - 12, 5, Dim);
+        Overlay.Text(hint, width - Overlay.Measure(hint) - (12 * unit), 5 * unit, Dim);
     }
 
     /// <summary>
@@ -211,28 +369,30 @@ public sealed class GameHud
         // and have no dash beyond the hyphen, so anything typographic comes out as the
         // font's box-shaped stand-in — and colour separates them better than punctuation
         // would anyway.
-        float w = Overlay.Measure(subject) + 16f;
+        float unit = Scale;
+        float w = Overlay.Measure(subject) + (16f * unit);
 
         if (action is not null)
         {
             w += Overlay.Measure(action) + Overlay.Measure("  ");
         }
 
-        float h = Overlay.LineHeight + 10f;
+        float h = Overlay.LineHeight + (10f * unit);
 
         // Kept on screen: a label that runs off the right edge is worse than one that stops
         // following the pointer for the last few pixels.
-        float x = Math.Clamp(state.At.X + 18, 0, Math.Max(0, width - w));
-        float y = Math.Clamp(state.At.Y + 18, 0, Math.Max(0, height - h));
+        float x = Math.Clamp(state.At.X + (18 * unit), 0, Math.Max(0, width - w));
+        float y = Math.Clamp(state.At.Y + (18 * unit), 0, Math.Max(0, height - h));
 
         Overlay.Rect(x, y, w, h, Panel);
-        Overlay.Rect(x, y, 2, h, action is not null ? Accent : Rule);
+        Overlay.Rect(x, y, 2 * unit, h, action is not null ? Accent : Rule);
 
-        float pen = Overlay.Text(subject, x + 10, y + 5, action is not null ? Ink : Dim);
+        float pen = Overlay.Text(
+            subject, x + (10 * unit), y + (5 * unit), action is not null ? Ink : Dim);
 
         if (action is not null)
         {
-            Overlay.Text(action, pen + Overlay.Measure("  "), y + 5, Accent);
+            Overlay.Text(action, pen + Overlay.Measure("  "), y + (5 * unit), Accent);
         }
     }
 
@@ -246,8 +406,9 @@ public sealed class GameHud
     /// </remarks>
     private void Menu(HudState state, int width, int height)
     {
-        const float Padding = 8f;
-        float row = Overlay.LineHeight + 8f;
+        float unit = Scale;
+        float padding = 8f * unit;
+        float row = Overlay.LineHeight + (8f * unit);
         float w = 0;
 
         foreach (string verb in state.Verbs)
@@ -255,15 +416,15 @@ public sealed class GameHud
             w = Math.Max(w, Overlay.Measure(Pretty(verb)));
         }
 
-        w += Padding * 2;
+        w += padding * 2;
 
-        float title = Overlay.LineHeight + 8f;
-        float h = title + (row * state.Verbs.Count) + Padding;
+        float title = Overlay.LineHeight + (8f * unit);
+        float h = title + (row * state.Verbs.Count) + padding;
         float x = Math.Clamp(state.MenuAt.X, 0, Math.Max(0, width - w));
         float y = Math.Clamp(state.MenuAt.Y, 0, Math.Max(0, height - h));
 
         Overlay.Rect(x, y, w, h, PanelLit);
-        Overlay.Text(Pretty(state.Noun ?? string.Empty), x + Padding, y + 4, Accent);
+        Overlay.Text(Pretty(state.Noun ?? string.Empty), x + padding, y + (4 * unit), Accent);
         Overlay.Rect(x, y + title, w, 1, Rule);
 
         for (int i = 0; i < state.Verbs.Count; i++)
@@ -276,10 +437,11 @@ public sealed class GameHud
             if (chosen)
             {
                 Overlay.Rect(x, top, w, row, new Vector4(0.28f, 0.31f, 0.37f, 1f));
-                Overlay.Rect(x, top, 2, row, Accent);
+                Overlay.Rect(x, top, 2 * unit, row, Accent);
             }
 
-            Overlay.Text(Pretty(state.Verbs[i]), x + Padding, top + 4, chosen ? Accent : Ink);
+            Overlay.Text(
+                Pretty(state.Verbs[i]), x + padding, top + (4 * unit), chosen ? Accent : Ink);
             _rows.Add((state.Verbs[i], bounds));
         }
     }
@@ -294,6 +456,7 @@ public sealed class GameHud
     /// </remarks>
     private void Inventory(HudState state, int width, int height)
     {
+        float unit = Scale;
         float h = InventoryHeight;
         float y = height - h;
 
@@ -304,29 +467,29 @@ public sealed class GameHud
             ? "carrying nothing"
             : string.Create(CultureInfo.InvariantCulture, $"carrying {state.Inventory.Count}");
 
-        Overlay.Text(label, 12, y + 7, Dim);
+        Overlay.Text(label, 12 * unit, y + (7 * unit), Dim);
 
-        float x = Overlay.Measure(label) + 28;
+        float x = Overlay.Measure(label) + (28 * unit);
 
         foreach (string item in state.Inventory)
         {
             string name = Pretty(item);
-            float w = Overlay.Measure(name) + 16;
+            float w = Overlay.Measure(name) + (16 * unit);
 
-            if (x + w > width - 12)
+            if (x + w > width - (12 * unit))
             {
                 break;
             }
 
             bool held = string.Equals(item, state.Held, StringComparison.OrdinalIgnoreCase);
-            var bounds = new Vector4(x, y + 4, w, h - 8);
+            var bounds = new Vector4(x, y + (4 * unit), w, h - (8 * unit));
 
-            Overlay.Rect(x, y + 4, w, h - 8, held ? PanelLit : Panel);
-            Overlay.Rect(x, y + 4, w, 1, held ? Accent : Rule);
-            Overlay.Text(name, x + 8, y + 7, held ? Accent : Ink);
+            Overlay.Rect(x, y + (4 * unit), w, h - (8 * unit), held ? PanelLit : Panel);
+            Overlay.Rect(x, y + (4 * unit), w, 1, held ? Accent : Rule);
+            Overlay.Text(name, x + (8 * unit), y + (7 * unit), held ? Accent : Ink);
 
             _slots.Add((item, bounds));
-            x += w + 6;
+            x += w + (6 * unit);
         }
     }
 
@@ -338,20 +501,21 @@ public sealed class GameHud
             return;
         }
 
+        float unit = Scale;
         float row = Overlay.LineHeight;
-        float margin = 48f;
-        float usable = Math.Max(64f, width - (margin * 2) - 24f);
+        float margin = 48f * unit;
+        float usable = Math.Max(64f, width - (margin * 2) - (24f * unit));
 
         List<string> lines = Wrap(caption, usable);
-        float h = (row * lines.Count) + 20f;
-        float y = height - InventoryHeight - h - 12f;
+        float h = (row * lines.Count) + (20f * unit);
+        float y = height - InventoryHeight - h - (12f * unit);
 
         Overlay.Rect(margin, y, width - (margin * 2), h, Panel);
-        Overlay.Rect(margin, y, 3, h, Accent);
+        Overlay.Rect(margin, y, 3 * unit, h, Accent);
 
         for (int i = 0; i < lines.Count; i++)
         {
-            Overlay.Text(lines[i], margin + 14, y + 10 + (row * i), Ink);
+            Overlay.Text(lines[i], margin + (14 * unit), y + (10 * unit) + (row * i), Ink);
         }
 
         // GK3 writes UNKNOWN for a line with nobody on screen saying it — Gabriel's own
@@ -359,7 +523,7 @@ public sealed class GameHud
         if (state.Speaker is { Length: > 0 } speaker &&
             !speaker.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
-            Overlay.Text(Pretty(speaker), margin + 14, y - row - 2, Accent);
+            Overlay.Text(Pretty(speaker), margin + (14 * unit), y - row - (2 * unit), Accent);
         }
     }
 

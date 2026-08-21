@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
@@ -86,6 +86,52 @@ public interface ISceneSink
     /// <returns>True when there is nothing to read, decode or upload.</returns>
     bool HasNormalMap(string name);
 
+    /// <summary>Gives a surface its packed occlusion, roughness and metalness.</summary>
+    /// <param name="name">The <em>colour</em> texture it belongs to.</param>
+    /// <param name="image">The decoded map.</param>
+    /// <remarks>
+    /// <para>
+    /// Red is ambient occlusion, green is roughness, blue is metalness — the glTF packing,
+    /// which every generator and every authoring tool already speaks.
+    /// </para>
+    /// <para>
+    /// Uploaded as data rather than colour, for the same reason a normal map is: these are
+    /// three measurements that happen to be stored in a picture.
+    /// </para>
+    /// </remarks>
+    void AddOrmMap(string name, DecodedImage image);
+
+    /// <summary>Gives a surface an ORM map that is already in a block format.</summary>
+    /// <param name="name">The <em>colour</em> texture it belongs to.</param>
+    /// <param name="image">The compressed levels.</param>
+    void AddOrmMap(string name, CompressedImage image);
+
+    /// <summary>Whether a surface's ORM map has already been given.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <returns>True when there is nothing to read, decode or upload.</returns>
+    bool HasOrmMap(string name);
+
+    /// <summary>Gives a surface a height map.</summary>
+    /// <param name="name">The <em>colour</em> texture it belongs to.</param>
+    /// <param name="image">The decoded map.</param>
+    /// <remarks>
+    /// A distance either side of the modelled surface, mid grey being the surface itself.
+    /// What reads it is parallax, which is a texture-coordinate offset rather than real
+    /// displacement: it deepens mortar courses and floorboards convincingly from most
+    /// angles and does nothing whatever to a silhouette.
+    /// </remarks>
+    void AddHeightMap(string name, DecodedImage image);
+
+    /// <summary>Gives a surface a height map that is already in a block format.</summary>
+    /// <param name="name">The <em>colour</em> texture it belongs to.</param>
+    /// <param name="image">The compressed levels.</param>
+    void AddHeightMap(string name, CompressedImage image);
+
+    /// <summary>Whether a surface's height map has already been given.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <returns>True when there is nothing to read, decode or upload.</returns>
+    bool HasHeightMap(string name);
+
     /// <summary>Whether a texture has already been given, under this or an earlier room.</summary>
     /// <param name="name">Its name.</param>
     /// <returns>True when there is nothing to read, decode or upload.</returns>
@@ -109,6 +155,47 @@ public interface ISceneSink
         ModFile model,
         Matrix4x4? transform = null,
         IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null);
+
+    /// <summary>Draws a model, or stops drawing it.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="visible">Whether it is drawn.</param>
+    /// <remarks>
+    /// <para>
+    /// GK3 scenes declare models <c>hidden</c> and scripts call <c>ShowModel</c> to bring
+    /// them out. Both are ordinary staging: RC1 keeps Wilkes's moped out of sight until
+    /// the scripted moment it rides past, at which point the scene shows it, plays its
+    /// clip, has Gabriel watch it and hides it again.
+    /// </para>
+    /// <para>
+    /// Hiding must take the model out of the traced world as well as out of the picture.
+    /// A model that is not drawn but is still traced lies its shadow on the floor, which
+    /// is a stranger thing to look at than the model would have been.
+    /// </para>
+    /// </remarks>
+    void SetVisible(ModelPlacement placement, bool visible);
+
+    /// <summary>Paints one of a standing model's textures with something else.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="texture">The texture the model was built with, such as <c>GAB_FACE</c>.</param>
+    /// <param name="painted">What to draw instead, or null to put the model's own back.</param>
+    /// <remarks>
+    /// <para>
+    /// What makes a character's face move. GK3's heads have no facial geometry — a head is
+    /// one mesh with one bitmap on it — so talking, blinking and raising an eyebrow are all
+    /// the same operation: draw a different picture on the same triangles.
+    /// </para>
+    /// <para>
+    /// By texture rather than by submesh, because that is the thing the caller actually
+    /// knows. A face is "wherever this model draws <c>GAB_FACE</c>"; which submesh of which
+    /// mesh group that happens to be is the model's business and varies per character.
+    /// </para>
+    /// <para>
+    /// The replacement must have been given to the sink already. Normal maps stay with the
+    /// <em>original</em> texture's name: a repainted face is the same surface with a
+    /// different picture on it, and its bumps have not changed.
+    /// </para>
+    /// </remarks>
+    void Repaint(ModelPlacement placement, string texture, string? painted);
 
     /// <summary>Moves one mesh of a model that is already standing.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>

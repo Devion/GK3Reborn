@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering;
@@ -107,6 +107,16 @@ public sealed class ScenePicker
     /// <summary>How many separately nameable things the ray can meet.</summary>
     public int TargetCount => _targets.Count;
 
+    /// <summary>
+    /// Things a script has switched off, by name.
+    /// </summary>
+    /// <remarks>
+    /// Shared with the story rather than owned here, because a hit test switched off stays
+    /// off across a camera cut and a reload of the same room. See
+    /// <c>GameState.BlockedHitTests</c>.
+    /// </remarks>
+    public ISet<string>? Blocked { get; init; }
+
     /// <summary>Casts a ray into the scene.</summary>
     /// <param name="ray">Where from and which way.</param>
     /// <returns>The nearest thing it met, or null if it met nothing.</returns>
@@ -117,6 +127,22 @@ public sealed class ScenePicker
 
         foreach (Target target in _targets)
         {
+            // What is not drawn is not there to be clicked. A scene hides models it means
+            // to show later — the moped waiting for its scripted ride past RC1 — and a ray
+            // that meets one picks up a noun for something invisible, which reads as the
+            // pointer catching on empty air.
+            if (target.Of is { Visible: false })
+            {
+                continue;
+            }
+
+            // And what a script has switched off is not there either, which is how a scene
+            // stops the player clicking through something it is in the middle of.
+            if (Blocked is { Count: > 0 } off && off.Contains(target.Name))
+            {
+                continue;
+            }
+
             if (!MeetsBox(ray, target.Minimum, target.Maximum, best))
             {
                 continue;
@@ -248,7 +274,10 @@ public sealed class ScenePicker
             placed.Verb,
             placed.Kind == PlacedModelKind.Actor ? PickKind.Actor : PickKind.Prop,
             [.. triangles],
-            FrontFacingOnly: false));
+            FrontFacingOnly: false)
+        {
+            Of = placed,
+        });
     }
 
     /// <summary>The noun an object answers to, if it answers to one.</summary>
@@ -419,6 +448,14 @@ public sealed class ScenePicker
         public string? Noun { get; }
 
         public string? Verb { get; }
+
+        /// <summary>The model this stands for, when it is one that can be hidden.</summary>
+        /// <remarks>
+        /// Held rather than copied, because whether a model is drawn changes while the
+        /// scene is standing and the picker is built once. Null for the room's own
+        /// geometry, which is always there.
+        /// </remarks>
+        public PlacedModel? Of { get; init; }
 
         public PickKind Kind { get; }
 

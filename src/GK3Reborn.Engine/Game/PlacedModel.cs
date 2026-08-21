@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Rendering;
 
@@ -47,5 +47,34 @@ public sealed record PlacedModel(
     public string? Gas { get; init; }
 
     /// <summary>That script, read.</summary>
-    public Formats.Animation.GasFile? Idle { get; init; }
+    /// <remarks>
+    /// Settable, because a script may hand a character a different idle while the scene is
+    /// standing — <c>NEWIDLE MosIdle.gas</c>, and <c>SetIdleGAS</c> from Sheep.
+    /// </remarks>
+    public Formats.Animation.GasFile? Idle { get; set; }
+
+    /// <summary>What they do while they are speaking.</summary>
+    /// <remarks>
+    /// A scene's actor line names one — <c>talk=madreltalk.gas</c> — and so does its
+    /// <c>[LISTENERS]</c> section, per conversation. Without it a character says their
+    /// lines standing perfectly still, which is the half of talking that lip sync does not
+    /// cover.
+    /// </remarks>
+    public Formats.Animation.GasFile? Talk { get; set; }
+
+    /// <summary>What they do while somebody else is speaking.</summary>
+    public Formats.Animation.GasFile? Listen { get; set; }
+
+    /// <summary>
+    /// Whether it is being drawn.
+    /// </summary>
+    /// <remarks>
+    /// A scene may declare a model <c>hidden</c> and a script bring it out later with
+    /// <c>ShowModel</c>. It is loaded and placed either way — there is no showing something
+    /// that was never read — so this is the difference between a model that is in the room
+    /// and one that is in the picture. Settable, because that is exactly what the scripts
+    /// change. Anything answering "what is under the pointer" has to respect it, or the
+    /// player can click on things nobody can see.
+    /// </remarks>
+    public bool Visible { get; set; } = true;
 }

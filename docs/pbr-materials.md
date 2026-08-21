@@ -1,4 +1,4 @@
-# PBR material brief
+﻿# PBR material brief
 
 The work package after the upscale. `texture-enhancement.md` covers producing a larger
 base colour; this covers everything else a surface needs — normal, roughness, metalness,
@@ -21,18 +21,26 @@ running them together means neither gets looked at properly.
 
 ## What the renderer does with each channel today
 
-Worth knowing before generating six thousand of anything. The mesh shader
-(`Rendering/Vulkan/MeshShaders.cs`) shades Lambert diffuse and nothing else — there is no
-specular term, no microfacet BRDF, and no tangent frame.
+**All six.** The mesh shader shades Lambert diffuse plus a Cook-Torrance specular lobe —
+GGX distribution, Smith height-correlated visibility, Schlick Fresnel — over a tangent
+frame built from screen-space derivatives, and every batch binds all four maps.
 
-| Channel | Consumed today | Needs |
+| Channel | Consumed today | How |
 |---|---|---|
 | Base colour | yes | — |
-| Normal | no | a tangent frame, and a light with a direction |
-| Roughness | no | a specular BRDF |
-| Metalness | no | the same BRDF, plus a reflection source |
-| Height | no | parallax or displacement; neither is planned before P10 |
-| Occlusion | no | somewhere to multiply it that is not already the bake |
+| Normal | yes | perturbs the shading normal, scaled by `NormalStrength` |
+| Roughness | yes | the specular lobe's width; also decides what is worth reflecting |
+| Metalness | yes | switches the surface between two shading models |
+| Height | yes | single-step parallax, scaled by `HeightScale` |
+| Occlusion | yes | multiplies the ambient term, and only that |
+
+**Which does not make the last four urgent to generate.** A surface with no map binds a
+neutral one — flat normal, `(1, 1, 0)` ORM, level height, zero height scale — and comes out
+byte for byte as it did before the lobe existed. The renderer being ready is what makes the
+generated maps reviewable; it is not an argument for generating them blind.
+
+The record of what changed and the traps it hid is in
+[rendering.md](rendering.md#materials).
 
 So the channels split cleanly. **Normal is the one that pays off first**: the RT and
 dynamic tiers light from the authored rig (ADR 0007) and already vary `dot(N, L)` per
@@ -45,11 +53,13 @@ lightmap has already decided how every texel is lit; perturbing the normal under
 perturbs a term the shader does not use. Enhanced materials are an enhanced-tier feature,
 in the same way the rig is.
 
-### What has to change in the renderer
+### What had to change in the renderer
 
 Four things, none of them large, all worth naming so they are not discovered one at a
 time. **All four are done** — see `977e525` — and the two traps they hid are recorded
-after the list.
+after the list. The rest of the pipeline — the ORM and height bindings, the specular lobe,
+the occlusion term and the parallax — followed later; see
+[rendering.md](rendering.md#materials).
 
 1. **A tangent frame.** `MeshVertex` is position, normal, UV, lightmap UV. Rather than
    adding a tangent to the vertex, build the TBN in the fragment shader from the
@@ -173,7 +183,7 @@ going to look at every one anyway.
 | **Ubisoft CHORD** (`ubisoft/ComfyUI-Chord`, weights `Ubisoft/ubisoft-laforge-chord`) | base colour, normal, height, roughness, metalness, single-step | **Research-Only, copyleft** | The strongest thing on offer and **not usable here.** See below. |
 | **StableMaterials** / **MatForger** (`gvecchio/*`) | base colour, normal, height, roughness, metalness; tileable by noise rolling; text- or image-conditioned | OpenRAIL | The candidate. Permits commercial use, carries use restrictions, is not OSI-approved — so it needs exactly the review `Plan/02` §1 already requires. |
 | `comfyui_controlnet_aux` — DSINE, NormalBAE, Metric3D, Depth Anything V2 | scene normals and depth | mixed, per model | Already installed. Estimators for *photographs of scenes*, not for tiling surface detail: useful on a prop rendered from its geometry, weak on a wallpaper swatch. |
-| Qwen-Image-Edit 2509 (+ 4-step Lightning LoRA) | an edited picture | Apache-2.0 | Already downloaded. Not a decomposition, but the most promising **delighter** on the disk — instructed to remove painted shadow and keep the albedo. |
+| Qwen-Image-Edit 2509 (+ 4-step Lightning LoRA) | an edited picture | Apache-2.0 | **In use, and not for this stage.** It is what `PbrLab/make_basecolour.py` generates the enhanced base colours with — see `texture-enhancement.md`. Still the most promising **delighter** on the disk, and that is a separate pass in front of this one rather than the one it is doing now. |
 
 **CHORD is the trap in that table.** It is Ubisoft's, its ComfyUI nodes are official, it
 does in one step what the rest do in several — and its licence is Research-Only with a
@@ -294,6 +304,46 @@ is the same picture and a different file.
 
 The machinery is `PbrLab/`; the record is `manifests/enhanced-normals.json`.
 
+## What the geometry turned out to know
+
+Four more passes, all in `PbrLab/`, all writing manifests into the content workspace.
+
+**A material for every texture.** `MaterialDefinition` had roughness, metalness, specular
+and an edit layer since C4 and no producer; `manifests/material-library.json` now holds
+6,657 of them, with the reasoning beside it in `material-evidence.json`. The classifier
+combines CLIP over the picture with name tokens, the BSP flags and the reference graph,
+in standard deviations rather than probabilities so the arithmetic can be read. Median
+confidence is 0.32 — the honest answer for a corpus of 64-pixel textures, and the number
+that orders the review queue C4 asks for. **4,156 textures are on no surface and
+referenced by nothing**, verified against rooms, models, scripts and scene files; they get
+no material, because inventing a roughness for something nothing draws is inventing an
+answer to a question nobody asked.
+
+**Texel density, which should have decided the tiers.** Reading all 110 rooms: 651 million
+square units across 1,786 textures, median 3.58 texels per world unit. **The twenty
+textures covering the most world are all tier 1** — grass, pine, rock, stone brick. The
+pilot tiered by reference count, which counts how often a name is mentioned rather than
+how big it is on a wall, and that is why its rooms measured 3% covered. Targets now come
+from density, and where the 16× cap binds the manifest says whether the texture is short
+of pixels or its UVs are stretched past any resolution. Getting to that number meant
+excluding 221 hit-test volumes, collapsing room variants, and noticing that Windows had
+been matching `*.BSP` and `*.bsp` to the same 110 files.
+
+**Emissive from flags an artist set in 1999.** 97 textures sit on light fittings (flag 16)
+or on surfaces the bake never lit (flag 8); 68 have bright texels and now have a mask.
+`TE3LANTERN` comes back the orange of its own flame. Flag 8 is broad enough to catch
+`R21WINDOW`'s painted daylight and also a pine tree, so anything flagged only unlit with
+under 2% of it bright is recorded as unlikely rather than masked. The pass also emits
+**470 world-space emitter candidates** — position, area, normal, colour, relative flux —
+which is the cross-check C4b asks for and never had.
+
+**Compression, which is now the binding constraint.** 716 pilot files are 13.71 GiB of
+video memory as `R8G8B8A8Unorm` with mips, and 3.43 GiB as BC7 and BC5. Round-trip
+quality: 45.5–47.0 dB colour, 49.9–55.5 dB normals. DDS is *larger* on disk than PNG and a
+quarter the size in memory, which is the trade that matters. One thing it asks of the
+renderer: **BC5 keeps two channels**, so `PerturbedNormal` must reconstruct Z as
+`sqrt(1 - x² - y²)` rather than reading three.
+
 ## Suggested order
 
 1. The renderer's four changes, and one hand-authored normal map on one wall in R25,
@@ -305,6 +355,10 @@ The machinery is `PbrLab/`; the record is `manifests/enhanced-normals.json`.
 3. A tier 0 comparison: twenty surfaces spanning stone, wood, fabric and metal, lane A
    against lane B, judged under the moving light. That decides whether lane B's licence
    questions are worth answering.
-4. Roughness and metalness once the shading model has a specular term, and not before.
-5. Height and occlusion last, or never — occlusion overlaps what the RT tier already
-   computes, and parallax is not planned.
+4. ~~Roughness and metalness once the shading model has a specular term, and not
+   before.~~ The specular term exists. Generating the maps is what is left.
+5. ~~Height and occlusion last, or never — occlusion overlaps what the RT tier already
+   computes, and parallax is not planned.~~ Both are bound and consumed; parallax is
+   single-step, and occlusion multiplies the ambient term only, which is the part the RT
+   tier does *not* already compute. Still last in generation order, and still the two most
+   likely to be judged not worth their disk.

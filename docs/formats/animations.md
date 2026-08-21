@@ -1,4 +1,4 @@
-# Animations (`.ANM`, `.YAK`)
+﻿# Animations (`.ANM`, `.YAK`)
 
 14,234 files, the largest asset family in the game, and the reason a line of dialogue takes
 as long as it does.
@@ -31,12 +31,25 @@ that happen on a frame, opening with how many of them there are.
 | `[ACTIONS]` | `<frame>,<act>,<x1>,<y1>,<z1>,<angle1>,…` | Start a vertex animation, optionally placed |
 | `[SOUNDS]` | `<frame>,<sound>,<volume>` | Play a sound |
 | `[GK3]` | `<frame>,SpeakerCaption,<end frame>,<noun>,<caption>` | Say a line |
-| `[OPTIONS]` | | Present on 13 files; not read |
+| `[GK3]` | `<frame>,SPEAKER,<noun>` then `<frame>,CAPTION,<text>` | The ordinary form of the same thing |
+| `[GK3]` | `<frame>,LIPSYNCH,<noun>,MOUTH03` | Put a mouth shape on somebody |
+| `[GK3]` | `<frame>,FACETEX,<noun>,<bitmap>,<part>` | Paint a bitmap over a region of a face |
+| `[GK3]` | `<frame>,UNFACETEX,<noun>,<part>` | Take it off again |
+| `[MTEXTURES]` | `<frame>,<model>,<mesh>,<submesh>,<texture>` | Swap a model's texture; read, not applied |
+| `[OPTIONS]` | | Present on 139 files; not read |
 
 A caption is a sentence and contains commas, so everything past the fourth field belongs to
 the caption rather than being further fields. Section counts are ignored in favour of the
 lines actually present, which is what the original does and what survives a file whose count
 is wrong.
+
+`SPEAKER`/`CAPTION` is 7,380 of the game's lines and `SpeakerCaption` only 211, in the long
+cutscenes — a reader that handles only the documented-looking one understands three percent
+of the dialogue.
+
+The face nodes are the largest thing in the section by a long way: 98,410 `LIPSYNCH` and
+1,268 `FACETEX`/`UNFACETEX`. They are what makes a mouth move while a line plays and what
+makes a character blink. See `faces.md`.
 
 ## Duration
 

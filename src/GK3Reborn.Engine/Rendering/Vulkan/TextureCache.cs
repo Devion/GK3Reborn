@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering;
 using Silk.NET.Vulkan;
 
@@ -37,6 +37,12 @@ public sealed class TextureCache : IDisposable
     private readonly Dictionary<string, VulkanTexture> _normals =
         new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, VulkanTexture> _orms =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, VulkanTexture> _heights =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Creates a cache over a device.</summary>
     /// <param name="context">Device context.</param>
     /// <param name="fallback">Drawn wherever a texture is asked for and missing.</param>
@@ -56,6 +62,30 @@ public sealed class TextureCache : IDisposable
             mipmaps: false,
             SamplerAddressMode.Repeat,
             linear: true);
+
+        // Occlusion, roughness and metalness, in that order, for everything with no map:
+        // unoccluded, fully rough, not a metal. Which is exactly the surface the renderer
+        // drew before any of this existed, so a batch that binds this is unchanged by it.
+        //
+        // Linear, like the normal map and for the same reason. These three channels are
+        // numbers rather than a colour, and an sRGB upload would bend every one of them.
+        Neutral = VulkanTexture.Create(
+            context,
+            new DecodedImage(1, 1, [255, 255, 0, 255], HasAlpha: false, "neutral-orm"),
+            mipmaps: false,
+            SamplerAddressMode.Repeat,
+            linear: true);
+
+        // A height map at the middle of its range, which is the surface as modelled: half
+        // is the plane the geometry is actually on, and displacement is measured either
+        // side of it. It costs nothing on its own, because the shader's height scale is
+        // zero for any surface with no map, so this is never sampled into an offset.
+        Level = VulkanTexture.Create(
+            context,
+            new DecodedImage(1, 1, [128, 128, 128, 255], HasAlpha: false, "level-height"),
+            mipmaps: false,
+            SamplerAddressMode.Repeat,
+            linear: true);
     }
 
     /// <summary>Drawn wherever a texture is asked for and missing.</summary>
@@ -68,8 +98,25 @@ public sealed class TextureCache : IDisposable
     /// </remarks>
     public VulkanTexture Flat { get; }
 
+    /// <summary>Neutral occlusion, roughness and metalness, bound where a surface has none.</summary>
+    /// <remarks>
+    /// Unoccluded, fully rough, not a metal — the material the renderer assumed everywhere
+    /// before there were maps to say otherwise. A batch that binds this looks exactly as it
+    /// did, which is what lets the specular lobe be switched on before the maps exist.
+    /// </remarks>
+    public VulkanTexture Neutral { get; }
+
+    /// <summary>A height map at mid grey, bound where a surface has none.</summary>
+    public VulkanTexture Level { get; }
+
     /// <summary>How many normal maps the device is holding.</summary>
     public int NormalCount => _normals.Count;
+
+    /// <summary>How many ORM maps the device is holding.</summary>
+    public int OrmCount => _orms.Count;
+
+    /// <summary>How many height maps the device is holding.</summary>
+    public int HeightCount => _heights.Count;
 
     /// <summary>How many textures the device is holding.</summary>
     public int Count => _textures.Count;
@@ -216,6 +263,125 @@ public sealed class TextureCache : IDisposable
             ? normal
             : Flat;
 
+    /// <summary>Whether a surface's ORM map is already here.</summary>
+    /// <param name="name">The <em>colour</em> texture's name; an ORM map is named for it.</param>
+    /// <returns>True when there is nothing to read, decode or upload.</returns>
+    public bool HasOrm(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _orms.ContainsKey(name);
+    }
+
+    /// <summary>Uploads a block-compressed ORM map, or keeps the one already here.</summary>
+    /// <param name="name">The colour texture it belongs to.</param>
+    /// <param name="image">The compressed levels.</param>
+    /// <remarks>
+    /// Three channels, so BC7 rather than the BC5 a normal map takes — and BC7 has an sRGB
+    /// spelling, which this must not be given. The format travels with the file.
+    /// </remarks>
+    public void AddOrm(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_orms.ContainsKey(name))
+        {
+            Reused++;
+            return;
+        }
+
+        _orms[name] = VulkanTexture.Create(_context, image);
+        DeviceBytes += image.Blocks.Length;
+    }
+
+    /// <summary>Uploads an ORM map, or keeps the one already here.</summary>
+    /// <param name="name">The colour texture it belongs to.</param>
+    /// <param name="image">The decoded map.</param>
+    /// <remarks>
+    /// Uploaded <b>linear</b>. Occlusion, roughness and metalness are measurements, and
+    /// putting them through the sRGB path pulls every one of them towards one end of its
+    /// range — which reads as a generator that produced bad numbers rather than as a
+    /// renderer that misread good ones.
+    /// </remarks>
+    public void AddOrm(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_orms.ContainsKey(name))
+        {
+            Reused++;
+            return;
+        }
+
+        _orms[name] = VulkanTexture.Create(
+            _context, image, mipmaps: true, SamplerAddressMode.Repeat, linear: true);
+
+        DeviceBytes += WithMips(image.Width, image.Height);
+    }
+
+    /// <summary>Finds a surface's ORM map, or a neutral one.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <returns>The map, or <see cref="Neutral"/>.</returns>
+    public VulkanTexture GetOrm(string name) =>
+        name.Length > 0 && _orms.TryGetValue(name, out VulkanTexture? orm)
+            ? orm
+            : Neutral;
+
+    /// <summary>Whether a surface's height map is already here.</summary>
+    /// <param name="name">The <em>colour</em> texture's name.</param>
+    /// <returns>True when there is nothing to read, decode or upload.</returns>
+    public bool HasHeight(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _heights.ContainsKey(name);
+    }
+
+    /// <summary>Uploads a block-compressed height map, or keeps the one already here.</summary>
+    /// <param name="name">The colour texture it belongs to.</param>
+    /// <param name="image">The compressed levels.</param>
+    public void AddHeight(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_heights.ContainsKey(name))
+        {
+            Reused++;
+            return;
+        }
+
+        _heights[name] = VulkanTexture.Create(_context, image);
+        DeviceBytes += image.Blocks.Length;
+    }
+
+    /// <summary>Uploads a height map, or keeps the one already here.</summary>
+    /// <param name="name">The colour texture it belongs to.</param>
+    /// <param name="image">The decoded map.</param>
+    /// <remarks>
+    /// Linear, like the other two. A height field is a distance.
+    /// </remarks>
+    public void AddHeight(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_heights.ContainsKey(name))
+        {
+            Reused++;
+            return;
+        }
+
+        _heights[name] = VulkanTexture.Create(
+            _context, image, mipmaps: true, SamplerAddressMode.Repeat, linear: true);
+
+        DeviceBytes += WithMips(image.Width, image.Height);
+    }
+
+    /// <summary>Finds a surface's height map, or a level one.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <returns>The map, or <see cref="Level"/>.</returns>
+    public VulkanTexture GetHeight(string name) =>
+        name.Length > 0 && _heights.TryGetValue(name, out VulkanTexture? height)
+            ? height
+            : Level;
+
     /// <summary>Finds a texture, or the fallback.</summary>
     /// <param name="name">Its name.</param>
     /// <returns>The texture.</returns>
@@ -239,11 +405,25 @@ public sealed class TextureCache : IDisposable
             normal.Dispose();
         }
 
+        foreach (VulkanTexture orm in _orms.Values)
+        {
+            orm.Dispose();
+        }
+
+        foreach (VulkanTexture height in _heights.Values)
+        {
+            height.Dispose();
+        }
+
         _textures.Clear();
         _normals.Clear();
+        _orms.Clear();
+        _heights.Clear();
         _keyed.Clear();
 
         Fallback.Dispose();
         Flat.Dispose();
+        Neutral.Dispose();
+        Level.Dispose();
     }
 }

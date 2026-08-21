@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Text;
 using GK3Reborn.Formats;
 using GK3Reborn.Foundation.Diagnostics;
@@ -50,6 +50,40 @@ public sealed class SheepScriptFile
         Variables = variables;
         Functions = functions;
         Bytecode = bytecode;
+    }
+
+    /// <summary>
+    /// Assembles a script that was compiled rather than read.
+    /// </summary>
+    /// <param name="name">Name to carry on it.</param>
+    /// <param name="imports">System functions it calls, in import order.</param>
+    /// <param name="stringConstants">Its string pool, keyed by offset.</param>
+    /// <param name="variables">What its symbols block declares.</param>
+    /// <param name="functions">Its functions and where each one starts.</param>
+    /// <param name="bytecode">The code.</param>
+    /// <returns>The script, ready to run or to write out.</returns>
+    /// <remarks>
+    /// The reader's own product, built by hand. <see cref="SheepCompiler"/> produces one of
+    /// these so that a script it compiled is the same kind of thing as a script the game
+    /// shipped: the same machine runs it and the same writer puts it on disk.
+    /// </remarks>
+    public static SheepScriptFile FromParts(
+        string name,
+        IReadOnlyList<SheepImport> imports,
+        IReadOnlyDictionary<int, string> stringConstants,
+        IReadOnlyList<SheepVariable> variables,
+        IReadOnlyList<(string Name, int Offset)> functions,
+        byte[] bytecode)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(imports);
+        ArgumentNullException.ThrowIfNull(stringConstants);
+        ArgumentNullException.ThrowIfNull(variables);
+        ArgumentNullException.ThrowIfNull(functions);
+        ArgumentNullException.ThrowIfNull(bytecode);
+
+        return new SheepScriptFile(
+            name, imports, stringConstants, variables, functions, bytecode);
     }
 
     /// <summary>Name this script was read under.</summary>

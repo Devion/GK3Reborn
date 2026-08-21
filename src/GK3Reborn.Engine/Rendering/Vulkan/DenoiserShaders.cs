@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -161,7 +161,19 @@ internal static class DenoiserShaders
             bitangent = cross(normal, tangent);
         }
 
-        bool Occluded(vec3 origin, vec3 direction, float reach)
+        // What a ray leaving this pixel is allowed to hit.
+        //
+        // Everything, unless the pixel is on a model — a character or a prop — in which
+        // case the room and nothing else. The mesh pass writes a negative roughness into
+        // the normal target to say so, which is the whole of the signal; see
+        // RayTracingScene.MaskFor for why it has to exist. A ray leaving the room still
+        // traces everything, so a character still lays a shadow on the floor.
+        uint TraceMask(float roughness)
+        {
+            return roughness < 0.0 ? 0x01u : 0xFFu;
+        }
+
+        bool Occluded(vec3 origin, vec3 direction, float reach, uint mask)
         {
             rayQueryEXT query;
 
@@ -169,7 +181,7 @@ internal static class DenoiserShaders
                 query,
                 scene,
                 gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT,
-                0xFF,
+                mask,
                 origin,
                 kRayBias,
                 direction,
@@ -225,7 +237,8 @@ internal static class DenoiserShaders
         // this way is what makes a single bit an unbiased estimate of the fraction of the
         // direct light that arrives: a light worth twice as much is picked twice as often,
         // so the average over frames weights each light exactly as the shading does.
-        bool ShadowRay(vec3 position, vec3 normal, vec2 pixel, int index, int samples)
+        bool ShadowRay(
+            vec3 position, vec3 normal, vec2 pixel, int index, int samples, uint mask)
         {
             int count = int(rig.counts.x);
             float total = 0.0;
@@ -286,13 +299,14 @@ internal static class DenoiserShaders
                 float reach = length(target);
                 vec3 start = position + (normal * kNormalBias);
 
-                return !Occluded(start, target / reach, reach);
+                return !Occluded(start, target / reach, reach, mask);
             }
 
             return true;
         }
 
-        bool OcclusionRay(vec3 position, vec3 normal, vec2 pixel, int index, int samples)
+        bool OcclusionRay(
+            vec3 position, vec3 normal, vec2 pixel, int index, int samples, uint mask)
         {
             vec3 tangent;
             vec3 bitangent;
@@ -314,7 +328,7 @@ internal static class DenoiserShaders
                 (bitangent * radial * sin(angle)) +
                 (normal * sqrt(max(0.0, 1.0 - u))));
 
-            return !Occluded(position + (normal * kNormalBias), direction, trace.radius);
+            return !Occluded(position + (normal * kNormalBias), direction, trace.radius, mask);
         }
 
         void main()
@@ -343,7 +357,9 @@ internal static class DenoiserShaders
                     trace.viewProjectionInverse * vec4((uv * 2.0) - 1.0, depth, 1.0);
 
                 vec3 position = homogeneous.xyz / homogeneous.w;
-                vec3 normal = normalize(texelFetch(normalTarget, pixel, 0).xyz);
+                vec4 surface = texelFetch(normalTarget, pixel, 0);
+                vec3 normal = normalize(surface.xyz);
+                uint mask = TraceMask(surface.w);
 
                 litCount = 0;
                 openCount = 0;
@@ -355,8 +371,11 @@ internal static class DenoiserShaders
                 // worth something on its own.
                 for (int i = 0; i < samples; i++)
                 {
-                    litCount += ShadowRay(position, normal, vec2(pixel), i, samples) ? 1 : 0;
-                    openCount += OcclusionRay(position, normal, vec2(pixel), i, samples) ? 1 : 0;
+                    litCount +=
+                        ShadowRay(position, normal, vec2(pixel), i, samples, mask) ? 1 : 0;
+
+                    openCount +=
+                        OcclusionRay(position, normal, vec2(pixel), i, samples, mask) ? 1 : 0;
                 }
             }
 

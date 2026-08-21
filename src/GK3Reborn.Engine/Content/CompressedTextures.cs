@@ -1,4 +1,4 @@
-using GK3Reborn.Formats;
+﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -31,6 +31,8 @@ public sealed class CompressedTextures
 {
     private readonly Dictionary<string, string> _colour = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _normal = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _orm = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _height = new(StringComparer.OrdinalIgnoreCase);
 
     private CompressedTextures(string directory) => Directory = directory;
 
@@ -43,10 +45,16 @@ public sealed class CompressedTextures
     /// <summary>How many normal maps are available.</summary>
     public int NormalCount => _normal.Count;
 
+    /// <summary>How many packed occlusion/roughness/metalness maps are available.</summary>
+    public int OrmCount => _orm.Count;
+
+    /// <summary>How many height maps are available.</summary>
+    public int HeightCount => _height.Count;
+
     /// <summary>Indexes a build directory.</summary>
     /// <param name="directory">
-    /// The content workspace's <c>build</c> directory, which holds <c>textures</c> and
-    /// <c>normals</c> beside each other.
+    /// The content workspace's <c>build</c> directory, which holds <c>textures</c>,
+    /// <c>normals</c> and <c>orm</c> beside each other.
     /// </param>
     /// <returns>The set, empty when the directory does not exist.</returns>
     /// <remarks>
@@ -61,6 +69,8 @@ public sealed class CompressedTextures
 
         Index(Path.Combine(directory, "textures"), set._colour);
         Index(Path.Combine(directory, "normals"), set._normal);
+        Index(Path.Combine(directory, "orm"), set._orm);
+        Index(Path.Combine(directory, "height"), set._height);
 
         return set;
     }
@@ -96,6 +106,24 @@ public sealed class CompressedTextures
         return _normal.ContainsKey(Path.GetFileNameWithoutExtension(name));
     }
 
+    /// <summary>Whether there is a compressed ORM map for a texture.</summary>
+    /// <param name="name">The <em>colour</em> texture's name.</param>
+    /// <returns>True when there is one.</returns>
+    public bool HasOrm(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _orm.ContainsKey(Path.GetFileNameWithoutExtension(name));
+    }
+
+    /// <summary>Whether there is a compressed height map for a texture.</summary>
+    /// <param name="name">The <em>colour</em> texture's name.</param>
+    /// <returns>True when there is one.</returns>
+    public bool HasHeight(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _height.ContainsKey(Path.GetFileNameWithoutExtension(name));
+    }
+
     /// <summary>Reads a compressed texture.</summary>
     /// <param name="name">Texture name, with or without an extension.</param>
     /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
@@ -109,6 +137,26 @@ public sealed class CompressedTextures
     /// <returns>The map, or null when there is none or it is unreadable.</returns>
     public CompressedImage? ReadNormal(string name, DiagnosticBag? diagnostics = null) =>
         Read(_normal, name, "normal map", diagnostics);
+
+    /// <summary>Reads a compressed occlusion/roughness/metalness map.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
+    /// <returns>The map, or null when there is none or it is unreadable.</returns>
+    /// <remarks>
+    /// Three channels rather than two, so BC7 rather than BC5 — and linear either way. An
+    /// ORM uploaded through the sRGB path comes back with every roughness pulled towards
+    /// one end of its range, which reads as a material problem rather than as the colour
+    /// space bug it is.
+    /// </remarks>
+    public CompressedImage? ReadOrm(string name, DiagnosticBag? diagnostics = null) =>
+        Read(_orm, name, "ORM map", diagnostics);
+
+    /// <summary>Reads a compressed height map.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
+    /// <returns>The map, or null when there is none or it is unreadable.</returns>
+    public CompressedImage? ReadHeight(string name, DiagnosticBag? diagnostics = null) =>
+        Read(_height, name, "height map", diagnostics);
 
     /// <remarks>
     /// A file that will not read falls back rather than failing the load, exactly as the

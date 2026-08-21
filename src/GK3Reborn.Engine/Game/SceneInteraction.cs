@@ -1,4 +1,4 @@
-using GK3Reborn.Game.Interaction;
+﻿using GK3Reborn.Game.Interaction;
 using GK3Reborn.Rendering;
 using GK3Reborn.UI.Interaction;
 
@@ -63,7 +63,7 @@ public sealed class SceneInteraction
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(api);
 
-        _picker = new ScenePicker(scene);
+        _picker = new ScenePicker(scene) { Blocked = api.State.BlockedHitTests };
         _actions = scene.Actions;
         _runner = new ActionRunner(api);
     }
@@ -98,8 +98,12 @@ public sealed class SceneInteraction
     /// <summary>Does something to what is under the pointer.</summary>
     /// <param name="hover">What was under it, from <see cref="At"/>.</param>
     /// <param name="verb">Which verb, or null for the default one.</param>
+    /// <param name="hurry">
+    /// Whether the player asked twice. A double-click means the same thing as a click and
+    /// means it more urgently, so the walk in front of the action is run rather than walked.
+    /// </param>
     /// <returns>What happened, or null when there was nothing to do.</returns>
-    public ActionOutcome? Do(Hover hover, string? verb = null)
+    public ActionOutcome? Do(Hover hover, string? verb = null, bool hurry = false)
     {
         if (hover.Noun is not { Length: > 0 } noun || _actions is null)
         {
@@ -116,7 +120,7 @@ public sealed class SceneInteraction
             return null;
         }
 
-        Last = _runner.Run(rule);
+        Last = _runner.Run(rule, hurry);
         return Last;
     }
 }

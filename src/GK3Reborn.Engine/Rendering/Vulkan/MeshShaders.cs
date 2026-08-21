@@ -1,4 +1,4 @@
-namespace GK3Reborn.Rendering.Vulkan;
+﻿namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>
 /// The mesh shaders, in GLSL.
@@ -58,8 +58,15 @@ internal static class MeshShaders
             mat4 previousModel;
 
             // x selects the lightmap over the rig, y scales the lightmap,
-            // z marks a surface that carries its own brightness
+            // z is two flags added together — 1 for a surface that carries its own
+            // brightness, 2 for a model standing in the room rather than the room itself —
+            // and w is how deep its height map goes, zero where it has none
             vec4 shading;
+
+            // The surface's finish where no map says otherwise: x roughness, y metalness,
+            // z specular reflectance at normal incidence, w how much of the normal map to
+            // believe. A map multiplies the first two rather than replacing them.
+            vec4 material;
         } draw;
         """;
 
@@ -139,6 +146,15 @@ internal static class MeshShaders
         layout(set = 1, binding = 0) uniform sampler2D baseColor;
         layout(set = 1, binding = 1) uniform sampler2D lightmapTexture;
         layout(set = 1, binding = 2) uniform sampler2D normalTexture;
+
+        // Occlusion in red, roughness in green, metalness in blue: the glTF packing. A
+        // surface with no map binds a neutral one — unoccluded, fully rough, not a metal —
+        // which multiplies out to the surface the renderer drew before any of this existed.
+        layout(set = 1, binding = 3) uniform sampler2D ormTexture;
+
+        // Mid grey is the modelled surface. Only read where the height scale is non-zero,
+        // which it is only for a surface that actually has a map.
+        layout(set = 1, binding = 4) uniform sampler2D heightTexture;
 
         // The original's ambient floor, so a surface no light reaches is dim, not black.
         const vec3 kAmbient = vec3(0.06, 0.08, 0.06);
@@ -231,7 +247,7 @@ internal static class MeshShaders
 
         // How much of a light reaches a point: one ray for a hard shadow, several jittered
         // across the emitter's own radius for a soft one.
-        float Visibility(
+        float Unblocked(
             vec3 position, vec3 normal, Light light, vec3 toLight, float distance, int samples)
         {
             vec3 start = RayStart(position, normal);
@@ -301,10 +317,151 @@ internal static class MeshShaders
         }
         #endif
 
+        // What this surface is made of, at this pixel. Filled once per fragment and passed
+        // around rather than re-sampled, because the ORM texture is read in three places.
+        struct Surface
+        {
+            vec3 albedo;
+            vec3 f0;
+            float roughness;
+            float metalness;
+            float occlusion;
+
+            // Whether this surface has a measured finish to shade with: one where a
+            // generated ORM map is bound, zero everywhere else. It scales the whole
+            // specular term and the energy the diffuse gives up to it, so zero is exactly
+            // Lambert rather than nearly Lambert. See Shade.
+            float sheen;
+        };
+
+        // GGX, the microfacet distribution everything modern uses. The specular highlight's
+        // shape: narrow and bright on something smooth, broad and dim on something rough.
+        float Distribution(float nDotH, float roughness)
+        {
+            // Squared once for perceptual roughness, which is what an artist and a texture
+            // both mean by the word, and again for the distribution itself.
+            float a = roughness * roughness;
+            float aa = a * a;
+            float d = (nDotH * nDotH * (aa - 1.0)) + 1.0;
+
+            return aa / max(3.14159265 * d * d, 1e-7);
+        }
+
+        // Smith's height-correlated visibility term, which is the geometric shadowing and
+        // the BRDF's denominator folded together. Written this way because the two cancel
+        // partially, and multiplying them out separately loses precision where it is least
+        // affordable: at grazing angles, which is where a specular term is most visible.
+        float Visibility(float nDotV, float nDotL, float roughness)
+        {
+            float a = roughness * roughness;
+            float aa = a * a;
+
+            float v = nDotL * sqrt((nDotV * nDotV * (1.0 - aa)) + aa);
+            float l = nDotV * sqrt((nDotL * nDotL * (1.0 - aa)) + aa);
+
+            return 0.5 / max(v + l, 1e-7);
+        }
+
+        // Schlick's approximation to Fresnel: how much more a surface reflects the further
+        // from head-on it is looked at. It is what makes a matte floor go bright at the far
+        // end of a corridor, and it applies to metals and dielectrics alike.
+        vec3 Fresnel(float vDotH, vec3 f0)
+        {
+            float f = pow(clamp(1.0 - vDotH, 0.0, 1.0), 5.0);
+
+            return f0 + ((vec3(1.0) - f0) * f);
+        }
+
+        // One light's contribution: Lambert diffuse plus a Cook-Torrance specular lobe.
+        //
+        // A metal has no diffuse term at all — it has no subsurface for light to scatter
+        // out of — and tints its reflection with its own base colour, which is why metalness
+        // is a switch between two shading models rather than a slider between two numbers.
+        // A classifier that calls a stone wall metal produces a picture nobody could mistake
+        // for correct, which is the argument for reporting the count.
+        // How rough a surface has to behave for a light that is not a point.
+        //
+        // The rig's lamps have a radius — a bulb, a shade, a window — and treating one as a
+        // point puts a pinpoint mirror highlight on anything smooth, because all of its
+        // energy is arriving from a single direction that it never really arrives from. The
+        // standard correction widens the microfacet lobe by the light's apparent size and
+        // renormalises so the total energy is unchanged: a lamp a foot across seen from
+        // across a room is still nearly a point, and the same lamp a hand's width away is
+        // a soft sheen rather than a star.
+        //
+        // Without it, GK3's hair — 0.44 in its generated map, which is a perfectly
+        // reasonable number for hair — came out as a bright plastic sweep across the crown
+        // under a lobby's forty-one lamps.
+        float Widened(float roughness, float radius, float distance, out float energy)
+        {
+            float alpha = roughness * roughness;
+            float widened = clamp(alpha + (radius / max(2.0 * distance, 1e-4)), alpha, 1.0);
+
+            // Energy in the lobe is proportional to the square of its width, so a lobe made
+            // wider has to be made proportionally dimmer or a big lamp brightens the room
+            // by being big.
+            float ratio = alpha / max(widened, 1e-4);
+            energy = ratio * ratio;
+
+            return sqrt(widened);
+        }
+
+        vec3 Shade(
+            Surface surface, vec3 normal, vec3 toEye, vec3 toLight,
+            float radius, float distance)
+        {
+            float nDotL = max(dot(normal, toLight), 0.0);
+
+            if (nDotL <= 0.0)
+            {
+                return vec3(0.0);
+            }
+
+            // Not "half": GLSL reserves the word.
+            vec3 halfway = normalize(toLight + toEye);
+            float nDotV = max(dot(normal, toEye), 1e-4);
+            float nDotH = max(dot(normal, halfway), 0.0);
+            float vDotH = max(dot(toEye, halfway), 0.0);
+
+            float energy;
+            float roughness = Widened(surface.roughness, radius, distance, energy);
+
+            vec3 fresnel = Fresnel(vDotH, surface.f0) * surface.sheen;
+
+            // Times pi, and the pi is not decoration.
+            //
+            // A textbook BRDF divides the diffuse by pi and leaves the light's radiance
+            // alone. This rig's intensities were authored in 3ds Max in 1999 and tuned
+            // here against a plain Lambert with no pi anywhere, so introducing the division
+            // darkened every rig-lit surface to a third of what it was while leaving the
+            // specular at full strength. Multiplying both terms by pi instead is the same
+            // BRDF with the light's radiance scaled by pi, which is the convention the
+            // authored numbers are already in — and it leaves the lightmapped and ambient
+            // paths untouched.
+            vec3 specular = fresnel *
+                Distribution(nDotH, roughness) *
+                Visibility(nDotV, nDotL, roughness) * 3.14159265 * energy;
+
+            // Energy that was not reflected is what is left for the diffuse term, and a
+            // metal keeps none of it.
+            //
+            // The sheen is inside the Fresnel rather than only on the specular, and that is
+            // the whole of it: Schlick's approximation returns *one* at grazing incidence
+            // whatever f0 is, so switching the lobe off by zeroing the reflectance leaves a
+            // hard white rim around every silhouette and takes the diffuse away underneath
+            // it. Gabriel came out looking like a mannequin lit from behind, which is a
+            // very good description of a rim light with nothing else.
+            vec3 diffuse = (vec3(1.0) - fresnel) * (1.0 - surface.metalness) * surface.albedo;
+
+            return (diffuse + specular) * nDotL;
+        }
+
         // The rig the artists authored, evaluated directly. Falloff is linear between the
         // light's start and end distances: that is what 3ds Max's linear decay did and what
         // these numbers were tuned against, and inverse-square would darken every room.
-        vec3 EvaluateRig(vec3 position, vec3 normal, int shadowed, int shadowSamples)
+        vec3 EvaluateRig(
+            Surface surface, vec3 position, vec3 normal, vec3 toEye,
+            int shadowed, int shadowSamples)
         {
             vec3 total = vec3(0.0);
             int count = int(rig.counts.x);
@@ -318,8 +475,9 @@ internal static class MeshShaders
                 float distance = max(length(toLight), 0.0001);
                 vec3 direction = toLight / distance;
 
-                float lambert = max(dot(normal, direction), 0.0);
-                if (lambert <= 0.0)
+                vec3 response =
+                    Shade(surface, normal, toEye, direction, light.cone.w, distance);
+                if (response == vec3(0.0))
                 {
                     continue;
                 }
@@ -348,7 +506,7 @@ internal static class MeshShaders
                 }
 
                 vec3 contribution = light.colorAndIntensity.rgb * light.colorAndIntensity.w *
-                                    attenuation * cone * lambert;
+                                    attenuation * cone * response;
 
                 float visibility = 1.0;
 
@@ -364,7 +522,7 @@ internal static class MeshShaders
                 {
                     traced++;
                     visibility =
-                        Visibility(position, normal, light, toLight, distance, shadowSamples);
+                        Unblocked(position, normal, light, toLight, distance, shadowSamples);
                 }
                 #endif
 
@@ -381,16 +539,20 @@ internal static class MeshShaders
         // skeleton, so an .ACT clip rewrites their vertex positions on every frame of every
         // animation, and a tangent computed at load would be stale the moment anybody moved.
         // A derivative frame is correct for free, on deforming and rigid geometry alike.
-        vec3 PerturbedNormal(vec3 geometric)
+        vec3 PerturbedNormal(vec3 geometric, vec2 uv, float strength)
         {
             // Two channels, not three. BC5 keeps only X and Y — it has no third channel to
             // keep — and Z is recovered from them, which is exact for a unit vector in
             // tangent space because Z is never negative there. An uncompressed map stores a
             // Z as well, and reconstructing it rather than reading it gives the same answer
             // to within a rounding step, so both sources take this one path.
-            vec2 mapped = texture(normalTexture, inTexCoord).xy;
+            vec2 mapped = texture(normalTexture, uv).xy;
 
-            vec2 tangentXY = (mapped * 2.0) - 1.0;
+            // Scaled in the tangent plane, which is the right place: pulling X and Y towards
+            // zero and letting Z follow tilts the normal back towards the surface without
+            // ever unnormalising it. Everything in a generated map is invented, so how much
+            // of it to believe is a per-material decision rather than a constant.
+            vec2 tangentXY = ((mapped * 2.0) - 1.0) * strength;
 
             vec3 tangentNormal = vec3(
                 tangentXY, sqrt(max(0.0, 1.0 - dot(tangentXY, tangentXY))));
@@ -407,6 +569,10 @@ internal static class MeshShaders
 
             vec3 dpx = dFdx(inWorld);
             vec3 dpy = dFdy(inWorld);
+
+            // The interpolated coordinate, not the parallax-offset one. A derivative taken
+            // across an offset that itself varies per pixel measures the offset as well as
+            // the surface, and the frame comes out skewed wherever the relief is steepest.
             vec2 dtx = dFdx(inTexCoord);
             vec2 dty = dFdy(inTexCoord);
 
@@ -436,9 +602,64 @@ internal static class MeshShaders
             return normalize(mat3(tangent, bitangent, geometric) * tangentNormal);
         }
 
+        // Where to sample a surface so that its relief looks like relief.
+        //
+        // The cheap kind: one step, offsetting the coordinate along the view direction in
+        // tangent space by however far above or below the modelled surface the height field
+        // says this texel is. It deepens mortar courses, floorboards and panelling
+        // convincingly from most angles, does nothing whatever to a silhouette, and starts
+        // to swim if the scale is pushed — which is why the scale is per material and
+        // clamped well short of where that happens.
+        //
+        // Zero scale returns the coordinate untouched, which is every surface with no map.
+        vec2 ParallaxCoord(vec3 geometric, vec3 toEye, float scale)
+        {
+            if (scale <= 0.0)
+            {
+                return inTexCoord;
+            }
+
+            vec3 dpx = dFdx(inWorld);
+            vec3 dpy = dFdy(inWorld);
+            vec2 dtx = dFdx(inTexCoord);
+            vec2 dty = dFdy(inTexCoord);
+
+            float area = (dtx.x * dty.y) - (dty.x * dtx.y);
+
+            if (abs(area) < 1e-12)
+            {
+                return inTexCoord;
+            }
+
+            vec3 tangent = ((dpx * dty.y) - (dpy * dtx.y)) / area;
+            tangent = normalize(tangent - (geometric * dot(geometric, tangent)));
+
+            if (any(isnan(tangent)))
+            {
+                return inTexCoord;
+            }
+
+            vec3 bitangent = cross(geometric, tangent);
+
+            // The eye in tangent space. Its Z is how head-on the surface is being looked at,
+            // and dividing by it is what makes the offset grow towards grazing incidence —
+            // clamped, because at the horizon it grows without bound and the surface tears.
+            vec3 eye = vec3(dot(toEye, tangent), dot(toEye, bitangent), dot(toEye, geometric));
+            float facing = max(abs(eye.z), 0.35);
+
+            float height = texture(heightTexture, inTexCoord).r - 0.5;
+
+            return inTexCoord - (eye.xy / facing * height * scale);
+        }
+
         void main()
         {
-            vec4 sampled = texture(baseColor, inTexCoord);
+            vec3 geometric = normalize(inNormal);
+            vec3 toEye = normalize(frame.cameraPosition.xyz - inWorld);
+
+            vec2 uv = ParallaxCoord(geometric, toEye, draw.shading.w);
+
+            vec4 sampled = texture(baseColor, uv);
             vec3 albedo = sampled.rgb;
 
             // GK3 keys transparency on magenta. It is converted to alpha before upload, so
@@ -454,11 +675,78 @@ internal static class MeshShaders
             // and the self-lit return below used to hand a filter whatever was in the
             // register: every lamp, and the painted street through the hotel window,
             // claiming to have crossed the screen since the last frame.
-            vec3 normal = PerturbedNormal(normalize(inNormal));
+            vec3 normal = PerturbedNormal(geometric, uv, draw.material.w);
+
+            // The ORM map, and the material's own numbers under it. The map multiplies
+            // rather than replaces, which is what keeps a roughness corrected in the edit
+            // layer meaningful once a generated map arrives for the same surface; the
+            // neutral map is one in both channels, so a surface without one gets its
+            // measured finish unchanged.
+            vec3 orm = texture(ormTexture, uv).rgb;
+
+            // Zero reflectance means no ORM map, which means no measured finish and so no
+            // specular lobe at all. Not a fudge: without a map the roughness is a
+            // classifier's guess at median confidence 0.32, and GK3's diffuse textures
+            // already have their highlights painted into them, so a physical lobe over a
+            // painted one counts the same light twice.
+            float sheen = draw.material.z > 0.0001 ? 1.0 : 0.0;
+
+            Surface surface;
+            surface.albedo = albedo;
+            surface.occlusion = orm.r;
+            surface.sheen = sheen;
+
+            // The map where there is one, the material's own number where there is not —
+            // and not the two multiplied together.
+            //
+            // Multiplying is the glTF convention, where the material's roughness is a
+            // *factor* that defaults to one and the map carries the value. Here it is not a
+            // factor: `material-library.json` holds a classifier's estimate of the same
+            // quantity the map estimates, so multiplying two independent answers to one
+            // question squares the glossiness. Gabriel's skin is 0.55 in the library and
+            // 0.56 in his map, and 0.31 is polished plastic.
+            //
+            // A *negative* roughness outranks both: it says a person corrected this surface
+            // after looking at the room, and a correction has to beat a measurement or the
+            // edit layer cannot fix a generated map that is wrong about what the surface is.
+            bool corrected = draw.material.x < 0.0;
+
+            surface.roughness = clamp(
+                corrected ? -draw.material.x : mix(draw.material.x, orm.g, sheen), 0.03, 1.0);
+
+            surface.metalness = clamp(
+                corrected ? draw.material.y : mix(draw.material.y, orm.b, sheen), 0.0, 1.0);
+
+            // A dielectric reflects a few per cent of what hits it head-on, the same in
+            // every channel; a metal reflects most of it, tinted by its own colour. 0.08
+            // times the material's reflectance puts the usual 0.5 at 0.04, which is glass,
+            // water and most everything else that is not a conductor.
+            //
+            // The reflectance arrives as zero for a surface with no ORM map, which switches
+            // the specular lobe off entirely. That is deliberate and it is the difference
+            // between an enhancement and a regression: without a map the roughness is a
+            // classifier's guess at median confidence 0.32, and GK3's diffuse textures
+            // already have their highlights painted into them, so a physical lobe on top
+            // of a painted one counts the same light twice. Gabriel's skin is guessed at
+            // 0.55 — glossy enough to give a face a plastic sheen from every one of a
+            // room's sixty-three lamps.
+            surface.f0 = mix(
+                vec3(0.08 * draw.material.z), albedo, surface.metalness);
 
             // Alpha is how rough this surface is, which is what decides whether a
-            // reflection is worth tracing off it and how tightly to gather one.
-            outNormalTarget = vec4(normal, draw.shading.w);
+            // reflection is worth tracing off it and how tightly to gather one. The
+            // shaded roughness, so a map that smooths a surface is a surface the
+            // reflection pass will consider.
+            //
+            // <b>Negative on a model.</b> Roughness is clamped to at least 0.03, so the
+            // sign is free and it is the one thing the tracing pass needs to know that
+            // nothing else in the frame carries: a shadow ray leaving a character has to
+            // skip characters, because GK3's people are a stack of overlapping shells and
+            // a ray leaving the shirt hits the arm inside it. Whoever reads this channel
+            // for a roughness takes its absolute value; see RayTracingScene.MaskFor.
+            outNormalTarget = vec4(
+                normal,
+                draw.shading.z >= 1.5 ? -surface.roughness : surface.roughness);
             outMotion = vec2(0.0);
 
             #ifdef RAY_TRACING
@@ -483,7 +771,7 @@ internal static class MeshShaders
             // painted view through a window. The original binds a white lightmap and a
             // multiplier of one for these, which comes out as the texture untouched, and
             // no amount of ray tracing should dim something that is its own light source.
-            if (draw.shading.z > 0.5)
+            if (mod(draw.shading.z, 2.0) > 0.5)
             {
                 // Alpha says how much occlusion applies to this pixel: none, here. A bulb
                 // does not get darker for being in a corner.
@@ -493,6 +781,11 @@ internal static class MeshShaders
 
             float useLightmap = draw.shading.x;
             vec3 baked = texture(lightmapTexture, inLightmapCoord).rgb * draw.shading.y;
+
+            // Ambient occlusion applies to the ambient term and to nothing else. It is a
+            // statement about light arriving from everywhere at once, and multiplying a
+            // direct light by it darkens a surface the lamp can plainly see.
+            vec3 ambient = kAmbient * surface.occlusion;
 
             int shadowed = int(frame.rays.x);
             int occlusionRays = int(frame.rays.y);
@@ -505,12 +798,17 @@ internal static class MeshShaders
             {
                 // No rays: scene geometry is exactly what the 1999 renderer showed, and
                 // anything without a lightmap is lit by the rig with no shadows.
+                // The rig's term already carries the albedo, because a metal's specular is
+                // tinted and its diffuse does not exist — which is exactly the distinction
+                // multiplying afterwards would throw away. The fallback has no rig to shade
+                // against and stays the Lambert it always was.
                 vec3 direct = rig.counts.x > 0.5
-                    ? EvaluateRig(inWorld, normal, 0, 1)
-                    : vec3(0.35) + (0.65 * max(dot(normal, -frame.lightDirection.xyz), 0.0));
+                    ? EvaluateRig(surface, inWorld, normal, toEye, 0, 1)
+                    : albedo *
+                      (vec3(0.35) + (0.65 * max(dot(normal, -frame.lightDirection.xyz), 0.0)));
 
                 outColor = vec4(
-                    mix(albedo * (kAmbient + direct), albedo * baked, useLightmap), 1.0);
+                    mix((albedo * ambient) + direct, albedo * baked, useLightmap), 1.0);
 
                 return;
             }
@@ -524,14 +822,15 @@ internal static class MeshShaders
             // Neither term is occluded here. Both occlusions are traced once a pixel and
             // filtered over many frames, and neither is available until this pass has
             // finished.
-            outColor = vec4(albedo * mix(kAmbient, baked, useLightmap), 1.0);
-            outDirect = vec4(albedo * EvaluateRig(inWorld, normal, 0, 1), 1.0);
+            outColor = vec4(albedo * mix(ambient, baked, useLightmap), 1.0);
+            outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1), 1.0);
             #else
             // Indirect light. There is no gathered bounce, so the bake stands in for it,
             // scaled down because it also contains the direct light computed afresh.
-            vec3 indirect = mix(kAmbient, baked * useLightmap, bakedWeight * useLightmap);
+            vec3 indirect = mix(ambient, baked * useLightmap, bakedWeight * useLightmap);
 
-            outColor = vec4(albedo * (indirect + EvaluateRig(inWorld, normal, 0, 1)), 1.0);
+            outColor = vec4(
+                (albedo * indirect) + EvaluateRig(surface, inWorld, normal, toEye, 0, 1), 1.0);
             #endif
         }
         """;

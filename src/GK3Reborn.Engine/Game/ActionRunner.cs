@@ -1,4 +1,4 @@
-using GK3Reborn.Formats;
+﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Sheep;
@@ -32,6 +32,24 @@ public sealed record ActionOutcome(
     IReadOnlyList<ActionStatement> Statements,
     bool Ran)
 {
+    /// <summary>How long the player spends getting to the thing before anything happens.</summary>
+    /// <remarks>
+    /// An action's <c>approach</c> is not part of its script — it is what has to be true
+    /// before the script runs — so this is time the action takes that none of its
+    /// statements accounts for.
+    /// </remarks>
+    public double Approaching { get; init; }
+
+    /// <summary>
+    /// Whether the script is still waiting on that walk rather than having run.
+    /// </summary>
+    /// <remarks>
+    /// The action is committed either way: <see cref="Ran"/> says it was not refused, and
+    /// this says it has not happened yet. A caller with no clock — every tool — never sees
+    /// this set, because there is nothing there to hold an action back with.
+    /// </remarks>
+    public bool Deferred { get; init; }
+
     /// <summary>How long the action takes, in seconds.</summary>
     /// <remarks>
     /// The sum of its waits, because the statements run one after another and a waited one
@@ -104,8 +122,12 @@ public sealed class ActionRunner
 
     /// <summary>Runs an action's script.</summary>
     /// <param name="action">The action, as the resolver chose it.</param>
+    /// <param name="hurry">
+    /// Whether to run the walk in front of the action rather than walk it. The player
+    /// asking twice for the same thing, and nothing a script can set.
+    /// </param>
     /// <returns>What it did.</returns>
-    public ActionOutcome Run(NvcAction action)
+    public ActionOutcome Run(NvcAction action, bool hurry = false)
     {
         ArgumentNullException.ThrowIfNull(action);
 
@@ -114,8 +136,31 @@ public sealed class ActionRunner
             return new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: false);
         }
 
-        Approach(action);
+        double approaching = Approach(action, hurry);
 
+        // Get there first. The original runs an action's script only once the player has
+        // arrived, which is the difference between talking to somebody and shouting at
+        // them from across the square — and between opening a door and teleporting
+        // through it. A host with nothing to wait with says so by refusing the delay, and
+        // the action runs where it always did: immediately.
+        if (approaching > 0 &&
+            _api.Defers is { } defer &&
+            defer(approaching, () => Perform(action, statements, sources)))
+        {
+            return new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: true)
+            {
+                Approaching = approaching,
+                Deferred = true,
+            };
+        }
+
+        return Perform(action, statements, sources) with { Approaching = approaching };
+    }
+
+    /// <summary>Runs an action's statements, once the player is where they belong.</summary>
+    private ActionOutcome Perform(
+        NvcAction action, List<ActionStatement> statements, List<string> sources)
+    {
         for (int i = 0; i < sources.Count; i++)
         {
             try
@@ -203,47 +248,43 @@ public sealed class ActionRunner
     /// performed it, so Gabriel opened doors from across the room.
     /// </para>
     /// <para>
-    /// The walk is started and the script runs without waiting for it. That is what the
-    /// original does — the line of dialogue plays over the walk — and waiting here would
-    /// mean the runner had a clock, which it deliberately does not.
+    /// The walk is started here and how long it takes is handed back, so that the caller
+    /// can hold the script until the player has arrived. That is what the original does:
+    /// <c>Scene::ExecuteAction</c> walks the ego to the approach target and performs the
+    /// action from the arrival callback. Running the script over the walk instead is what
+    /// had Gabriel talking to somebody he was still crossing the square towards.
     /// </para>
     /// <para>
     /// <c>TurnToModel</c> and <c>TurnTo</c> are approaches too and they are turns rather
     /// than walks, so they go through the same hook saying so. 394 of the corpus's 3,617.
     /// </para>
     /// </remarks>
-    private void Approach(NvcAction action)
+    /// <param name="hurry">Whether the player asked for it twice.</param>
+    private double Approach(NvcAction action, bool hurry)
     {
         if (_api.Walks is null ||
             action.Approach is not { Length: > 0 } approach ||
             action.Target is not { Length: > 0 } target)
         {
-            return;
+            return 0;
         }
 
-        switch (approach.ToUpperInvariant())
+        return approach.ToUpperInvariant() switch
         {
-            case "WALKTO":
-            case "WALKTOANIMATION":
-                _api.Walks(_api.State.Ego, target, Approaching.Walk);
-                break;
+            "WALKTO" or "WALKTOANIMATION" =>
+                _api.Walks(_api.State.Ego, target, Approaching.Walk, hurry),
 
-            case "WALKTOSEE":
-            case "WALKTOSEEMODEL":
-            case "NEARMODEL":
-                _api.Walks(_api.State.Ego, target, Approaching.WalkToSee);
-                break;
+            "WALKTOSEE" or "WALKTOSEEMODEL" or "NEARMODEL" =>
+                _api.Walks(_api.State.Ego, target, Approaching.WalkToSee, hurry),
 
             // A turn is not a walk. Walking to the thing instead puts the player on top of
-            // whatever they meant to look at.
-            case "TURNTOMODEL":
-            case "TURNTO":
-                _api.Walks(_api.State.Ego, target, Approaching.Turn);
-                break;
+            // whatever they meant to look at. Nor can a turn be hurried: it is over before
+            // anybody could have wanted it to be quicker.
+            "TURNTOMODEL" or "TURNTO" =>
+                _api.Walks(_api.State.Ego, target, Approaching.Turn, false),
 
-            default:
-                break;
-        }
+            _ => 0,
+        };
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Animation;
+﻿using GK3Reborn.Formats.Animation;
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Actions;
@@ -50,8 +50,33 @@ public sealed record LoadedScene(
     IReadOnlyList<string>? Soundtracks = null,
     IReadOnlyList<SoundtrackFile>? Ambience = null)
 {
+    private WalkFloor? _ground;
+    private bool _groundSought;
+
     /// <summary>The lights the artists authored for this time of day.</summary>
     public IReadOnlyList<AuthoredLight> Lights => Asset?.Lights ?? [];
+
+    /// <summary>
+    /// How high the ground is under a point, or null when the scene cannot say.
+    /// </summary>
+    /// <remarks>
+    /// Built from the object the scene calls its floor, the first time anybody asks. Lazily
+    /// because most of what loads a scene never walks anybody across it — a corpus sweep
+    /// over five hundred rooms should not triangulate five hundred floors to find that out.
+    /// </remarks>
+    public WalkFloor? Ground
+    {
+        get
+        {
+            if (!_groundSought)
+            {
+                _groundSought = true;
+                _ground = WalkFloor.From(Geometry, Definition.FloorObject());
+            }
+
+            return _ground;
+        }
+    }
 
     /// <summary>Cameras the player's view can occupy.</summary>
     public IReadOnlyList<SceneCamera> Cameras => Definition.RoomCameras();
@@ -192,16 +217,48 @@ public sealed class SceneLoader
     public EnhancedTextures? Normals { get; set; }
 
     /// <summary>
-    /// The same textures and normal maps, block-compressed, if the pipeline has built them.
+    /// Generated occlusion, roughness and metalness, packed into one picture per surface.
     /// </summary>
     /// <remarks>
-    /// Preferred over both of the above wherever it has an answer. There is nothing to
-    /// decode, the mip chain is already built, and it takes a quarter of the video memory —
-    /// which is most of what a scene load costs in both time and space.
+    /// Red, green and blue in that order, which is the glTF packing every generator and
+    /// every authoring tool already writes. A separate set again, and a separate judgement:
+    /// a roughness that reads as wet stone is a different mistake from a normal map that
+    /// embosses printed lettering, and they are reviewed apart.
+    /// </remarks>
+    public EnhancedTextures? Orms { get; set; }
+
+    /// <summary>
+    /// Generated height fields, one per surface, for parallax.
+    /// </summary>
+    /// <remarks>
+    /// Mid grey is the modelled surface. Consumed as a texture-coordinate offset rather
+    /// than as displacement, so it deepens what is already flat and changes no silhouette.
+    /// </remarks>
+    public EnhancedTextures? Heights { get; set; }
+
+    /// <summary>
+    /// The same textures and maps, block-compressed, if the pipeline has built them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A fallback rather than a preference, and deliberately so while the enhanced sets are
+    /// still being generated. A <c>.dds</c> in <c>build</c> is whatever the last compression
+    /// run made of whatever the enhanced set held at the time; the <c>.png</c> beside it is
+    /// what the generator has produced <em>now</em>. Taking the compressed one first means
+    /// regenerating a texture changes nothing on screen until somebody remembers to
+    /// recompress, which is a debugging session nobody enjoys twice.
+    /// </para>
+    /// <para>
+    /// The trade it wins — nothing to decode, a mip chain already built, a quarter of the
+    /// video memory — is a shipping concern rather than a development one, and it comes
+    /// back the moment the enhanced sets stop moving.
+    /// </para>
     /// </remarks>
     public CompressedTextures? Compressed { get; set; }
 
     private int _normalsUsed;
+    private int _ormsUsed;
+    private int _heightsUsed;
     private int _compressedUsed;
 
     /// <summary>
@@ -413,16 +470,31 @@ public sealed class SceneLoader
         }
     }
 
-    /// <summary>Reads the script that drives a prop when nobody is asking it to.</summary>
+    /// <summary>
+    /// Reads a behaviour script — what something does when nobody is asking it to.
+    /// </summary>
+    /// <param name="named">The script's file name, or null.</param>
+    /// <param name="owner">What it belongs to, for a diagnostic.</param>
+    /// <param name="diagnostics">Receives what could not be read.</param>
+    /// <returns>The script, or null when there is none or it is missing.</returns>
     /// <remarks>
-    /// A script the reader does not fully understand is not run at all. Half of a
-    /// behaviour is worse than none of it: the branching half of the language decides
-    /// *which* idle to play, and running only the parts that are understood would pick
-    /// the wrong one and repeat it for as long as the scene is loaded.
+    /// <para>
+    /// A script whose every instruction is not understood is <em>kept</em> now. It did not
+    /// used to be, and the reason was good at the time: the branching half of the language
+    /// decides which idle to play, so running only the parts that were understood picked
+    /// the wrong one and repeated it for as long as the scene was loaded.
+    /// </para>
+    /// <para>
+    /// That half is understood now — <c>ONEOF</c> above all, which is 1,559 of the corpus's
+    /// instructions — so what is left unread is the perception layer: <c>WHENNEAR</c> and
+    /// its relatives, which add a way for a script to be interrupted rather than deciding
+    /// what it does. A script missing those does the right things and misses a cue, which
+    /// is much better than a character standing still.
+    /// </para>
     /// </remarks>
-    private GasFile? ReadIdle(SceneModel model, DiagnosticBag diagnostics)
+    private GasFile? ReadBehaviour(string? named, string owner, DiagnosticBag diagnostics)
     {
-        if (model.Gas is not { Length: > 0 } named)
+        if (named is not { Length: > 0 })
         {
             return null;
         }
@@ -431,9 +503,9 @@ public sealed class SceneLoader
         {
             diagnostics.Add(new Diagnostic(
                 "GK3R3330", DiagnosticSeverity.Info,
-                "A prop names a behaviour script no archive contains.",
-                model.Name, null, named, "nothing",
-                "The prop is placed and stands still."));
+                "Something names a behaviour script no archive contains.",
+                owner, null, named, "nothing",
+                "It is placed and stands still."));
 
             return null;
         }
@@ -445,12 +517,9 @@ public sealed class SceneLoader
             diagnostics.Add(new Diagnostic(
                 "GK3R3331", DiagnosticSeverity.Info,
                 "A behaviour script uses instructions this engine does not run yet.",
-                named, null, "an animation and a loop",
+                named, null, "instructions the player can run",
                 string.Join(", ", script.Unsupported),
-                "The prop is placed and stands still. Branching behaviour needs the " +
-                "Sheep virtual machine behind it."));
-
-            return null;
+                "Everything else in it runs; those lines are skipped."));
         }
 
         return script;
@@ -633,7 +702,7 @@ public sealed class SceneLoader
 
         foreach (SceneModel model in declared)
         {
-            if (model.Hidden || IsBakedIn(model))
+            if (IsBakedIn(model))
             {
                 continue;
             }
@@ -657,6 +726,18 @@ public sealed class SceneLoader
                 model.Name,
                 diagnostics);
 
+            // A model the scene declares hidden is loaded and placed all the same, and
+            // then not drawn. It has to be: the story brings it out with ShowModel, and
+            // RC1's moped — which waits out of sight for the scripted moment it rides
+            // past the hotel — was never loaded at all, so the show did nothing and the
+            // player heard Gabriel remark on a bike that was not there.
+            ModelPlacement placement = geometry.Add(parsed);
+
+            if (model.Hidden)
+            {
+                geometry.SetVisible(placement, false);
+            }
+
             placed.Add(new PlacedModel(
                 model.Name,
                 model.Noun,
@@ -664,10 +745,11 @@ public sealed class SceneLoader
                 parsed,
                 Matrix4x4.Identity,
                 PlacedModelKind.Prop,
-                geometry.Add(parsed))
+                placement)
             {
                 Gas = model.Gas,
-                Idle = ReadIdle(model, diagnostics),
+                Idle = ReadBehaviour(model.Gas, model.Name, diagnostics),
+                Visible = !model.Hidden,
             });
         }
 
@@ -751,7 +833,15 @@ public sealed class SceneLoader
                 $"actor: {actor.Name} ({actor.Noun}) at {spot.Name}{(actor.IsEgo ? ", ego" : string.Empty)}");
 
             placed.Add(new PlacedModel(
-                actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor, standing));
+                actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor, standing)
+            {
+                // What they do when nobody is telling them to do anything, while they
+                // speak, and while somebody else does. A scene names all three per actor.
+                Gas = actor.Idle,
+                Idle = ReadBehaviour(actor.Idle, actor.Name, diagnostics),
+                Talk = ReadBehaviour(actor.Talk, actor.Name, diagnostics),
+                Listen = ReadBehaviour(actor.Listen, actor.Name, diagnostics),
+            });
         }
 
         return placed;
@@ -854,6 +944,12 @@ public sealed class SceneLoader
     /// <summary>How many surfaces in the last scene were given a normal map.</summary>
     public int NormalMapsUsed => _normalsUsed;
 
+    /// <summary>How many were given an occlusion/roughness/metalness map.</summary>
+    public int OrmMapsUsed => _ormsUsed;
+
+    /// <summary>How many were given a height map.</summary>
+    public int HeightMapsUsed => _heightsUsed;
+
     /// <summary>How many of the last scene's textures came from the compressed set.</summary>
     public int CompressedUsed => _compressedUsed;
 
@@ -897,16 +993,22 @@ public sealed class SceneLoader
     private void LoadTextures(
         ISceneSink geometry, IEnumerable<string> names, string owner, DiagnosticBag diagnostics)
     {
-        var wanted = new List<(string Name, bool Normal, bool Colour)>();
+        var wanted = new List<(string Name, bool Normal, bool Orm, bool Height, bool Colour)>();
 
         foreach (string texture in names
                      .Where(n => n.Length > 0)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            // A generated normal map for this surface, if there is one. 250 of the game's
+            // A generated normal map for this surface, if there is one. 324 of the game's
             // 6,657 textures have one so far and the rest look exactly as they did — a
             // partial set is a perfectly good set.
             bool normal = Normals is not null && !geometry.HasNormalMap(texture);
+
+            // The same again for the other two. Each is asked for independently, because a
+            // surface may have any combination of the three: the passes that produce them
+            // run separately and are accepted separately.
+            bool orm = Orms is not null && !geometry.HasOrmMap(texture);
+            bool height = Heights is not null && !geometry.HasHeightMap(texture);
 
             // Already on the device from an earlier room, so there is nothing to read,
             // decode or upload. Most of what a room asks for is something it has met
@@ -914,9 +1016,9 @@ public sealed class SceneLoader
             // counts a reuse, so it is asked exactly once for each name.
             bool colour = !geometry.HasTexture(texture);
 
-            if (normal || colour)
+            if (normal || orm || height || colour)
             {
-                wanted.Add((texture, normal, colour));
+                wanted.Add((texture, normal, orm, height, colour));
             }
         }
 
@@ -928,6 +1030,10 @@ public sealed class SceneLoader
         var read = new (
             DecodedImage? Normal,
             CompressedImage? BlockNormal,
+            DecodedImage? Orm,
+            CompressedImage? BlockOrm,
+            DecodedImage? Height,
+            CompressedImage? BlockHeight,
             DecodedImage? Colour,
             CompressedImage? Blocks,
             Source From,
@@ -940,19 +1046,34 @@ public sealed class SceneLoader
 
         Parallel.For(0, wanted.Count, new ParallelOptions { MaxDegreeOfParallelism = Decoders }, i =>
         {
-            (string texture, bool normal, bool colour) = wanted[i];
+            (string texture, bool normal, bool orm, bool height, bool colour) = wanted[i];
             var bag = new DiagnosticBag();
             bags[i] = bag;
 
-            // The compressed normal map first: BC5 is linear by construction and its chain
-            // is already built, so there is nothing to decode and nothing to say about
-            // colour space.
-            CompressedImage? blockBumps = normal ? Compressed?.ReadNormal(texture, bag) : null;
-            DecodedImage? bumps = normal && blockBumps is null ? Normals?.Read(texture, bag) : null;
+            // The generated map first and the compressed build of it second, which is the
+            // order the whole loader now takes: see Compressed for why. A .png is what the
+            // generator produced this morning; a .dds is what somebody compressed at some
+            // point, and while these sets are still moving the two are not the same file.
+            DecodedImage? bumps = normal ? Normals?.Read(texture, bag) : null;
+            CompressedImage? blockBumps =
+                normal && bumps is null ? Compressed?.ReadNormal(texture, bag) : null;
+
+            DecodedImage? finish = orm ? Orms?.Read(texture, bag) : null;
+            CompressedImage? blockFinish =
+                orm && finish is null ? Compressed?.ReadOrm(texture, bag) : null;
+
+            DecodedImage? relief = height ? Heights?.Read(texture, bag) : null;
+            CompressedImage? blockRelief =
+                height && relief is null ? Compressed?.ReadHeight(texture, bag) : null;
 
             if (!colour)
             {
-                read[i] = (bumps, blockBumps, null, null, Source.Original, null);
+                read[i] = (
+                    bumps, blockBumps,
+                    finish, blockFinish,
+                    relief, blockRelief,
+                    null, null, Source.Original, null);
+
                 return;
             }
 
@@ -964,26 +1085,38 @@ public sealed class SceneLoader
             bool readable = bytes is not null && BitmapDecoder.CanDecode(bytes);
             DecodedImage? original = readable ? BitmapDecoder.Decode(bytes!, texture) : null;
 
+            // The enhanced picture. It falls back on its own if it will not decode, so a bad
+            // file in the enhanced set costs that texture and nothing else.
+            if (Enhanced?.Read(texture, bag) is { } better)
+            {
+                read[i] = (
+                    bumps, blockBumps,
+                    finish, blockFinish,
+                    relief, blockRelief,
+                    better, null, Source.Enhanced, null);
+
+                return;
+            }
+
             if (original is not { } first || !TextureKeying.NeedsKey(first))
             {
                 if (Compressed?.Read(texture, bag) is { } blocks)
                 {
-                    read[i] = (bumps, blockBumps, null, blocks, Source.Compressed, null);
+                    read[i] = (
+                        bumps, blockBumps,
+                        finish, blockFinish,
+                        relief, blockRelief,
+                        null, blocks, Source.Compressed, null);
+
                     return;
                 }
             }
 
-            // Then the enhanced version. It falls back on its own if it will not decode, so
-            // a bad file in the enhanced set costs that texture and nothing else.
-            if (Enhanced?.Read(texture, bag) is { } better)
-            {
-                read[i] = (bumps, blockBumps, better, null, Source.Enhanced, null);
-                return;
-            }
-
             read[i] = original is null
-                ? (bumps, blockBumps, null, null, Source.Original, texture)
-                : (bumps, blockBumps, original, null, Source.Original, null);
+                ? (bumps, blockBumps, finish, blockFinish, relief, blockRelief,
+                   null, null, Source.Original, texture)
+                : (bumps, blockBumps, finish, blockFinish, relief, blockRelief,
+                   original, null, Source.Original, null);
         });
 
         for (int i = 0; i < wanted.Count; i++)
@@ -995,20 +1128,46 @@ public sealed class SceneLoader
 
             (DecodedImage? bumps,
              CompressedImage? blockBumps,
+             DecodedImage? finish,
+             CompressedImage? blockFinish,
+             DecodedImage? relief,
+             CompressedImage? blockRelief,
              DecodedImage? colour,
              CompressedImage? blocks,
              Source from,
              string? missing) = read[i];
 
-            if (blockBumps is { } compressedMap)
+            if (bumps is { } map)
+            {
+                geometry.AddNormalMap(wanted[i].Name, map);
+                _normalsUsed++;
+            }
+            else if (blockBumps is { } compressedMap)
             {
                 geometry.AddNormalMap(wanted[i].Name, compressedMap);
                 _normalsUsed++;
             }
-            else if (bumps is { } map)
+
+            if (finish is { } packed)
             {
-                geometry.AddNormalMap(wanted[i].Name, map);
-                _normalsUsed++;
+                geometry.AddOrmMap(wanted[i].Name, packed);
+                _ormsUsed++;
+            }
+            else if (blockFinish is { } compressedPacked)
+            {
+                geometry.AddOrmMap(wanted[i].Name, compressedPacked);
+                _ormsUsed++;
+            }
+
+            if (relief is { } field)
+            {
+                geometry.AddHeightMap(wanted[i].Name, field);
+                _heightsUsed++;
+            }
+            else if (blockRelief is { } compressedField)
+            {
+                geometry.AddHeightMap(wanted[i].Name, compressedField);
+                _heightsUsed++;
             }
 
             if (missing is not null)

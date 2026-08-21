@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Ini;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -25,6 +25,43 @@ public readonly record struct AnimationCaption(int Frame, int EndFrame, string S
 /// </param>
 public readonly record struct AnimationAction(
     int Frame, string Name, AnimationPlacement? Placement = null);
+
+/// <summary>Which part of a face a texture belongs to.</summary>
+/// <remarks>
+/// GK3 paints a character's face from one bitmap and patches three regions of it at
+/// runtime. <c>FACES.TXT</c> gives the pixel offset of each region per character, which is
+/// the only place the geometry of a face is written down: the model has a single
+/// <c>&lt;code&gt;_FACE</c> texture and no separate mouth, brow or eyelid to move.
+/// </remarks>
+public enum FacePart
+{
+    /// <summary>The mouth, which is what lip sync moves.</summary>
+    Mouth,
+
+    /// <summary>The eyelids, which is what a blink moves.</summary>
+    Eyelids,
+
+    /// <summary>The forehead, which is where the brows are.</summary>
+    Forehead,
+}
+
+/// <summary>A mouth shape an animation puts on somebody's face.</summary>
+/// <param name="Frame">Which frame it appears on.</param>
+/// <param name="Actor">The noun of whoever's face it is.</param>
+/// <param name="Mouth">
+/// The shape, as the files name it: <c>MOUTH00</c> to <c>MOUTH07</c>, and a handful of
+/// <c>MOUTH04_BLOOD</c>. It is a suffix, not a texture — the character's own three-letter
+/// code goes in front of it.
+/// </param>
+public readonly record struct AnimationMouth(int Frame, string Actor, string Mouth);
+
+/// <summary>A patch an animation lays over part of somebody's face, or takes off again.</summary>
+/// <param name="Frame">Which frame.</param>
+/// <param name="Actor">The noun of whoever's face it is.</param>
+/// <param name="Part">Which region of the face.</param>
+/// <param name="Texture">The bitmap, or null to put the face back as it was.</param>
+public readonly record struct AnimationFace(
+    int Frame, string Actor, FacePart Part, string? Texture);
 
 /// <summary>Where an absolute animation puts the thing it moves.</summary>
 /// <param name="Position">The spot, in world space.</param>
@@ -83,13 +120,17 @@ public sealed class AnimationFile
         int frames,
         IReadOnlyList<AnimationAction> actions,
         IReadOnlyList<AnimationSound> sounds,
-        IReadOnlyList<AnimationCaption> captions)
+        IReadOnlyList<AnimationCaption> captions,
+        IReadOnlyList<AnimationMouth> mouths,
+        IReadOnlyList<AnimationFace> faces)
     {
         Name = name;
         FrameCount = frames;
         Actions = actions;
         Sounds = sounds;
         Captions = captions;
+        Mouths = mouths;
+        Faces = faces;
     }
 
     /// <summary>Name this animation was read under.</summary>
@@ -110,6 +151,26 @@ public sealed class AnimationFile
     /// <summary>The lines it speaks, in file order.</summary>
     public IReadOnlyList<AnimationCaption> Captions { get; }
 
+    /// <summary>
+    /// The mouth shapes it puts on people, in frame order.
+    /// </summary>
+    /// <remarks>
+    /// 98,410 of these in the corpus and they are the whole of GK3's lip sync: one shape
+    /// out of eight, on the frames the mouth changes. A line of dialogue is a <c>.YAK</c>
+    /// whose sound is the recording and whose <c>LIPSYNCH</c> nodes are what the face does
+    /// while it plays, which is why they are read from the same file rather than derived
+    /// from the audio.
+    /// </remarks>
+    public IReadOnlyList<AnimationMouth> Mouths { get; }
+
+    /// <summary>The patches it lays over faces and takes off again, in frame order.</summary>
+    /// <remarks>
+    /// Brows, blinks and set mouths. A blink is one of these and nothing else:
+    /// <c>gabblink</c> is four frames of eyelid textures, which is why blinking needs no
+    /// geometry and no separate system.
+    /// </remarks>
+    public IReadOnlyList<AnimationFace> Faces { get; }
+
     /// <summary>Parses an animation.</summary>
     /// <param name="text">The file's text.</param>
     /// <param name="name">Name used in diagnostics.</param>
@@ -127,6 +188,8 @@ public sealed class AnimationFile
         List<AnimationAction> actions = [];
         List<AnimationSound> sounds = [];
         List<AnimationCaption> captions = [];
+        List<AnimationMouth> mouths = [];
+        List<AnimationFace> faces = [];
 
         foreach (IniSection section in document.Sections)
         {
@@ -153,7 +216,7 @@ public sealed class AnimationFile
                     break;
 
                 case "GK3":
-                    Spoken(section, captions);
+                    Spoken(section, captions, mouths, faces);
                     break;
 
                 default:
@@ -171,7 +234,8 @@ public sealed class AnimationFile
                 "Anything waiting on it will not wait."));
         }
 
-        return new AnimationFile(name, Math.Max(0, frames), actions, sounds, captions);
+        return new AnimationFile(
+            name, Math.Max(0, frames), actions, sounds, captions, mouths, faces);
     }
 
     /// <summary>
@@ -258,11 +322,17 @@ public sealed class AnimationFile
     /// put back together rather than taken as more fields.
     /// </para>
     /// <para>
-    /// <c>LIPSYNCH</c> is skipped, and it is 98,153 of the corpus's nodes — a mouth shape
-    /// per frame per line. Reading it needs a face with shapes to put them into.
+    /// <c>LIPSYNCH</c> is 98,410 of the corpus's nodes — a mouth shape on each frame the
+    /// mouth changes — and <c>FACETEX</c>/<c>UNFACETEX</c> another 1,268, which are the
+    /// brows and the blinks. All three name a region of a character's face and a bitmap to
+    /// put there; see <see cref="FacePart"/>.
     /// </para>
     /// </remarks>
-    private static void Spoken(IniSection section, List<AnimationCaption> captions)
+    private static void Spoken(
+        IniSection section,
+        List<AnimationCaption> captions,
+        List<AnimationMouth> mouths,
+        List<AnimationFace> faces)
     {
         string speaker = string.Empty;
 
@@ -303,11 +373,62 @@ public sealed class AnimationFile
 
                     break;
 
+                // <frame>,LIPSYNCH,<noun>,MOUTH03. The shape is a suffix rather than a
+                // texture: the character's own three-letter code goes in front of it, and
+                // which code that is depends on which model is standing in the room.
+                case "LIPSYNCH":
+                    if (line.Entries.Count > 3)
+                    {
+                        mouths.Add(new AnimationMouth(
+                            frame, line.Entries[2].Key, line.Entries[3].Key));
+                    }
+
+                    break;
+
+                // <frame>,FACETEX,<noun>,<bitmap>,<part> and <frame>,UNFACETEX,<noun>,<part>.
+                // A part nothing here paints — L and R, the two eyes, twenty nodes in the
+                // whole corpus — is left alone rather than painted over the wrong region.
+                case "FACETEX":
+                    if (line.Entries.Count > 3 && PartOf(line, 4) is { } painted)
+                    {
+                        faces.Add(new AnimationFace(
+                            frame, line.Entries[2].Key, painted, line.Entries[3].Key));
+                    }
+
+                    break;
+
+                case "UNFACETEX":
+                    if (line.Entries.Count > 2 && PartOf(line, 3) is { } cleared)
+                    {
+                        faces.Add(new AnimationFace(frame, line.Entries[2].Key, cleared, null));
+                    }
+
+                    break;
+
                 default:
                     break;
             }
         }
     }
+
+    /// <summary>
+    /// Which region of the face a node names, or null when it is one nothing paints.
+    /// </summary>
+    /// <remarks>
+    /// One letter: <c>M</c> mouth, <c>E</c> eyelids, <c>H</c> forehead. Two of the corpus's
+    /// nodes leave it off entirely and both name a mouth bitmap, so a missing letter means
+    /// the mouth.
+    /// </remarks>
+    private static FacePart? PartOf(IniLine line, int index) =>
+        line.Entries.Count <= index
+            ? FacePart.Mouth
+            : line.Entries[index].Key.Trim().ToUpperInvariant() switch
+            {
+                "M" => FacePart.Mouth,
+                "E" => FacePart.Eyelids,
+                "H" => FacePart.Forehead,
+                _ => null,
+            };
 
     /// <summary>
     /// Puts the fields from an index onwards back together as one string.

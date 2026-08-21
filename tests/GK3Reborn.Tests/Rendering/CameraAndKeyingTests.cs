@@ -236,6 +236,12 @@ public sealed class CameraAndKeyingTests
 
         public bool WasClicked(PointerButton button) => false;
 
+        public bool WasDoubleClicked(PointerButton button) => false;
+
+        public string Typed => string.Empty;
+
+        public bool WasPressed(EditKey key) => false;
+
         public int ScrollDelta => 0;
 
         public void EndFrame()
@@ -257,6 +263,12 @@ public sealed class CameraAndKeyingTests
         public Vector2 PointerPosition => Vector2.Zero;
 
         public bool WasClicked(PointerButton button) => false;
+
+        public bool WasDoubleClicked(PointerButton button) => false;
+
+        public string Typed => string.Empty;
+
+        public bool WasPressed(EditKey key) => false;
 
         public int ScrollDelta => 0;
 

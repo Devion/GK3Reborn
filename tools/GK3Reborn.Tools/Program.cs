@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Content.Manifests;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
@@ -69,6 +69,9 @@ public static class Program
 
             case "sheep":
                 return Sheep(options, diagnostics);
+
+            case "compile-sheep":
+                return CompileSheep(options, diagnostics);
 
             case "actions":
                 return Actions(options, diagnostics);
@@ -484,9 +487,38 @@ public static class Program
             $"  {summary.FullyDecoded} decoded completely, {summary.Partial} stopped early, {summary.Failed} failed"));
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"  {summary.DistinctImports} distinct API functions called"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.RoundTripped} of {summary.Scripts} written back out and read again identically"));
 
         Report(diagnostics);
         return diagnostics.HasErrors ? 1 : 0;
+    }
+
+    private static int CompileSheep(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Input is null)
+        {
+            Console.Error.WriteLine("compile-sheep requires --input <script.shp source file>.");
+            return 2;
+        }
+
+        var stage = new SheepCompileStage(Console.WriteLine);
+        SheepCompileSummary? summary = stage.Run(
+            options.Input, options.Output, options.Source, diagnostics);
+
+        if (summary is { } made)
+        {
+            Console.WriteLine();
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {made.Functions} function(s), {made.Instructions} instructions, "
+                + $"{made.Bytes} bytes of bytecode"));
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {made.Imports} function(s) called, {made.Strings} string(s), "
+                + $"{made.Variables} symbol(s)"));
+        }
+
+        Report(diagnostics);
+        return summary is null || diagnostics.HasErrors ? 1 : 0;
     }
 
     private static int Actions(Options options, DiagnosticBag diagnostics)
@@ -546,7 +578,13 @@ public static class Program
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
-              sheep             Disassemble every compiled Sheep script.
+              sheep             Disassemble every compiled Sheep script, gather the
+                                function signatures, and check the writer by reading
+                                every one back.
+              compile-sheep     Compile a Sheep source file to bytecode the game's
+                                own machine runs. --input is the source, --output
+                                the .SHP, --source the game data whose scripts say
+                                what each function takes and returns.
               actions           Read the noun/verb/case files and resolve against them.
               render-model      Render one model from the archives to a PNG.
               render-scene      Render a scene, its props and its lighting, to a PNG.
@@ -560,6 +598,7 @@ public static class Program
 
             options:
               --source <dir>       The game's Data directory. Read only; never modified.
+              --input <file>       The file a command reads.
               --workspace <dir>    Content workspace root. Outputs go to build/.
               --ffmpeg-dir <dir>   Directory containing ffmpeg and ffprobe.
               --force              Redo work even when a cached output is still valid.
@@ -625,6 +664,8 @@ public static class Program
 
         public string? Output { get; init; }
 
+        public string? Input { get; init; }
+
         public int Width { get; init; } = 1024;
 
         public int Height { get; init; } = 768;
@@ -664,6 +705,7 @@ public static class Program
         public static Options Parse(string[] args)
         {
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
+            string? input = null;
             string? timeblock = null, camera = null, rayTracing = null;
             int width = 1024, height = 768;
             bool deep = false;
@@ -719,6 +761,10 @@ public static class Program
                     case "--model" when i + 1 < args.Length:
                         model = args[++i];
                         break;
+                    case "--input" when i + 1 < args.Length:
+                        input = args[++i];
+                        break;
+
                     case "--output" when i + 1 < args.Length:
                         output = args[++i];
                         break;
@@ -781,6 +827,7 @@ public static class Program
                 Camera = camera,
                 RayTracing = rayTracing,
                 Output = output,
+                Input = input,
                 Width = width,
                 Height = height,
                 Deep = deep,

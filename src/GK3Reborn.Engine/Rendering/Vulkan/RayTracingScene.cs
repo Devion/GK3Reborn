@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
@@ -172,7 +172,7 @@ public sealed unsafe class RayTracingScene : IDisposable
                 {
                     Transform = Identity(),
                     InstanceCustomIndex = 0,
-                    Mask = 0xFF,
+                    Mask = MaskFor(part),
                     InstanceShaderBindingTableRecordOffset = 0,
                     Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
                     AccelerationStructureReference =
@@ -213,6 +213,70 @@ public sealed unsafe class RayTracingScene : IDisposable
         _instances[at] = instance with { Transform = rows };
         _moved = true;
     }
+
+    /// <summary>Takes one of the things the structure holds in or out of the world.</summary>
+    /// <param name="part">Which thing, as <see cref="RayTracingMesh.Part"/> named it.</param>
+    /// <param name="traced">Whether rays may hit it.</param>
+    /// <remarks>
+    /// The instance stays and its mask goes to nothing, which is what an instance mask is
+    /// for: rebuilding the structure without it would renumber everything else. A model a
+    /// script has hidden must not be traced or the room grows the shadow of something
+    /// nobody can see — RC1's moped waits out of sight for a scripted drive-past, and its
+    /// shadow would be lying on the square the whole time.
+    /// </remarks>
+    public void SetTraced(int part, bool traced)
+    {
+        if (!_instanceOf.TryGetValue(part, out int at))
+        {
+            return;
+        }
+
+        AccelerationStructureInstanceKHR instance = _instances[at];
+        uint mask = traced ? MaskFor(part) : 0u;
+
+        if (instance.Mask == mask)
+        {
+            return;
+        }
+
+        _instances[at] = instance with { Mask = mask };
+        _moved = true;
+    }
+
+    /// <summary>The room's own geometry, for a ray that wants to skip what stands in it.</summary>
+    /// <remarks>
+    /// Part zero is the room. Everything else is a model placed in it — a character, a
+    /// prop — and a model is the thing a shadow ray must be able to ignore.
+    /// </remarks>
+    public const uint WorldMask = 0x01;
+
+    /// <summary>The models standing in the room.</summary>
+    public const uint ModelMask = 0x02;
+
+    /// <summary>
+    /// Which mask an instance carries.
+    /// </summary>
+    /// <param name="part">The part key; zero is the room.</param>
+    /// <returns>The mask.</returns>
+    /// <remarks>
+    /// <para>
+    /// Split so that a shadow ray leaving a character can trace the room and nothing else.
+    /// <b>GK3's people are not solid bodies.</b> A character is a dozen separate meshes —
+    /// a shirt shell with a torso inside it, arms passing through sleeves — so a ray
+    /// leaving the shirt towards a lamp hits the arm underneath it before it has gone
+    /// anywhere. Every character in every room came out with a hard dark patch across the
+    /// chest and the small of the back, fully shadowed and fully occluded, whatever the
+    /// lighting was doing.
+    /// </para>
+    /// <para>
+    /// No bias fixes it, because the geometry the ray hits is genuinely inside the surface
+    /// it started from. Skipping models entirely, from a model, is what does — and it costs
+    /// only the shadow one character would cast on another. A ray leaving the <em>room</em>
+    /// still traces everything, so a character standing in the lobby still lays a shadow on
+    /// the floor.
+    /// </para>
+    /// </remarks>
+    public static uint MaskFor(int part) => part == 0 ? WorldMask : ModelMask;
 
     /// <summary>Gives a mesh the vertices it is currently drawn with.</summary>
     /// <param name="key">Which mesh, as <see cref="RayTracingMesh.Key"/> named it.</param>

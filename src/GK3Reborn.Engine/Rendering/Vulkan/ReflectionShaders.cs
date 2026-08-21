@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -359,7 +359,12 @@ internal static class ReflectionShaders
 
             vec4 surface = texelFetch(normalTarget, pixel, 0);
             float depth = texelFetch(depthTarget, pixel, 0).x;
-            float roughness = surface.w;
+
+            // Absolute, because the sign of this channel is not part of the roughness: the
+            // mesh pass negates it to mark a model standing in the room, which is what lets
+            // a shadow ray leaving a character skip characters. See
+            // RayTracingScene.MaskFor.
+            float roughness = abs(surface.w);
 
             // Too rough to be worth a ray, or nothing drawn here at all. What a wide cone
             // gathers is the ambient term the surface already has.

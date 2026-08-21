@@ -108,6 +108,39 @@ public sealed class GameState
     /// <summary>The current timeblock, such as <c>110A</c>.</summary>
     public Timeblock Timeblock { get; set; } = new(1, 10, IsAfternoon: false);
 
+    /// <summary>
+    /// The camera a conversation falls back to, or null for whatever the scene names.
+    /// </summary>
+    /// <remarks>
+    /// A scene's <c>[DIALOGUE_CAMERAS]</c> marks one camera per conversation as the
+    /// <c>initial</c> one, and a script may override it for the exchange it is about to
+    /// start — <c>SetDefaultDialogueCamera("GabMadWide")</c> before a chat with Madeline.
+    /// Clearing it puts the scene's own choice back.
+    /// </remarks>
+    public string? DefaultDialogueCamera { get; set; }
+
+    /// <summary>
+    /// A field of view a script has asked for, in radians, or null for the scene's own.
+    /// </summary>
+    /// <remarks>
+    /// The original renders at sixty degrees and the scene files override it per camera —
+    /// <c>fov=20</c> on a close-up. This is the other override: a script narrowing the view
+    /// for a moment. Null rather than sixty degrees, so that "nobody has asked" and "somebody
+    /// asked for the default" stay distinguishable.
+    /// </remarks>
+    public float? CameraFieldOfView { get; set; }
+
+    /// <summary>
+    /// Hit tests a script has switched off, by name.
+    /// </summary>
+    /// <remarks>
+    /// A hit test is a volume the player can click and never see — a doorway's clickable
+    /// area, the patch of desk a note lies on. Scripts turn them off while something else
+    /// is happening and on again afterwards, which is how a scene stops the player clicking
+    /// through a cutscene.
+    /// </remarks>
+    public ISet<string> BlockedHitTests { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Three-letter code of the current location.</summary>
     /// <remarks>
     /// Moving remembers where you moved from, whoever does the moving. A script says

@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
@@ -98,6 +98,12 @@ public sealed class HeadlessSceneSink : ISceneSink
     /// <summary>How many normal maps the scene gave, for a sweep that wants to count.</summary>
     public int NormalMapCount { get; private set; }
 
+    /// <summary>How many ORM maps the scene gave.</summary>
+    public int OrmMapCount { get; private set; }
+
+    /// <summary>How many height maps the scene gave.</summary>
+    public int HeightMapCount { get; private set; }
+
     /// <inheritdoc/>
     public void AddNormalMap(string name, DecodedImage image) => NormalMapCount++;
 
@@ -110,6 +116,24 @@ public sealed class HeadlessSceneSink : ISceneSink
 
     /// <inheritdoc/>
     public bool HasNormalMap(string name) => false;
+
+    /// <inheritdoc/>
+    public void AddOrmMap(string name, DecodedImage image) => OrmMapCount++;
+
+    /// <inheritdoc/>
+    public void AddOrmMap(string name, CompressedImage image) => OrmMapCount++;
+
+    /// <inheritdoc/>
+    public bool HasOrmMap(string name) => false;
+
+    /// <inheritdoc/>
+    public void AddHeightMap(string name, DecodedImage image) => HeightMapCount++;
+
+    /// <inheritdoc/>
+    public void AddHeightMap(string name, CompressedImage image) => HeightMapCount++;
+
+    /// <inheritdoc/>
+    public bool HasHeightMap(string name) => false;
 
     /// <summary>How many sides of a sky the scene gave, for a sweep that wants to count.</summary>
     public int SkyboxFaces { get; private set; }
@@ -139,6 +163,29 @@ public sealed class HeadlessSceneSink : ISceneSink
     /// <remarks>Nothing to pose: a sweep measures what was loaded rather than keeping it.</remarks>
     public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal)
     {
+    }
+
+    /// <summary>How many times something asked for a texture to be painted over.</summary>
+    public int RepaintCount { get; private set; }
+
+    /// <inheritdoc/>
+    /// <remarks>Counted rather than obeyed; there is no picture here to change.</remarks>
+    public void Repaint(ModelPlacement placement, string texture, string? painted) => RepaintCount++;
+
+    /// <summary>How many models the scene asked to be kept out of sight.</summary>
+    public int HiddenCount { get; private set; }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Counted rather than obeyed. A sweep wants to know a scene hides things — the
+    /// staging a script later shows — and has nothing to hide them from.
+    /// </remarks>
+    public void SetVisible(ModelPlacement placement, bool visible)
+    {
+        if (!visible)
+        {
+            HiddenCount++;
+        }
     }
 
     /// <inheritdoc/>

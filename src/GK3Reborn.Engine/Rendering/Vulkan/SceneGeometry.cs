@@ -4,6 +4,7 @@ using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Rendering.Materials;
 using Silk.NET.Vulkan;
 
 namespace GK3Reborn.Rendering.Vulkan;
@@ -73,6 +74,30 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private VulkanTexture? _lightmap;
     private IReadOnlyList<Vector4>? _lightmapRegions;
     private DescriptorPool _descriptorPool;
+
+    /// <summary>
+    /// Pools opened after the room was built, for material sets nothing knew it needed.
+    /// </summary>
+    /// <remarks>
+    /// The pool <see cref="Finish"/> creates is sized for exactly the batches the room
+    /// loaded, which is right for everything the loader knows about and wrong the moment a
+    /// face starts moving: repainting a texture is a new combination of images and
+    /// therefore a new set. Each of these holds a block of them, and another is opened when
+    /// one fills, which keeps the common case — a room where nothing repaints — costing
+    /// nothing at all.
+    /// </remarks>
+    private readonly List<DescriptorPool> _extraPools = [];
+
+    /// <summary>How many sets each pool opened after loading holds.</summary>
+    private const int ExtraPoolSets = 64;
+
+    /// <summary>Material sets for repainted surfaces, by what they draw.</summary>
+    /// <remarks>
+    /// Kept because a face comes back to the same mouth shape a dozen times a sentence, and
+    /// a set that is only a handful of image views is far cheaper to keep than to build.
+    /// </remarks>
+    private readonly Dictionary<(string Painted, string Of), DescriptorSet> _repainted =
+        new();
     private Vector3 _minimum = new(float.MaxValue);
     private Vector3 _maximum = new(float.MinValue);
 
@@ -208,6 +233,85 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
+    public void AddOrmMap(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddOrm(name, image);
+    }
+
+    /// <inheritdoc/>
+    public void AddOrmMap(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddOrm(name, image);
+    }
+
+    /// <inheritdoc/>
+    public bool HasOrmMap(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _textures.HasOrm(name);
+    }
+
+    /// <inheritdoc/>
+    public void AddHeightMap(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddHeight(name, image);
+    }
+
+    /// <inheritdoc/>
+    public void AddHeightMap(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddHeight(name, image);
+    }
+
+    /// <inheritdoc/>
+    public bool HasHeightMap(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _textures.HasHeight(name);
+    }
+
+    /// <summary>The material constants for one batch's texture.</summary>
+    /// <remarks>
+    /// Scalars, and a map multiplies them rather than replacing them — which is what makes
+    /// a corrected roughness in the edit layer still mean something once a generated map
+    /// arrives for the same surface. The neutral map is all ones in the two channels that
+    /// multiply, so a surface with no map gets its measured finish unchanged.
+    /// </remarks>
+    private Vector4 MaterialOf(string texture)
+    {
+        SurfaceFinish finish = Materials.Of(texture);
+
+        // Zero reflectance where there is nothing to shade with, which switches the
+        // specular lobe off for that surface. The library's roughness and metalness are a
+        // classifier's guess at median confidence 0.32, and GK3's diffuse textures already
+        // have their highlights painted in — so a physical lobe over a painted one counts
+        // the same light twice and reads as plastic. A generated map is a measurement of
+        // the surface, and a hand correction is somebody's judgement of it; either earns
+        // the lobe, a guess does not.
+        bool measured = _textures.HasOrm(texture);
+        float reflectance = measured || finish.Authored ? finish.Specular : 0f;
+
+        // Negative roughness says "this number is the answer, ignore the map's". The sign
+        // is free because roughness is clamped to at least 0.03, and it is how a person's
+        // correction outranks a generated map for the same surface — which is the one
+        // thing the edit layer most needs to be able to do. See SurfaceFinish.
+        float roughness = finish.Authored ? -finish.Roughness : finish.Roughness;
+
+        return new Vector4(
+            roughness, finish.Metallic, reflectance, finish.NormalStrength);
+    }
+
+    /// <inheritdoc/>
     public bool HasNormalMap(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -312,12 +416,98 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     submesh.TextureName,
                     useLightmap: false,
                     selfLit: false,
-                    local: meshToLocal);
+                    local: meshToLocal,
+                    isModel: true);
             }
         }
 
         _placed.Add((model, placement));
         return new ModelPlacement(_placements.Count - 1);
+    }
+
+    /// <inheritdoc/>
+    public void Repaint(ModelPlacement placement, string texture, string? painted)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        foreach (List<int> batches in _placements[placement.Id].Values)
+        {
+            foreach (int index in batches)
+            {
+                Batch batch = _batches[index];
+
+                if (!batch.TextureName.Equals(texture, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(batch.Painted, painted, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                _batches[index] = batch with
+                {
+                    Painted = painted,
+                    Material = painted is { Length: > 0 } picture
+                        ? MaterialFor(picture, batch.TextureName)
+                        : MaterialFor(batch.TextureName, batch.TextureName),
+                };
+            }
+        }
+    }
+
+    /// <summary>A material set drawing one picture with another surface's normal map.</summary>
+    /// <remarks>
+    /// Never a lightmap: only the room's own geometry is baked, and the only things that
+    /// repaint are models. Cached, because a talking face comes back to the same eight
+    /// mouth shapes over and over.
+    /// </remarks>
+    private DescriptorSet MaterialFor(string picture, string surface)
+    {
+        if (_repainted.TryGetValue((picture, surface), out DescriptorSet known))
+        {
+            return known;
+        }
+
+        DescriptorSet made = CreateMaterialSet(
+            TextureFor(picture),
+            _whiteTexture,
+            _textures.GetNormal(surface),
+            _textures.GetOrm(surface),
+            _textures.GetHeight(surface));
+
+        _repainted[(picture, surface)] = made;
+        return made;
+    }
+
+    private readonly HashSet<int> _invisible = [];
+
+    /// <inheritdoc/>
+    public void SetVisible(ModelPlacement placement, bool visible)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (visible ? !_invisible.Remove(placement.Id) : !_invisible.Add(placement.Id))
+        {
+            return;
+        }
+
+        foreach (List<int> batches in _placements[placement.Id].Values)
+        {
+            foreach (int index in batches)
+            {
+                _batches[index] = _batches[index] with { Hidden = !visible };
+            }
+        }
+
+        // And out of the traced world with it. The parts are numbered from one, because
+        // part zero is the room itself; see RecordTraceable.
+        _rayTracing?.SetTraced(placement.Id + 1, visible);
     }
 
     /// <inheritdoc/>
@@ -812,6 +1002,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         _rayTracing ??= RayTracingScene.Build(_context, _traceable);
 
+        // Whatever was hidden while the room was being built. The structure did not exist
+        // to be told at the time, and a hidden model that still casts a shadow is worse
+        // than one that is simply drawn.
+        foreach (int hidden in _invisible)
+        {
+            _rayTracing?.SetTraced(hidden + 1, false);
+        }
+
         var size = new DescriptorPoolSize
         {
             Type = DescriptorType.CombinedImageSampler,
@@ -841,7 +1039,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 Material = CreateMaterialSet(
                     TextureFor(batch.TextureName),
                     batch.UseLightmap && !batch.SelfLit ? _lightmap ?? _whiteTexture : _whiteTexture,
-                    _textures.GetNormal(batch.TextureName)),
+                    _textures.GetNormal(batch.TextureName),
+                    _textures.GetOrm(batch.TextureName),
+                    _textures.GetHeight(batch.TextureName)),
             };
         }
     }
@@ -875,7 +1075,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         foreach (Batch batch in _batches)
         {
-            if (batch.Material.Handle == 0)
+            if (batch.Material.Handle == 0 || batch.Hidden)
             {
                 continue;
             }
@@ -890,11 +1090,23 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 new Vector4(
                     _lightmap is not null && batch.UseLightmap ? 1f : 0f,
                     LightmapMultiplier,
-                    batch.SelfLit ? 1f : 0f,
+                    // Two flags in one number: 1 for self-lit, 2 for a model standing in
+                    // the room. The second is what lets a shadow ray leaving a character
+                    // skip characters — see RayTracingScene.MaskFor.
+                    (batch.SelfLit ? 1f : 0f) + (batch.IsModel ? 2f : 0f),
 
-                    // Written straight into the frame's normals, whose alpha nothing else
-                    // uses, because the only pass that wants it runs after this one.
-                    Materials.Of(batch.TextureName).Roughness)));
+                    // How deep this surface's height map goes, and zero where it has none —
+                    // which is what keeps the level map bound in its place from shifting
+                    // every texture in the game by a constant offset.
+                    _textures.HasHeight(batch.TextureName)
+                        ? Materials.Of(batch.TextureName).HeightScale
+                        : 0f),
+
+                // The finish the material library measured for this texture, which is what
+                // the shader uses where no ORM map overrides it. A texture nobody has
+                // measured comes back matte and non-metallic, which is the surface the
+                // renderer assumed before any of this existed.
+                MaterialOf(batch.TextureName)));
 
             // The animated buffer when something has reshaped this batch, and the one the
             // model was built with otherwise.
@@ -928,6 +1140,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _context.Api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
             _descriptorPool = default;
         }
+
+        foreach (DescriptorPool extra in _extraPools)
+        {
+            _context.Api.DestroyDescriptorPool(_context.Device, extra, null);
+        }
+
+        _extraPools.Clear();
+        _repainted.Clear();
 
         // The textures are the renderer's and outlast this room; see TextureCache.
         _whiteTexture.Dispose();
@@ -1011,7 +1231,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         string texture,
         bool useLightmap,
         bool selfLit = false,
-        Matrix4x4? local = null) =>
+        Matrix4x4? local = null,
+        bool isModel = false) =>
         _batches.Add(new Batch
         {
             // Identity for the room's own geometry, which is already where it belongs.
@@ -1030,29 +1251,96 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             TextureName = texture,
             UseLightmap = useLightmap,
             SelfLit = selfLit,
+            IsModel = isModel,
         });
 
     private VulkanTexture TextureFor(string name) =>
         _textures.Get(name);
 
-    private DescriptorSet CreateMaterialSet(
-        VulkanTexture diffuse, VulkanTexture lightmap, VulkanTexture normal)
+    /// <summary>Takes a material set from whichever pool still has room.</summary>
+    /// <remarks>
+    /// The room's own pool first, then any opened since, then a new one. Allocation
+    /// failing is how a pool says it is full — Vulkan reports it rather than trapping —
+    /// so it is a case to handle and not an error.
+    /// </remarks>
+    private DescriptorSet Allocate()
     {
         DescriptorSetLayout layout = _pipeline.MaterialLayout;
 
-        var allocateInfo = new DescriptorSetAllocateInfo
+        DescriptorSet? From(DescriptorPool pool)
         {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _descriptorPool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &layout,
+            if (pool.Handle == 0)
+            {
+                return null;
+            }
+
+            DescriptorSetLayout wanted = layout;
+
+            var info = new DescriptorSetAllocateInfo
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = pool,
+                DescriptorSetCount = 1,
+                PSetLayouts = &wanted,
+            };
+
+            return _context.Api.AllocateDescriptorSets(_context.Device, in info, out DescriptorSet set)
+                   == Result.Success
+                ? set
+                : null;
+        }
+
+        if (From(_descriptorPool) is { } fromRoom)
+        {
+            return fromRoom;
+        }
+
+        for (int i = _extraPools.Count - 1; i >= 0; i--)
+        {
+            if (From(_extraPools[i]) is { } fromExtra)
+            {
+                return fromExtra;
+            }
+        }
+
+        var size = new DescriptorPoolSize
+        {
+            Type = DescriptorType.CombinedImageSampler,
+
+            // Five images a set: colour, lightmap, normal, ORM, height. Raised with the
+            // layout, or a pool runs out partway through a room and the sets after it are
+            // never allocated.
+            DescriptorCount = ExtraPoolSets * 5,
         };
 
-        if (_context.Api.AllocateDescriptorSets(_context.Device, in allocateInfo, out DescriptorSet set)
+        var poolInfo = new DescriptorPoolCreateInfo
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &size,
+            MaxSets = ExtraPoolSets,
+        };
+
+        if (_context.Api.CreateDescriptorPool(_context.Device, in poolInfo, null, out DescriptorPool opened)
             != Result.Success)
         {
-            throw new VulkanException("Could not allocate a material descriptor set.");
+            throw new VulkanException("Could not create a descriptor pool.");
         }
+
+        _extraPools.Add(opened);
+
+        return From(opened) ??
+               throw new VulkanException("Could not allocate a material descriptor set.");
+    }
+
+    private DescriptorSet CreateMaterialSet(
+        VulkanTexture diffuse,
+        VulkanTexture lightmap,
+        VulkanTexture normal,
+        VulkanTexture orm,
+        VulkanTexture height)
+    {
+        DescriptorSet set = Allocate();
 
         var diffuseInfo = new DescriptorImageInfo
         {
@@ -1075,7 +1363,21 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             Sampler = normal.Sampler,
         };
 
-        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[3];
+        var ormInfo = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = orm.View,
+            Sampler = orm.Sampler,
+        };
+
+        var heightInfo = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = height.View,
+            Sampler = height.Sampler,
+        };
+
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[5];
         writes[0] = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
@@ -1105,7 +1407,27 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             PImageInfo = &normalInfo,
         };
 
-        _context.Api.UpdateDescriptorSets(_context.Device, 3, writes, 0, null);
+        writes[3] = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = set,
+            DstBinding = 3,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImageInfo = &ormInfo,
+        };
+
+        writes[4] = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = set,
+            DstBinding = 4,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImageInfo = &heightInfo,
+        };
+
+        _context.Api.UpdateDescriptorSets(_context.Device, 5, writes, 0, null);
         return set;
     }
 
@@ -1156,6 +1478,32 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         /// <summary>The surface carries its own brightness and the bake does not touch it.</summary>
         public bool SelfLit { get; init; }
+
+        /// <summary>A model standing in the room, rather than the room itself.</summary>
+        /// <remarks>
+        /// Carried through to the shader so a shadow ray leaving this pixel knows to skip
+        /// the models: GK3's people are a stack of overlapping shells and a ray leaving a
+        /// shirt hits the arm inside it. See <see cref="RayTracingScene.MaskFor"/>.
+        /// </remarks>
+        public bool IsModel { get; init; }
+
+        /// <summary>What is drawn on it instead of its own texture, if anything is.</summary>
+        /// <remarks>
+        /// A character's face while they talk or blink. The original texture's name is kept
+        /// beside it because that is what the normal map is filed under, and because
+        /// putting the face back is asking for the model's own picture again.
+        /// </remarks>
+        public string? Painted { get; init; }
+
+        /// <summary>Whether it is kept out of the picture.</summary>
+        /// <remarks>
+        /// A model a scene declares <c>hidden</c>, or one a script has hidden. It is loaded
+        /// and placed either way, because <c>ShowModel</c> is how the story brings it out
+        /// and there is no way to do that with something that was never read. Written the
+        /// negative way round because a batch is a struct and the common case has to be
+        /// the default one.
+        /// </remarks>
+        public bool Hidden { get; init; }
 
         public DescriptorSet Material { get; init; }
     }

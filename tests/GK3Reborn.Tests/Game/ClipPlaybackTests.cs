@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Text;
 using GK3Reborn.Content;
 using GK3Reborn.Formats;
@@ -61,6 +61,26 @@ public sealed class ClipPlaybackTests
 
         public bool HasNormalMap(string name) => false;
 
+        public void AddOrmMap(string name, DecodedImage image)
+        {
+        }
+
+        public void AddOrmMap(string name, CompressedImage image)
+        {
+        }
+
+        public bool HasOrmMap(string name) => false;
+
+        public void AddHeightMap(string name, DecodedImage image)
+        {
+        }
+
+        public void AddHeightMap(string name, CompressedImage image)
+        {
+        }
+
+        public bool HasHeightMap(string name) => false;
+
         public void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth)
         {
         }
@@ -73,6 +93,19 @@ public sealed class ClipPlaybackTests
 
         public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn) =>
             _inner.TurnMesh(placement, mesh, turn);
+
+        /// <summary>What each texture of each model has been painted over with.</summary>
+        public Dictionary<(int Placement, string Texture), string?> Painted { get; } =
+            new();
+
+        public void Repaint(ModelPlacement placement, string texture, string? painted) =>
+            Painted[(placement.Id, texture)] = painted;
+
+        /// <summary>Which models have been hidden, and which shown again.</summary>
+        public Dictionary<int, bool> Visible { get; } = [];
+
+        public void SetVisible(ModelPlacement placement, bool visible) =>
+            Visible[placement.Id] = visible;
 
         public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal) =>
             Poses[(placement.Id, mesh)] = meshToLocal;
@@ -187,13 +220,20 @@ public sealed class ClipPlaybackTests
             },
         ]);
 
+    /// <summary>A world with one thing in it and one animation to play on it.</summary>
+    /// <remarks>
+    /// An actor by default, because the correction — the interesting part — is theirs. A
+    /// prop is placed by the identity and its clips are already in the room's coordinates,
+    /// so there is nothing to correct; see <c>SceneUpdate.Playing.Correction</c>.
+    /// </remarks>
     private static (SceneUpdate Update, Sink Sink) World(
         string animation,
         string clipName,
         string model,
         string? standing = null,
         bool clipExists = true,
-        bool deform = false)
+        bool deform = false,
+        PlacedModelKind kind = PlacedModelKind.Actor)
     {
         var sink = new Sink();
 
@@ -207,7 +247,7 @@ public sealed class ClipPlaybackTests
             [
                 new PlacedModel(
                     standing ?? model, "DOOR", null, Model(), Matrix4x4.Identity,
-                    PlacedModelKind.Prop, new ModelPlacement(0)),
+                    kind, new ModelPlacement(0)),
             ]);
 
         var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
@@ -240,9 +280,11 @@ public sealed class ClipPlaybackTests
 
         update.Advance(0.5);
 
-        // Half a second in: frame seven, and the mesh seven along from where it began. A
-        // clip authored 500 units away plays here, not there.
-        Assert.Equal(7f, sink.Poses[(0, 0)].Translation.X, 3);
+        // Half a second in: frame seven and a half, and the mesh seven and a half along
+        // from where it began. A clip authored 500 units away plays here, not there — and
+        // the half is the point: fifteen recorded poses a second are mixed rather than
+        // shown four times each, so half a second lands between two of them.
+        Assert.Equal(7.5f, sink.Poses[(0, 0)].Translation.X, 3);
     }
 
     [Fact]
@@ -255,11 +297,12 @@ public sealed class ClipPlaybackTests
         update.Play("Breathe");
         update.Advance(0.5);
 
-        // Frame seven: seven along from where it started, not seven from the origin, and
-        // its one vertex seven up. The clip is authored 500 away and the correction takes
-        // that out.
-        Assert.Equal(7f, sink.Poses[(0, 0)].Translation.X, 3);
-        Assert.Equal(7f, Assert.Single(sink.Shapes[(0, 0, 0)]).Y, 3);
+        // Between frames seven and eight: that far along from where it started, not from
+        // the origin, and its one vertex that far up. The clip is authored 500 away and
+        // the correction takes that out. Shapes are mixed between recorded poses for the
+        // same reason transforms are.
+        Assert.Equal(7.5f, sink.Poses[(0, 0)].Translation.X, 3);
+        Assert.Equal(7.5f, Assert.Single(sink.Shapes[(0, 0, 0)]).Y, 3);
     }
 
     [Fact]
@@ -284,7 +327,9 @@ public sealed class ClipPlaybackTests
         update.Play("Walk");
         update.Advance(0.001);
 
-        Assert.Equal(0f, sink.Poses[(0, 0)].Translation.X, 2);
+        // A thousandth of a second is a sixty-sixth of a recorded pose, so the mesh has
+        // moved a sixty-sixth of the unit the clip advances each one — not five hundred.
+        Assert.Equal(0f, sink.Poses[(0, 0)].Translation.X, 1);
     }
 
     [Fact]
@@ -395,5 +440,38 @@ public sealed class ClipPlaybackTests
         update.StopAnimating("door");
 
         Assert.Equal(0, update.Animating);
+    }
+
+    [Fact]
+    public void A_prop_plays_its_clip_exactly_where_it_was_authored()
+    {
+        // A prop is placed by the identity, so the room's coordinates are the model's
+        // coordinates and a clip written for that room is already in the right place.
+        // Correcting it back to where the model rests is what left the moped that rides
+        // past RC1 riding past the world origin instead — and it would put every book back
+        // on its shelf as it was picked up.
+        (SceneUpdate update, Sink sink) = World(
+            "Ride", "door_Ride", "door", kind: PlacedModelKind.Prop);
+
+        update.Play("Ride");
+        update.Advance(0.5);
+
+        Assert.Equal(Away + 7.5f, sink.Poses[(0, 0)].Translation.X, 3);
+    }
+
+    [Fact]
+    public void A_looping_clip_keeps_the_part_of_a_frame_it_overran_by()
+    {
+        // Resetting to exactly zero every time round drops up to a sixtieth of a second a
+        // loop, and on a loop as short as a ceiling fan's that is a visible hitch every few
+        // seconds.
+        (SceneUpdate update, Sink sink) = World("Spin", "door_Spin", "door");
+
+        update.Play("Spin", repeat: true);
+
+        // 31 frames is 2.0666s. A third of a second past that is frame five, not frame nought.
+        update.Advance((31 / 15.0) + (5 / 15.0));
+
+        Assert.Equal(5f, sink.Poses[(0, 0)].Translation.X, 3);
     }
 }

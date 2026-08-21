@@ -1,4 +1,4 @@
-namespace GK3Reborn.Game;
+﻿namespace GK3Reborn.Game;
 
 /// <summary>
 /// A scene to load, and the point in the story to load it at.
@@ -78,9 +78,14 @@ public sealed class SceneRequest
     /// script it had loaded.
     /// </para>
     /// <para>
-    /// The arrival is recorded here rather than by the script that asked for it, because a
-    /// scene file asks whether this is the first visit by checking the count, and the count
-    /// has to have gone up by the time the file is read.
+    /// The arrival is <em>not</em> recorded here. A scene file asks
+    /// <c>GetEgoCurrentLocationCount() &lt; 1</c> to mean "the first time here", so while
+    /// the file is being read the count still has to be the number of <em>previous</em>
+    /// visits; the scripts that run once the room is standing ask for one instead. Counting
+    /// the arrival first satisfies the scripts and not the file, and the two disagreeing is
+    /// how RC1 came to play Gabriel's line about Wilkes's moped over a square with no moped
+    /// in it — the scene had already decided not to place it. See
+    /// <see cref="GameState.EnterLocation"/>, which the caller runs once the room is up.
     /// </para>
     /// </remarks>
     public static SceneRequest Continuing(Gk3SheepApi api, string scene)
@@ -91,11 +96,13 @@ public sealed class SceneRequest
         string name = scene.ToUpperInvariant();
         GameState state = api.State;
 
-        // EnterLocation sets the location, and setting it first is what stops it: it only
-        // remembers where the player came from when the two differ, so assigning here left
-        // LastLocation empty for ever and WasLastLocation always answering no. That is the
-        // question every room asks to decide which door the player walked in through.
-        state.EnterLocation(state.Ego, name);
+        // Where the player is, so that a room built before the arrival is counted is still
+        // built as the right room. Assigning it is also what remembers where they came
+        // from — the question every scene asks to decide which door they walked in through
+        // — and it is idempotent, so a script that already called SetLocation loses
+        // nothing by it.
+        state.Location = name;
+        state.SetActorLocation(state.Ego, name);
 
         return new SceneRequest(name, null, state, api);
     }

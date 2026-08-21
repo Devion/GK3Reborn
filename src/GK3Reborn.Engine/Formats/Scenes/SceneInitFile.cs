@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Ini;
 
 namespace GK3Reborn.Formats.Scenes;
@@ -59,6 +59,14 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     /// story state that has not been evaluated.
     /// </summary>
     public bool VisibilityDisputed { get; init; }
+
+    /// <summary>An animation that puts it into its opening pose.</summary>
+    /// <remarks>
+    /// <c>initanim=Rc1PlaceLbyDoor</c>. It states where the thing rests rather than being
+    /// something that happens: a door that starts open, a moped parked where its clip
+    /// begins.
+    /// </remarks>
+    public string? InitialAnimation { get; init; }
 }
 
 /// <summary>A spot in the scene the player or an actor can stand.</summary>
@@ -84,6 +92,28 @@ public sealed record SceneActor(string Name, string? Noun, bool IsEgo)
 
     /// <summary>Whether the actor is in the scene but not to be drawn.</summary>
     public bool Hidden { get; init; }
+
+    /// <summary>
+    /// The behaviour script they run when nobody is telling them to do anything.
+    /// </summary>
+    /// <remarks>
+    /// <c>idle=madrc1mapidle.gas</c>. Without it a character stands in the pose the artist
+    /// modelled them in, which reads as a waxwork rather than as a person waiting.
+    /// </remarks>
+    public string? Idle { get; init; }
+
+    /// <summary>The one they run while they are speaking.</summary>
+    public string? Talk { get; init; }
+
+    /// <summary>The one they run while somebody else is.</summary>
+    public string? Listen { get; init; }
+
+    /// <summary>An animation that puts them into their opening pose.</summary>
+    /// <remarks>
+    /// <c>initanim=MadRc1FigM</c>. It states where they are and how they are standing when
+    /// the scene opens — sitting, leaning, holding something — rather than being played.
+    /// </remarks>
+    public string? InitialAnimation { get; init; }
 }
 
 /// <summary>
@@ -307,6 +337,7 @@ public sealed class SceneInitFile
             {
                 Verb = line.Value("verb") ?? seen?.Verb,
                 Gas = line.Value("gas") ?? seen?.Gas,
+                InitialAnimation = line.Value("initanim") ?? seen?.InitialAnimation,
 
                 // Carried forward, or a third block agreeing with the second would erase
                 // the disagreement the first one recorded. Nothing to carry once the
@@ -358,6 +389,10 @@ public sealed class SceneInitFile
             {
                 Position = l.Value("pos"),
                 Hidden = l.HasFlag("hidden"),
+                Idle = l.Value("idle"),
+                Talk = l.Value("talk"),
+                Listen = l.Value("listen"),
+                InitialAnimation = l.Value("initanim"),
             })
             .ToList();
 

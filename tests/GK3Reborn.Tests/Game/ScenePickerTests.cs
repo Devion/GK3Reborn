@@ -247,6 +247,32 @@ public sealed class ScenePickerTests
     }
 
     [Fact]
+    public void A_model_that_is_not_being_drawn_is_not_there_to_be_clicked()
+    {
+        // A scene loads the models it means to show later and keeps them out of the
+        // picture until a script says otherwise. RC1's moped waits that way for its
+        // scripted ride past the hotel, and a ray that meets it picks up a noun for
+        // something nobody can see.
+        PlacedModel moped = Model("wmo", "WILKES", 60f, PlacedModelKind.Prop);
+
+        var picker = new ScenePicker(Scene(
+            Room(("wall", 300f)),
+            "model=lamp, noun=LAMP, type=prop\nmodel=wmo, noun=WILKES, type=prop, hidden",
+            Model("lamp", "LAMP", 120f, PlacedModelKind.Prop),
+            moped));
+
+        Assert.Equal("wmo", Assert.NotNull(Ahead(picker)).Name);
+
+        moped.Visible = false;
+
+        Assert.Equal("lamp", Assert.NotNull(Ahead(picker)).Name);
+
+        moped.Visible = true;
+
+        Assert.Equal("wmo", Assert.NotNull(Ahead(picker)).Name);
+    }
+
+    [Fact]
     public void A_prop_is_picked_as_its_model_and_not_twice()
     {
         // A prop line names a file to stand in the room, not an object inside the BSP. If

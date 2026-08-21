@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Game.Navigation;
 using Xunit;
@@ -54,6 +54,13 @@ public sealed class WalkPathTests
         [.. route.Points.Select(boundary.ToTexel)];
 
     /// <summary>Every texel the route actually crosses, corners included.</summary>
+    /// <remarks>
+    /// The straight line between corners, because that is what the walker walks: it heads
+    /// at each corner in turn and does not care what the bitmap looks like on the way. This
+    /// used to step towards the corner diagonally-then-straight, which for anything but a
+    /// pure axis or a pure diagonal is a different path — so it agreed with a bug in the
+    /// route finder instead of catching it.
+    /// </remarks>
     private static List<(int X, int Y)> Walked(WalkBoundary boundary, WalkRoute route)
     {
         (int X, int Y)[] corners = Corners(boundary, route);
@@ -66,13 +73,16 @@ public sealed class WalkPathTests
 
         for (int i = 1; i < corners.Length; i++)
         {
-            (int x, int y) = corners[i - 1];
+            (int fromX, int fromY) = corners[i - 1];
+            int spanX = corners[i].X - fromX;
+            int spanY = corners[i].Y - fromY;
+            int steps = Math.Max(Math.Abs(spanX), Math.Abs(spanY));
 
-            while ((x, y) != corners[i])
+            for (int step = 1; step <= steps; step++)
             {
-                x += Math.Sign(corners[i].X - x);
-                y += Math.Sign(corners[i].Y - y);
-                walked.Add((x, y));
+                walked.Add((
+                    fromX + (int)MathF.Round(spanX * (float)step / steps),
+                    fromY + (int)MathF.Round(spanY * (float)step / steps)));
             }
         }
 
@@ -305,5 +315,78 @@ public sealed class WalkPathTests
         Assert.Equal(inside, boundary.NearestWalkable(inside));
         Assert.Equal(boundary.ToWorld(1, 1), boundary.NearestWalkable(new Vector3(-100, 0, 500)));
         Assert.Null(Map("###").NearestWalkable(Vector3.Zero));
+    }
+
+    [Fact]
+    public void A_shortcut_is_only_taken_when_the_line_it_stands_for_is_clear()
+    {
+        // The bug this exists for. A route across this room used to be smoothed into one
+        // long diagonal-ish line from the bottom left to the top right, because the test
+        // that was supposed to check the line walked to (2,2) first and then straight along
+        // the row — which misses the pillar the real line goes through. Gabriel then walked
+        // the real line, through the pillar.
+        WalkBoundary boundary = Map(
+            "#############",
+            "#...........#",
+            "#...........#",
+            "#.....##....#",
+            "#.....##....#",
+            "#...........#",
+            "#...........#",
+            "#############");
+
+        WalkRoute route = WalkPath.Find(
+            boundary, boundary.ToWorld(1, 6), boundary.ToWorld(11, 1));
+
+        Assert.True(route.ReachedGoal);
+
+        foreach ((int x, int y) in Walked(boundary, route))
+        {
+            Assert.True(
+                boundary.IsTexelWalkable(x, y),
+                $"the route walks through ({x}, {y}), which is not open");
+        }
+    }
+
+    [Fact]
+    public void A_diagonal_may_not_squeeze_between_two_walls_meeting_at_a_corner()
+    {
+        // Two blocks touching at a corner are a wall, whatever the texels say. A line that
+        // steps diagonally across the join passes through solid geometry without ever
+        // sampling a blocked texel, which is how an actor ends up inside the scenery.
+        WalkBoundary boundary = Map(
+            "#####",
+            "#.#.#",
+            "#...#",
+            "#.#.#",
+            "#####");
+
+        WalkRoute route = WalkPath.Find(
+            boundary, boundary.ToWorld(1, 1), boundary.ToWorld(3, 1));
+
+        Assert.True(route.ReachedGoal);
+
+        // Through the middle, not across either corner where the two pillars meet the row.
+        Assert.Contains((2, 2), Walked(boundary, route));
+    }
+
+    [Fact]
+    public void A_clear_room_is_still_smoothed_to_one_straight_line()
+    {
+        // The other half of the fix: being stricter must not stop the smoothing working.
+        // An empty room is one line however tight the corner check is.
+        WalkBoundary boundary = Map(
+            ".............",
+            ".............",
+            ".............",
+            ".............",
+            ".............",
+            ".............",
+            ".............");
+
+        WalkRoute route = WalkPath.Find(
+            boundary, boundary.ToWorld(0, 6), boundary.ToWorld(12, 0));
+
+        Assert.Equal([(0, 6), (12, 0)], Corners(boundary, route));
     }
 }

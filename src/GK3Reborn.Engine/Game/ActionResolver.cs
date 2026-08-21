@@ -1,4 +1,4 @@
-using GK3Reborn.Formats;
+﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Sheep;
@@ -214,8 +214,12 @@ public sealed class ActionResolver
                 "DIALOGUE_TOPICS_LEFT" => HasTopicsLeft(noun, ego),
                 "NOT_DIALOGUE_TOPICS_LEFT" => !HasTopicsLeft(noun, ego),
 
-                // Easter eggs are off. The original has the same placeholder.
-                "EGG" => false,
+                // The one built-in case the player can turn on. The original hard-codes it
+                // false — its own source has the same placeholder — so the content behind
+                // it never shipped in a playable form. Reading a flag instead costs nothing
+                // when nobody sets it, which is every ordinary game, and gives the console
+                // something to set.
+                "EGG" => Flag("EGG"),
 
                 _ => true,
             };
@@ -337,6 +341,26 @@ public sealed class ActionResolver
         {
             Diagnostics.Add(ex.Diagnostic);
             return 0;
+        }
+    }
+
+    /// <summary>Whether a story flag is set.</summary>
+    /// <remarks>
+    /// Through the host, like <see cref="Done"/> and for the same reason: a resolver has no
+    /// game state of its own, and the route a file's own conditions take when they write
+    /// <c>GetFlag("EGG")</c> is the route this should take too. A host that does not
+    /// implement it answers zero, which reads as unset.
+    /// </remarks>
+    private bool Flag(string name)
+    {
+        try
+        {
+            return _api.Invoke("GetFlag", [SheepValue.FromString(name)]).AsInt() != 0;
+        }
+        catch (FormatParseException ex)
+        {
+            Diagnostics.Add(ex.Diagnostic);
+            return false;
         }
     }
 

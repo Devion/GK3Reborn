@@ -118,11 +118,29 @@ public sealed class Gk3SheepApi : ISheepApi
     /// What sends an actor across the room, when there is a room to cross.
     /// </summary>
     /// <remarks>
-    /// Given the actor, the place and how to get there; answers how long it will take. Set
-    /// by <see cref="SceneScripting.Attach"/>, so a tool with no scene leaves it null and
-    /// the walking calls stay recorded, as they always were.
+    /// Given the actor, the place, how to get there and whether they are in a hurry;
+    /// answers how long it will take. Set by <see cref="SceneScripting.Attach"/>, so a tool
+    /// with no scene leaves it null and the walking calls stay recorded, as they always
+    /// were.
     /// </remarks>
-    public Func<string, string, Approaching, double>? Walks { get; set; }
+    /// <remarks>
+    /// Only the player is ever in a hurry. A script that sends somebody somewhere passes
+    /// false, because a script's timings are written against the pace the game walks at and
+    /// hurrying one leg of a scripted sequence would arrive an actor before their line.
+    /// </remarks>
+    public Func<string, string, Approaching, bool, double>? Walks { get; set; }
+
+    /// <summary>
+    /// What holds something back until the player has walked there, if anything can.
+    /// </summary>
+    /// <remarks>
+    /// Given a number of seconds and the work; answers whether it took charge of it. An
+    /// action's <c>approach</c> has to finish before its script runs — the original walks
+    /// the ego to the target and performs the action from the arrival — and this is where
+    /// a runner finds something with a clock to wait against. Null in a tool, where every
+    /// action runs the instant it is asked for, exactly as it always did.
+    /// </remarks>
+    public Func<double, Action, bool>? Defers { get; set; }
 
     /// <summary>
     /// What plays an animation, when there is a room to play it in.
@@ -213,7 +231,7 @@ public sealed class Gk3SheepApi : ISheepApi
 
         string place = arguments.Count > 1 ? arguments[1].AsString() : arguments[0].AsString();
 
-        return Walks(actor, place, how);
+        return Walks(actor, place, how, false);
     }
 
     /// <summary>Whether a function does something rather than being recorded.</summary>
@@ -229,6 +247,35 @@ public sealed class Gk3SheepApi : ISheepApi
     {
         ArgumentNullException.ThrowIfNull(name);
         return _functions.ContainsKey(name);
+    }
+
+    /// <summary>Every function this host performs, by name.</summary>
+    /// <remarks>
+    /// What this build can actually do, as against what the 1999 scripts call. The console
+    /// completes against this rather than against the archives' import table for exactly
+    /// that reason: offering the player a function that would be recorded and not performed
+    /// is worse than not offering it.
+    /// </remarks>
+    public IReadOnlyCollection<string> FunctionNames => _functions.Keys;
+
+    /// <summary>Calls a function by name, as a script would.</summary>
+    /// <param name="name">The function.</param>
+    /// <param name="arguments">Its arguments.</param>
+    /// <returns>What it returned, or null when there is no such function.</returns>
+    /// <remarks>
+    /// The same path a script takes, deliberately. A console that reached past this into
+    /// the game's own objects would be able to put the story into states no script could
+    /// reach, and the first thing anybody would do with it is produce a save nothing can
+    /// load.
+    /// </remarks>
+    public SheepValue? Perform(string name, IReadOnlyList<SheepValue> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        return _functions.TryGetValue(name, out Func<IReadOnlyList<SheepValue>, SheepValue>? function)
+            ? function(arguments)
+            : null;
     }
 
     /// <summary>Registers a function.</summary>
@@ -297,6 +344,17 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        Register("IncNounVerbCountBoth", a =>
+        {
+            foreach (string who in BothCharacters)
+            {
+                State.SetNounVerbCount(
+                    who, Arg(a, 0), Arg(a, 1),
+                    State.GetNounVerbCount(who, Arg(a, 0), Arg(a, 1)) + 1);
+            }
+            return SheepValue.FromInt(0);
+        });
+
         Register("GetTopicCount", a => SheepValue.FromInt(State.GetTopicCount(Arg(a, 0), Arg(a, 1))));
         Register("SetTopicCount", a =>
         {
@@ -354,6 +412,10 @@ public sealed class Gk3SheepApi : ISheepApi
             SheepValue.FromInt(State.WasEverInLocation(State.Ego, Arg(a, 0)) ? 1 : 0));
 
         Register("GetChatCount", a => SheepValue.FromInt(State.GetChatCount(Arg(a, 0))));
+
+        // The same question with the noun given as an enumerated value rather than a name.
+        // The distinction is the caller's and the answer is the same count.
+        Register("GetChatCountInt", a => SheepValue.FromInt(State.GetChatCount(Arg(a, 0))));
         Register("SetChatCount", a =>
         {
             State.SetChatCount(Arg(a, 0), Int(a, 1));
@@ -572,6 +634,52 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // Sidney is a screen like the others and was the one of them the story could not
+        // open. Two of the game's scripts call this.
+        Register("ShowSidney", _ =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.Sidney));
+            return SheepValue.FromInt(0);
+        });
+
+        // Every script is loaded when the story starts, so there is nothing to preload.
+        // Answering rather than recording is the honest form here: the call's whole
+        // purpose is met, it just costs nothing.
+        Register("PreloadSheep", _ => SheepValue.FromInt(0));
+
+        // Which camera a conversation opens on. Both halves, because a script that sets one
+        // for a chat clears it afterwards and the next conversation would otherwise inherit
+        // a shot framed for two other people.
+        Register("SetDefaultDialogueCamera", a =>
+        {
+            State.DefaultDialogueCamera = Arg(a, 0) is { Length: > 0 } named ? named : null;
+            return SheepValue.FromInt(0);
+        });
+
+        Register("ClearDefaultDialogueCamera", _ =>
+        {
+            State.DefaultDialogueCamera = null;
+            return SheepValue.FromInt(0);
+        });
+
+        // Hit tests, on and off. A script switches them off while something plays so that
+        // the player cannot click through it.
+        Register("DisableHitTestModel", a =>
+        {
+            if (Arg(a, 0) is { Length: > 0 } blocked)
+            {
+                State.BlockedHitTests.Add(blocked);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        Register("EnableHitTestModel", a =>
+        {
+            State.BlockedHitTests.Remove(Arg(a, 0));
+            return SheepValue.FromInt(0);
+        });
+
         Register("SetVerbModal", a =>
         {
             State.MustChooseAnAction = Int(a, 0) != 0;
@@ -590,6 +698,9 @@ public sealed class Gk3SheepApi : ISheepApi
     /// Chosen by measured frequency across the 224 shipped scripts rather than by guess,
     /// so the most-used calls are the ones that stop producing warnings first.
     /// </remarks>
+    /// <summary>The two people the player controls, for the calls that mean both of them.</summary>
+    private static readonly string[] BothCharacters = ["GABRIEL", "GRACE"];
+
     private void RegisterRecordedFunctions()
     {
         (string Name, bool Waitable)[] recorded =
@@ -609,8 +720,6 @@ public sealed class Gk3SheepApi : ISheepApi
             ("ContinueDialogue", true),
             ("ContinueDialogueNoFidgets", true),
             ("StartVoiceOver", true),
-            ("ShowModel", false),
-            ("HideModel", false),
             ("ShowSceneModel", false),
             ("HideSceneModel", false),
             ("WalkTo", true),
@@ -631,11 +740,119 @@ public sealed class Gk3SheepApi : ISheepApi
             ("PlaySound", true),
             ("PlaySoundTrack", false),
             ("StopSoundTrack", false),
+
+            // Registered over by SceneScripting once there is a device to silence. A
+            // machine with no sound card still has to answer them, or a script that
+            // hushes the room before speaking stops there.
+            ("StopAllSoundTracks", false),
+            ("StopAllSounds", false),
+            ("StopSound", false),
             ("EnableCinematics", false),
             ("DisableCinematics", false),
             ("Blink", false),
             ("Expression", false),
-            ("SetDefaultDialogueCamera", false),
+
+            // The rest of what the game's own scripts call. Every one of these was being
+            // met with nothing at all, which the machine reports as an unimplemented call
+            // and the player sees as a moment that does not happen. Recording them is not
+            // implementing them — it is the difference between a known gap and a silent
+            // one, and it is what lets a sweep say the surface is covered.
+            //
+            // Camera work: boundaries the camera may not cross, and the angle types the
+            // room cameras are classified by.
+            ("CameraBoundaryBlockModel", false),
+            ("CameraBoundaryUnblockModel", false),
+            ("EnableCameraBoundaries", false),
+            ("DisableCameraBoundaries", false),
+            ("SetCameraAngleType", false),
+            ("GlideToCameraAngleX", true),
+            ("SetCameraGlide", false),
+
+            // Fidgets: the idle, talking and listening loops a character runs between
+            // instructions. They are GAS scripts using the branching half of the language,
+            // which is not run; see docs/formats/behaviour-scripts.md.
+            ("StartListenFidget", true),
+            ("StartTalkFidget", true),
+            ("StartPropFidget", false),
+            ("StopPropFidget", false),
+            ("ClearPropGas", false),
+            ("SetWalkAnim", false),
+
+            // Momentary animations and glances, which need the face and the walker to
+            // agree about who is driving a character.
+            ("StartMom", true),
+            ("Glance", true),
+            ("GlanceX", true),
+            ("LookitPoint", false),
+            ("LookitNoun", false),
+            ("LookitNounQuick", false),
+            ("LookitLock", false),
+            ("LookitUnlock", false),
+            ("BlinkX", false),
+            ("EnableEyeJitter", false),
+            ("DisableEyeJitter", false),
+            ("EyeJitter", false),
+
+            // Presentation: shadows, lighting overrides and the layers a modal screen
+            // draws on. See docs/screens.md for what is state and what is drawing.
+            ("EnableModelShadow", false),
+            ("DisableModelShadow", false),
+            ("SetModelShadowTexture", false),
+            ("ClearModelShadowTexture", false),
+            ("SetModelLighting", false),
+            ("ShowDeathLayer", false),
+            ("FinishedScreen", false),
+            ("ShowInset", false),
+            ("HideInset", false),
+            ("ShowPlate", false),
+            ("HidePlate", false),
+            ("SetPamphletPage", false),
+
+            // Video. The corpus is converted and a player exists; what is missing is the
+            // pause of the world around one.
+            ("PlayMovie", true),
+            ("PlayFullScreenMovie", true),
+            ("PlayFullScreenMovieX", true),
+
+            // Construction mode, which builds a scene from a script rather than a file.
+            ("AddModel", false),
+            ("AddActor", false),
+            ("AddPosition", false),
+            ("SetScene", false),
+            ("SetSceneNoPreloadTextures", false),
+            ("SetBoundaryMap", false),
+            ("UploadSceneLightmaps", false),
+            ("ResetCaseLogic", false),
+
+            // Verb cancelling, which takes the action bar away while something plays.
+            ("StartVerbCancel", false),
+            ("StopVerbCancel", false),
+
+            // The rest.
+            ("ActionWaitClearRegion", true),
+            ("AddCaptionVoiceOver", false),
+            ("StartDialogueX", true),
+            ("SetActorOffstage", false),
+            ("SetLocationTime", true),
+            ("SetTime", true),
+            ("Warp", true),
+            ("WalkNear", true),
+            ("WalkNearModel", true),
+            ("DefaultInspect", true),
+            ("StopMorphAnimation", false),
+            ("IncreaseScore", false),
+            ("ScreenShot", false),
+            ("SetTopSheep", false),
+            ("CallDefaultSheep", true),
+            ("ClownShoes", false),
+
+            // The last of the specification's gameplay surface. None of these is called by
+            // any of the game's own scripts — they are here so the surface is closed rather
+            // than nearly closed, and so that a console or a mod calling one is answered.
+            ("ShowModelGroup", false),
+            ("HideModelGroup", false),
+            ("LookitModelX", false),
+            ("LookitModelQuickX", false),
         ];
 
         foreach ((string name, bool waitable) in recorded)

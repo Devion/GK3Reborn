@@ -1,6 +1,7 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Formats.Animation;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Game.Navigation;
@@ -36,6 +37,10 @@ public static class SceneScripting
     /// <param name="glances">Where to record who is looking at what, if anywhere.</param>
     /// <param name="audio">The room's audio, or null to leave the sound calls recorded.</param>
     /// <param name="world">What moves actors, or null to leave the walking calls recorded.</param>
+    /// <param name="behaviours">
+    /// Where a behaviour script named by another one is read from, or null to leave the
+    /// fidget calls recorded. Only a caller with the archives can answer it.
+    /// </param>
     /// <remarks>
     /// Call it again for the next scene: the functions close over this one, and the last
     /// registration wins, which is what changing rooms means.
@@ -45,16 +50,26 @@ public static class SceneScripting
         LoadedScene scene,
         Glances? glances = null,
         SceneAudio? audio = null,
-        SceneUpdate? world = null)
+        SceneUpdate? world = null,
+        Func<string, GasFile?>? behaviours = null)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(scene);
+
+        Asking(api, scene);
 
         if (world is not null)
         {
             Walking(api, scene, world);
             Stand(api, scene, world);
             Animating(api, world);
+            Showing(api, scene, world);
+
+            if (behaviours is not null)
+            {
+                world.Behaviours = behaviours;
+                Fidgeting(api, world, behaviours);
+            }
         }
 
         if (audio is not null)
@@ -154,6 +169,72 @@ public static class SceneScripting
             api.State.CinematicsEnabled = false;
             return SheepValue.FromInt(0);
         });
+
+        // Whether a camera change travels or cuts. The story already reads this to decide
+        // between the two; the scripts that ask about it were being told nothing.
+        api.Register("IsCameraGlideEnabled", _ =>
+            SheepValue.FromInt(api.State.CameraGliding ? 1 : 0));
+
+        // A field of view in degrees, which the scene files also give per camera. Zero or
+        // less means "put the scene's own back" rather than "look through a pinhole".
+        api.Register("SetCameraFOV", a =>
+        {
+            float degrees = a.Count > 0 ? a[0].AsFloat() : 0;
+
+            api.State.CameraFieldOfView =
+                degrees is > 0 and < 180 ? degrees * MathF.PI / 180f : null;
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("EnableCameraGlide", _ =>
+        {
+            api.State.CameraGliding = true;
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("DisableCameraGlide", _ =>
+        {
+            api.State.CameraGliding = false;
+            return SheepValue.FromInt(0);
+        });
+    }
+
+    /// <summary>
+    /// Questions a script asks about what is in the room.
+    /// </summary>
+    /// <param name="api">The host.</param>
+    /// <param name="scene">The room.</param>
+    /// <remarks>
+    /// All three were unanswered, and an unanswered question is worse than an unperformed
+    /// instruction: a script branches on the answer, so a silent zero sends it down the
+    /// wrong path and everything after that is wrong for a reason nothing records.
+    /// </remarks>
+    private static void Asking(Gk3SheepApi api, LoadedScene scene)
+    {
+        bool Placed(string name, PlacedModelKind? kind) =>
+            scene.Models.Any(m =>
+                (kind is null || m.Kind == kind) &&
+                (m.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+                 (m.Noun is { Length: > 0 } noun &&
+                  noun.Equals(name, StringComparison.OrdinalIgnoreCase))));
+
+        api.Register("DoesModelExist", a =>
+            SheepValue.FromInt(a.Count > 0 && Placed(a[0].AsString(), null) ? 1 : 0));
+
+        api.Register("DoesActorExist", a =>
+            SheepValue.FromInt(
+                a.Count > 0 && Placed(a[0].AsString(), PlacedModelKind.Actor) ? 1 : 0));
+
+        api.Register("DoesSceneModelExist", a =>
+            SheepValue.FromInt(
+                a.Count > 0 &&
+                (Placed(a[0].AsString(), null) ||
+                 (scene.Geometry is { } bsp &&
+                  bsp.ObjectNames.Any(o =>
+                      o.Equals(a[0].AsString(), StringComparison.OrdinalIgnoreCase))))
+                    ? 1
+                    : 0));
     }
 
     private static SheepValue CutTo(
@@ -584,6 +665,21 @@ public static class SceneScripting
             audio.Loop(null);
             return SheepValue.FromInt(0);
         });
+
+        // Stopping sounds. The effects bus is what a one-shot plays on, so silencing it is
+        // what both of these mean; stopping one sound by name would need the device to
+        // remember which voice was which, which it does not.
+        api.Register("StopAllSounds", _ =>
+        {
+            audio.Quiet();
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("StopSound", _ =>
+        {
+            audio.Quiet();
+            return SheepValue.FromInt(0);
+        });
     }
 
     /// <summary>
@@ -608,8 +704,9 @@ public static class SceneScripting
     /// </remarks>
     private static void Walking(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
-        api.Walks = (actor, place, how) => Send(
-            scene, world, actor, place, how != Approaching.Walk, how == Approaching.Turn);
+        api.Walks = (actor, place, how, hurry) => Send(
+            scene, world, actor, place, how != Approaching.Walk, how == Approaching.Turn,
+            hurry);
 
         api.Register("WalkTo", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
@@ -656,7 +753,8 @@ public static class SceneScripting
         string actor,
         string place,
         bool toModel,
-        bool turnOnly = false)
+        bool turnOnly = false,
+        bool hurry = false)
     {
         if (Aim(scene, place, toModel) is not { } aim)
         {
@@ -670,7 +768,7 @@ public static class SceneScripting
 
         // A named spot says which way to stand. A thing says to look at it — from wherever
         // the walk actually ends, which the boundary decides, not from where it was aimed.
-        return world.Walk(actor, Approach(world, actor, aim), aim.Heading, aim.Look);
+        return world.Walk(actor, Approach(world, actor, aim), aim.Heading, aim.Look, hurry);
     }
 
     /// <summary>Stops an actor short of the thing they were sent to.</summary>
@@ -711,6 +809,147 @@ public static class SceneScripting
     /// into it while the view stays where it was.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Makes the fidget calls do something.
+    /// </summary>
+    /// <param name="api">The host.</param>
+    /// <param name="world">Where the characters are.</param>
+    /// <param name="behaviours">Where a named script is read from.</param>
+    /// <remarks>
+    /// <para>
+    /// A fidget is what a character does when nobody is telling them to do anything, and
+    /// GK3 gives every one of them three: idling, talking and listening. All seven calls
+    /// were recorded, which is a cast standing perfectly still through every conversation
+    /// in the game.
+    /// </para>
+    /// <para>
+    /// <c>SetIdleGAS</c> and its two relatives replace the script; <c>StartIdleFidget</c>
+    /// and its relatives say which of the three to run whatever is happening; and
+    /// <c>StopFidget</c> stands somebody still, which is what a script does before handing
+    /// them something specific to do.
+    /// </para>
+    /// </remarks>
+    private static void Fidgeting(
+        Gk3SheepApi api, SceneUpdate world, Func<string, GasFile?> behaviours)
+    {
+        void Assign(IReadOnlyList<SheepValue> a, FidgetKind mode)
+        {
+            if (a.Count > 1)
+            {
+                world.SetBehaviour(a[0].AsString(), mode, behaviours(a[1].AsString()));
+            }
+        }
+
+        api.Register("SetIdleGAS", a =>
+        {
+            Assign(a, FidgetKind.Idle);
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("SetTalkGAS", a =>
+        {
+            Assign(a, FidgetKind.Talk);
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("SetListenGAS", a =>
+        {
+            Assign(a, FidgetKind.Listen);
+            return SheepValue.FromInt(0);
+        });
+
+        void Start(IReadOnlyList<SheepValue> a, FidgetKind mode)
+        {
+            if (a.Count > 0)
+            {
+                world.StartFidget(a[0].AsString(), mode);
+            }
+        }
+
+        api.Register("StartIdleFidget", a =>
+        {
+            Start(a, FidgetKind.Idle);
+            return SheepValue.FromInt(0);
+        }, waitable: true);
+
+        api.Register("StartTalkFidget", a =>
+        {
+            Start(a, FidgetKind.Talk);
+            return SheepValue.FromInt(0);
+        }, waitable: true);
+
+        api.Register("StartListenFidget", a =>
+        {
+            Start(a, FidgetKind.Listen);
+            return SheepValue.FromInt(0);
+        }, waitable: true);
+
+        api.Register("StopFidget", a =>
+        {
+            world.StopFidget(a.Count > 0 ? a[0].AsString() : null);
+            return SheepValue.FromInt(0);
+        });
+    }
+
+    /// <summary>
+    /// Makes a scene's hidden staging appear and disappear.
+    /// </summary>
+    /// <param name="api">The host.</param>
+    /// <param name="scene">The room the models stand in.</param>
+    /// <param name="world">Where they are drawn.</param>
+    /// <remarks>
+    /// <para>
+    /// GK3 stages a moment by leaving the pieces of it in the room, declared <c>hidden</c>,
+    /// and having the script show them when they are wanted. <c>ShowModel</c> and
+    /// <c>HideModel</c> were recorded and not performed, which meant every such moment
+    /// happened with its subject missing.
+    /// </para>
+    /// <para>
+    /// RC1 at 102P is the case that was reported: on first leaving the hotel the scene
+    /// shows <c>wmo</c>, plays the clip of it riding past, has Gabriel watch it and hides
+    /// it again. With nothing shown, all the player got was Gabriel saying "A bike! Man, I
+    /// need one of those" at an empty square — which reads as a line from some other part
+    /// of the game playing by mistake.
+    /// </para>
+    /// </remarks>
+    private static void Showing(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
+    {
+        void Set(IReadOnlyList<SheepValue> arguments, bool visible)
+        {
+            if (arguments.Count == 0)
+            {
+                return;
+            }
+
+            string named = arguments[0].AsString();
+
+            if (world.ModelNamed(named) is not { } model)
+            {
+                api.Diagnostics.Add(new Diagnostic(
+                    "GK3R3340", DiagnosticSeverity.Info,
+                    "A script showed or hid a model this room does not place.",
+                    scene.Name, null, "a model in the room", named,
+                    "Common and usually harmless: scripts are shared between rooms."));
+
+                return;
+            }
+
+            world.Show(model, visible);
+        }
+
+        api.Register("ShowModel", a =>
+        {
+            Set(a, visible: true);
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("HideModel", a =>
+        {
+            Set(a, visible: false);
+            return SheepValue.FromInt(0);
+        });
+    }
+
     private static void Stand(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
         api.Register("InitEgoPosition", arguments =>
@@ -854,6 +1093,11 @@ public static class SceneScripting
     private static void Animating(Gk3SheepApi api, SceneUpdate world)
     {
         api.Plays = (name, repeat) => world.Play(name, repeat);
+
+        // What lets an action's approach finish before its script runs. The room is where
+        // the clock is, so this is the room saying so; a tool leaves it null and every
+        // action runs where it was asked for.
+        api.Defers = world.After;
 
         api.Register("StartAnimation", a => SheepValue.FromInt(
             (int)world.Play(Name(a, 0))));

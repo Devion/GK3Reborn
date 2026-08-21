@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace GK3Reborn.Platform;
 
@@ -54,6 +54,35 @@ public enum PointerButton
 }
 
 /// <summary>What the player is doing right now.</summary>
+/// <summary>A key that edits a line of text rather than adding to it.</summary>
+public enum EditKey
+{
+    /// <summary>Delete the character before the caret.</summary>
+    Backspace,
+
+    /// <summary>Run what has been typed.</summary>
+    Enter,
+
+    /// <summary>Take the chosen completion.</summary>
+    Tab,
+
+    /// <summary>Move the choice, or recall an earlier line.</summary>
+    Up,
+
+    /// <summary>The same, the other way.</summary>
+    Down,
+
+    /// <summary>Put the console away.</summary>
+    Escape,
+
+    /// <summary>Show the console, or put it away.</summary>
+    /// <remarks>
+    /// The key under Escape, which every game with a console has used for thirty years and
+    /// which no other part of this one wants.
+    /// </remarks>
+    Console,
+}
+
 public interface IGameInput
 {
     /// <summary>Whether an action is currently held.</summary>
@@ -93,8 +122,44 @@ public interface IGameInput
     /// </remarks>
     bool WasClicked(PointerButton button);
 
+    /// <summary>Whether the click just reported was the second of a pair.</summary>
+    /// <param name="button">Which button.</param>
+    /// <returns>True on the second click of a double-click, alongside <see cref="WasClicked"/>.</returns>
+    /// <remarks>
+    /// <para>
+    /// Reported <em>as well as</em> the click rather than instead of it, because the two
+    /// mean the same thing and differ only in urgency: a double-click is "do that, and get
+    /// on with it". Swallowing the first click to see whether a second arrives would put a
+    /// delay on every single click in the game to serve the rarer case.
+    /// </para>
+    /// <para>
+    /// Here rather than in the game because deciding it needs the clock, and reading the
+    /// clock outside the platform layer is what ADR 0004 forbids.
+    /// </para>
+    /// </remarks>
+    bool WasDoubleClicked(PointerButton button);
+
     /// <summary>Whether the pointer is being dragged with a button held.</summary>
     bool IsDragging { get; }
+
+    /// <summary>The printable characters typed since the last poll.</summary>
+    /// <remarks>
+    /// Characters rather than keys, because what a console wants is what the player meant
+    /// to write: the platform has already applied the keyboard layout, the shift state and
+    /// any dead keys, and reconstructing that from key codes is how a console ends up
+    /// unusable on every layout but the author's.
+    /// </remarks>
+    string Typed { get; }
+
+    /// <summary>Whether an editing key was pressed since the last poll.</summary>
+    /// <param name="key">Which one.</param>
+    /// <returns>True once per press.</returns>
+    /// <remarks>
+    /// Apart from <see cref="Typed"/> because these are not characters. Backspace and
+    /// Escape do arrive as control characters on some platforms and none on others, which
+    /// is not something anything above the platform layer should have to know.
+    /// </remarks>
+    bool WasPressed(EditKey key);
 
     /// <summary>Clears the per-frame state. Called once a frame, after reading it.</summary>
     void EndFrame();

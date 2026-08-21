@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Globalization;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -234,6 +234,17 @@ public sealed class SheepVirtualMachine
         }
     }
 
+    /// <summary>
+    /// The thread being stepped, while one is.
+    /// </summary>
+    /// <remarks>
+    /// A script may ask the host to do something that depends on which script asked —
+    /// <c>Call("TwoShot")</c> means "the function of that name <em>in me</em>", and there
+    /// are 190 of those in the game. The host is given a name and no context, so this is
+    /// the context. It nests, because a called script may call another.
+    /// </remarks>
+    public SheepThread? Current { get; private set; }
+
     /// <summary>Runs a thread until it stops.</summary>
     /// <param name="thread">The thread to run.</param>
     /// <returns>The same thread.</returns>
@@ -246,6 +257,22 @@ public sealed class SheepVirtualMachine
             return thread;
         }
 
+        SheepThread? outer = Current;
+        Current = thread;
+
+        try
+        {
+            return Step(thread);
+        }
+        finally
+        {
+            Current = outer;
+        }
+    }
+
+    /// <summary>Steps one thread until it stops running.</summary>
+    private SheepThread Step(SheepThread thread)
+    {
         thread.State = SheepThreadState.Running;
         ReadOnlySpan<byte> code = thread.Script.Bytecode;
 

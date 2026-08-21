@@ -167,6 +167,41 @@ That also makes the comparison possible: the same camera, twice, side by side. I
 only way to judge this work, and `PngReader` exists so the engine can read what the
 pipeline writes.
 
+## The local lane
+
+The pilot above was a hosted generator and it stopped at 324 of 6,657 for reasons of
+budget rather than of quality. `PbrLab/make_basecolour.py` is the same work on this
+machine, against a running ComfyUI: **4x-UltraSharp** for structure, then
+**Qwen-Image-Edit 2509** with the four-step Lightning LoRA for the material, then down to
+an exact integer multiple of the source. `PbrLab/README.md` is the operating manual; what
+belongs here is what it changes about this brief.
+
+**The 16× cap is deliberately exceeded.** `--target-longest` defaults to 2048, which from
+a 64-pixel source is thirty-two times and is a remake by this document's own definition.
+That matches what the pilot already did — 279 of its 324 accepted textures are past the
+cap — and it is now a setting with a number rather than an accident. The manifest records
+the factor per texture.
+
+**Tiling is no longer left to chance.** The pilot broke it on four of the first twelve
+textures and `import-textures` never tested for it. The residual difference across the
+wrap join is now spread back over a narrow band as a smooth ramp, which is exact
+arithmetic rather than a hope about the generator, and it is applied only where the corpus
+says the surface is on a wall.
+
+**Candidates are measured against the original.** `import-textures` refuses aspect, alpha
+and flat colour. It cannot ask whether the picture is still the same texture, and a
+diffusion model makes that the urgent question: `BIK_OFF` was 64 pixels of white and green
+blur, came back as an immaculate industrial control panel, and was accepted. The new check
+shrinks both to sixteen pixels on the long edge and compares composition and colour there.
+Over eighteen pilot textures sorted by eye it separates cleanly — faithful 0.56 to 0.97,
+invented -0.13 to 0.38 — and a texture that fails is retried at a lower denoise before it
+is refused.
+
+**Nothing regenerates the pilot's 324.** They are better than this lane produces and
+`--skip-existing` leaves them alone. Every record now carries its own `tool`, because a
+manifest whose header names one generator for a mixed set is a provenance claim that is
+not true.
+
 ## Suggested order
 
 1. A pilot of twenty tier 0 textures spanning stone, wood, fabric and metal, to

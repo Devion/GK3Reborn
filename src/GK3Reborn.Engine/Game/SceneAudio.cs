@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Audio;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
@@ -52,6 +52,24 @@ public sealed class SceneAudio
 
     /// <summary>What is being said now, if anything.</summary>
     public string? Saying { get; private set; }
+
+    /// <summary>
+    /// Told whenever a line starts or stops, so that faces can follow it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A line of dialogue is one animation: its <c>[SOUNDS]</c> is the recording and its
+    /// <c>[GK3]</c> is the mouth shapes, against the same frame numbers. So whatever moves
+    /// mouths needs the animation and not just the name of it, and it needs it at the
+    /// moment the sound actually starts rather than when the script asked for it — a
+    /// queued line may be several seconds behind the call that queued it.
+    /// </para>
+    /// <para>
+    /// Null when nothing is being said, which is how a mouth learns to close. Optional:
+    /// the room may be running without faces, or without anything to draw them on.
+    /// </para>
+    /// </remarks>
+    public Action<AnimationFile?>? Speaking { get; set; }
 
     /// <summary>The caption for what is being said, if the line carries one.</summary>
     /// <remarks>
@@ -296,14 +314,23 @@ public sealed class SceneAudio
         Saying = null;
         Caption = null;
         Speaker = null;
+        Speaking?.Invoke(null);
     }
+
+    /// <summary>Stops the one-shot sounds, leaving the ambience and the dialogue.</summary>
+    /// <remarks>
+    /// What a script means by <c>StopAllSounds</c>. The room goes on sounding like the room
+    /// and whoever is speaking goes on speaking; what stops is the door that was closing
+    /// and the glass that was breaking.
+    /// </remarks>
+    public void Quiet() => _backend.StopBus(AudioBus.Effects);
 
     /// <summary>Stops everything, for leaving a room.</summary>
     public void Silence()
     {
         Hush();
         Loop(null);
-        _backend.StopBus(AudioBus.Effects);
+        Quiet();
     }
 
     /// <summary>Starts the next line when the last one has finished.</summary>
@@ -340,6 +367,10 @@ public sealed class SceneAudio
             Saying = null;
             Caption = null;
             Speaker = null;
+
+            // The mouth closes the moment the sound stops, whether or not there is another
+            // line behind it. Next() will say so again if there is.
+            Speaking?.Invoke(null);
 
             Next();
         }
@@ -379,6 +410,7 @@ public sealed class SceneAudio
 
                 if (_line.Exists)
                 {
+                    Speaking?.Invoke(animation);
                     return;
                 }
             }

@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
@@ -57,6 +57,26 @@ public sealed class SceneUpdateTests
 
         public bool HasNormalMap(string name) => false;
 
+        public void AddOrmMap(string name, DecodedImage image)
+        {
+        }
+
+        public void AddOrmMap(string name, CompressedImage image)
+        {
+        }
+
+        public bool HasOrmMap(string name) => false;
+
+        public void AddHeightMap(string name, DecodedImage image)
+        {
+        }
+
+        public void AddHeightMap(string name, CompressedImage image)
+        {
+        }
+
+        public bool HasHeightMap(string name) => false;
+
         public void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth)
         {
         }
@@ -79,6 +99,19 @@ public sealed class SceneUpdateTests
 
         public void MoveModel(ModelPlacement placement, Matrix4x4 transform) =>
             Moves[placement.Id] = transform;
+
+        /// <summary>What each texture of each model has been painted over with.</summary>
+        public Dictionary<(int Placement, string Texture), string?> Painted { get; } =
+            new();
+
+        public void Repaint(ModelPlacement placement, string texture, string? painted) =>
+            Painted[(placement.Id, texture)] = painted;
+
+        /// <summary>Which models have been hidden, and which shown again.</summary>
+        public Dictionary<int, bool> Visible { get; } = [];
+
+        public void SetVisible(ModelPlacement placement, bool visible) =>
+            Visible[placement.Id] = visible;
 
         /// <summary>Where each mesh has been posed by an animation.</summary>
         public Dictionary<(int, int), Matrix4x4> Poses { get; } = [];
@@ -340,5 +373,78 @@ public sealed class SceneUpdateTests
         }
 
         Assert.Equal(200f, update.View!.Position.Z, 1);
+    }
+
+    [Fact]
+    public void Something_held_back_for_a_walk_happens_when_the_walk_would_be_over()
+    {
+        // What makes an action's approach mean anything: the script runs when the player
+        // has arrived, not while they are still on their way.
+        (SceneUpdate update, _, _, _) = World();
+
+        int done = 0;
+
+        Assert.True(update.After(2.0, () => done++));
+        Assert.Equal(1, update.Later);
+
+        update.Advance(1.0);
+        Assert.Equal(0, done);
+
+        update.Advance(1.0);
+        Assert.Equal(1, done);
+        Assert.Equal(0, update.Later);
+
+        // And only once, however much more time passes.
+        update.Advance(10.0);
+        Assert.Equal(1, done);
+    }
+
+    [Fact]
+    public void A_wait_of_no_length_is_refused_rather_than_queued()
+    {
+        (SceneUpdate update, _, _, _) = World();
+
+        Assert.False(update.After(0, () => { }));
+        Assert.Equal(0, update.Later);
+    }
+
+    [Fact]
+    public void Leaving_a_room_forgets_what_was_waiting_to_happen_in_it()
+    {
+        // An action script belongs to the room that offered it. Letting one run into the
+        // next room is how a door opens twice.
+        (SceneUpdate update, _, _, _) = World();
+
+        int done = 0;
+
+        update.After(1.0, () => done++);
+        update.Cancel();
+        update.Advance(5.0);
+
+        Assert.Equal(0, done);
+    }
+
+    [Fact]
+    public void A_model_can_be_taken_out_of_the_picture_and_put_back()
+    {
+        // GK3 stages a moment by leaving its pieces in the room, hidden, and showing them
+        // when they are wanted. Both halves matter: the geometry stops drawing it, and the
+        // model remembers, so a picker does not offer a noun for something invisible.
+        (SceneUpdate update, _, Watcher sink, _) = World();
+
+        PlacedModel gab = Assert.IsType<PlacedModel>(update.ModelNamed("GABRIEL"));
+
+        Assert.Same(gab, update.ModelNamed("gab"));
+        Assert.Null(update.ModelNamed("wmo"));
+
+        update.Show(gab, visible: false);
+
+        Assert.False(gab.Visible);
+        Assert.False(sink.Visible[0]);
+
+        update.Show(gab, visible: true);
+
+        Assert.True(gab.Visible);
+        Assert.True(sink.Visible[0]);
     }
 }

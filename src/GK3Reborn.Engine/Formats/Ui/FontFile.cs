@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -143,9 +143,27 @@ public sealed class FontFile
     /// Walks the marker strip and cuts the sheet into characters.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The marker colour is whatever the first non-background pixel of the top row is —
     /// most fonts use pure red, but not all of them do, and a couple are a few units off
     /// it, so the comparison allows a little slack rather than demanding an exact match.
+    /// </para>
+    /// <para>
+    /// <b>A row's last marker may be a terminator rather than a glyph.</b> On a sheet with
+    /// one row the last letter ends at the sheet's right edge and nothing has to say so; on
+    /// a sheet with several, the rows are different lengths and each needs a mark saying
+    /// where its last letter stops, with padding after it. Counting that mark as a glyph
+    /// costs the row one character and shifts every character after it — which is why the
+    /// caption sheets, the only multi-row fonts the interface draws with, wrote
+    /// <c>Gabqiel Lnnk</c> where they meant <c>Gabriel Look</c>.
+    /// </para>
+    /// <para>
+    /// Which of the two a sheet is doing is decided by counting rather than guessing: the
+    /// <c>Font=</c> line says how many characters there are, so a sheet with exactly that
+    /// many markers has no terminators and one with that many plus a marker per row has one
+    /// each. Neither, and each row is judged on whether there is any ink after its last
+    /// mark. Across the corpus the count settles 112 of the 136 fonts outright.
+    /// </para>
     /// </remarks>
     private void Cut(string characters, int lines, DiagnosticBag diagnostics)
     {
@@ -177,38 +195,107 @@ public sealed class FontFile
         }
 
         (byte R, byte G, byte B) marker = Pixel(start, 0);
+        List<int>[] marks = new List<int>[lines];
+        int total = 0;
+
+        for (int line = 0; line < lines; line++)
+        {
+            marks[line] = Marks(marker, line * rowHeight, start);
+            total += marks[line].Count;
+        }
+
+        // Every row terminated, no row terminated, or work it out row by row.
+        bool? terminated =
+            total == characters.Length + lines ? true :
+            total == characters.Length ? false :
+            null;
+
         int at = 0;
-        int x0 = start;
 
         for (int line = 0; line < lines && at < characters.Length; line++)
         {
-            int y = line * rowHeight;
+            List<int> row = marks[line];
 
-            if (line > 0)
+            if (row.Count == 0)
             {
-                x0 = start;
+                continue;
             }
 
-            while (at < characters.Length && x0 < Sheet.Width)
+            bool ends = terminated ?? !HasInk(background, row[^1], line * rowHeight, rowHeight);
+            int glyphs = ends ? row.Count - 1 : row.Count;
+
+            for (int i = 0; i < glyphs && at < characters.Length; i++)
             {
-                int x1 = x0 + 1;
+                int from = row[i];
+                int to = i + 1 < row.Count ? row[i + 1] : Sheet.Width;
 
-                while (x1 < Sheet.Width && !Near(Pixel(x1, y), marker))
-                {
-                    x1++;
-                }
+                _glyphs[characters[at]] = new Glyph(
+                    from, (line * rowHeight) + 1, Math.Max(1, to - from), Height);
 
-                // The last glyph of a row runs to the edge when nothing marks its end.
-                _glyphs[characters[at]] = new Glyph(x0, y + 1, Math.Max(1, x1 - x0), Height);
                 at++;
-                x0 = x1;
+            }
+        }
 
-                if (x1 >= Sheet.Width)
+        // The one check that would have caught the terminator. A sheet that cuts into a
+        // different number of pieces than the font says it has is a font whose letters are
+        // all somebody else's, and nothing else about it looks wrong.
+        if (at != characters.Length)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R1142", DiagnosticSeverity.Warning,
+                "A font's bitmap does not cut into as many characters as the font declares, " +
+                "so its letters are shifted.",
+                Name, null,
+                string.Create(CultureInfo.InvariantCulture, $"{characters.Length} character(s)"),
+                string.Create(CultureInfo.InvariantCulture, $"{at} cut from the sheet"),
+                "The sheet may be the wrong bitmap, or its marker colour may appear inside " +
+                "a letter."));
+        }
+    }
+
+    /// <summary>Where the markers along one row's top edge are.</summary>
+    /// <remarks>
+    /// The starts of runs, not every marked pixel: a marker two pixels wide is one marker.
+    /// The scan begins where the first row's did, because a row whose first letter is
+    /// narrower than another's still starts in the same column.
+    /// </remarks>
+    private List<int> Marks(
+        (byte R, byte G, byte B) marker, int y, int start)
+    {
+        List<int> marks = [];
+
+        if (y >= Sheet.Height)
+        {
+            return marks;
+        }
+
+        for (int x = start; x < Sheet.Width; x++)
+        {
+            if (Near(Pixel(x, y), marker) && (x == start || !Near(Pixel(x - 1, y), marker)))
+            {
+                marks.Add(x);
+            }
+        }
+
+        return marks;
+    }
+
+    /// <summary>Whether anything is drawn between a row's last marker and the sheet's edge.</summary>
+    private bool HasInk(
+        (byte R, byte G, byte B) background, int from, int y, int rowHeight)
+    {
+        for (int row = y + 1; row < Math.Min(Sheet.Height, y + rowHeight); row++)
+        {
+            for (int x = from; x < Sheet.Width; x++)
+            {
+                if (Pixel(x, row) != background)
                 {
-                    break;
+                    return true;
                 }
             }
         }
+
+        return false;
     }
 
     private (byte R, byte G, byte B) Pixel(int x, int y)

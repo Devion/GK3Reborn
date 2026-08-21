@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Content.Authoring;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -27,6 +27,12 @@ public sealed record MaterialPatch
 
     /// <summary>A different packed occlusion/roughness/metalness map.</summary>
     public string? OrmTexture { get; init; }
+
+    /// <summary>A different height map, or empty to go back to having none.</summary>
+    public string? HeightTexture { get; init; }
+
+    /// <summary>New height-map depth, or null to keep.</summary>
+    public float? HeightScale { get; init; }
 
     /// <summary>New emissive color, or null to keep.</summary>
     public Vector3? Emissive { get; init; }
@@ -96,13 +102,41 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
     /// The surface's packed occlusion, roughness and metalness.
     /// </summary>
     /// <remarks>
-    /// Carried and not yet consumed. <c>docs/pbr-materials.md</c> is explicit that roughness
-    /// and metalness change nothing until the shading model grows a specular lobe, and that
-    /// generating them before that is generating them blind — nobody can review what nobody
-    /// can see. The slot exists so the edit layer can correct one when there is something to
-    /// correct.
+    /// <para>
+    /// Red is ambient occlusion, green is roughness, blue is metalness — the glTF packing,
+    /// which is what every generator and every authoring tool already writes. Read from
+    /// <c>enhanced/orm</c>, named for the colour texture it belongs to.
+    /// </para>
+    /// <para>
+    /// The map multiplies <see cref="Roughness"/> and <see cref="Metallic"/> rather than
+    /// replacing them, which is what keeps a corrected value in the edit layer meaningful
+    /// once a generated map arrives for the same surface.
+    /// </para>
     /// </remarks>
     public string? OrmTexture { get; init; }
+
+    /// <summary>
+    /// The surface's height field, for parallax.
+    /// </summary>
+    /// <remarks>
+    /// Read from <c>enhanced/height</c>, named for the colour texture it belongs to. Mid
+    /// grey is the modelled surface and the channel runs either side of it. What consumes
+    /// it is a texture-coordinate offset rather than displacement, so it deepens mortar
+    /// courses and floorboards and does nothing at all to a silhouette.
+    /// </remarks>
+    public string? HeightTexture { get; init; }
+
+    /// <summary>
+    /// How deep the height map goes, in texture-coordinate units at grazing incidence.
+    /// </summary>
+    /// <remarks>
+    /// Small. Everything in a generated height field is invented, and parallax's failure
+    /// mode is not subtlety but swimming: past about a twentieth the surface visibly slides
+    /// under the camera. Like <see cref="NormalStrength"/> this is a decision recorded per
+    /// material rather than a constant in the shader, because how much of the invention to
+    /// believe differs by surface.
+    /// </remarks>
+    public float HeightScale { get; init; } = 0.03f;
 
     /// <summary>Linear emissive color. Zero for non-emissive surfaces.</summary>
     public Vector3 Emissive { get; init; }
@@ -142,6 +176,10 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
             OrmTexture = patch.OrmTexture is null
                 ? OrmTexture
                 : patch.OrmTexture.Length > 0 ? patch.OrmTexture : null,
+            HeightTexture = patch.HeightTexture is null
+                ? HeightTexture
+                : patch.HeightTexture.Length > 0 ? patch.HeightTexture : null,
+            HeightScale = patch.HeightScale ?? HeightScale,
             Emissive = patch.Emissive ?? Emissive,
             AlphaCutoff = patch.AlphaCutoff ?? AlphaCutoff,
             DoubleSided = patch.DoubleSided ?? DoubleSided,

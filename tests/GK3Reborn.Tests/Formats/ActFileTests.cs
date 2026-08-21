@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Text;
 using GK3Reborn.Formats.Animation;
 using GK3Reborn.Foundation.Diagnostics;
@@ -414,6 +414,110 @@ public sealed class ActFileTests
 
         Assert.NotNull(act.PoseOf(0, 0));
         Assert.Null(act.PoseOf(1, 0));
+    }
+
+    /// <summary>A basis turned about the vertical and mirrored, as GK3 authors them.</summary>
+    /// <remarks>
+    /// Every mesh basis in the corpus has a determinant of −1 — the world is left-handed —
+    /// so a test that mixes two right-handed bases is not testing anything the game
+    /// contains.
+    /// </remarks>
+    private static Matrix4x4 Spun(float degrees, Vector3 at = default)
+    {
+        Matrix4x4 basis = Matrix4x4.CreateRotationY(degrees * MathF.PI / 180f);
+
+        basis.M31 = -basis.M31;
+        basis.M32 = -basis.M32;
+        basis.M33 = -basis.M33;
+        basis.Translation = at;
+
+        return basis;
+    }
+
+    private static float Determinant(Matrix4x4 basis) => Vector3.Dot(
+        Vector3.Cross(
+            new Vector3(basis.M11, basis.M12, basis.M13),
+            new Vector3(basis.M21, basis.M22, basis.M23)),
+        new Vector3(basis.M31, basis.M32, basis.M33));
+
+    [Fact]
+    public void A_moment_between_two_recorded_poses_is_the_two_of_them_mixed()
+    {
+        // Fifteen recorded poses a second against sixty frames on the screen: without this
+        // each pose is shown four times over, which on the lobby's fans - six degrees a
+        // pose - reads as strobing.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Transform(Spun(0, new Vector3(0, 0, 0)))))
+                .Frame((0, Clip.Transform(Spun(90, new Vector3(10, 0, 0))))));
+
+        Matrix4x4 half = act.PoseAt(0, 0.5f) ?? default;
+
+        Assert.Equal(5f, half.Translation.X, 3);
+
+        // Halfway round, not halfway across the chord. A component-wise mix of two bases a
+        // quarter turn apart is 71% as long, which shrinks the thing it is applied to.
+        Assert.Equal(1f, new Vector3(half.M11, half.M12, half.M13).Length(), 3);
+        Assert.Equal(45f, MathF.Atan2(-half.M13, half.M11) * 180f / MathF.PI, 2);
+    }
+
+    [Fact]
+    public void A_mirrored_basis_stays_mirrored_all_the_way_through_the_mix()
+    {
+        // The whole corpus is mirrored. Decomposing one directly leaves the runtime free to
+        // pick a different axis to call negative on each pose, which turns a fan blade
+        // inside out between one recorded pose and the next.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Transform(Spun(0))))
+                .Frame((0, Clip.Transform(Spun(6)))));
+
+        for (float at = 0; at <= 1.001f; at += 0.1f)
+        {
+            Assert.Equal(-1f, Determinant(act.PoseAt(0, at) ?? default), 3);
+        }
+    }
+
+    [Fact]
+    public void A_clip_that_cycles_runs_its_last_pose_into_its_first()
+    {
+        // A fan is asked to loop, so the frame after its last is its first. Held instead,
+        // it freezes for a fifteenth of a second at the top of every turn.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Transform(Spun(0, new Vector3(0, 0, 0)))))
+                .Frame((0, Clip.Transform(Spun(0, new Vector3(10, 0, 0))))));
+
+        Assert.Equal(10f, (act.PoseAt(0, 1.5f) ?? default).Translation.X, 3);
+        Assert.Equal(5f, (act.PoseAt(0, 1.5f, cycles: true) ?? default).Translation.X, 3);
+    }
+
+    [Fact]
+    public void A_shape_between_two_recorded_ones_is_the_two_of_them_mixed()
+    {
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Shape(0, new Vector3(0, 0, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, 8, 0)))));
+
+        Assert.Equal(2f, Assert.Single(act.ShapeAt(0, 0, 0.25f)!).Y, 3);
+    }
+
+    [Fact]
+    public void A_mesh_that_is_not_recorded_again_waits_and_then_moves()
+    {
+        // The mix is of the recorded poses either side, not of consecutive frame numbers.
+        // Reading a held pose as a keyframe would make a mesh that moves once every ten
+        // frames drift the whole way instead of waiting and then moving.
+        ActFile act = Read(
+            new Clip(2)
+                .Frame((0, Clip.Transform(Spun(0))), (1, Clip.Transform(Spun(0, Vector3.Zero))))
+                .Frame((0, Clip.Transform(Spun(0))))
+                .Frame(
+                    (0, Clip.Transform(Spun(0))),
+                    (1, Clip.Transform(Spun(0, new Vector3(20, 0, 0))))));
+
+        Assert.Equal(10f, (act.PoseAt(1, 1f) ?? default).Translation.X, 3);
     }
 
     [Fact]

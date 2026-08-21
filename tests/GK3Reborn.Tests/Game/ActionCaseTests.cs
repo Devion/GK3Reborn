@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Actions;
+﻿using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using GK3Reborn.UI.Interaction;
@@ -152,5 +152,28 @@ public sealed class ActionCaseTests
 
         Assert.Equal(["CANDY"], Verbs(resolver, "MOSELY"));
         Assert.Empty(resolver.Diagnostics.Items);
+    }
+
+    [Fact]
+    public void The_egg_case_is_off_until_something_sets_the_flag()
+    {
+        // The original hard-codes this one false — its own source has the same placeholder —
+        // so the content behind it never shipped in a playable form. Reading a flag costs
+        // nothing when nobody sets it, which is every ordinary game, and gives the console
+        // something to set.
+        var state = new GameState();
+
+        ActionResolver resolver = Resolver(
+            state,
+            """
+            CHICKEN, LOOK, EGG, script={}
+            CHICKEN, TALK, ALL, script={}
+            """);
+
+        Assert.Equal(["TALK"], Verbs(resolver, "CHICKEN"));
+
+        state.SetFlag("EGG");
+
+        Assert.Equal(["LOOK", "TALK"], Verbs(resolver, "CHICKEN"));
     }
 }

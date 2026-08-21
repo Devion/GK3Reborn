@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Actions;
+﻿using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using Xunit;
@@ -31,6 +31,104 @@ public sealed class ActionRunnerTests
         var state = new GameState();
         var api = new Gk3SheepApi(state);
         return (new ActionRunner(api), api, state);
+    }
+
+    private static NvcAction Reached(string script, string how, string target) =>
+        new()
+        {
+            Noun = "BUTHANE",
+            Verb = "TALK",
+            Case = "ALL",
+            Script = script,
+            Source = "test.nvc:1",
+            Approach = how,
+            Target = target,
+        };
+
+    [Fact]
+    public void The_player_walks_to_the_thing_before_the_script_runs()
+    {
+        // approach=WalkTo is not part of the script — it is what has to be true before the
+        // script runs. Running the two together is what had Gabriel talking to somebody he
+        // was still crossing the square towards, and opening a door from the far side of a
+        // room.
+        (ActionRunner runner, Gk3SheepApi api, GameState state) = Host();
+
+        List<Action> held = [];
+
+        api.Walks = (_, _, _, _) => 4.0;
+        api.Defers = (_, work) =>
+        {
+            held.Add(work);
+            return true;
+        };
+
+        ActionOutcome outcome = runner.Run(
+            Reached(@"SetFlag(""Talked"")", "WalkTo", "TALK_BUTHANE"));
+
+        Assert.True(outcome.Deferred);
+        Assert.Equal(4.0, outcome.Approaching, 3);
+        Assert.False(state.GetFlag("Talked"));
+
+        Assert.Single(held)();
+        Assert.True(state.GetFlag("Talked"));
+    }
+
+    [Fact]
+    public void An_action_with_nowhere_to_walk_runs_where_it_was_asked_for()
+    {
+        // A walk of no length is not a walk. Queuing one would hold an ordinary action back
+        // for a frame for nothing.
+        (ActionRunner runner, Gk3SheepApi api, GameState state) = Host();
+
+        api.Walks = (_, _, _, _) => 0;
+        api.Defers = (_, _) => throw new InvalidOperationException("nothing to wait for");
+
+        ActionOutcome outcome = runner.Run(
+            Reached(@"SetFlag(""Talked"")", "WalkTo", "TALK_BUTHANE"));
+
+        Assert.False(outcome.Deferred);
+        Assert.True(outcome.Ran);
+        Assert.True(state.GetFlag("Talked"));
+    }
+
+    [Fact]
+    public void A_tool_with_nothing_to_wait_with_runs_the_action_as_it_always_did()
+    {
+        (ActionRunner runner, Gk3SheepApi api, GameState state) = Host();
+
+        api.Walks = (_, _, _, _) => 4.0;
+
+        ActionOutcome outcome = runner.Run(
+            Reached(@"SetFlag(""Talked"")", "WalkTo", "TALK_BUTHANE"));
+
+        Assert.False(outcome.Deferred);
+        Assert.Equal(4.0, outcome.Approaching, 3);
+        Assert.True(state.GetFlag("Talked"));
+    }
+
+    [Fact]
+    public void A_turn_is_an_approach_too_and_the_script_waits_for_it()
+    {
+        // 394 of the corpus's 3,617 approaches are turns. Walking to the thing instead
+        // puts the player on top of whatever they meant to look at.
+        (ActionRunner runner, Gk3SheepApi api, _) = Host();
+
+        Approaching? asked = null;
+
+        api.Walks = (_, _, how, _) =>
+        {
+            asked = how;
+            return 1.5;
+        };
+
+        api.Defers = (_, _) => true;
+
+        ActionOutcome outcome = runner.Run(
+            Reached(@"SetFlag(""Looked"")", "TurnToModel", "rc1_hotel"));
+
+        Assert.Equal(Approaching.Turn, asked);
+        Assert.True(outcome.Deferred);
     }
 
     [Fact]

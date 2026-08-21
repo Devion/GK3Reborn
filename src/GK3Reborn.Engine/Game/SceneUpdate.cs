@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Actors;
@@ -7,6 +7,26 @@ using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
 
 namespace GK3Reborn.Game;
+
+/// <summary>
+/// One of the three things a character does when nobody is telling them to do anything.
+/// </summary>
+/// <remarks>
+/// A scene's actor line names a script for each — <c>idle=</c>, <c>talk=</c>,
+/// <c>listen=</c> — and which of them is running is decided by who is speaking, unless a
+/// script has asked for one by name.
+/// </remarks>
+public enum FidgetKind
+{
+    /// <summary>Waiting: breathing, shifting weight, looking about.</summary>
+    Idle,
+
+    /// <summary>Speaking: the gestures that go with a line.</summary>
+    Talk,
+
+    /// <summary>Being spoken to.</summary>
+    Listen,
+}
 
 /// <summary>
 /// What happens to a scene while nobody is doing anything to it.
@@ -48,6 +68,24 @@ public sealed class SceneUpdate
     /// to read as a person doing it. A <see cref="Glance.Quick"/> glance skips it.
     /// </remarks>
     public const float TurnRate = 3f;
+
+    /// <summary>How much faster an actor moves when the player is in a hurry.</summary>
+    /// <remarks>
+    /// <para>
+    /// Gabriel's stride covers 49.9 units in 1.40 seconds — 35.6 units a second — and a
+    /// walk plays at the stride's own pace so that his feet and the ground agree. That is
+    /// what the game was authored at and it is genuinely slow to sit through when the
+    /// player already knows where they are going.
+    /// </para>
+    /// <para>
+    /// So a double-click doubles it, and plays the stride at double speed to match. Not a
+    /// separate run animation: only Gabriel has one in the archives — <c>GABERUN</c>, which
+    /// belongs to a cutscene — and <c>CHARACTERS.TXT</c> names no run for anybody, so there
+    /// is nothing to give the rest of the cast. A stride played faster reads as hurrying;
+    /// a stride played at walking speed while the body slides along at twice it does not.
+    /// </para>
+    /// </remarks>
+    public const float HurryFactor = 2f;
 
     private readonly List<Turning> _actors = [];
     private readonly Dictionary<string, Walking> _walking =
@@ -171,12 +209,37 @@ public sealed class SceneUpdate
     /// being recorded, which is what every tool wants and what the launcher wanted until
     /// there was a reader.
     /// </remarks>
-    private readonly List<Scenery> _scenery = [];
+    private readonly List<Behaviour> _scenery = [];
+
+    private readonly Dictionary<string, Fidget> _fidgets =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What the cosmetic choices are drawn from.
+    /// </summary>
+    /// <remarks>
+    /// Its own generator rather than the story's. <c>GameState.NextRandom</c> counts its
+    /// draws into the state hash on purpose — two runs that have drawn a different number
+    /// of times should disagree at once — and an idle picks a fidget every couple of
+    /// seconds for as long as somebody stands in a room. Drawing those from the story would
+    /// make the hash depend on how long the player loitered.
+    /// </remarks>
+    private readonly Foundation.DeterministicRandom _chance = new(0xA5F1D2C3B4E59687);
 
     public Content.ClipLibrary? Clips { get; set; }
 
     /// <summary>Where the animations that name those clips come from.</summary>
     public Content.AnimationLibrary? Animations { get; set; }
+
+    /// <summary>
+    /// The faces in the room, when there is anything that can move one.
+    /// </summary>
+    /// <remarks>
+    /// Optional, like the clips. Without it lip sync, blinking and expressions are all
+    /// simply absent, and every character wears the bitmap they were modelled with — which
+    /// is what a tool wants and what the launcher wanted before there was a compositor.
+    /// </remarks>
+    public Actors.Faces? Faces { get; set; }
 
     /// <summary>How many clips are running.</summary>
     public int Animating => _playing.Count;
@@ -233,8 +296,20 @@ public sealed class SceneUpdate
             return 0;
         }
 
+        // Faces first, because an animation that only moves a face moves no geometry at
+        // all: ABEANGRY is two frames of eyebrow and nothing else. Asking about the clips
+        // first would report a third of the game's expressions as animations that do
+        // nothing.
+        bool onAFace = (animation.Faces.Count > 0 || animation.Mouths.Count > 0) &&
+                       Faces?.Perform(animation) == true;
+
         if (animation.Actions.Count == 0)
         {
+            if (onAFace)
+            {
+                return animation.Duration;
+            }
+
             Diagnostics.Add(new Diagnostic(
                 "GK3R3313", DiagnosticSeverity.Info,
                 "An animation names no clips, so it moves nothing.",
@@ -286,79 +361,424 @@ public sealed class SceneUpdate
         return longest;
     }
 
-    /// <summary>Starts every scenery script the scene named.</summary>
+    /// <summary>Starts every behaviour script the scene named.</summary>
     /// <remarks>
-    /// A <c>gasprop</c> carries a <c>.GAS</c> script that runs for as long as the scene
-    /// is loaded: the lobby's ceiling fans turn because of one. Called once the scene is
-    /// standing and its animation libraries are attached.
+    /// <para>
+    /// Two kinds run. A <c>gasprop</c> carries one that lasts as long as the scene does —
+    /// the lobby's ceiling fans turn because of one. An <b>actor</b> carries three:
+    /// <c>idle=</c> for when nobody is telling them to do anything, <c>talk=</c> for while
+    /// they are speaking and <c>listen=</c> for while somebody else is. Which of the three
+    /// is running is decided every frame by who is talking.
+    /// </para>
+    /// <para>
+    /// Called once the scene is standing and its animation libraries are attached.
+    /// </para>
     /// </remarks>
     public void StartScenery()
     {
         _scenery.Clear();
+        _fidgets.Clear();
 
         foreach (PlacedModel model in _scene.Models)
         {
+            if (model.Kind == PlacedModelKind.Actor)
+            {
+                if (model.Idle is not null || model.Talk is not null || model.Listen is not null)
+                {
+                    _fidgets[model.Name] = new Fidget(model);
+                }
+
+                continue;
+            }
+
             if (model.Idle is { Steps.Count: > 0 } script)
             {
-                _scenery.Add(new Scenery(script));
+                _scenery.Add(new Behaviour(script, model));
             }
         }
     }
 
-    // One step of each running scenery script. An animation is played and the script
-    // waits out its length before going on, which is what makes a fan turn continuously
-    // rather than restarting every frame.
-    private void StepScenery(double seconds)
+    /// <summary>Gives a character a different script for one of the three things they do.</summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <param name="mode">Which of the three.</param>
+    /// <param name="script">The script, or null to leave them with nothing to do.</param>
+    /// <returns>True when the room has such a character.</returns>
+    public bool SetBehaviour(string actor, FidgetKind mode, Formats.Animation.GasFile? script)
     {
-        foreach (Scenery running in _scenery)
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (ModelNamed(actor) is not { Kind: PlacedModelKind.Actor } model)
         {
-            running.Remaining -= seconds;
+            return false;
+        }
 
-            // Sixteen at once is a bound on a script that loops without ever waiting,
-            // which would otherwise spin here for ever.
-            for (int guard = 0; guard < 16 && running.Remaining <= 0; guard++)
+        switch (mode)
+        {
+            case FidgetKind.Talk:
+                model.Talk = script;
+                break;
+
+            case FidgetKind.Listen:
+                model.Listen = script;
+                break;
+
+            default:
+                model.Idle = script;
+                break;
+        }
+
+        // Started rather than merely stored: a script that hands somebody a new idle means
+        // it to take effect, and the one they were running belongs to whatever they were
+        // doing before.
+        _fidgets[model.Name] = new Fidget(model);
+        return true;
+    }
+
+    /// <summary>Stops a character fidgeting, or everybody.</summary>
+    /// <param name="actor">Their name, or null for everyone in the room.</param>
+    public void StopFidget(string? actor = null)
+    {
+        if (actor is not { Length: > 0 })
+        {
+            foreach (Fidget fidget in _fidgets.Values)
             {
-                if (running.Position >= running.Script.Steps.Count)
-                {
-                    running.Position = 0;
+                fidget.Stopped = true;
+            }
 
-                    // A script with no loop and nothing left to do simply stops.
-                    if (!running.Repeats)
-                    {
-                        running.Remaining = double.MaxValue;
-                        break;
-                    }
-                }
+            return;
+        }
 
-                GasStep step = running.Script.Steps[running.Position++];
+        if (ModelNamed(actor) is { } model && _fidgets.TryGetValue(model.Name, out Fidget? one))
+        {
+            one.Stopped = true;
+        }
+    }
 
-                switch (step.Action)
-                {
-                    case GasAction.Animate when step.Name is { Length: > 0 } clip:
-                        running.Remaining += Math.Max(Play(clip), 1.0 / 60);
-                        break;
+    /// <summary>Sets a character fidgeting again.</summary>
+    /// <param name="actor">Their name.</param>
+    /// <param name="mode">Which of the three to run.</param>
+    public void StartFidget(string actor, FidgetKind mode)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
 
-                    case GasAction.Wait:
-                        running.Remaining += step.Seconds;
-                        break;
+        if (ModelNamed(actor) is not { Kind: PlacedModelKind.Actor } model)
+        {
+            return;
+        }
 
-                    case GasAction.Goto when step.Name is { Length: > 0 } label:
-                        running.Position = running.Script.LabelAt(label) ?? 0;
-                        break;
+        Fidget fidget = _fidgets.TryGetValue(model.Name, out Fidget? known)
+            ? known
+            : _fidgets[model.Name] = new Fidget(model);
 
-                    case GasAction.Loop:
-                        running.Position = 0;
-                        break;
+        fidget.Stopped = false;
+        fidget.Forced = mode;
+        fidget.Enter(mode, model);
+    }
 
-                    default:
-                        break;
-                }
+    /// <summary>Told who is speaking, so that talking and listening can be told apart.</summary>
+    /// <remarks>
+    /// Set by the launcher from the faces, which know because the line being spoken names
+    /// its own actor. Null leaves everybody idling, which is what a room with no audio
+    /// should look like.
+    /// </remarks>
+    public Func<string?>? Speaking { get; set; }
+
+    /// <summary>One step of every behaviour script that is running.</summary>
+    private void StepBehaviours(double seconds)
+    {
+        foreach (Behaviour running in _scenery)
+        {
+            Step(running, seconds);
+        }
+
+        string? speaker = Speaking?.Invoke();
+
+        foreach (Fidget fidget in _fidgets.Values)
+        {
+            if (fidget.Stopped)
+            {
+                continue;
+            }
+
+            // Who is talking decides which of the three scripts a character runs. A named
+            // fidget — StartTalkFidget and its relatives — overrides that until something
+            // sets them idling again, because the script asking for one means it.
+            FidgetKind wanted = fidget.Forced ?? (speaker is null
+                ? FidgetKind.Idle
+                : Same(fidget.Model, speaker) ? FidgetKind.Talk : FidgetKind.Listen);
+
+            if (wanted != fidget.Mode)
+            {
+                fidget.Enter(wanted, fidget.Model);
+            }
+
+            if (fidget.Running is { } behaviour)
+            {
+                Step(behaviour, seconds);
             }
         }
     }
+
+    /// <summary>Whether a name is one of a model's two.</summary>
+    private static bool Same(PlacedModel model, string name) =>
+        model.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+        (model.Noun is { Length: > 0 } noun &&
+         noun.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Runs one behaviour script forward by however much time has passed.
+    /// </summary>
+    /// <remarks>
+    /// An animation is played and the script waits out its length before going on, which is
+    /// what makes a fan turn continuously rather than restarting every frame. Sixteen
+    /// instructions at once bounds a script that loops without ever waiting; the corpus has
+    /// several, and without the bound one of them spins here for ever.
+    /// </remarks>
+    private void Step(Behaviour running, double seconds)
+    {
+        running.Remaining -= seconds;
+
+        for (int guard = 0; guard < 16 && running.Remaining <= 0; guard++)
+        {
+            if (running.Position >= running.Script.Steps.Count)
+            {
+                running.Position = 0;
+
+                // A script with no loop and nothing left to do simply stops.
+                if (!running.Repeats)
+                {
+                    running.Remaining = double.MaxValue;
+                    break;
+                }
+            }
+
+            GasStep step = running.Script.Steps[running.Position++];
+
+            switch (step.Action)
+            {
+                // A script that is one animation and a jump back to it is a thing that
+                // simply turns: a fan, a fountain, a clock. Those are looped by the clip
+                // rather than by restarting the script, so the last recorded pose runs into
+                // the first instead of being held for the fifteenth of a second the script
+                // would take to come round. Started once and left.
+                case GasAction.Animate when step.Name is { Length: > 0 } spun &&
+                                            running.Script.Continuous:
+                    Play(spun, repeat: true);
+                    running.Remaining = double.MaxValue;
+                    break;
+
+                case GasAction.Animate when step.Name is { Length: > 0 } clip:
+                    if (Draws(step.Chance))
+                    {
+                        running.Remaining += Math.Max(Play(clip, step.Repeats), 1.0 / 60);
+                    }
+
+                    break;
+
+                // A run of these is one choice, not several. Reading them as separate
+                // instructions plays every fidget a character has, in order, for ever.
+                case GasAction.OneOf:
+                    running.Position--;
+                    Choose(running);
+                    break;
+
+                case GasAction.Wait when Draws(step.Chance):
+                    running.Remaining += step.To > step.Seconds
+                        ? step.Seconds + (_chance.NextDouble() * (step.To - step.Seconds))
+                        : step.Seconds;
+
+                    break;
+
+                case GasAction.Goto when step.Name is { Length: > 0 } label:
+                    running.Position = running.Script.LabelAt(label) ?? 0;
+                    break;
+
+                case GasAction.Loop:
+                    running.Position = 0;
+                    break;
+
+                case GasAction.Set when step.Name is { Length: > 0 } register:
+                    running.Registers[register] = step.Value;
+                    break;
+
+                case GasAction.Increment when step.Name is { Length: > 0 } counted:
+                    running.Registers[counted] =
+                        running.Registers.GetValueOrDefault(counted) + 1;
+
+                    break;
+
+                case GasAction.If when step.Name is { Length: > 0 } tested &&
+                                       step.Other is { Length: > 0 } target:
+                    if (Holds(running.Registers.GetValueOrDefault(tested), step))
+                    {
+                        running.Position = running.Script.LabelAt(target) ?? running.Position;
+                    }
+
+                    break;
+
+                // A character handing themselves a different idle. The script is replaced
+                // and started from the top, which is what the instruction means.
+                case GasAction.NewIdle when step.Name is { Length: > 0 } named:
+                    Rescript(running, named);
+                    break;
+
+                // Walking and looking go through the room's own hooks rather than being
+                // done again here: the route, the stride and the head-turn limits all
+                // belong to whatever the scene attached, and a second implementation of any
+                // of them would be a second answer.
+                case GasAction.WalkTo when step.Name is { Length: > 0 } spot &&
+                                           running.Owner is { } walker:
+                    running.Remaining += Send(walker.Name, spot);
+                    break;
+
+                case GasAction.ChooseWalk when step.Names is { Count: > 0 } spots &&
+                                               running.Owner is { } wanderer:
+                    running.Remaining += Send(
+                        wanderer.Name, spots[_chance.NextInt32(0, spots.Count)]);
+
+                    break;
+
+                case GasAction.LookAt when step.Name is { Length: > 0 } at &&
+                                           running.Owner is { } looker:
+                    _api.Invoke(
+                        "LookitModel",
+                        [Sheep.SheepValue.FromString(looker.Name), Sheep.SheepValue.FromString(at)]);
+
+                    break;
+
+                // Everything else is parsed and not run: the perception layer, which adds
+                // ways for a script to be interrupted rather than deciding what it does.
+                default:
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Takes one of the choices in the run starting where the script is.</summary>
+    /// <remarks>
+    /// Weighted, and the weights do not have to add to anything: the corpus writes
+    /// <c>100, 100, 50, 50</c> and means a half chance each of the first two. The whole run
+    /// is stepped over afterwards, however long it is, because it was one decision.
+    /// </remarks>
+    private void Choose(Behaviour running)
+    {
+        int first = running.Position;
+        int last = first;
+        int total = 0;
+
+        while (last < running.Script.Steps.Count &&
+               running.Script.Steps[last].Action == GasAction.OneOf)
+        {
+            total += Math.Max(1, running.Script.Steps[last].Weight);
+            last++;
+        }
+
+        running.Position = last;
+
+        int draw = _chance.NextInt32(0, Math.Max(1, total));
+
+        for (int i = first; i < last; i++)
+        {
+            draw -= Math.Max(1, running.Script.Steps[i].Weight);
+
+            if (draw < 0 && running.Script.Steps[i].Name is { Length: > 0 } chosen)
+            {
+                running.Remaining += Math.Max(Play(chosen), 1.0 / 60);
+                return;
+            }
+        }
+    }
+
+    /// <summary>Puts a different script in a running behaviour's place.</summary>
+    private void Rescript(Behaviour running, string named)
+    {
+        if (Behaviours?.Invoke(named) is not { Steps.Count: > 0 } replacement)
+        {
+            return;
+        }
+
+        running.Script = replacement;
+        running.Position = 0;
+        running.Registers.Clear();
+
+        if (running.Owner is { Kind: PlacedModelKind.Actor } actor)
+        {
+            actor.Idle = replacement;
+        }
+    }
+
+    /// <summary>Where a behaviour script named by another one is read from.</summary>
+    /// <remarks>
+    /// Only <c>NEWIDLE</c> needs it, and only a caller with the archives can answer. Null
+    /// leaves the character running what they were running, which is what a tool wants.
+    /// </remarks>
+    public Func<string, Formats.Animation.GasFile?>? Behaviours { get; set; }
+
+    /// <summary>Sends somebody to a named spot, and says how long it takes.</summary>
+    private double Send(string actor, string spot) =>
+        _api.Walks?.Invoke(actor, spot, Approaching.Walk, false) ?? 0;
+
+    /// <summary>Whether something with a percentage chance happens this time.</summary>
+    private bool Draws(int chance) =>
+        chance is <= 0 or >= 100 || _chance.NextInt32(0, 100) < chance;
+
+    /// <summary>Whether a register compares as the instruction says.</summary>
+    private static bool Holds(int value, GasStep step) => step.Comparison switch
+    {
+        "=" or "==" => value == step.Value,
+        "!=" or "<>" => value != step.Value,
+        ">" => value > step.Value,
+        "<" => value < step.Value,
+        ">=" => value >= step.Value,
+        "<=" => value <= step.Value,
+        _ => false,
+    };
 
     /// <summary>How many scenery scripts are running.</summary>
     public int Scenic => _scenery.Count;
+
+    /// <summary>How many characters have something to do when nobody is asking.</summary>
+    public int Fidgeting => _fidgets.Count;
+
+    /// <summary>Finds a model the room places, by either of its names.</summary>
+    /// <param name="name">Its model name or the noun the scene gives it.</param>
+    /// <returns>The model, or null when the room has nothing by that name.</returns>
+    public PlacedModel? ModelNamed(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_models.TryGetValue(name, out PlacedModel? model))
+        {
+            return model;
+        }
+
+        foreach (PlacedModel placed in _scene.Models)
+        {
+            if (placed.Placement.Exists &&
+                placed.Noun is { Length: > 0 } noun &&
+                noun.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                return placed;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Draws a model, or stops drawing it.</summary>
+    /// <param name="model">The model.</param>
+    /// <param name="visible">Whether it is drawn.</param>
+    /// <remarks>
+    /// Both halves matter: the geometry stops drawing it, and the model itself remembers,
+    /// so that the picker does not go on offering a noun for something nobody can see.
+    /// </remarks>
+    public void Show(PlacedModel model, bool visible)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        model.Visible = visible;
+        _geometry.SetVisible(model.Placement, visible);
+    }
 
     /// <summary>Stops everything a model is doing.</summary>
     /// <param name="model">Its name, or null for everything in the room.</param>
@@ -405,6 +825,11 @@ public sealed class SceneUpdate
     /// Which way to face on arrival, in radians, or null to keep the direction of travel.
     /// </param>
     /// <param name="arriveLookingAt">What to be looking at on arrival, if not a fixed heading.</param>
+    /// <param name="hurry">
+    /// Whether to go at <see cref="HurryFactor"/> times the usual pace. The player's own
+    /// impatience and nothing else: a script's timings are written against the pace the
+    /// game walks at.
+    /// </param>
     /// <returns>How long the walk will take, or zero when there is no walking to do.</returns>
     /// <remarks>
     /// <para>
@@ -422,7 +847,8 @@ public sealed class SceneUpdate
         string actor,
         Vector3 destination,
         float? arriveFacing = null,
-        Vector3? arriveLookingAt = null)
+        Vector3? arriveLookingAt = null,
+        bool hurry = false)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
@@ -450,9 +876,31 @@ public sealed class SceneUpdate
 
         // The stride first, because its pace is what the walk is measured at.
         WalkCycle? stride = WalkCycle.For(placed, Characters, Animations, Clips);
+        float rate = hurry ? HurryFactor : 1f;
+
+        if (stride is not null)
+        {
+            stride.Rate = rate;
+        }
 
         var walker = new Walker(
-            actor, route, from, facing, arriveFacing, arriveLookingAt, stride?.Pace);
+            actor,
+            route,
+            Standing(from),
+            facing,
+            arriveFacing,
+            arriveLookingAt,
+
+            // Both multiplied by the same number, which is the whole point: the ground
+            // covered and the feet covering it have to stay in agreement, and an actor with
+            // no stride at all still has to get there faster.
+            (stride?.Pace ?? Walker.Speed) * rate)
+        {
+            // The room's floor, not the actor's. Held as a hook rather than looked up
+            // inside the walker so that a scene which names no floor object costs nothing
+            // and behaves exactly as it did before.
+            Ground = _scene.Ground is { } ground ? ground.Height : null,
+        };
 
         if (!walker.Walking)
         {
@@ -467,6 +915,15 @@ public sealed class SceneUpdate
         _walking[actor] = new Walking(placed, walker, stride);
         return walker.Seconds;
     }
+
+    /// <summary>Drops a point onto the room's floor, when the room has one.</summary>
+    /// <remarks>
+    /// The point's own height goes in and decides which storey is meant, so a spot authored
+    /// on the gallery stays on the gallery and one authored at zero in a room whose floor is
+    /// at zero does not move at all.
+    /// </remarks>
+    private Vector3 Standing(Vector3 at) =>
+        _scene.Ground?.Height(at) is { } height ? new Vector3(at.X, height, at.Z) : at;
 
     /// <summary>Writes an actor's logical position, under every name they answer to.</summary>
     /// <remarks>
@@ -508,6 +965,12 @@ public sealed class SceneUpdate
         {
             return false;
         }
+
+        // A scene's spots carry a height, but not always the floor's: several are authored
+        // at zero and rely on the room being flat there. Dropping onto the floor first
+        // means an arrival never starts a walk from the wrong storey, which is the one
+        // mistake the height query cannot recover from later.
+        position = Standing(position);
 
         // Whatever they were doing, they are standing here now.
         _walking.Remove(actor);
@@ -571,21 +1034,135 @@ public sealed class SceneUpdate
         _walking.Clear();
     }
 
+    private readonly List<(double Remaining, Action Work)> _later = [];
+
+    /// <summary>How many things are waiting to happen.</summary>
+    public int Later => _later.Count;
+
+    /// <summary>
+    /// Holds something back for a while.
+    /// </summary>
+    /// <param name="seconds">How long to hold it.</param>
+    /// <param name="work">What to do then.</param>
+    /// <returns>True when it was taken, false when there was nothing to wait for.</returns>
+    /// <remarks>
+    /// <para>
+    /// What makes an action's <c>approach</c> mean anything. The original walks the player
+    /// to the thing and <em>then</em> runs the action's script: <c>BUTHANE, TALK,
+    /// approach=WalkTo, target=TALK_BUTHANE</c> means go and stand there before saying a
+    /// word. Running the script straight away is what made Gabriel talk to somebody from
+    /// across the square, and open a door from the far side of the room.
+    /// </para>
+    /// <para>
+    /// A delay of nothing is refused rather than queued, so an action with no approach —
+    /// or one whose walk found nowhere to go — still runs in the frame it was asked for.
+    /// </para>
+    /// </remarks>
+    public bool After(double seconds, Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        if (seconds <= 0)
+        {
+            return false;
+        }
+
+        _later.Add((seconds, work));
+        return true;
+    }
+
+    /// <summary>Forgets everything that was waiting to happen.</summary>
+    /// <remarks>
+    /// For leaving the room. What is queued is nearly always an action script belonging to
+    /// the room being left, and letting one run into the next room is how a door opens
+    /// twice.
+    /// </remarks>
+    public void Cancel() => _later.Clear();
+
+    /// <summary>Runs whatever has waited long enough.</summary>
+    private void StepLater(double seconds, List<string> happened)
+    {
+        for (int i = _later.Count - 1; i >= 0; i--)
+        {
+            (double remaining, Action work) = _later[i];
+            remaining -= seconds;
+
+            if (remaining > 0)
+            {
+                _later[i] = (remaining, work);
+                continue;
+            }
+
+            _later.RemoveAt(i);
+
+            try
+            {
+                work();
+            }
+            catch (Formats.FormatParseException ex)
+            {
+                Diagnostics.Add(ex.Diagnostic);
+                happened.Add("an action held back for a walk could not be run");
+            }
+        }
+    }
+
     /// <summary>Diagnostics raised while the world went on by itself.</summary>
     /// <summary>One scenery script, and where it has got to.</summary>
-    private sealed class Scenery(Formats.Animation.GasFile script)
+    /// <summary>One behaviour script, and where it has got to.</summary>
+    private sealed class Behaviour(Formats.Animation.GasFile script, PlacedModel? owner)
     {
-        public Formats.Animation.GasFile Script { get; } = script;
+        /// <summary>The script. Settable, because <c>NEWIDLE</c> replaces it.</summary>
+        public Formats.Animation.GasFile Script { get; set; } = script;
+
+        /// <summary>What it drives, or null when it drives nothing in particular.</summary>
+        public PlacedModel? Owner { get; } = owner;
 
         public int Position { get; set; }
 
         /// <summary>Seconds until the next step.</summary>
         public double Remaining { get; set; }
 
+        /// <summary>The language's whole state: one integer per name.</summary>
+        public Dictionary<string, int> Registers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Whether it says to start again, rather than stopping at the end.</summary>
-        public bool Repeats { get; } =
-            script.Steps.Any(s => s.Action is Formats.Animation.GasAction.Loop
+        public bool Repeats =>
+            Script.Steps.Any(s => s.Action is Formats.Animation.GasAction.Loop
                                             or Formats.Animation.GasAction.Goto);
+    }
+
+    /// <summary>One character's three scripts, and which of them is running.</summary>
+    private sealed class Fidget(PlacedModel model)
+    {
+        public PlacedModel Model { get; } = model;
+
+        /// <summary>Which of the three is running, if any.</summary>
+        public FidgetKind? Mode { get; private set; }
+
+        /// <summary>One a script asked for by name, which overrides who is speaking.</summary>
+        public FidgetKind? Forced { get; set; }
+
+        /// <summary>Whether they have been told to stand still.</summary>
+        public bool Stopped { get; set; }
+
+        /// <summary>The script currently running, or null when there is none for this mode.</summary>
+        public Behaviour? Running { get; private set; }
+
+        /// <summary>Switches to one of the three and starts it from the top.</summary>
+        public void Enter(FidgetKind mode, PlacedModel owner)
+        {
+            Mode = mode;
+
+            Formats.Animation.GasFile? script = mode switch
+            {
+                FidgetKind.Talk => owner.Talk ?? owner.Idle,
+                FidgetKind.Listen => owner.Listen ?? owner.Idle,
+                _ => owner.Idle,
+            };
+
+            Running = script is { Steps.Count: > 0 } ? new Behaviour(script, owner) : null;
+        }
     }
 
     public DiagnosticBag Diagnostics { get; } = new();
@@ -642,8 +1219,17 @@ public sealed class SceneUpdate
             happened.Add($"{carried} carried on");
         }
 
-        StepScenery(seconds);
+        StepBehaviours(seconds);
         MoveView(seconds);
+
+        // Faces before anything that moves anybody: what a face is doing depends on the
+        // clock and not on where its owner is standing, and a mouth that is a frame behind
+        // the words is the one thing lip sync must never be.
+        Faces?.Advance(seconds);
+
+        // Anything that was waiting for the player to get somewhere. Before the timers, so
+        // that an action which sets one is not a frame late in doing it.
+        StepLater(seconds, happened);
 
         foreach (GameTimer timer in _api.State.Timers.Advance(seconds))
         {
@@ -740,13 +1326,13 @@ public sealed class SceneUpdate
 
         if (_from is null || _glided >= GlideSeconds)
         {
-            View = _to;
+            View = Narrowed(_to);
             return;
         }
 
         float part = (float)(_glided / GlideSeconds);
 
-        View = new Camera
+        View = Narrowed(new Camera
         {
             Position = Vector3.Lerp(_from.Position, _to.Position, part),
             Target = Vector3.Lerp(_from.Target, _to.Target, part),
@@ -754,6 +1340,30 @@ public sealed class SceneUpdate
             FieldOfView = float.Lerp(_from.FieldOfView, _to.FieldOfView, part),
             NearPlane = _to.NearPlane,
             FarPlane = _to.FarPlane,
+        });
+    }
+
+    /// <summary>Applies whatever field of view a script has asked for.</summary>
+    /// <remarks>
+    /// A story override rather than a camera's own: the scene files set one per camera and
+    /// this is a script narrowing the view for a moment on top of that. Nothing asking
+    /// leaves the camera exactly as the scene framed it.
+    /// </remarks>
+    private Camera Narrowed(Camera camera)
+    {
+        if (_api.State.CameraFieldOfView is not { } wanted || wanted == camera.FieldOfView)
+        {
+            return camera;
+        }
+
+        return new Camera
+        {
+            Position = camera.Position,
+            Target = camera.Target,
+            Up = camera.Up,
+            FieldOfView = wanted,
+            NearPlane = camera.NearPlane,
+            FarPlane = camera.FarPlane,
         };
     }
 
@@ -829,19 +1439,35 @@ public sealed class SceneUpdate
         /// </summary>
         /// <remarks>
         /// <para>
-        /// A clip's mesh transforms are wherever the animator authored them, which for a
-        /// walk is halfway across some other room. Played as written, the character
-        /// disappears.
+        /// A clip's mesh transforms replace the model's own, and the model's placement is
+        /// applied on top. What that means depends entirely on what is being animated.
         /// </para>
         /// <para>
-        /// So a <b>relative</b> clip — 92% of them — is shifted once, at the start, by
-        /// however far its first frame sits from where the model rests. Root motion within
-        /// the clip then still happens, measured from where the actor was standing. The
-        /// shift is computed once and held, because recomputing it per frame would cancel
-        /// exactly the movement it is meant to preserve.
+        /// A <b>prop</b> is placed by the identity: the room's coordinates <em>are</em> the
+        /// model's coordinates, so a clip written for that room plays exactly as authored
+        /// and nothing has to be done to it. That is what the original does — it swaps the
+        /// mesh transforms and stops there — and it is what the data expects: 1,635 of the
+        /// game's prop clips move the thing away from where its model rests, because moving
+        /// it is the whole point. A book being picked up is 59 units above the shelf; the
+        /// moped that rides past RC1 crosses seventeen hundred units of it. Correcting
+        /// those back to the model's rest is what left Wilkes riding past the world origin
+        /// while Gabriel watched an empty square.
         /// </para>
         /// <para>
-        /// An <b>absolute</b> clip carries its own spot and heading and is put there.
+        /// An <b>actor</b> is placed where the scene stands them, so their clip — authored
+        /// wherever the animator built it, which for a walk is halfway across some other
+        /// room — is shifted once, at the start, by however far its first frame sits from
+        /// where the model rests. Root motion within the clip then still happens, measured
+        /// from where the actor was standing. The shift is computed once and held, because
+        /// recomputing it per frame would cancel exactly the movement it is meant to
+        /// preserve.
+        /// </para>
+        /// <para>
+        /// An <b>absolute</b> clip carries its own spot and heading and is put there,
+        /// whatever it belongs to. The heading is used as it stands: it is a transform, not
+        /// a character's heading, and the half turn that turns one into the other — see
+        /// <see cref="Navigation.Walker.Rotation"/> — left RC1's fountain spraying water
+        /// two hundred and fifty units from the fountain.
         /// </para>
         /// <para>
         /// The reference point is the average of the mesh groups' origins. The original
@@ -855,8 +1481,13 @@ public sealed class SceneUpdate
         {
             if (placement is { } spot)
             {
-                return Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(spot.Heading)) *
+                return Matrix4x4.CreateRotationY(spot.Heading) *
                        Matrix4x4.CreateTranslation(spot.Position);
+            }
+
+            if (target.Kind != PlacedModelKind.Actor)
+            {
+                return Matrix4x4.Identity;
             }
 
             Vector3 rest = Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation));
@@ -888,7 +1519,7 @@ public sealed class SceneUpdate
             }
 
             double running = _elapsed - _delay;
-            int frame = (int)(running * AnimationFile.FramesPerSecond);
+            double frame = running * AnimationFile.FramesPerSecond;
 
             if (frame >= Clip.FrameCount)
             {
@@ -902,8 +1533,12 @@ public sealed class SceneUpdate
                     return false;
                 }
 
-                _elapsed = _delay;
-                frame = 0;
+                // Back to the top, keeping whatever is left over rather than resetting to
+                // zero. Dropping the remainder loses up to a sixtieth of a second every
+                // time round, which on a loop as short as a fan's is a hitch every four
+                // seconds — exactly what this is here to get rid of.
+                frame %= Clip.FrameCount;
+                _elapsed = _delay + (frame / AnimationFile.FramesPerSecond);
             }
 
             Pose(geometry, frame);
@@ -917,16 +1552,24 @@ public sealed class SceneUpdate
             .Where(p => p is not null)
             .Select(p => p!.Value.Translation));
 
-        /// <summary>Puts the model into one frame of the clip.</summary>
-        private void Pose(ISceneSink geometry, int frame)
+        /// <summary>Puts the model into one moment of the clip.</summary>
+        /// <param name="geometry">Where the model stands.</param>
+        /// <param name="frame">
+        /// Which frame, with the fraction of the way to the next one. The clip records
+        /// fifteen poses a second and the screen shows sixty, so a whole number here is
+        /// four identical frames in a row; see <see cref="ActFile.PoseAt"/>.
+        /// </param>
+        private void Pose(ISceneSink geometry, double frame)
         {
+            float at = (float)frame;
+
             // How far the clip has carried the model since it opened, in the world's terms
             // rather than the model's. This is what the actor's position follows.
             if (Began is { } from)
             {
                 Vector3 moved = Average(Enumerable
                     .Range(0, Clip.MeshCount)
-                    .Select(m => Clip.PoseOf(m, frame))
+                    .Select(m => Clip.PoseAt(m, at, _repeat))
                     .Where(p => p is not null)
                     .Select(p => p!.Value.Translation)) - _opened;
 
@@ -935,7 +1578,7 @@ public sealed class SceneUpdate
 
             for (int mesh = 0; mesh < Clip.MeshCount; mesh++)
             {
-                if (Clip.PoseOf(mesh, frame) is { } pose)
+                if (Clip.PoseAt(mesh, at, _repeat) is { } pose)
                 {
                     geometry.PoseMesh(Target.Placement, mesh, pose * _correction);
                 }
@@ -944,7 +1587,7 @@ public sealed class SceneUpdate
                 // groups sliding about: 3,085 of the corpus's 3,086 character clips deform.
                 foreach (int submesh in Clip.ShapedSubmeshes(mesh))
                 {
-                    if (Clip.ShapeOf(mesh, submesh, frame) is { } shape)
+                    if (Clip.ShapeAt(mesh, submesh, at, _repeat) is { } shape)
                     {
                         geometry.ShapeMesh(Target.Placement, mesh, submesh, shape);
                     }
@@ -1077,6 +1720,13 @@ public sealed class SceneUpdate
         /// <summary>How fast the stride carries its owner, in scene units a second.</summary>
         public float Pace { get; }
 
+        /// <summary>How fast to play it, as a multiple of the authored speed.</summary>
+        /// <remarks>
+        /// One unless the player is in a hurry. Whatever this is, the walker's pace is
+        /// multiplied by the same number, or the feet stop matching the ground.
+        /// </remarks>
+        public float Rate { get; set; } = 1f;
+
         /// <summary>Finds the stride a character walks with.</summary>
         /// <returns>The cycle, or null when this character has no walk animation here.</returns>
         public static WalkCycle? For(
@@ -1127,7 +1777,7 @@ public sealed class SceneUpdate
         /// <param name="seconds">Time since the last frame.</param>
         public void Step(ISceneSink geometry, float seconds)
         {
-            _elapsed += Math.Max(0, seconds);
+            _elapsed += Math.Max(0, seconds) * Math.Max(0.01f, Rate);
 
             // Looped, and seamlessly: with the forward travel removed, the last frame sits
             // exactly where the first does, so the join is invisible.

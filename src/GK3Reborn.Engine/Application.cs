@@ -118,7 +118,17 @@ public static class Application
         using GameArchives archives = GameArchives.Open(dataDirectory);
         Console.WriteLine($"Content: {archives.Count} archives in {dataDirectory}");
 
-        using var window = Platform.SilkGameWindow.Open($"GK3Reborn - {sceneName}");
+        // --width and --height, for photographing the interface at a display size this
+        // machine has not got. Everything about the interface's size is decided from the
+        // framebuffer, so there is no other way to see what a 4K display would show.
+        using var window = Platform.SilkGameWindow.Open(
+            $"GK3Reborn - {sceneName}",
+            int.TryParse(Option(args, "--width"), out int windowWidth) && windowWidth > 0
+                ? windowWidth
+                : 1280,
+            int.TryParse(Option(args, "--height"), out int windowHeight) && windowHeight > 0
+                ? windowHeight
+                : 720);
         using var renderer = VulkanRenderer.Create(window, window);
 
         ReportGraphics(renderer.Survey());
@@ -161,6 +171,32 @@ public static class Application
         // people rather than any one room, and every room asks the same questions of it.
         Game.Actors.CharacterLibrary characters = Game.Actors.CharacterLibrary.Open(archives);
 
+        // How each of their faces is put together. Read once for the same reason: it
+        // describes the cast rather than any one room, and without it nobody in the game
+        // blinks, and nobody's mouth moves while they speak.
+        Game.Actors.FaceLibrary faces = Game.Actors.FaceLibrary.Open(archives);
+
+        // Behaviour scripts named by other behaviour scripts, and by Sheep. Read once each
+        // and kept: NEWIDLE and SetIdleGAS between them name about fifty, and a character
+        // may be handed the same one many times over a session.
+        Dictionary<string, Formats.Animation.GasFile?> behaviours =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        Formats.Animation.GasFile? Behaviour(string name)
+        {
+            if (behaviours.TryGetValue(name, out Formats.Animation.GasFile? known))
+            {
+                return known;
+            }
+
+            Formats.Animation.GasFile? read = archives.Read(name) is { } bytes
+                ? Formats.Animation.GasFile.Parse(bytes)
+                : null;
+
+            behaviours[name] = read;
+            return read;
+        }
+
         // Which verbs are things to say rather than things to do. Without it a topic is
         // indistinguishable from a verb, every line of it is offered at once, and none of
         // them is ever used up.
@@ -172,7 +208,11 @@ public static class Application
         // for them to wait against.
         host.Scheduler = new SheepScheduler(host.Machine);
 
-        Console.WriteLine($"Scripts: {LoadScripts(archives, host)} loaded");
+        var catalogue = new Sheep.SheepSignatures();
+
+        Console.WriteLine(
+            $"Scripts: {LoadScripts(archives, host, catalogue)} loaded, " +
+            $"{catalogue.Count} function signatures");
 
         // The interface. GK3's own bitmap fonts rather than anything imported: they are in
         // the archives, they are the right size for the game's own screens, and reading one
@@ -183,15 +223,30 @@ public static class Application
         var fonts = new FontLibrary(archives);
         GameHud? hud = null;
 
-        if (fonts.Any("F_ARIAL_T12", "F_ARIAL_T10", "F_ARIAL_T8") is { } font)
+        // One console for the whole run, not one per room. Its history and its scrollback
+        // are the player's working notes, and losing them at every door would make it
+        // useless for the one thing it is best at: watching something across a transition.
+        var console = new GameConsole { Catalogue = catalogue };
+
+        int wantedGlyph = WantedGlyphHeight(window.FramebufferHeight);
+
+        // --font names one outright, for looking at a particular sheet.
+        string[] ladder = Option(args, "--font") is { Length: > 0 } named
+            ? [named]
+            : CaptionFonts;
+
+        if (fonts.Nearest(wantedGlyph, ladder) is { } font)
         {
             OverlayAtlas atlas = OverlayAtlas.Build(font);
+            int magnify = Magnification(font, wantedGlyph);
 
             renderer.SetOverlayAtlas(atlas);
-            hud = new GameHud(new Overlay(atlas));
+            hud = new GameHud(new Overlay(atlas) { Magnify = magnify });
 
             Console.WriteLine(
-                $"Interface: {font.Name}, {font.Count} glyphs at {font.Height}px, " +
+                $"Interface: {font.Name}, {font.Count} glyphs at {font.Height}px" +
+                (magnify > 1 ? $" x{magnify}" : string.Empty) +
+                $" (wanted {wantedGlyph} for a {window.FramebufferHeight}-line display), " +
                 $"sheet {atlas.Image.Width}x{atlas.Image.Height}, " +
                 $"{(renderer.HasOverlay ? "drawing" : "NOT drawing")}");
         }
@@ -228,7 +283,11 @@ public static class Application
                 {
                     Console.WriteLine(
                         $"Surface finishes: {finishes.Count} textures measured, " +
-                        $"{finishes.Reflective} smooth enough to reflect");
+                        $"{finishes.Reflective} smooth enough to reflect, " +
+                        $"{finishes.Metallic} metal" +
+                        (finishes.Corrected > 0
+                            ? $", {finishes.Corrected} corrected by hand"
+                            : string.Empty));
                 }
             }
 
@@ -246,18 +305,24 @@ public static class Application
                 // Normal maps sit beside the colour textures rather than among them: a
                 // surface may have a better colour and no normal map, or the other way
                 // round, and they are judged separately.
-                EnhancedTextures normals = EnhancedTextures.Open(
-                    Path.Combine(
-                        Path.GetDirectoryName(
-                            enhancedDirectory.TrimEnd(Path.DirectorySeparatorChar, '/')) ??
-                            enhancedDirectory,
-                        "normals"));
+                EnhancedTextures normals =
+                    EnhancedTextures.Open(Beside(enhancedDirectory, "normals"));
 
                 // --flat leaves the colour textures enhanced and the surfaces smooth,
                 // which is the only way to see what the normal pass alone is doing.
-                loader.Normals = args.Contains("--flat", StringComparer.OrdinalIgnoreCase)
-                    ? null
-                    : normals;
+                bool flat = args.Contains("--flat", StringComparer.OrdinalIgnoreCase);
+
+                loader.Normals = flat ? null : normals;
+
+                // The other two generated sets, beside the normals for the same reason:
+                // each is a separate pass and a separate judgement, and a surface may have
+                // any combination of the three.
+                EnhancedTextures orms = EnhancedTextures.Open(Beside(enhancedDirectory, "orm"));
+                EnhancedTextures heights =
+                    EnhancedTextures.Open(Beside(enhancedDirectory, "height"));
+
+                loader.Orms = flat ? null : orms;
+                loader.Heights = flat ? null : heights;
 
                 // The block-compressed build of the same set, which is preferred over both
                 // wherever it has an answer: nothing to decode, a mip chain already built,
@@ -333,7 +398,33 @@ public static class Application
                 + (loader.NormalMapsUsed > 0
                     ? $", {loader.NormalMapsUsed} normal mapped"
                     : string.Empty)
+                + (loader.OrmMapsUsed > 0
+                    ? $", {loader.OrmMapsUsed} with a finish"
+                    : string.Empty)
+                + (loader.HeightMapsUsed > 0
+                    ? $", {loader.HeightMapsUsed} with relief"
+                    : string.Empty)
                 + $", {scene.Lights.Count} authored lights");
+
+            // The floor, which is how an actor knows what height to walk at. Reported
+            // because its absence is silent: a room that names no floor object, or names
+            // one the geometry does not have, walks everybody at the height they set off
+            // at and looks fine until the first ramp.
+            if (args.Contains("--lights", StringComparer.OrdinalIgnoreCase))
+            {
+                foreach (Formats.Scenes.AuthoredLight light in scene.Lights)
+                {
+                    Console.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  light r={light.Radius:F1} i={light.Intensity:F2} " +
+                        $"reach={light.AttenuationEnd:F0}"));
+                }
+            }
+
+            Console.WriteLine(scene.Ground is { } ground
+                ? $"Floor: {scene.Definition.FloorObject()}, {ground.Triangles} triangles"
+                : $"Floor: none; {scene.Definition.FloorObject() ?? "the scene names one"}" +
+                  " is not in the geometry, so actors hold the height they start at");
 
             Report(diagnostics, verbose);
 
@@ -352,13 +443,40 @@ public static class Application
             // Registered again for the new room, and after the update exists because the
             // walking functions need something to walk in. The scene functions close over
             // the room they were given and the last registration wins.
-            SceneScripting.Attach(api, scene, loader.Glances, room, update);
+            SceneScripting.Attach(api, scene, loader.Glances, room, update, Behaviour);
 
             // What lets an animation actually move something. Vertex poses are left unread:
             // gab alone is 50.2 million samples and nothing deforms yet.
             update.Animations = api.Animations;
             update.Clips = clips;
             update.Characters = characters;
+
+            // The faces in this room. Everybody the scene placed who has an entry in
+            // FACES.TXT and is actually painted with their own face bitmap, which is what
+            // tells a person from a portrait of one.
+            var moving = new Game.Actors.Faces(faces, archives, api.Animations, geometry);
+
+            foreach (Game.PlacedModel person in scene.Models)
+            {
+                if (person.Kind == Game.PlacedModelKind.Actor)
+                {
+                    moving.Add(person);
+                }
+            }
+
+            update.Faces = moving;
+
+            // Who is speaking, which is what decides whether a character runs their
+            // talking script or their listening one. The line names its own actor, so the
+            // faces know without being told.
+            update.Speaking = () => moving.Speaking;
+
+            // What a line of dialogue does to the speaker's mouth. Set per room because
+            // the faces are the room's, while the audio outlives it.
+            if (room is not null)
+            {
+                room.Speaking = moving.Say;
+            }
 
             // What a room does when nobody is asking it to: the lobby's ceiling fans turn
             // because the scene gave them a script of their own. Started after the
@@ -370,15 +488,17 @@ public static class Application
                 actions.Verbs = verbs;
             }
 
-            if (update.Scenic > 0)
+            if (update.Scenic > 0 || update.Fidgeting > 0)
             {
                 Console.WriteLine(
-                    $"Scenery: {update.Scenic} prop(s) move on their own");
+                    $"Behaviour: {update.Scenic} prop(s) move on their own, " +
+                    $"{update.Fidgeting} character(s) idle, talk and listen");
             }
 
             Console.WriteLine(
                 $"Update: {update.Movable} actor(s) can turn their head, " +
                 $"{characters.Count} character(s) know how to walk, " +
+                $"{moving.Count} face(s) can talk and blink, " +
                 $"{verbs.TopicCount} topic(s) can be raised");
 
             // What the room does when somebody walks into it, which is mostly deciding
@@ -386,13 +506,27 @@ public static class Application
             // section says — usually START — and this is what moves the player to the spot
             // matching the door they came through. Without it every arrival is the front
             // door, however the player got in.
+            // The arrival, counted now that the room is standing and not before. A scene
+            // file asks whether this is the first visit and has to be read against the
+            // number of previous ones; the scripts that run next ask the same question and
+            // expect this one to be counted. Both are right, and this is the line between
+            // them.
+            if (request.State is not null)
+            {
+                request.State.EnterLocation(request.State.Ego, scene.Name);
+            }
+
+            // Silence before the room is entered, not after. Everything the room being
+            // left was saying belongs to that room; the entering script, on the other
+            // hand, may well say something itself, and cutting it off a moment later is
+            // how a scripted arrival loses its own first line.
+            room?.Silence();
+
             if (scene.Actions?.Find("SCENE", "ENTER") is { } entering)
             {
                 new ActionRunner(api).Run(entering);
                 Console.WriteLine($"entered: SCENE:ENTER [{entering.Case}]");
             }
-
-            room?.Silence();
 
             // What the room sounds like when nothing is happening in it.
             if (room?.StartAmbience(scene.AmbienceRead) is { } bed)
@@ -422,9 +556,15 @@ public static class Application
                 Console.WriteLine($"Then {n.Trim()}:{v.Trim()} [{follow.Case}]");
             }
 
+            // The console outlives the room. Its history and its scrollback are the
+            // player's working notes, and losing them at every door would make it useless
+            // for exactly the thing it is for: watching one thing across a transition.
+            console.Knows(api.FunctionNames);
+            console.Calls = api.Perform;
+
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api), room, hud, api.State, args);
+                new SceneInteraction(scene, api), room, hud, fonts, api.State, console, args);
 
             result = exit.Code;
 
@@ -495,16 +635,87 @@ public static class Application
         return result;
     }
 
+    /// <summary>
+    /// The fonts the interface will draw with, best first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Order matters and so does the set.</b> The three <c>F_CAPTION</c> sizes are
+    /// GK3's own caption font at 16, 20 and 26 point, which cut to 20, 26 and 33 pixel
+    /// letters; <c>F_CAPTION_DEFAULT</c> is the 14-point Goudy the game used for its own
+    /// subtitles. All four carry the full 181-character set, <b>including the 52 accented
+    /// letters</b>.
+    /// </para>
+    /// <para>
+    /// The <c>F_ARIAL</c> fonts at the end carry 94 characters and not one of them is
+    /// accented, which is why the interface used to draw <c>H?tel de Rennes-le-Ch?teau</c>
+    /// in a game set in France. They stay as a last resort for an installation missing the
+    /// caption sheets; nothing else should reach them.
+    /// </para>
+    /// </remarks>
+    private static readonly string[] CaptionFonts =
+    [
+        "F_CAPTION_D_26", "F_CAPTION_D_20", "F_CAPTION_D_16", "F_CAPTION_DEFAULT",
+        "F_ARIAL_T12", "F_ARIAL_T10", "F_ARIAL_T8",
+    ];
+
+    /// <summary>A sibling of the enhanced textures directory.</summary>
+    /// <param name="enhanced">Where the enhanced colour textures are.</param>
+    /// <param name="what">The sibling's name.</param>
+    /// <returns>Its path.</returns>
+    /// <remarks>
+    /// The generated maps sit beside the colour textures rather than among them, because a
+    /// surface may have a better colour and no normal map, or the other way round, and they
+    /// are judged separately.
+    /// </remarks>
+    private static string Beside(string enhanced, string what) =>
+        Path.Combine(
+            Path.GetDirectoryName(enhanced.TrimEnd(Path.DirectorySeparatorChar, '/')) ??
+                enhanced,
+            what);
+
+    /// <summary>How tall the interface's letters should be for a given display.</summary>
+    /// <param name="framebufferHeight">The framebuffer's height in pixels.</param>
+    /// <returns>A wanted glyph height, which the ladder is matched against.</returns>
+    /// <remarks>
+    /// Proportional to the display rather than fixed, because a bitmap font does not scale:
+    /// the same 17-pixel sheet that is comfortable on a 480-line screen is a third the
+    /// apparent size on a 1440-line one, which is exactly the complaint. 2.8% puts a
+    /// 1080-line display on the 26-point rung and anything above it on the 26-point rung
+    /// too, that being the largest the game shipped.
+    /// </remarks>
+    private static int WantedGlyphHeight(int framebufferHeight) =>
+        Math.Max(12, (int)MathF.Round(Math.Max(1, framebufferHeight) * 0.028f));
+
+    /// <summary>How many screen pixels one pixel of the chosen sheet should cover.</summary>
+    /// <param name="font">The rung that was picked.</param>
+    /// <param name="wanted">The height that was asked for.</param>
+    /// <returns>A whole number, at least one.</returns>
+    /// <remarks>
+    /// The ladder runs out at 33-pixel letters, which is the largest sheet the game
+    /// shipped. Past about 1,600 lines that is small enough to be the original complaint
+    /// again, and the only thing left is to draw each sheet pixel as more than one. Whole
+    /// numbers only: a fractional one lands glyph edges between pixels and the sampler
+    /// averages neighbouring letters into each other.
+    /// </remarks>
+    private static int Magnification(Formats.Ui.FontFile font, int wanted) =>
+        font.Height <= 0 ? 1 : Math.Clamp((int)MathF.Round((float)wanted / font.Height), 1, 4);
+
     /// <summary>Loads every compiled script in the game.</summary>
     /// <param name="archives">The game's archives.</param>
     /// <param name="host">Where they go.</param>
+    /// <param name="catalogue">
+    /// Receives every function prototype the scripts name, for whatever wants to say how a
+    /// call should be written. Optional: the loading works the same without one.
+    /// </param>
     /// <returns>How many were loaded.</returns>
     /// <remarks>
     /// Once, before the first room. A fifth of the corpus's action statements are
     /// <c>CallSheep</c>, and a script that is not loaded is a call that does nothing — most
     /// visibly the ones that take the player from one room to the next.
     /// </remarks>
-    private static int LoadScripts(GameArchives archives, ScriptHost host)
+    private static int LoadScripts(
+        GameArchives archives, ScriptHost host, Sheep.SheepSignatures? catalogue = null)
     {
         int loaded = 0;
 
@@ -517,8 +728,18 @@ public static class Application
 
             try
             {
-                host.Add(Sheep.SheepScriptFile.Parse(bytes, name));
+                Sheep.SheepScriptFile script = Sheep.SheepScriptFile.Parse(bytes, name);
+                host.Add(script);
                 loaded++;
+
+                // Every compiled script carries the prototypes of everything it calls, so
+                // reading the 224 of them is also how the console learns that
+                // GetNounVerbCount takes two strings and answers an int. There is nowhere
+                // else that is written down: the game shipped no header.
+                foreach (Sheep.SheepImport import in script.Imports)
+                {
+                    catalogue?.Add(import, name);
+                }
             }
             catch (Formats.FormatParseException)
             {
@@ -573,9 +794,14 @@ public static class Application
         {
             ActionOutcome outcome = new ActionRunner(api).Run(rule);
 
-            Console.WriteLine(
-                $"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: " +
-                $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)");
+            string did = outcome.Deferred
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"walking {outcome.Approaching:F1}s first, then " +
+                    $"{outcome.Statements.Count} statement(s)")
+                : $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)";
+
+            Console.WriteLine($"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: {did}");
         }
 
         if (Option(args, "--play") is { Length: > 0 } clip)
@@ -604,6 +830,53 @@ public static class Application
         }
     }
 
+    /// <summary>Hands a frame's keyboard to the console.</summary>
+    /// <param name="input">Where the keys come from.</param>
+    /// <param name="console">What reads them.</param>
+    /// <remarks>
+    /// Everything the console does with a key is a method on it, so this is a routing table
+    /// and nothing else. Which is the point: the console has no idea what a keyboard is, and
+    /// a test can drive it without one.
+    /// </remarks>
+    private static void Typing(Platform.SilkGameWindow input, GameConsole console)
+    {
+        if (input.WasPressed(Platform.EditKey.Escape))
+        {
+            console.Show(false);
+            return;
+        }
+
+        if (input.Typed is { Length: > 0 } typed)
+        {
+            console.Type(typed);
+        }
+
+        if (input.WasPressed(Platform.EditKey.Backspace))
+        {
+            console.Backspace();
+        }
+
+        if (input.WasPressed(Platform.EditKey.Tab))
+        {
+            console.TakeCompletion();
+        }
+
+        if (input.WasPressed(Platform.EditKey.Up))
+        {
+            console.Move(-1);
+        }
+
+        if (input.WasPressed(Platform.EditKey.Down))
+        {
+            console.Move(1);
+        }
+
+        if (input.WasPressed(Platform.EditKey.Enter))
+        {
+            console.Submit();
+        }
+    }
+
     /// <summary>Runs the present loop with a camera the player can move.</summary>
     /// <param name="window">The window and its input.</param>
     /// <param name="renderer">The renderer.</param>
@@ -615,7 +888,12 @@ public static class Application
     /// <param name="interaction">Turns pointing at the room into doing something to it.</param>
     /// <param name="room">What the room sounds like, if there is a device.</param>
     /// <param name="hud">The interface, if there is a font to draw it with.</param>
+    /// <param name="fonts">
+    /// The game's fonts, so a window that changes size can be given a different rung of the
+    /// caption ladder.
+    /// </param>
     /// <param name="story">Where the story stands, for the inventory strip.</param>
+    /// <param name="console">The developer console, which outlives the room.</param>
     /// <param name="options">The command line, for the debugging switches.</param>
     /// <returns>Why the room was left, and where for.</returns>
     /// <remarks>
@@ -634,9 +912,14 @@ public static class Application
         SceneInteraction interaction,
         SceneAudio? room,
         GameHud? hud,
+        FontLibrary fonts,
         GameState story,
+        GameConsole console,
         string[] options)
     {
+        ArgumentNullException.ThrowIfNull(console);
+        ArgumentNullException.ThrowIfNull(fonts);
+
         string here = scene.Name;
 
         int cameraIndex = Math.Max(
@@ -658,6 +941,7 @@ public static class Application
         Console.WriteLine("Tab for the next camera, R to return to it, F2 for ray tracing,");
         Console.WriteLine("click to act on what is under the pointer, right-click to see");
         Console.WriteLine("everything it answers to, Escape to leave.");
+        Console.WriteLine("` opens the console; Tab completes, up and down move the list.");
 
         // Where the scene opened, so a glide has somewhere to leave from rather than
         // arriving the moment it is asked for.
@@ -677,10 +961,24 @@ public static class Application
         Vector2? pinned = Pinned(options);
         bool forceMenu = options.Contains("--menu", StringComparer.OrdinalIgnoreCase);
 
+        // --console opens it and types into it, which is the only way to photograph it: a
+        // headless run has no keyboard, and an interface nobody can render is an interface
+        // whose layout nobody can check.
+        if (Option(options, "--console") is { } typed)
+        {
+            console.Show(true);
+            console.Type(typed);
+        }
+
         if (pinned is { } spot)
         {
             Console.WriteLine($"Pointer pinned at {spot.X}, {spot.Y}");
         }
+
+        // What the interface was laid out for. A window that goes fullscreen doubles its
+        // height, and a bitmap font cannot follow it by scaling — the sheet has one size —
+        // so the ladder has to be re-picked and the atlas rebuilt.
+        int laidOutFor = window.FramebufferHeight;
 
         bool flicker = options.Contains("--flicker", StringComparer.OrdinalIgnoreCase);
         byte[]? previousFrame = null;
@@ -695,12 +993,66 @@ public static class Application
             float delta = (float)Math.Min(0.1, now - previous);
             previous = now;
 
-            if (window.WasPressed(Platform.CameraAction.Quit))
+            if (hud is not null && window.FramebufferHeight != laidOutFor)
+            {
+                laidOutFor = window.FramebufferHeight;
+
+                int wanted = WantedGlyphHeight(laidOutFor);
+
+                if (fonts.Nearest(wanted, CaptionFonts) is { } rung)
+                {
+                    int magnify = Magnification(rung, wanted);
+                    bool sameSheet =
+                        rung.Name.Equals(hud.Overlay.Atlas.Font.Name, StringComparison.Ordinal);
+
+                    // The sheet may be right and only the magnification wrong, which costs
+                    // a field rather than a rebuild.
+                    if (sameSheet)
+                    {
+                        hud.Overlay.Magnify = magnify;
+                    }
+                    else
+                    {
+                        OverlayAtlas grown = OverlayAtlas.Build(rung);
+
+                        renderer.SetOverlayAtlas(grown);
+                        hud.Retarget(grown);
+                        hud.Overlay.Magnify = magnify;
+
+                        Console.WriteLine(
+                            $"Interface: {rung.Name} at {rung.Height}px" +
+                            (magnify > 1 ? $" x{magnify}" : string.Empty) +
+                            $" for {laidOutFor} lines");
+                    }
+                }
+            }
+
+            // The console first, and while it is open it has the keyboard: every key
+            // below means something else to it. Escape closes it rather than leaving the
+            // room, Tab completes rather than cutting to the next camera, and typing
+            // SetFlag does not walk the camera across the room — W, A, S and D are all in
+            // the word and every one of them is a movement key.
+            //
+            // Taken before the toggle, not after: Escape closes the console, and asking
+            // afterwards would find it closed and take the same press as "leave the room".
+            bool typing = console.Open;
+
+            if (window.WasPressed(Platform.EditKey.Console))
+            {
+                console.Show(!console.Open);
+            }
+            else if (typing)
+            {
+                Typing(window, console);
+            }
+
+            if (!typing && window.WasPressed(Platform.CameraAction.Quit))
             {
                 break;
             }
 
-            if (window.WasPressed(Platform.CameraAction.NextCamera) && scene.Cameras.Count > 0)
+            if (!typing &&
+                window.WasPressed(Platform.CameraAction.NextCamera) && scene.Cameras.Count > 0)
             {
                 cameraIndex = (cameraIndex + 1) % scene.Cameras.Count;
                 template = SceneLoader.CameraFor(scene, geometry, scene.Cameras[cameraIndex].Name);
@@ -709,12 +1061,14 @@ public static class Application
                 Console.WriteLine($"camera: {scene.Cameras[cameraIndex].Name}");
             }
 
-            if (window.WasPressed(Platform.CameraAction.Reset))
+            if (!typing && window.WasPressed(Platform.CameraAction.Reset))
             {
                 camera.CopyFrom(template);
             }
 
-            if (window.WasPressed(Platform.CameraAction.CycleRayTracing) && renderer.SupportsRayTracing)
+            if (!typing &&
+                window.WasPressed(Platform.CameraAction.CycleRayTracing) &&
+                renderer.SupportsRayTracing)
             {
                 RayTracingQuality[] levels = Enum.GetValues<RayTracingQuality>();
 
@@ -748,7 +1102,10 @@ public static class Application
                 camera.CopyFrom(directed);
             }
 
-            camera.Update(window, delta);
+            if (!console.Open)
+            {
+                camera.Update(window, delta);
+            }
 
             Camera view = camera.ToCamera(template);
 
@@ -801,7 +1158,7 @@ public static class Application
                 menuIndex = 0;
             }
 
-            if (window.WasClicked(Platform.PointerButton.Secondary))
+            if (!console.Open && window.WasClicked(Platform.PointerButton.Secondary))
             {
                 // The menu belongs to the thing it was opened over, not to wherever the
                 // pointer wanders next, so what was under it is kept — and so is where it
@@ -838,17 +1195,21 @@ public static class Application
                 }
             }
 
-            if (window.WasClicked(Platform.PointerButton.Primary))
+            if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
             {
                 // A click inside the open menu takes whatever is selected; a click anywhere
                 // else dismisses it without doing anything, which is what every menu does.
                 bool inside = menu is not null && hud?.RowAt(pointer) >= 0;
 
+                // A double-click means the same thing as a click, more urgently: whatever
+                // walking the action puts in front of itself is run rather than walked.
+                bool hurry = window.WasDoubleClicked(Platform.PointerButton.Primary);
+
                 ActionOutcome? did = menu is { } open
                     ? inside && menuIndex < open.Actions.Count
-                        ? interaction.Do(open, open.Actions[menuIndex].LocalizedVerb)
+                        ? interaction.Do(open, open.Actions[menuIndex].LocalizedVerb, hurry)
                         : null
-                    : interaction.Do(hover);
+                    : interaction.Do(hover, hurry: hurry);
 
                 if (menu is not null)
                 {
@@ -859,7 +1220,13 @@ public static class Application
                 {
                     Console.WriteLine(
                         $"{outcome.Noun}:{outcome.Verb} [{outcome.Case}] - " +
-                        $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)" +
+                        (outcome.Deferred
+                            ? string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"walking {outcome.Approaching:F1}s first, then " +
+                                $"{outcome.Statements.Count} statement(s)")
+                            : $"{(outcome.Ran ? "ran" : "refused")} " +
+                              $"{outcome.Statements.Count} statement(s)") +
                         (outcome.Seconds > 0 ? $", {outcome.Seconds:F1}s" : string.Empty));
                 }
             }
@@ -892,7 +1259,8 @@ public static class Application
                         story.Inventory.ItemsOf("GABRIEL"),
                         story.Inventory.ActiveItemOf("GABRIEL"),
                         InventoryOpen: true,
-                        $"{scene.Name} - {story.Timeblock}"),
+                        $"{scene.Name} - {story.Timeblock}",
+                        console),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -906,6 +1274,12 @@ public static class Application
                 story.Location is { Length: > 0 } elsewhere)
             {
                 Console.WriteLine($"Leaving {here} for {elsewhere}");
+
+                // Nothing this room was still holding back gets to happen in the next one.
+                // What is queued is an action script belonging to the room being left, and
+                // letting one run through a door is how it opens twice.
+                update.Cancel();
+
                 return new RoomExit(0, elsewhere);
             }
 

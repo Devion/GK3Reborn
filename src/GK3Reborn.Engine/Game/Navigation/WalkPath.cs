@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace GK3Reborn.Game.Navigation;
 
@@ -288,44 +288,96 @@ public static class WalkPath
     /// Only matters when the search is stepping several texels at a time: a lattice node
     /// on either side of a wall is no use if the wall is between them.
     /// </remarks>
-    private static bool IsClear(WalkBoundary boundary, int fromX, int fromY, int toX, int toY)
+    private static bool IsClear(WalkBoundary boundary, int fromX, int fromY, int toX, int toY) =>
+        Crosses(boundary, (fromX, fromY), (toX, toY), ceiling: 0);
+
+    /// <summary>
+    /// Whether the straight line between two texels stays on open ground.
+    /// </summary>
+    /// <param name="boundary">Where actors may stand.</param>
+    /// <param name="from">One end.</param>
+    /// <param name="to">The other.</param>
+    /// <param name="ceiling">
+    /// The highest ordinary region the line may cross, or zero for any walkable one.
+    /// </param>
+    /// <returns>True when an actor may walk it.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The line has to be the line.</b> This used to walk towards the far end one texel
+    /// at a time, moving diagonally while both axes differed and straight afterwards — which
+    /// for anything but a pure axis or a pure diagonal is a different path from the one it
+    /// is meant to be testing. From (0,0) to (10,2) it went diagonally to (2,2) and then
+    /// straight along the row, so a wall standing across the middle of the real line was
+    /// never sampled and the shortcut was allowed. The actor then walked the real line,
+    /// through the wall.
+    /// </para>
+    /// <para>
+    /// Stepping the dominant axis one texel at a time and rounding the other is exact
+    /// enough: no texel along the line is skipped, because neither axis can advance by more
+    /// than one in a step.
+    /// </para>
+    /// <para>
+    /// <b>A diagonal step must not slip between two blocked texels that meet at a corner.</b>
+    /// Both of the texels it passes between have to be open, or the line goes through the
+    /// join — which is a wall with no gap in it as far as anybody looking at the room is
+    /// concerned.
+    /// </para>
+    /// </remarks>
+    private static bool Crosses(
+        WalkBoundary boundary, (int X, int Y) from, (int X, int Y) to, int ceiling)
     {
-        int x = fromX;
-        int y = fromY;
+        int spanX = to.X - from.X;
+        int spanY = to.Y - from.Y;
+        int steps = Math.Max(Math.Abs(spanX), Math.Abs(spanY));
 
-        while (x != toX || y != toY)
+        if (steps == 0)
         {
-            Step(ref x, ref y, toX, toY);
+            return Open(boundary, from.X, from.Y, ceiling);
+        }
 
-            if (!boundary.IsTexelWalkable(x, y))
+        int previousX = from.X;
+        int previousY = from.Y;
+
+        for (int i = 1; i <= steps; i++)
+        {
+            int x = from.X + (int)MathF.Round(spanX * (float)i / steps);
+            int y = from.Y + (int)MathF.Round(spanY * (float)i / steps);
+
+            if (!Open(boundary, x, y, ceiling))
             {
                 return false;
             }
+
+            if (x != previousX && y != previousY &&
+                (!Open(boundary, previousX, y, ceiling) ||
+                 !Open(boundary, x, previousY, ceiling)))
+            {
+                return false;
+            }
+
+            previousX = x;
+            previousY = y;
         }
 
         return true;
     }
 
-    /// <summary>Moves one texel towards a target, diagonally where both axes differ.</summary>
-    private static void Step(ref int x, ref int y, int toX, int toY)
+    /// <summary>Whether one texel is open, and open enough for the caller.</summary>
+    private static bool Open(WalkBoundary boundary, int x, int y, int ceiling)
     {
-        if (x < toX)
+        if (!boundary.IsTexelWalkable(x, y))
         {
-            x++;
-        }
-        else if (x > toX)
-        {
-            x--;
+            return false;
         }
 
-        if (y < toY)
+        if (ceiling <= 0)
         {
-            y++;
+            return true;
         }
-        else if (y > toY)
-        {
-            y--;
-        }
+
+        int region = boundary.RegionOf(x, y);
+
+        return region is not (> 0 and < 128) || region <= ceiling;
     }
 
     /// <summary>Nudges the route's interior off the walls.</summary>
@@ -414,28 +466,7 @@ public static class WalkPath
     /// Stricter than <see cref="IsClear"/>: a shortcut also has to keep clear of the walls,
     /// or string pulling would undo the conditioning that just moved the route off them.
     /// </remarks>
-    private static bool IsWalkableLine(WalkBoundary boundary, (int X, int Y) from, (int X, int Y) to)
-    {
-        int x = from.X;
-        int y = from.Y;
-
-        while (x != to.X || y != to.Y)
-        {
-            Step(ref x, ref y, to.X, to.Y);
-
-            if (!boundary.IsTexelWalkable(x, y))
-            {
-                return false;
-            }
-
-            int region = boundary.RegionOf(x, y);
-
-            if (region is > ShortcutCeiling and < 128)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    private static bool IsWalkableLine(
+        WalkBoundary boundary, (int X, int Y) from, (int X, int Y) to) =>
+        Crosses(boundary, from, to, ShortcutCeiling);
 }

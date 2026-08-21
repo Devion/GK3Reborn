@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Ui;
 
@@ -115,6 +115,8 @@ public sealed class Overlay
 {
     private readonly List<OverlayQuad> _quads = [];
 
+    private int _magnify = 1;
+
     /// <summary>Creates an overlay over an atlas.</summary>
     /// <param name="atlas">The sheet everything is drawn from.</param>
     public Overlay(OverlayAtlas atlas)
@@ -135,8 +137,38 @@ public sealed class Overlay
     /// <summary>The rectangles, in the order they were added.</summary>
     public IReadOnlyList<OverlayQuad> Quads => _quads;
 
+    /// <summary>
+    /// How many screen pixels one pixel of the font's sheet covers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A whole number, and one by default. GK3's largest caption sheet cuts to 33-pixel
+    /// letters, which is 3.5% of the 480-line screen it was drawn for and 1.5% of a 4K one:
+    /// past a point the ladder of sheets runs out and the only way to keep the text the
+    /// same apparent size is to draw each sheet pixel as more than one.
+    /// </para>
+    /// <para>
+    /// Whole numbers because a fraction lands glyph edges between pixels and the sampler
+    /// then averages neighbouring letters into each other. The caption sheets are
+    /// antialiased grey rather than hard-edged, so a doubled one reads as a larger version
+    /// of itself rather than as a magnified bitmap.
+    /// </para>
+    /// <para>
+    /// It multiplies <see cref="LineHeight"/> and <see cref="Measure"/> as well as the
+    /// glyphs, so anything laying out against those numbers grows with it and nothing has
+    /// to know this exists. <see cref="Rect"/> is deliberately <em>not</em> multiplied:
+    /// its arguments are already in screen pixels, computed from those same numbers, and
+    /// scaling them again would apply the factor twice.
+    /// </para>
+    /// </remarks>
+    public int Magnify
+    {
+        get => _magnify;
+        set => _magnify = Math.Max(1, value);
+    }
+
     /// <summary>How tall a line of text is.</summary>
-    public int LineHeight => Atlas.Font.Height + Atlas.Font.LineSpacing;
+    public int LineHeight => (Atlas.Font.Height + Atlas.Font.LineSpacing) * _magnify;
 
     /// <summary>Starts a frame.</summary>
     /// <param name="width">Width of the surface.</param>
@@ -168,7 +200,13 @@ public sealed class Overlay
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        float at = x;
+        // Whole pixels, always. A bitmap glyph drawn at a fractional position samples
+        // between texels, and with the sheets stacked in rows what is half a texel above a
+        // letter is the red marker strip belonging to it — so a caption laid out at
+        // y=17.36 came with a dotted line over it. Rounding is also the difference between
+        // crisp letters and slightly soft ones everywhere else.
+        float at = MathF.Round(x);
+        float top = MathF.Round(y);
 
         foreach (char c in text)
         {
@@ -178,11 +216,11 @@ public sealed class Overlay
             }
 
             _quads.Add(new OverlayQuad(
-                new Vector4(at, y, glyph.Width, glyph.Height),
+                new Vector4(at, top, glyph.Width * _magnify, glyph.Height * _magnify),
                 Atlas.Uv(glyph),
                 color));
 
-            at += glyph.Width + Atlas.Font.CharacterSpacing;
+            at += (glyph.Width + Atlas.Font.CharacterSpacing) * _magnify;
         }
 
         return at;
@@ -191,7 +229,7 @@ public sealed class Overlay
     /// <summary>How wide a string will be.</summary>
     /// <param name="text">The string.</param>
     /// <returns>Width in pixels.</returns>
-    public int Measure(string text) => Atlas.Font.Measure(text);
+    public int Measure(string text) => Atlas.Font.Measure(text) * _magnify;
 
     /// <summary>Draws a panel with text on it.</summary>
     /// <param name="text">The line.</param>

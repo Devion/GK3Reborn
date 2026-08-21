@@ -1,4 +1,4 @@
-# Screens, and getting out of them
+﻿# Screens, and getting out of them
 
 GK3 puts a lot of things in front of the room: the inventory, an item held up close, the
 binoculars, the fingerprint kit, the driving map, Sidney. In the original each arrived
@@ -131,6 +131,90 @@ A **door** is a script that says `SetLocation` and nothing more. The launcher wa
 story's location rather than the click, so it works however the story asked — clicked, on a
 timer, or from a script three calls deep — and the room is rebuilt around a story that
 carries on: one host, one state, one audio device, one interface.
+
+## The letters
+
+GK3 ships 137 bitmap fonts. The interface draws with the game's own **caption ladder** —
+`F_CAPTION_D_26`, `F_CAPTION_D_20`, `F_CAPTION_D_16`, and the 14-point Goudy behind them —
+because those carry the full 181-character set including **52 accented letters**. The
+`F_ARIAL` fonts the interface used to take carry 94 characters and not one of them is
+accented, which in a game set in France meant `H?tel de Rennes-le-Ch?teau` on screen.
+
+**A bitmap font has one size and there is no scaling it**, so making the text bigger means
+picking a different sheet. The rungs cut to 20, 26 and 33 pixel letters; the one nearest
+2.8% of the framebuffer's height wins, which puts a 720-line display on the smallest and
+anything from 1080 up on the largest. Past about 1,600 lines the ladder runs out and each
+sheet pixel is drawn as two — a whole number, because a fraction lands glyph edges between
+pixels and the sampler then averages neighbouring letters into each other.
+
+Everything else follows from the letters. `GameHud.Scale` is the chosen line height over
+the nineteen-pixel one the layout was written against, and every padding, panel and
+inventory slot is written in those units and multiplied by it — so the interface grows
+together instead of leaving 1999-sized gaps around 2026-sized text. A window that changes
+size enough to want a different rung rebuilds the atlas mid-run.
+
+Text is drawn on whole pixels. A bitmap glyph at a fractional position samples between
+texels, and on a stacked sheet what sits half a texel above a letter is the marker strip
+belonging to it.
+
+## The console
+
+Backtick opens it. It is across the top rather than the bottom, because the inventory strip
+and the captions both live along the bottom edge and a console over either of them would
+hide the thing a command was about to change.
+
+**The command language is the game's own scripting language**, because that already is one.
+Everything the story can do is a Sheep call; the calls are named in the 224 compiled scripts
+the game shipped with, and those scripts carry the prototypes — 219 functions this build
+performs, and the signatures for them come out of the archives at load. Inventing a second
+vocabulary on top would mean maintaining a translation between two sets of verbs that mean
+the same things.
+
+**Which is why the completion is the feature and not a nicety.** Nobody can be expected to
+know that the way to see the easter-egg content is `SetFlag("EGG")`, or to remember which
+of `SetLocation` and `SetEgoLocation` takes what. Typing narrows a list of at most eight,
+each row showing the prototype — `void SetFlag(string)` — so the arguments are visible
+before they are typed rather than after they are wrong. Names that *start* with what was
+typed come first, then names that merely contain it: the first serves somebody typing a
+name they know, the second somebody hunting for one they half remember, and one list in
+that order serves both without a mode.
+
+Tab takes the chosen completion and writes the opening bracket with it, because a function
+is being called rather than named. Up and down move the choice while there is a list and
+recall earlier lines when there is not, which is what every shell does and is why neither
+needs a key of its own.
+
+A line is parsed rather than compiled. It is one call with literal arguments — no variables
+to resolve, no control flow to run — so a parser of forty lines does the whole job, and the
+alternative would be standing up the compiler, a script file and a thread to run one
+`SetFlag`. Strings may be quoted or not; a comma inside quotes is part of the string. A
+function of no arguments may be typed without brackets.
+
+**Calls go through `Gk3SheepApi` and no further.** A console that reached past it into the
+game's own objects could put the story into states no script can reach, and the first thing
+anybody would do with it is produce a save that nothing can load. A call that throws is
+printed rather than allowed to end the game: a console that closes the game when a command
+is wrong is a console nobody uses twice.
+
+One console for the whole run, not one per room. Its history and its scrollback are the
+player's working notes, and losing them at every door would make it useless for the one
+thing it is best at — watching something across a transition.
+
+While it is open it has the keyboard and the room ignores clicks. Otherwise typing
+`SetFlag` walks the camera across the room: W, A, S and D are all in the word and every one
+of them is a movement key.
+
+`--console <text>` opens it and types into it, which is the only way to photograph it: a
+headless run has no keyboard, and an interface nobody can render is an interface whose
+layout nobody can check.
+
+### EGG
+
+`EGG` is a case every action file in the game tests and nothing in the shipped game ever
+sets — the original's own resolver answers false for it and says so in a comment. It is in
+`NvcFile.BuiltInCases` and `ActionResolver` answers the flag now, so `SetFlag("EGG")` from
+the console is what turns that content on. It is the shortest demonstration of why the
+console is worth having.
 
 ## What is not here
 
