@@ -115,11 +115,35 @@ That is a guess that produces a better picture, not a measurement. ADR 0006 expe
 this: the 1999 values were tuned for a renderer with no exposure control, and every
 light stays correctable through the edit layer.
 
-**A light with attenuation switched off has none.** The stored end distance is still
-in the file and means nothing once the switch is off, so it is ignored rather than
-used as a soft limit. R25's key light for the afternoon is the sun, fifty thousand
-units from the room, with a stored range of two hundred; honouring that range deleted
-the daylight from every room with a window in it.
+**A stored range is honoured whether or not the switch is on.** 3ds Max's far
+attenuation being off means the light had no decay while the scene was being baked,
+and reproducing that at runtime is faithful and unusable: a light with no falloff
+lights every surface it can see equally, so a rig's fill lights become a flat wash
+with no source anywhere in the room.
+
+The hotel lobby is the case that showed it. Of the light arriving at the middle of its
+floor, **82% came from lights with the switch off** — one of them 842 units outside
+the room — every one at full strength whatever the distance. It reads exactly as it
+is: a floor lit from nowhere.
+
+The ranges are in the file and they are the artists' own. All fourteen of the lobby's
+switched-off lights carry a full near and far pair — 10 to 77, 33 to 66, 164 to 221 —
+set by hand and then disabled, which is a normal way to work in Max and leaves the
+intent behind in the file. A light that states **no** range still has none: there is
+nothing to honour, and no ramp is invented across the unlimited range either.
+
+This used to ignore the stored range, because honouring it switched off R25's
+afternoon sun — fifty thousand units away with a range of two hundred. That no longer
+costs anything, and the reason is the compositing pass: the bake carries the daylight
+now and the rig only has to explain what it can. Measured over ten scenes at `--rt
+high`:
+
+| | unchanged | darker |
+| --- | --- | --- |
+| scenes | R25, MS3, B25, LHM (±0.2%), RC1 (−1.2%), CHU (+1.1%) | HAL −19%, LBY −32%, CS3 −35%, DIN −46% |
+
+R25's window view is identical in its brightest tenth to the pixel. The four that
+darken stop being washed and start looking lamp-lit.
 
 Cost, measured at 1920×1080 in the hotel lobby (41 lights, 10,704 opaque triangles)
 on an RTX 5090, as the difference from quality None: roughly 10 ms at Low, 30 ms at

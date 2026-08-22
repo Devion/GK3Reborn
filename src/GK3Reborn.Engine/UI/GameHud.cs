@@ -406,13 +406,20 @@ public sealed class GameHud
         float unit = Scale;
         float padding = 8f * unit;
         float row = Overlay.LineHeight + (8f * unit);
-        float w = 0;
+
+        // The heading counts. It is the noun the player right-clicked, and a noun is very
+        // often longer than any verb offered for it — "Coffee Pot" over Look and Pour —
+        // so measuring only the verbs sizes the panel to the wrong thing and the heading
+        // runs off the end of its own background.
+        string heading = Pretty(state.Noun ?? string.Empty);
+        float w = Overlay.Measure(heading);
 
         foreach (string verb in state.Verbs)
         {
             w = Math.Max(w, Overlay.Measure(Pretty(verb)));
         }
 
+        // The same padding either side of whatever turned out to be widest.
         w += padding * 2;
 
         float title = Overlay.LineHeight + (8f * unit);
@@ -421,7 +428,7 @@ public sealed class GameHud
         float y = Math.Clamp(state.MenuAt.Y, 0, Math.Max(0, height - h));
 
         Overlay.Rect(x, y, w, h, PanelLit);
-        Overlay.Text(Pretty(state.Noun ?? string.Empty), x + padding, y + (4 * unit), Accent);
+        Overlay.Text(heading, x + padding, y + (4 * unit), Accent);
         Overlay.Rect(x, y + title, w, 1, Rule);
 
         for (int i = 0; i < state.Verbs.Count; i++)

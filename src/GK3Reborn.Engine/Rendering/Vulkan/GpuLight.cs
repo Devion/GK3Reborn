@@ -54,7 +54,15 @@ public readonly record struct GpuLight(
         ArgumentNullException.ThrowIfNull(light);
 
         float end = RangeOf(light);
-        float start = light.UsesAttenuation ? MathF.Min(light.AttenuationStart, end) : end;
+
+        // The near range too, whatever the switch says. A light whose start equals its end
+        // has no ramp at all — it is full brightness to a hard edge and then nothing — and
+        // that edge is a visible circle on a floor.
+        //
+        // Except where there is no range to ramp across: a light that states no reach has
+        // no falloff either, and spreading a ramp over the unlimited range would invent a
+        // falloff nobody asked for and dim a sun by a tenth for being far away.
+        float start = end >= Unlimited ? end : MathF.Min(light.AttenuationStart, end);
 
         bool spot = light.Kind == AuthoredLightKind.Spot;
 
@@ -77,22 +85,49 @@ public readonly record struct GpuLight(
     /// <param name="light">The light as the scene asset declares it.</param>
     /// <returns>The distance beyond which it contributes nothing.</returns>
     /// <remarks>
-    /// A light that declares no attenuation has none: 3ds Max's far attenuation was
-    /// switched off and the bake let it reach the whole map. The stored range is still
-    /// there in the file and is meaningless when the switch is off — R25's key light for
-    /// the afternoon is the sun, fifty thousand units away with a range of two hundred, so
-    /// honouring that range deleted the daylight from every room with a window in it.
+    /// <para>
+    /// <b>A stored range is honoured whether or not the switch is on.</b> 3ds Max's far
+    /// attenuation being off means the light had no decay while the scene was being baked,
+    /// and reproducing that at runtime is faithful and unusable: a light with no falloff
+    /// lights every surface it can see equally, so a rig's fill lights become a flat wash
+    /// with no source anywhere in the room. The lobby is the case that showed it — 82% of
+    /// the light arriving at the middle of its floor came from lights with the switch off,
+    /// one of them 842 units outside the room — and it reads exactly as it is: a floor lit
+    /// from nowhere.
+    /// </para>
+    /// <para>
+    /// The ranges are in the file and they are the artists' own. Every one of the lobby's
+    /// fourteen switched-off lights carries a full near and far pair — 10 to 77, 33 to 66,
+    /// 164 to 221 — set by hand and then disabled, which is a normal way to work in Max
+    /// and leaves the intent behind in the file.
+    /// </para>
+    /// <para>
+    /// This used to return an unlimited range for them, because honouring the range
+    /// switched off R25's afternoon sun: fifty thousand units away with a range of two
+    /// hundred. That no longer costs anything, and the reason is the compositing pass —
+    /// the bake carries the daylight now and the rig only has to explain what it can, so
+    /// R25 measures 0.237 either way and the brightest tenth of its window view is
+    /// identical to the pixel. Across ten scenes six do not change at all; the lobby falls
+    /// 20%, the dining room 42%, and both stop being washed and start looking lamp-lit.
+    /// </para>
+    /// <para>
+    /// A light with no stored range at all still has none. There is nothing to honour, and
+    /// unlimited is the only honest reading of a light that says nothing about its reach.
+    /// </para>
     /// </remarks>
     public static float RangeOf(AuthoredLight light)
     {
         ArgumentNullException.ThrowIfNull(light);
 
-        if (!light.UsesAttenuation)
+        if (light.AttenuationEnd > 0)
         {
-            return Unlimited;
+            return light.AttenuationEnd;
         }
 
-        return light.AttenuationEnd > 0 ? light.AttenuationEnd : 500f;
+        // Attenuated and yet no range: the switch is on and the number is missing, so
+        // something has to be chosen. Unattenuated and no range is a light that genuinely
+        // says nothing, and gets nothing imposed on it.
+        return light.UsesAttenuation ? 500f : Unlimited;
     }
 
     /// <summary>Chooses which lights to upload when a scene declares more than fit.</summary>

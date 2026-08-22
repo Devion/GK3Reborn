@@ -206,4 +206,38 @@ public sealed class GameHudTests
 
         Assert.Equal(first, hud.Overlay.Quads.Count);
     }
+
+    [Fact]
+    public void The_menu_is_as_wide_as_its_heading_when_the_noun_is_the_longest_thing_in_it()
+    {
+        // Reported: right-clicking the coffee pot drew "Coffee Pot" over a background that
+        // stopped after "Coffee". The panel was sized to the widest verb, and a noun is
+        // very often longer than any verb offered for it.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(noun: "COFFEE POT", verbs: ["LOOK", "POUR"], menu: true, at: at),
+            800, 600);
+
+        float heading = hud.Overlay.Measure("Coffee Pot");
+
+        // The widest rectangle drawn at the menu's own left edge is its background.
+        float panel = 0;
+
+        foreach (OverlayQuad quad in hud.Overlay.Quads)
+        {
+            if (Math.Abs(quad.Destination.X - at.X) < 0.5f)
+            {
+                panel = Math.Max(panel, quad.Destination.Z);
+            }
+        }
+
+        Assert.True(
+            panel > heading,
+            $"the panel is {panel} wide and the heading needs {heading}");
+
+        // And padded rather than exactly the text's width, or the letters touch the edge.
+        Assert.True(panel >= heading + 8, $"no padding: {panel} against {heading}");
+    }
 }

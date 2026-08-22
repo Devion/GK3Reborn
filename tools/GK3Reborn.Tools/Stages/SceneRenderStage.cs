@@ -10,6 +10,7 @@ using GK3Reborn.Game;
 using GK3Reborn.Game.Interaction;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
+using GK3Reborn.Rendering.Materials;
 using GK3Reborn.Rendering.Vulkan;
 using GK3Reborn.Sheep;
 using GK3Reborn.UI.Interaction;
@@ -133,6 +134,22 @@ public sealed class SceneRenderStage
             EnhancedTextures set = EnhancedTextures.Open(enhanced);
             loader.Enhanced = set;
             _log($"enhanced: {set.Count} textures available at {enhanced}");
+
+            // The generated maps sit beside the colour textures, and the surface finishes
+            // in the workspace's manifests above them. Without these the tool renders
+            // every surface at the shader's own defaults, so it cannot show a material
+            // bug at all — a floor the library calls polished comes out matte, and a
+            // correction made in the edit layer changes nothing on screen.
+            loader.Normals = EnhancedTextures.Open(Beside(enhanced, "normals"));
+            loader.Orms = EnhancedTextures.Open(Beside(enhanced, "orm"));
+            loader.Heights = EnhancedTextures.Open(Beside(enhanced, "height"));
+
+            SurfaceFinishes finishes = Finishes(enhanced);
+            geometry.Materials = finishes;
+
+            _log($"materials: {finishes.Count} measured, {finishes.Reflective} reflective, " +
+                 $"{finishes.Metallic} metal" +
+                 (finishes.Corrected > 0 ? $", {finishes.Corrected} corrected by hand" : string.Empty));
         }
 
         if (glance is { Length: > 0 })
@@ -237,6 +254,36 @@ public sealed class SceneRenderStage
     /// floor is the check, which is why `Plan/04` makes overlay validation an exit
     /// criterion for this phase rather than a nicety.
     /// </remarks>
+    /// <summary>A sibling of the enhanced textures directory.</summary>
+    /// <param name="enhanced">Where the enhanced colour textures are.</param>
+    /// <param name="what">The sibling's name.</param>
+    /// <returns>Its path.</returns>
+    private static string Beside(string enhanced, string what) =>
+        Path.Combine(
+            Path.GetDirectoryName(enhanced.TrimEnd(Path.DirectorySeparatorChar, '/')) ?? ".",
+            what);
+
+    /// <summary>
+    /// The material library, from the workspace the enhanced textures live in.
+    /// </summary>
+    /// <param name="enhanced">Where the enhanced colour textures are.</param>
+    /// <returns>The finishes, empty when there is no library.</returns>
+    /// <remarks>
+    /// <c>SurfaceFinishes.Load</c> reads the hand-written edit layer beside the library as
+    /// well, which is the point: a correction is only worth making if the thing that draws
+    /// the picture can be made to show it.
+    /// </remarks>
+    private static SurfaceFinishes Finishes(string enhanced)
+    {
+        // enhanced/textures -> enhanced -> the workspace, which is where manifests live.
+        string textures = enhanced.TrimEnd(Path.DirectorySeparatorChar, '/');
+        string root = Path.GetDirectoryName(textures) ?? ".";
+        string workspace = Path.GetDirectoryName(root) ?? ".";
+
+        return SurfaceFinishes.Load(
+            Path.Combine(workspace, "manifests", "material-library.json"));
+    }
+
     private void DrawWalkOverlay(SceneGeometry geometry, LoadedScene scene)
     {
         if (scene.Walkable is not { } boundary || scene.Geometry is not { } bsp)

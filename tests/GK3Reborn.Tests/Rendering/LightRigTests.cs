@@ -11,22 +11,48 @@ namespace GK3Reborn.Tests.Rendering;
 public sealed class LightRigTests
 {
     [Fact]
-    public void A_light_with_attenuation_switched_off_reaches_the_whole_scene()
+    public void A_light_that_states_no_range_at_all_reaches_the_whole_scene()
     {
-        // R25's afternoon key light: the sun, fifty thousand units out, with a stored
-        // range of two hundred that means nothing because the switch is off. Honouring
-        // that range put the sun behind its own falloff and no daylight entered the room.
-        AuthoredLight sun = Light("scenekey", usesAttenuation: false, start: 80f, end: 200f);
+        // Nothing to honour. A light with the switch off and no stored range says nothing
+        // whatever about its reach, and unlimited is the only honest reading of that.
+        AuthoredLight sun = Light("scenekey", usesAttenuation: false, start: 0f, end: 0f);
 
         Assert.Equal(GpuLight.Unlimited, GpuLight.RangeOf(sun));
 
         GpuLight packed = GpuLight.From(sun);
-        float far = packed.DirectionAndEnd.W;
-        float start = packed.PositionAndStart.W;
 
-        // Fifty thousand units away, the shader's ramp between start and end still has to
-        // come out at full brightness.
-        Assert.True(Reach(50_000f, start, far) > 0.999f, "the sun fell off before it arrived");
+        Assert.True(
+            Reach(50_000f, packed.PositionAndStart.W, packed.DirectionAndEnd.W) > 0.999f,
+            "a light with no stated range fell off before it arrived");
+    }
+
+    [Fact]
+    public void A_stored_range_is_honoured_even_with_the_switch_off()
+    {
+        // 3ds Max's far attenuation being off means the light had no decay while the scene
+        // was being baked. Reproducing that at runtime is faithful and unusable: a light
+        // with no falloff lights every surface it can see equally, so a rig's fill lights
+        // become a flat wash with no source anywhere in the room. The hotel lobby is the
+        // case — 82% of the light arriving at the middle of its floor came from lights
+        // with the switch off, one of them 842 units outside the room.
+        //
+        // The ranges are in the file and they are the artists' own: every one of the
+        // lobby's fourteen switched-off lights carries a full near and far pair, set by
+        // hand and then disabled, which is a normal way to work in Max.
+        AuthoredLight fill = Light("omni02", usesAttenuation: false, start: 10f, end: 77f);
+
+        Assert.Equal(77f, GpuLight.RangeOf(fill));
+
+        GpuLight packed = GpuLight.From(fill);
+        float start = packed.PositionAndStart.W;
+        float end = packed.DirectionAndEnd.W;
+
+        // And it ramps rather than stopping dead. A light whose start equals its end is
+        // full brightness to a hard edge and then nothing, and that edge is a visible
+        // circle on a floor.
+        Assert.Equal(1f, Reach(5f, start, end), 3);
+        Assert.True(Reach(45f, start, end) is > 0.1f and < 0.9f, "no ramp between near and far");
+        Assert.Equal(0f, Reach(90f, start, end), 3);
     }
 
     [Fact]
@@ -43,11 +69,14 @@ public sealed class LightRigTests
     }
 
     [Fact]
-    public void An_unattenuated_light_outranks_a_bright_but_short_one()
+    public void A_light_with_no_stated_range_outranks_a_bright_but_short_one()
     {
         // The order decides which lights get a shadow ray, so a light that reaches the
-        // whole map has to sort ahead of one that reaches across a table.
-        AuthoredLight sun = Light("scenekey", usesAttenuation: false, start: 80f, end: 200f);
+        // whole map has to sort ahead of one that reaches across a table. What makes a
+        // light reach the whole map is stating no range, not having the switch off: one
+        // with the switch off and a range of two hundred now sorts on that two hundred,
+        // which is the point of honouring it.
+        AuthoredLight sun = Light("scenekey", usesAttenuation: false, start: 0f, end: 0f);
         AuthoredLight lamp = Light("omni01", usesAttenuation: true, start: 0f, end: 133f) with
         {
             Intensity = 3f,
@@ -56,6 +85,12 @@ public sealed class LightRigTests
         IReadOnlyList<AuthoredLight> chosen = GpuLight.Choose([lamp, sun]);
 
         Assert.Equal("scenekey", chosen[0].Name);
+
+        // And the ranged one does not: a bright lamp across a table beats a dim light that
+        // stops at two hundred units, which is what the numbers actually say.
+        AuthoredLight ranged = Light("scenefill", usesAttenuation: false, start: 80f, end: 200f);
+
+        Assert.Equal("omni01", GpuLight.Choose([ranged, lamp])[0].Name);
     }
 
     /// <summary>The shader's distance ramp, in the same form the fragment stage uses.</summary>

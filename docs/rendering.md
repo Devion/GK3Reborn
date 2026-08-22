@@ -327,6 +327,13 @@ room's parts, the trace, the filter, the composite — and it builds those stage
 render and throws them away with it, so nothing is carried over and the same scene renders
 to the same pixels every time. R25 at `--rt high` twice is byte-identical.
 
+**Pass `--enhanced` to get the materials.** Without it the tool draws the original textures
+at the shader's own defaults — no surface finishes, no normal, ORM or height maps — so it
+cannot show a material bug of any kind: a floor the library calls polished comes out matte,
+and a correction made in the edit layer changes nothing on screen. It reports what it
+loaded (`materials: N measured, N reflective, N metal, N corrected by hand`), and a zero
+there means the picture is not the one the host would draw.
+
 It did not always run that chain. For a while it bound the picture alone and left the other
 three colour targets unbound, so at any ray-traced level the rig's direct light went to a
 target nothing read and characters came out lit by the ambient floor — a class of shading
