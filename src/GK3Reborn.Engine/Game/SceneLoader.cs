@@ -1130,7 +1130,21 @@ public sealed class SceneLoader
                 return;
             }
 
-            if (original is not { } first || !TextureKeying.NeedsKey(first))
+            // A colour key cannot be applied to blocks, so a texture whose original uses
+            // GK3 magenta normally has to take the decoded path. Unless the compressed set
+            // holds it: that set is built from the enhanced textures, which resolved the
+            // magenta into a real alpha channel before it was ever encoded, so the key is
+            // already applied and there is nothing left to key.
+            //
+            // The distinction matters more than it used to. When this check was written the
+            // pilot set was 324 textures and three of them were keyed; the set is now 2,926
+            // and 398 are, so refusing all of them meant one texture in seven silently
+            // rendering as its 1999 original — the hotel sign at Rennes-le-Chateau among
+            // them. `pack-content` leaves out any keyed texture whose replacement has no
+            // alpha, which is what makes "the pack holds it" enough to know it is safe.
+            if (original is not { } first
+                || !TextureKeying.NeedsKey(first)
+                || Compressed?.Has(texture) == true)
             {
                 if (Compressed?.Read(texture, bag) is { } blocks)
                 {

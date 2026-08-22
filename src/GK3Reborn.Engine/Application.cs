@@ -237,12 +237,14 @@ public static class Application
             return 2;
         }
 
-        if (packs.Describe() is { } packed)
-        {
-            Console.WriteLine(packsOnly
+        // Said either way. Silence about a missing pack is how a run comes to be measured
+        // against the loose sets while everybody believes it was measured against the pack.
+        Console.WriteLine(packs.Describe() is { } packed
+            ? packsOnly
                 ? $"Packs: {packed} (--rebarn: loose enhanced content ignored)"
-                : $"Packs: {packed}");
-        }
+                : $"Packs: {packed}"
+            : $"Packs: none in {packDirectory}");
+
 
         // What the player has chosen, read before anything that obeys it exists. A first
         // run has no file and gets the defaults, which is not a failure and is not reported
@@ -720,12 +722,12 @@ public static class Application
                     ? null
                     : compressed;
 
-            if (first && loader.Compressed is { Count: > 0 })
+            if (first && loader.Compressed is not null && compressed.Describe() is { } sets)
             {
-                Console.WriteLine(
-                    $"Compressed textures: {compressed.Count} available with " +
-                    $"{compressed.NormalCount} normal map(s), {compressed.OrmCount} ORM and " +
-                    $"{compressed.HeightCount} height");
+                // Which set came from where, because the two are indistinguishable once a
+                // texture is on screen: a run that quietly used a stale build/ directory
+                // instead of the pack looks exactly like a run that used the pack.
+                Console.WriteLine($"Compressed textures: {sets}");
             }
 
             var loading = Stopwatch.StartNew();
@@ -763,6 +765,17 @@ public static class Application
                 $"Loaded {scene.Name} in {loading.Elapsed.TotalMilliseconds:F0} ms, " +
                 $"{geometry.TextureCount} textures resident, {geometry.TexturesReused} reused, " +
                 $"{geometry.TextureDeviceBytes / (1024.0 * 1024):F0} MB of them on the device"));
+
+            // What this load actually read, rather than what was available to it. The counts
+            // are cumulative over the session, so walking through a door adds to them.
+            if (compressed.FromPacks > 0 || compressed.FromFiles > 0)
+            {
+                Console.WriteLine(
+                    $"Blocks read: {compressed.FromPacks} from packs, "
+                    + $"{compressed.FromFiles} from {(compressed.Directory.Length > 0
+                        ? compressed.Directory
+                        : "loose files")}");
+            }
 
             Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
                 + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"

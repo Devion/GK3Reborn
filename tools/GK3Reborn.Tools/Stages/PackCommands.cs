@@ -18,7 +18,7 @@ public static class PackCommands
 {
     /// <summary>The commands this handles.</summary>
     public static IReadOnlyList<string> Commands { get; } =
-        ["pack-content", "pack-list", "pack-extract", "pack-verify"];
+        ["pack-content", "pack-plan", "pack-list", "pack-extract", "pack-verify"];
 
     /// <summary>Runs one of them.</summary>
     /// <param name="args">The whole command line, the command included.</param>
@@ -30,6 +30,7 @@ public static class PackCommands
         return args[0] switch
         {
             "pack-content" => Pack(args),
+            "pack-plan" => Plan(args),
             "pack-list" => List(args),
             "pack-extract" => Extract(args),
             "pack-verify" => Verify(args),
@@ -48,6 +49,7 @@ public static class PackCommands
         bool encodeOnly = Has(args, "--encode-only");
         bool gpu = !Has(args, "--no-gpu");
         bool single = Has(args, "--single-volume");
+        bool sizePlan = !Has(args, "--no-size-plan");
 
         if (workspace is null)
         {
@@ -106,7 +108,7 @@ public static class PackCommands
         }
 
         bool ok = new ContentPackStage(Console.WriteLine).Run(
-            workspace, output, plan, texconv, force, dryRun, encodeOnly, gpu);
+            workspace, output, plan, texconv, force, dryRun, encodeOnly, gpu, sizePlan);
 
         if (ok && !dryRun && !encodeOnly)
         {
@@ -115,6 +117,25 @@ public static class PackCommands
         }
 
         return ok ? 0 : 1;
+    }
+
+    private static int Plan(string[] args)
+    {
+        if (Flag(args, "--workspace") is not { } workspace)
+        {
+            return Usage("pack-plan requires --workspace.");
+        }
+
+        int multiplier = int.TryParse(
+            Flag(args, "--density"), CultureInfo.InvariantCulture, out int m) && m > 0 ? m : 4;
+
+        int floor = int.TryParse(
+            Flag(args, "--floor"), CultureInfo.InvariantCulture, out int f) && f >= 4 ? f : 512;
+
+        new TextureSizePlanStage(Console.WriteLine).Run(
+            workspace, Flag(args, "--source"), multiplier, floor);
+
+        return 0;
     }
 
     private static int List(string[] args)
@@ -325,8 +346,15 @@ public static class PackCommands
 
             pack-content  --workspace <dir> [--output <dir>] [--kinds a,b] [--cap normals=1024]
                           [--single-volume] [--force] [--dry-run] [--encode-only] [--no-gpu]
-                          [--texconv <path>]
+                          [--no-size-plan] [--texconv <path>]
                 Encode the enhanced content to DDS and pack it into ReBarn volumes.
+                Uses manifests/pack-sizes.json when it is there, so each texture is
+                packed at the size its world area justifies rather than all at 2048.
+
+            pack-plan     --workspace <dir> [--source <GK3 Data>] [--density N] [--floor N]
+                Work out that size for every texture and write the manifest. --source
+                lets it read the game's own inventory sprite list, whose close-ups must
+                not be shrunk. Review the manifest before packing.
 
             pack-list     --input <file|dir> [--kinds <kind>] [--names]
             pack-extract  --input <file|dir> --output <dir> [--kinds <kind>] [--name NAME]

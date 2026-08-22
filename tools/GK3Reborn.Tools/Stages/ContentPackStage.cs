@@ -91,6 +91,10 @@ public sealed class ContentPackStage
     /// <param name="dryRun">Report what would happen and write nothing.</param>
     /// <param name="encodeOnly">Encode to <c>build/</c> but do not write the volumes.</param>
     /// <param name="gpu">Let texconv use the GPU for BC7, which is several times faster.</param>
+    /// <param name="useSizePlan">
+    /// Read <c>manifests/pack-sizes.json</c> and cap each texture at the size its world area
+    /// justifies. False packs every texture at whatever the enhanced set holds.
+    /// </param>
     /// <returns>True when every volume was written.</returns>
     public bool Run(
         string workspace,
@@ -100,13 +104,27 @@ public sealed class ContentPackStage
         bool force = false,
         bool dryRun = false,
         bool encodeOnly = false,
-        bool gpu = true)
+        bool gpu = true,
+        bool useSizePlan = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspace);
         ArgumentException.ThrowIfNullOrWhiteSpace(output);
 
         IReadOnlyList<PackKind> kinds = plan ?? DefaultPlan;
         string encoder = texconv ?? FindTexconv(workspace);
+
+        // A size for each texture rather than one for each kind, worked out from the world
+        // area it covers. It applies to every channel, because a normal map for a texture
+        // that is 512 on screen has nothing to say above 512 either.
+        Dictionary<string, PackedTexture> sizes = useSizePlan
+            ? TextureSizePlanFile.Load(workspace)
+            : [];
+
+        if (sizes.Count > 0)
+        {
+            _log($"Size plan: {sizes.Count} textures sized individually "
+                + $"({TextureSizePlanStage.ManifestPath})");
+        }
 
         var byVolume = new Dictionary<string, List<Packable>>(StringComparer.OrdinalIgnoreCase);
         var problems = new List<string>();
@@ -123,7 +141,7 @@ public sealed class ContentPackStage
 
             List<Packable> packable = kind.Format is null
                 ? Verbatim(kind, source)
-                : Encoded(kind, source, workspace, encoder, force, dryRun, gpu, problems);
+                : Encoded(kind, source, workspace, encoder, force, dryRun, gpu, problems, sizes);
 
             if (packable.Count == 0)
             {
@@ -162,6 +180,29 @@ public sealed class ContentPackStage
         }
 
         Directory.CreateDirectory(output);
+
+        // Every target is checked before the first one is written. The engine memory-maps
+        // its packs and holds them for the life of the process, so a running game keeps
+        // them open — and finding that out after the first volume has been replaced leaves
+        // a mismatched set on disk, which is worse than not having written at all.
+        List<string> locked = [.. byVolume.Keys
+            .Select(v => Path.Combine(output, v + RebarnFormat.Extension))
+            .Where(File.Exists)
+            .Where(f => !Writable(f))];
+
+        if (locked.Count > 0)
+        {
+            _log("These volumes are open in another process, so nothing was written:");
+
+            foreach (string file in locked)
+            {
+                _log($"  {file}");
+            }
+
+            _log("Close the game (it holds its packs mapped for the whole session) and run again.");
+            return false;
+        }
+
         ushort volumeNumber = 0;
         bool ok = true;
 
@@ -206,11 +247,15 @@ public sealed class ContentPackStage
         }
 
         string path = Path.Combine(output, volume + RebarnFormat.Extension);
+
+        // Written beside the target and moved into place, so an interrupted run leaves the
+        // volume that was there rather than half of a new one.
+        string staging = path + ".writing";
         var watch = Stopwatch.StartNew();
         long done = 0;
         int lastPercent = -1;
 
-        RebarnVolumeReport report = builder.Write(path, (_, written) =>
+        RebarnVolumeReport report = builder.Write(staging, (_, written) =>
         {
             done = written;
             int percent = builder.SourceBytes > 0 ? (int)(done * 100 / builder.SourceBytes) : 100;
@@ -222,7 +267,9 @@ public sealed class ContentPackStage
             }
         });
 
-        _log($"{Path.GetFileName(report.Path)}: {report.Count} entries, {Gb(report.Bytes)} "
+        File.Move(staging, path, overwrite: true);
+
+        _log($"{Path.GetFileName(path)}: {report.Count} entries, {Gb(report.Bytes)} "
             + $"in {watch.Elapsed.TotalSeconds:F0} s");
 
         foreach (RebarnKindReport kind in report.Kinds)
@@ -231,6 +278,22 @@ public sealed class ContentPackStage
         }
 
         return true;
+    }
+
+    /// <summary>Whether a file can be opened for writing right now.</summary>
+    private static bool Writable(string path)
+    {
+        try
+        {
+            using var probe = new FileStream(
+                path, FileMode.Open, FileAccess.Write, FileShare.None);
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static List<Packable> Verbatim(PackKind kind, string source) =>
@@ -246,7 +309,8 @@ public sealed class ContentPackStage
         bool force,
         bool dryRun,
         bool gpu,
-        List<string> problems)
+        List<string> problems,
+        Dictionary<string, PackedTexture> sizes)
     {
         string cache = Path.Combine(
             workspace, "build", "rebarn", RebarnFormat.DirectoryOf(kind.Kind));
@@ -257,6 +321,9 @@ public sealed class ContentPackStage
 
         var jobs = new Dictionary<(int Width, int Height, bool Alpha), List<string>>();
         var result = new List<Packable>();
+        int excluded = 0;
+        int verbatim = 0;
+        int keyed = 0;
 
         foreach (string png in Directory.EnumerateFiles(source, "*.PNG"))
         {
@@ -268,12 +335,64 @@ public sealed class ContentPackStage
                 continue;
             }
 
-            (int width, int height, bool alpha) = Target(size, kind.Cap);
+            // Absence from the plan means "nothing was said about it", which is not the
+            // same as any of the things the plan can say. PackedTexture is a struct, so
+            // reading `default` here would report every unplanned map as "not a surface"
+            // and quietly drop it: three emissive maps whose colour texture is not in the
+            // enhanced set went missing exactly that way.
+            bool known = sizes.TryGetValue(name, out PackedTexture planned);
+
+            // Not a surface, so it has no material channels. Nothing should have produced
+            // one, but a stray file from an earlier run must not reach the pack either:
+            // the rule is what says this is a picture rather than a material.
+            if (known && !planned.Materials && kind.Kind is not RebarnKind.Texture)
+            {
+                excluded++;
+                continue;
+            }
+
+            // Its 1999 original is colour-keyed and the replacement did not carry the key
+            // across as alpha. Block data cannot be keyed, so packing it would put an
+            // opaque magenta rectangle where the holes belong; left out, the loader goes on
+            // reading the original, which is right. This is what lets the loader treat "the
+            // pack holds it" as "its transparency is already correct".
+            if (known && !planned.Pack)
+            {
+                keyed++;
+                continue;
+            }
+
+            // Stored as the source PNG rather than block-compressed. A full-screen image
+            // drawn one texel to one pixel gains nothing from BC7 and loses the gradients
+            // in it to block artefacts, which is exactly where they are most visible.
+            if (known && planned.Form == "png" && kind.Kind is RebarnKind.Texture)
+            {
+                result.Add(new Packable(kind.Kind, Path.GetFileName(png), png));
+                verbatim++;
+                continue;
+            }
+
+            // The tighter of the two caps wins: the kind's, and this texture's own.
+            int cap = kind.Cap;
+
+            if (known && planned.Size > 0)
+            {
+                cap = cap > 0 ? Math.Min(cap, planned.Size) : planned.Size;
+            }
+
+            (int width, int height, bool alpha) = Target(size, cap);
             string wanted = name + ".DDS";
 
-            if (Adopt(Path.Combine(legacy, wanted), width, height) is { } adopted && !force)
+            // Both candidates are held to the same rule, and the rule includes being no
+            // older than the PNG. Matching dimensions is not freshness: a regenerated
+            // texture keeps its size, so a stale DDS beside it looks adoptable and packs
+            // the picture that was there this morning. `enhanced/*.png` beats `build/*.dds`
+            // everywhere else in this project for exactly that reason.
+            string legacyDds = Path.Combine(legacy, wanted);
+
+            if (!force && Fresh(legacyDds, png, width, height))
             {
-                result.Add(new Packable(kind.Kind, wanted, adopted));
+                result.Add(new Packable(kind.Kind, wanted, legacyDds));
                 continue;
             }
 
@@ -298,7 +417,11 @@ public sealed class ContentPackStage
         int pending = jobs.Sum(j => j.Value.Count);
 
         _log($"{kind.Kind}: {result.Count} file(s), {pending} to encode to {kind.Format}"
-            + (kind.Cap > 0 ? $" capped at {kind.Cap}" : string.Empty));
+            + (kind.Cap > 0 ? $" capped at {kind.Cap}" : string.Empty)
+            + (sizes.Count > 0 ? ", size plan applied" : string.Empty)
+            + (verbatim > 0 ? $", {verbatim} stored as PNG" : string.Empty)
+            + (excluded > 0 ? $", {excluded} not a surface" : string.Empty)
+            + (keyed > 0 ? $", {keyed} left to the original for its colour key" : string.Empty));
 
         if (dryRun || pending == 0)
         {
@@ -408,8 +531,18 @@ public sealed class ContentPackStage
     private static string Tail(string text) =>
         text.Length <= 300 ? text.Trim() : text[^300..].Trim();
 
-    /// <summary>Whether a cached DDS is still what the plan asks for.</summary>
-    private static bool Fresh(string dds, string png, int width, int height)
+    /// <summary>Whether a DDS on disk is still what the plan asks for.</summary>
+    /// <param name="dds">The candidate DDS.</param>
+    /// <param name="png">The source it would have been made from.</param>
+    /// <param name="width">Width the plan wants.</param>
+    /// <param name="height">Height the plan wants.</param>
+    /// <returns>True when it can be packed as it is.</returns>
+    /// <remarks>
+    /// Three things, all of which have to hold: it exists, it is no older than the PNG it
+    /// was made from, and its extent is what the plan wants. The middle one is what makes a
+    /// regenerated texture reach the pack.
+    /// </remarks>
+    public static bool Fresh(string dds, string png, int width, int height)
     {
         if (!File.Exists(dds))
         {
@@ -424,7 +557,12 @@ public sealed class ContentPackStage
         return Adopt(dds, width, height) is not null;
     }
 
-    /// <summary>Whether a DDS already on disk is the right size to be used as is.</summary>
+    /// <summary>Whether a DDS already on disk has the extent the plan asks for.</summary>
+    /// <remarks>
+    /// Size only. Freshness is <see cref="Fresh"/>'s business, and the two must not be
+    /// confused: a regenerated texture keeps its dimensions, so size alone would adopt the
+    /// compression of a picture that has since been replaced.
+    /// </remarks>
     private static string? Adopt(string dds, int width, int height)
     {
         if (!File.Exists(dds))
@@ -457,12 +595,15 @@ public sealed class ContentPackStage
     }
 
     /// <summary>What size a source comes out at, and whether it carries alpha.</summary>
+    /// <param name="size">The source's extent and whether it has alpha.</param>
+    /// <param name="cap">Longest edge allowed, or zero for no cap.</param>
+    /// <returns>The extent to encode at.</returns>
     /// <remarks>
     /// The cap is on the longest edge and the aspect ratio is kept, rounded to a multiple
     /// of four so that no block is padded. A source already inside the cap is left alone —
     /// this never enlarges anything.
     /// </remarks>
-    internal static (int Width, int Height, bool Alpha) Target((int Width, int Height, bool Alpha) size, int cap)
+    public static (int Width, int Height, bool Alpha) Target((int Width, int Height, bool Alpha) size, int cap)
     {
         if (cap <= 0 || (size.Width <= cap && size.Height <= cap))
         {
@@ -483,7 +624,7 @@ public sealed class ContentPackStage
     /// twelve bytes are checked too, because two files in the workspace are truncated: the
     /// header of a half-written PNG is perfectly good and says nothing about the rest.
     /// </remarks>
-    internal static (int Width, int Height, bool Alpha)? PngSize(string path)
+    public static (int Width, int Height, bool Alpha)? PngSize(string path)
     {
         try
         {

@@ -44,6 +44,12 @@ pack-extract --input <file|dir> --output <dir> [--kinds <kind>] [--name NAME]
 pack-verify  --input <file|dir>
 ```
 
+A volume is written beside its target and moved into place, and every target is checked for
+writability *before* the first one is written. The engine memory-maps its packs and holds
+them for the whole session, so a running game keeps them open — discovering that after the
+first volume has been replaced leaves a mismatched set on disk, which is worse than having
+written nothing.
+
 `pack-verify` checks every entry against its CRC **and decodes each DDS with the engine's own
 reader**. A checksum only says the bytes are the bytes that were written; a format the loader
 refuses is written perfectly and then falls back silently at runtime, which is worse.
@@ -60,13 +66,95 @@ Designers edit `enhanced/`, run `pack-content`, and the pack catches up. Nothing
 
 ### What is re-encoded, and what is not
 
-Encoded DDS are kept in `build/rebarn/<kind>/` and reused. One is only produced again when
-its PNG is newer or when the encode parameters changed — which is what makes a second run
-take minutes instead of hours.
+Encoded DDS are kept in `build/rebarn/<kind>/` and reused, and an existing `build/<kind>/`
+DDS from an earlier `PbrLab/compress.py` run is adopted rather than redone. Either is only
+used when three things hold: it exists, its extent is what the plan asks for, and **it is no
+older than the PNG it was made from**.
 
-An existing `build/<kind>/` DDS from an earlier `PbrLab/compress.py` run is **adopted** when
-its dimensions already match what the plan asks for. That is why the first run costs nothing
-for colour and emissive: those were already encoded at full size.
+That third condition is the whole point. Matching dimensions is not freshness — a
+regenerated texture keeps its size — and a rule that checked only the extent packed the
+lobby register's picture from the previous night while the new one sat beside it. It was
+found by somebody noticing the register looked wrong, which is the only way it could have
+been found: the pack was valid, verified, and full of the wrong pictures. 2 colour textures,
+9 normals and *all 72* emissive maps were affected.
+
+### Sizing each texture for itself
+
+Nearly every enhanced texture is 2048 on its longest edge, whatever it depicts. `pack-plan`
+works out what each one is worth:
+
+```
+dotnet run --project tools/GK3Reborn.Tools -- pack-plan   --workspace <ContentWorkspace> --source <GK3>/Data [--density 4] [--floor 512]
+```
+
+It writes `manifests/pack-sizes.json` — every texture with its proposed size, the world area
+it covers and the rule that decided — and `pack-content` applies it automatically to every
+channel. `--no-size-plan` ignores it.
+
+The signal is `worldArea` and `densityTarget` from `surface-analysis.json`: how many texels
+of a texture fall across one world unit. `densityTarget` is the size at which a texture
+reaches the corpus *median* density, which is a 1999 yardstick, so `--density` multiplies it
+to say how much better than the original the remake wants to be. Reference counts are
+deliberately not used — they favour door latches over the wallpaper that fills a frame.
+
+At `--density 4` the colour set goes from 10.15 GB to 5.63 GB: 934 textures to 512, 712 to
+1024, 875 left at 2048.
+
+**Nothing is demoted without positive evidence.** A texture the surface analysis never saw
+keeps its size, because "not measured" is not "not important" — that is 721 of them. Three
+classes are protected outright on top of that, each drawn far larger than its world area
+suggests:
+
+- **226 face patches.** Eyelids, blinks, winks and mouths are blitted *into* a character's
+  face bitmap at offsets in that bitmap's own coordinates ([faces.md](faces.md)), so they
+  have to stay in scale with the face.
+- **131 inventory sprites**, named by the game's own `INVENTORYSPRITES.TXT`. These are drawn
+  as 2D art filling much of the screen in a close-up. Note the *3D model* textures for the
+  same objects — `LIPSTKCAP`, `RAZORFRNT` — are a different set and are sized normally, which
+  is right: those only ever appear at room scale.
+- **157 textures worn by a character**, looked at in conversation close-ups.
+
+### Saying it by hand: `pack-rules.json`
+
+No measurement sees everything, so `manifests/pack-rules.json` is hand-written, applied last
+and never regenerated — the same convention as `material-library.materials.edits.json`. A
+value is either a size, or an object:
+
+```json
+{
+  "_why": "a leading underscore is a comment",
+  "LBYREGBOOK": 2048,
+  "TITLE": {
+    "form": "png",
+    "materials": false,
+    "note": "Title background, drawn full-screen rather than mapped onto geometry."
+  }
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `size` | Longest edge to pack at, overriding the density rule. |
+| `form` | `dds` to block-compress, or `png` to store the source file verbatim. |
+| `materials` | `false` takes it out of the normal, ORM and height sets **and** out of every PbrLab pass. |
+| `note` | Why the rule exists. It is reported when the plan is built. |
+
+Two things this is for. **An in-world close-up camera**, which nothing in the corpus records:
+something the player walks up to and reads has a small world area and needs its pixels
+anyway — `{"LBYREGBOOK": 2048}`. And **an image that is not a surface at all**: the title
+background is drawn full screen at one texel to one pixel, so a normal map and an ORM for it
+are meaningless, and BC7 would spend block artefacts on the one thing a title screen is —
+smooth gradient. `form: png` stores it exactly as authored.
+
+`materials: false` is read on both sides. The packer skips the name in the material kinds,
+and `gk3pbr/workspace.select()` — the single door every PbrLab pass comes through — drops it,
+so a later full run does not generate maps for it either.
+
+> **A struct default is not an answer.** The lookup has to distinguish "the plan says this is
+> not a surface" from "the plan says nothing about it". `PackedTexture` is a struct, so an
+> absent name reads back as `default`, whose `Materials` is `false` — which quietly dropped
+> three emissive maps whose colour texture is not in the enhanced set. Check that the lookup
+> succeeded before believing what it returned.
 
 ## What each channel is encoded as, and why
 

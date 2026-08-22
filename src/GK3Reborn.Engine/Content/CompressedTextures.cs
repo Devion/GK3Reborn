@@ -37,6 +37,9 @@ public sealed class CompressedTextures
 
     private RebarnContent? _packs;
 
+    private int _fromPacks;
+    private int _fromFiles;
+
     private CompressedTextures(string directory) => Directory = directory;
 
     /// <summary>Where the textures were read from.</summary>
@@ -53,6 +56,51 @@ public sealed class CompressedTextures
 
     /// <summary>How many height maps are available.</summary>
     public int HeightCount => _height.Count;
+
+    /// <summary>How many reads this set has served out of a ReBarn pack.</summary>
+    public int FromPacks => Volatile.Read(ref _fromPacks);
+
+    /// <summary>How many reads this set has served out of a loose <c>.dds</c> file.</summary>
+    public int FromFiles => Volatile.Read(ref _fromFiles);
+
+    /// <summary>
+    /// Where each set's entries come from, for a startup report.
+    /// </summary>
+    /// <returns>One line, or null when there is nothing at all.</returns>
+    /// <remarks>
+    /// Worth saying out loud because the two sources are indistinguishable once a texture is
+    /// on screen, and a run that silently used a stale <c>build/</c> directory instead of the
+    /// pack looks exactly like a run that used the pack.
+    /// </remarks>
+    public string? Describe()
+    {
+        if (_colour.Count == 0 && _normal.Count == 0 && _orm.Count == 0 && _height.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join(", ", new[]
+        {
+            Part("colour", _colour),
+            Part("normal", _normal),
+            Part("ORM", _orm),
+            Part("height", _height),
+        }.Where(p => p is not null));
+
+        static string? Part(string what, Dictionary<string, string> from)
+        {
+            if (from.Count == 0)
+            {
+                return null;
+            }
+
+            int packed = from.Count(e => e.Value.Length == 0);
+
+            return packed == from.Count ? $"{from.Count} {what} packed"
+                : packed == 0 ? $"{from.Count} {what} loose"
+                : $"{from.Count} {what} ({packed} packed, {from.Count - packed} loose)";
+        }
+    }
 
     /// <summary>Indexes a build directory.</summary>
     /// <param name="directory">
@@ -226,8 +274,11 @@ public sealed class CompressedTextures
         // there is: nothing is read, decoded or allocated between the file and the device.
         if (file.Length == 0)
         {
+            Interlocked.Increment(ref _fromPacks);
             return _packs?.ReadTexture(kind, name, diagnostics);
         }
+
+        Interlocked.Increment(ref _fromFiles);
 
         try
         {
