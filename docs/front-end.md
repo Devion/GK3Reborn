@@ -6,10 +6,31 @@ the same painting, and adding a row means new art. There is no volume control wo
 name, no way to say how fast Gabriel should walk, and nothing that could carry a setting
 the 1999 build did not already have.
 
-**None of GK3's interface bitmaps are used here.** The menu is rectangles and text, drawn
-from the game's own caption fonts: sharp at any resolution, scaled by the same font ladder
-as the rest of the interface, translatable, and able to say things the original had no
-button for. A new row costs a line of code and no art at all.
+**None of GK3's interface bitmaps are used here.** The menu is rectangles and text: sharp
+at any resolution, translatable, and able to say things the original had no button for. A
+new row costs a line of code and no art at all.
+
+**The letters are outlines, not the game's sheets.** GK3's fonts are bitmaps drawn for a
+640×480 screen; the best that can be done with one on a modern display is to magnify it by
+a whole number, and it looks it. `Formats/Fonts` reads a TrueType file and draws it —
+`TrueTypeFile` for the tables and `GlyphRasterizer` for the shapes, both written here for
+the same reason every other format in this project is. The atlas is cut at the size the
+window actually is and re-cut when the window changes, so nothing is ever a magnified
+pixel. There are two of them: the room's captions and the menu, which wants larger text
+because it is the only thing on screen.
+
+Hinting is deliberately not implemented — it is a bytecode interpreter serving 96-dpi
+screens that no longer exist, and a well-made face at menu sizes reads perfectly without
+it. Kerning lives in `GPOS` in modern fonts and is not read either, which costs a little
+air around a few pairs. What *is* read is what silently breaks: the character map,
+composite glyphs (every accented letter in the French this game is set among is one), and
+the metrics that put a comma below the line and a capital on it.
+
+The face is Noto Serif under the SIL Open Font Licence, carried inside the engine assembly
+so a shipped game has one whatever its working directory is. A `.ttf` or `.otf` in the
+workspace's `enhanced/fonts` is preferred over it, `--font-file` names one outright, and
+`--bitmap-font` puts GK3's own sheets back — which is also what happens on its own if no
+outline font can be read.
 
 **The title screen itself is the game's own.** `TITLE.BMP` is a painting of an angel with
 the game's name in it, not a widget with a label baked into one language, so it is kept and
@@ -36,10 +57,10 @@ tested against every shape of picture and window that turns up.
 **No page says which keys work.** A menu that explains what an arrow key does is a menu that
 thinks the player has not used one.
 
-**The menu grows with the window**, measured every frame rather than at the size it was laid
-out for: a row is about a twenty-second of the window's height. Captions are sized to be
-readable without covering the room; a menu is the only thing on screen, and one drawn at
-caption size on a large display reads as a dialogue box from another decade.
+**The menu grows with the window.** Its atlas is cut for the window's height — an em of
+about a twenty-sixth of it — and re-cut when that changes, so going fullscreen re-draws the
+letters rather than stretching them. Captions are sized smaller, at a thirty-third, because
+they must not cover the room.
 
 ## What it is made of
 
@@ -143,6 +164,8 @@ dragging a slider. A menu that can only be used one way is a menu somebody canno
 | `--start NAME` | begin somewhere other than `R25` |
 | `--skip-intro` | this run only; the setting is not touched |
 | `--front-page audio\|video\|gameplay\|options` | open on that page |
+| `--font-file PATH` | draw the interface with that typeface |
+| `--bitmap-font` | draw it with GK3's own sheets instead |
 | `--frames N` `--screenshot PATH` | with `--front`: draw N frames of the menu, photograph it, and end |
 
 `--frames` also skips the intro, because a run that photographs something and ends does

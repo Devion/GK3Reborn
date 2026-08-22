@@ -152,7 +152,21 @@ public sealed class MenuPage
     }
 
     /// <summary>The display list it draws into.</summary>
-    public Overlay Overlay { get; }
+    public Overlay Overlay { get; private set; }
+
+    /// <summary>Draws with a different sheet of letters.</summary>
+    /// <param name="atlas">The new one.</param>
+    /// <remarks>
+    /// For a window that changed size. An outline font is re-cut at the new size rather
+    /// than magnified, which is the whole reason for having one.
+    /// </remarks>
+    public void Retarget(OverlayAtlas atlas)
+    {
+        ArgumentNullException.ThrowIfNull(atlas);
+
+        Overlay = new Overlay(atlas);
+        _rows.Clear();
+    }
 
     /// <summary>Which row is chosen, by index into the items last drawn.</summary>
     public int Index { get; private set; }
@@ -190,7 +204,7 @@ public sealed class MenuPage
     public float Across { get; set; } = 0.5f;
 
     /// <summary>One row's height, which is what everything else is measured in.</summary>
-    private float Row => Overlay.LineHeight * 1.9f;
+    private float Row => Overlay.LineHeight * (Overlay.Atlas.Scalable ? 1.5f : 1.9f);
 
     /// <summary>Draws a page and remembers where every row went.</summary>
     /// <param name="title">The heading.</param>

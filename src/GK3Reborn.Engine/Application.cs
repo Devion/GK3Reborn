@@ -399,6 +399,18 @@ public static class Application
         // useless for the one thing it is best at: watching something across a transition.
         var console = new GameConsole { Catalogue = catalogue };
 
+        // The typeface. An outline is rasterised at whatever size the window is, so the
+        // interface is crisp on a display of any size; GK3's own sheets are 640x480 art
+        // that can only be magnified by whole numbers and look it.
+        Formats.Fonts.TrueTypeFile? face =
+            args.Contains("--bitmap-font", StringComparer.OrdinalIgnoreCase)
+                ? null
+                : InterfaceFont(Option(args, "--font-file"), enhancedDirectory, diagnostics);
+
+        Console.WriteLine(face is { } chosen
+            ? $"Typeface: {chosen.Family}, {chosen.CharacterCount} characters, drawn from outlines"
+            : "Typeface: GK3's own bitmap sheets");
+
         int wantedGlyph = WantedGlyphHeight(window.FramebufferHeight);
 
         // --font names one outright, for looking at a particular sheet.
@@ -406,16 +418,39 @@ public static class Application
             ? [named]
             : CaptionFonts;
 
-        if (fonts.Nearest(wantedGlyph, ladder) is { } font)
+        // The atlas the room's interface draws with, and the larger one the menu does.
+        // Two sizes rather than one magnified: an outline drawn at the size it is wanted
+        // is the whole point of having one.
+        OverlayAtlas? Cut(bool menu)
         {
-            OverlayAtlas atlas = OverlayAtlas.Build(font);
-            int magnify = Magnification(font, wantedGlyph);
+            int height = window.FramebufferHeight;
+
+            if (face is not null &&
+                OverlayAtlas.Build(face, TextPixels(height, menu)) is { } drawn)
+            {
+                return drawn;
+            }
+
+            int wanted = menu
+                ? Math.Max(WantedGlyphHeight(height), TextPixels(height, true) * 2 / 3)
+                : WantedGlyphHeight(height);
+
+            return fonts.Nearest(wanted, ladder) is { } sheet ? OverlayAtlas.Build(sheet) : null;
+        }
+
+        if (Cut(menu: false) is { } atlas)
+        {
+            // A sheet has to be magnified to reach the size wanted; an outline was drawn
+            // at it.
+            int magnify = atlas.Scalable || atlas.Font is null
+                ? 1
+                : Magnification(atlas.Font, wantedGlyph);
 
             renderer.SetOverlayAtlas(atlas);
             hud = new GameHud(new Overlay(atlas) { Magnify = magnify });
 
             Console.WriteLine(
-                $"Interface: {font.Name}, {font.Count} glyphs at {font.Height}px" +
+                $"Interface: {atlas.Name}, {atlas.Count} glyphs at {atlas.Height}px" +
                 (magnify > 1 ? $" x{magnify}" : string.Empty) +
                 $" (wanted {wantedGlyph} for a {window.FramebufferHeight}-line display), " +
                 $"sheet {atlas.Image.Width}x{atlas.Image.Height}, " +
@@ -430,10 +465,13 @@ public static class Application
         // live rather than at the next room: a volume that only takes effect after a door
         // is a volume the player cannot hear themselves setting.
         var front = new FrontEnd(settings);
-        MenuPage? pages = hud is null ? null : new MenuPage(new Overlay(hud.Overlay.Atlas)
-        {
-            Magnify = hud.Overlay.Magnify,
-        });
+
+        MenuPage? pages = hud is null
+            ? null
+            : new MenuPage(new Overlay(Cut(menu: true) ?? hud.Overlay.Atlas)
+            {
+                Magnify = hud.Overlay.Magnify,
+            });
 
         SceneUpdate? live = null;
 
@@ -549,6 +587,7 @@ public static class Application
                     front,
                     Apply,
                     title.Exists ? MenuBehind.Picture : MenuBehind.Nothing,
+                    () => Cut(menu: true),
                     frameLimit,
                     screenshotPath);
 
@@ -927,7 +966,7 @@ public static class Application
 
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api), room, movies, hud, fonts, api.State, console,
+                new SceneInteraction(scene, api), room, movies, hud, Cut, api.State, console,
                 front, pages, Apply, args);
 
             result = exit.Code;
@@ -1106,6 +1145,118 @@ public static class Application
     /// </remarks>
     private static int WantedGlyphHeight(int framebufferHeight) =>
         Math.Max(12, (int)MathF.Round(Math.Max(1, framebufferHeight) * 0.028f));
+
+    /// <summary>How tall an em should be, in pixels, for a window of a given height.</summary>
+    /// <param name="framebufferHeight">How tall the window is.</param>
+    /// <param name="menu">Whether this is the menu rather than the room's interface.</param>
+    /// <returns>The em size to draw the outline font at.</returns>
+    /// <remarks>
+    /// A share of the window rather than a fixed size, so the interface is the same
+    /// apparent size on every display. The menu is drawn larger than the room's captions
+    /// on purpose: captions must not cover the room, and a menu is the only thing on
+    /// screen.
+    /// </remarks>
+    private static int TextPixels(int framebufferHeight, bool menu) => Math.Max(
+        menu ? 16 : 12,
+        (int)MathF.Round(Math.Max(1, framebufferHeight) / (menu ? 26f : 33f)));
+
+    /// <summary>
+    /// Finds the typeface the interface draws with.
+    /// </summary>
+    /// <param name="named">A file named on the command line, or null.</param>
+    /// <param name="enhancedDirectory">The content workspace's enhanced set, if any.</param>
+    /// <param name="diagnostics">Where a font that will not read is reported.</param>
+    /// <returns>The font, or null to fall back to GK3's own sheets.</returns>
+    /// <remarks>
+    /// <para>
+    /// Three places, in the order somebody working on the game would want them:
+    /// <c>--font-file</c>, then any <c>.ttf</c> or <c>.otf</c> in the workspace's
+    /// <c>enhanced/fonts</c>, then the one carried inside the assembly. The last is what a
+    /// shipped game uses and is why this never comes back empty on an installation that
+    /// has no workspace at all.
+    /// </para>
+    /// <para>
+    /// The embedded face is Noto Serif under the SIL Open Font Licence 1.1 — a serif,
+    /// because GK3's own captions are one and a sans-serif menu in front of this game
+    /// would look like somebody else's.
+    /// </para>
+    /// </remarks>
+    private static Formats.Fonts.TrueTypeFile? InterfaceFont(
+        string? named, string? enhancedDirectory, DiagnosticBag diagnostics)
+    {
+        foreach (string path in Typefaces(named, enhancedDirectory))
+        {
+            try
+            {
+                if (Formats.Fonts.TrueTypeFile.Parse(
+                        File.ReadAllBytes(path), Path.GetFileName(path), diagnostics) is { } read)
+                {
+                    return read;
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"WARNING GK3R1201: {path} could not be read. ({error.Message})");
+            }
+        }
+
+        // The one inside the assembly, which needs no path and cannot be missing.
+        using Stream? carried = typeof(Application).Assembly.GetManifestResourceStream(
+            "GK3Reborn.Assets.Fonts.NotoSerif-Regular.ttf");
+
+        if (carried is null)
+        {
+            return null;
+        }
+
+        using var copy = new MemoryStream();
+        carried.CopyTo(copy);
+
+        return Formats.Fonts.TrueTypeFile.Parse(copy.ToArray(), "NotoSerif-Regular.ttf", diagnostics);
+    }
+
+    /// <summary>Where to look for a typeface, best first.</summary>
+    private static IEnumerable<string> Typefaces(string? named, string? enhancedDirectory)
+    {
+        if (named is { Length: > 0 } && File.Exists(named))
+        {
+            yield return named;
+        }
+
+        if (enhancedDirectory is not { Length: > 0 })
+        {
+            yield break;
+        }
+
+        string beside = Beside(enhancedDirectory, "fonts");
+
+        if (!Directory.Exists(beside))
+        {
+            yield break;
+        }
+
+        string[] found;
+
+        try
+        {
+            found =
+            [
+                .. Directory.EnumerateFiles(beside)
+                    .Where(f => f.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".otf", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase),
+            ];
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            yield break;
+        }
+
+        foreach (string file in found)
+        {
+            yield return file;
+        }
+    }
 
     /// <summary>How many screen pixels one pixel of the chosen sheet should cover.</summary>
     /// <param name="font">The rung that was picked.</param>
@@ -1309,9 +1460,9 @@ public static class Application
     /// <param name="room">What the room sounds like, if there is a device.</param>
     /// <param name="movies">What plays a cutscene when a script asks for one.</param>
     /// <param name="hud">The interface, if there is a font to draw it with.</param>
-    /// <param name="fonts">
-    /// The game's fonts, so a window that changes size can be given a different rung of the
-    /// caption ladder.
+    /// <param name="cut">
+    /// Cuts a sheet of letters for the window's current size, so one that changes size is
+    /// drawn at the new one rather than at the old one stretched.
     /// </param>
     /// <param name="story">Where the story stands, for the inventory strip.</param>
     /// <param name="console">The developer console, which outlives the room.</param>
@@ -1337,7 +1488,7 @@ public static class Application
         SceneAudio? room,
         Game.MoviePlayer movies,
         GameHud? hud,
-        FontLibrary fonts,
+        Func<bool, OverlayAtlas?> cut,
         GameState story,
         GameConsole console,
         FrontEnd front,
@@ -1346,7 +1497,7 @@ public static class Application
         string[] options)
     {
         ArgumentNullException.ThrowIfNull(console);
-        ArgumentNullException.ThrowIfNull(fonts);
+        ArgumentNullException.ThrowIfNull(cut);
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
 
@@ -1428,37 +1579,40 @@ public static class Application
             float delta = (float)Math.Min(0.1, now - previous);
             previous = now;
 
+            // A window that goes fullscreen doubles in height. An outline is re-cut at
+            // the new size; a bitmap sheet can only step up the ladder and be magnified.
             if (hud is not null && window.FramebufferHeight != laidOutFor)
             {
                 laidOutFor = window.FramebufferHeight;
 
-                int wanted = WantedGlyphHeight(laidOutFor);
-
-                if (fonts.Nearest(wanted, CaptionFonts) is { } rung)
+                if (cut(false) is { } grown)
                 {
-                    int magnify = Magnification(rung, wanted);
-                    bool sameSheet =
-                        rung.Name.Equals(hud.Overlay.Atlas.Font.Name, StringComparison.Ordinal);
+                    int magnify = grown.Scalable || grown.Font is null
+                        ? 1
+                        : Magnification(grown.Font, WantedGlyphHeight(laidOutFor));
 
-                    // The sheet may be right and only the magnification wrong, which costs
-                    // a field rather than a rebuild.
-                    if (sameSheet)
+                    if (!grown.Scalable &&
+                        grown.Name.Equals(hud.Overlay.Atlas.Name, StringComparison.Ordinal))
                     {
+                        // The sheet is right and only the magnification wrong, which costs
+                        // a field rather than a rebuild.
                         hud.Overlay.Magnify = magnify;
                     }
                     else
                     {
-                        OverlayAtlas grown = OverlayAtlas.Build(rung);
-
-                        renderer.SetOverlayAtlas(grown);
                         hud.Retarget(grown);
                         hud.Overlay.Magnify = magnify;
 
                         Console.WriteLine(
-                            $"Interface: {rung.Name} at {rung.Height}px" +
+                            $"Interface: {grown.Name} at {grown.Height}px" +
                             (magnify > 1 ? $" x{magnify}" : string.Empty) +
                             $" for {laidOutFor} lines");
                     }
+                }
+
+                if (pages is not null && cut(true) is { } wider)
+                {
+                    pages.Retarget(wider);
                 }
             }
 
@@ -1525,7 +1679,7 @@ public static class Application
                 front.InGame = true;
 
                 FrontEndOutcome chose = ShowMenu(
-                    window, renderer, pages, front, apply, MenuBehind.Room);
+                    window, renderer, pages, front, apply, MenuBehind.Room, () => cut(true));
 
                 // The room has been standing still behind the menu and the clock has not.
                 // Without this the first frame back advances everything by however long the
@@ -1980,6 +2134,7 @@ public static class Application
     /// <param name="front">What the pages hold and what choosing a row does.</param>
     /// <param name="apply">What to do with a setting the moment it changes.</param>
     /// <param name="behind">What is behind it, and so what it has to draw itself.</param>
+    /// <param name="cut">Cuts a fresh sheet of letters when the window changes size.</param>
     /// <param name="frames">Leave after this many frames, or zero to wait for the player.</param>
     /// <param name="photograph">Where to write the last frame, if anywhere.</param>
     /// <returns>What the player asked for.</returns>
@@ -2002,10 +2157,12 @@ public static class Application
         FrontEnd front,
         Action<Settings> apply,
         MenuBehind behind,
+        Func<OverlayAtlas?> cut,
         int frames = 0,
         string? photograph = null)
     {
         FrontEndPage showing = front.Page;
+        int laidOutFor = window.FramebufferHeight;
 
         pages.Behind = behind;
 
@@ -2020,11 +2177,22 @@ public static class Application
 
             IReadOnlyList<MenuItem> items = front.Items;
 
-            // Every frame, because a window that goes fullscreen doubles in height and a
-            // menu that stayed the size it was laid out at would be a postage stamp in the
-            // middle of it.
-            pages.Overlay.Magnify = MenuMagnification(
-                window.FramebufferHeight, pages.Overlay.Atlas.Font.Height);
+            // A window that goes fullscreen doubles in height, and a menu that stayed the
+            // size it was laid out at would be a postage stamp in the middle of it. An
+            // outline is re-cut for the new size; a sheet is magnified to reach it.
+            if (window.FramebufferHeight != laidOutFor)
+            {
+                laidOutFor = window.FramebufferHeight;
+
+                if (pages.Overlay.Atlas.Scalable && cut() is { } again)
+                {
+                    pages.Retarget(again);
+                }
+            }
+
+            pages.Overlay.Magnify = pages.Overlay.Atlas.Scalable
+                ? 1
+                : MenuMagnification(window.FramebufferHeight, pages.Overlay.Atlas.Height);
 
             Vector2 pointer = new(
                 window.PointerPosition.X * window.DpiScale,

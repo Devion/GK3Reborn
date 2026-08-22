@@ -663,6 +663,16 @@ public sealed unsafe class VulkanRenderer : IDisposable
             return;
         }
 
+        // A display list carries the sheet it was cut from, and the interface has more
+        // than one: the room's captions and the menu are drawn at different sizes from
+        // different atlases. Uploading the one that arrived, rather than trusting whoever
+        // called to have done it, is the difference between text and a row of fragments —
+        // which is what sampling one atlas with another's coordinates looks like.
+        if (!ReferenceEquals(overlay.Atlas, _overlayAtlas))
+        {
+            SetOverlayAtlas(overlay.Atlas);
+        }
+
         _overlayAtlas = overlay.Atlas;
         _overlay.Prepare(overlay);
     }

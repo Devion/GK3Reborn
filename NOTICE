@@ -38,6 +38,20 @@ Third-party components
 Redistributed third-party components and their licenses are listed in
 licenses/THIRD-PARTY.md, generated as part of the release process.
 
+The interface's typeface is Noto Serif Regular (version 1.07), Copyright 2012
+Google Inc., licensed under the SIL Open Font License, Version 1.1. It is
+carried inside GK3Reborn.Engine as an embedded resource at
+src/GK3Reborn.Engine/Assets/Fonts/NotoSerif-Regular.ttf, and its licence is
+included in that file's own name table. The OFL permits this redistribution;
+the font is not sold on its own and its name is not used to promote anything.
+See https://scripts.sil.org/OFL. A .ttf or .otf placed in the content
+workspace's enhanced/fonts directory is used in preference to it, which is how
+the typeface is changed without rebuilding.
+
+None of GK3's own fonts are redistributed. They are read from the player's
+installation like every other original asset, and are still what the interface
+falls back to when no outline font can be read.
+
 FFmpeg is a runtime dependency rather than a redistributed component: the
 cutscenes are decoded through FFMediaToolkit (MIT) over FFmpeg's own shared
 libraries, which are located at run time from libs/<rid> or from the system
