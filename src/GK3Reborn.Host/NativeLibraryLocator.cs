@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Silk.NET.Core.Loader;
 
 namespace GK3Reborn.Bootstrap;
 
@@ -18,9 +19,9 @@ namespace GK3Reborn.Bootstrap;
 /// fails silently when it fails at all.
 /// </para>
 /// <para>
-/// Silk.NET does not route all of its loading through the BCL resolver - it has its
-/// own search mechanism - so P1's clean-machine proof must cover Silk.NET's loader
-/// and the single-file extraction directory too, not just this hook.
+/// Silk.NET does not route all of its loading through the BCL resolver - it has its own
+/// search mechanism, so the hook below never sees glfw3, soft_oal or shaderc_shared.
+/// <see cref="Install"/> therefore teaches Silk.NET's resolver about the same directory.
 /// </para>
 /// </remarks>
 public static class NativeLibraryLocator
@@ -34,6 +35,7 @@ public static class NativeLibraryLocator
         : OperatingSystem.IsMacOS() ? [".dylib"] : [".so"];
 
     private static string? _libsRoot;
+    private static bool _installed;
 
     /// <summary>The directory native libraries are resolved from, once installed.</summary>
     public static string? LibsRoot => _libsRoot;
@@ -54,6 +56,38 @@ public static class NativeLibraryLocator
             RuntimeInformation.RuntimeIdentifier);
 
         NativeLibrary.SetDllImportResolver(assembly, Resolve);
+
+        if (!_installed)
+        {
+            _installed = true;
+            InstallSilkResolver();
+        }
+    }
+
+    /// <summary>
+    /// Adds <c>libs/&lt;rid&gt;</c> to Silk.NET's own search, which is how GLFW, OpenAL
+    /// Soft and shaderc are found once the publish has moved them out of
+    /// <c>runtimes/&lt;rid&gt;/native</c>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DefaultPathResolver.Resolvers"/> is a public, mutable list of candidate
+    /// generators; prepending puts an absolute path from the install root ahead of both
+    /// the bare name - which would let a stray system copy win - and the now-absent
+    /// runtimes tree. The directory check happens per call rather than once, so a run
+    /// started before the payload was dropped in still picks it up.
+    /// </remarks>
+    private static void InstallSilkResolver()
+    {
+        if (PathResolver.Default is not DefaultPathResolver resolver)
+        {
+            return;
+        }
+
+        string root = _libsRoot!;
+
+        resolver.Resolvers.Insert(
+            0,
+            name => Directory.Exists(root) ? [Path.Combine(root, name)] : []);
     }
 
     /// <summary>Finds a candidate file for a native library name, or null.</summary>

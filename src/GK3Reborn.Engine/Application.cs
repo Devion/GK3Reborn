@@ -166,11 +166,22 @@ public static class Application
         if (!Directory.Exists(dataDirectory))
         {
             Console.Error.WriteLine($"No content directory at {dataDirectory}.");
-            Console.Error.WriteLine("Pass --data <dir> pointing at the game's Data directory.");
+            ExplainMissingArchives(dataDirectory);
             return 2;
         }
 
         using GameArchives archives = GameArchives.Open(dataDirectory);
+
+        if (archives.Count == 0)
+        {
+            // The directory is there and empty, which is what a half-finished install looks
+            // like. Said here rather than letting the first missing asset report it: a room
+            // that cannot be found reads as a broken game, not as a copy nobody made.
+            Console.Error.WriteLine($"No game archives in {dataDirectory}.");
+            ExplainMissingArchives(dataDirectory);
+            return 2;
+        }
+
         Console.WriteLine($"Content: {archives.Count} archives in {dataDirectory}");
 
         // Before the window, the device and the menu. A room that is not in the archives
@@ -208,9 +219,21 @@ public static class Application
         // --rebarn: the packs and nothing else. Every loose source of enhanced content is
         // taken out of the way, which is the only way to measure what the shipped form
         // costs — with the loose sets in front of it, a run measures those instead.
-        bool packsOnly = args.Contains("--rebarn", StringComparer.OrdinalIgnoreCase);
+        bool askedForPacks = args.Contains("--rebarn", StringComparer.OrdinalIgnoreCase);
 
-        if (packsOnly && args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase))
+        // And that is what a player gets without asking, because it is all a shipped
+        // install has: packs beside the executable and no content workspace anywhere. The
+        // loose sets are only ever wanted by somebody who named one, or who asked to see
+        // the originals underneath — so naming any of those three is what turns it off.
+        // A run with no packs is unaffected: there is nothing for this to prefer.
+        bool namedSomethingLoose =
+            enhancedDirectory is { Length: > 0 } ||
+            Option(args, "--workspace") is { Length: > 0 } ||
+            args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase);
+
+        bool packsOnly = askedForPacks || (packs.VolumeCount > 0 && !namedSomethingLoose);
+
+        if (askedForPacks && args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase))
         {
             // --rebarn says "the packs and nothing else", --uncompressed says "not the
             // compressed layer", and a pack holds nothing but compressed textures. Together
@@ -225,7 +248,7 @@ public static class Application
             return 2;
         }
 
-        if (packsOnly && packs.VolumeCount == 0)
+        if (askedForPacks && packs.VolumeCount == 0)
         {
             // Refused rather than warned. Falling back would run the game on the original
             // textures and report perfectly good timings for something nobody asked to
@@ -241,7 +264,7 @@ public static class Application
         // against the loose sets while everybody believes it was measured against the pack.
         Console.WriteLine(packs.Describe() is { } packed
             ? packsOnly
-                ? $"Packs: {packed} (--rebarn: loose enhanced content ignored)"
+                ? $"Packs: {packed} (loose enhanced content ignored)"
                 : $"Packs: {packed}"
             : $"Packs: none in {packDirectory}");
 
@@ -2726,8 +2749,85 @@ public static class Application
         Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "ContentWorkspace"));
 
-    private static string DefaultDataDirectory() =>
-        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "GK3", "Data"));
+    /// <summary>The eight archives a retail installation of GK3 holds.</summary>
+    /// <remarks>
+    /// Named in <c>Plan/02-content-pipeline.md</c> section 3. Listed here so that somebody
+    /// who has the game but not this project's documentation is told what to copy, in a
+    /// message rather than in a file they would have to go and find.
+    /// </remarks>
+    private static readonly string[] RetailArchives =
+    [
+        "ambient.brn", "common.brn", "core.brn", "day1.brn",
+        "day123.brn", "day2.brn", "day23.brn", "day3.brn",
+    ];
+
+    /// <summary>Says what is missing and where it goes.</summary>
+    /// <param name="dataDirectory">Where the archives were looked for.</param>
+    private static void ExplainMissingArchives(string dataDirectory)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(
+            "GK3Reborn reads the original game's archives; it does not contain them.");
+
+        Console.Error.WriteLine(
+            $"Copy these from your installation's Data directory into {dataDirectory}:");
+
+        Console.Error.WriteLine("    " + string.Join("  ", RetailArchives));
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(
+            "Nothing else from the original is needed: the .bik and .avi movies are "
+            + "replaced by converted video in the .rebarn packs.");
+
+        Console.Error.WriteLine(
+            "Or pass --data <dir> to read them where they already are.");
+    }
+
+    /// <summary>Where the game's own archives are, when nobody has said.</summary>
+    /// <returns>The first directory holding a <c>.brn</c>, or where one should be put.</returns>
+    /// <remarks>
+    /// <para>
+    /// A published game is a directory somebody has copied the original archives into, so
+    /// the executable's own <c>Data</c> is looked at first and the executable's directory
+    /// after it, for anybody who dropped the barns straight in beside the game.
+    /// </para>
+    /// <para>
+    /// The walk up the tree is the development convenience it always was: the checkout
+    /// keeps the installation six directories above <c>bin/Debug</c>, and copying eight
+    /// hundred megabytes into every project's output to save the walk would be the wrong
+    /// trade. It is looked at last so that a published tree never reaches past itself and
+    /// quietly runs on whatever an unrelated directory above it happens to hold.
+    /// </para>
+    /// <para>
+    /// A directory only counts when it actually holds a barn. An empty <c>Data</c> beside
+    /// the executable is the shape of an install somebody has started and not finished,
+    /// and stopping there would report it as the answer.
+    /// </para>
+    /// </remarks>
+    private static string DefaultDataDirectory()
+    {
+        string beside = AppContext.BaseDirectory;
+
+        string[] candidates =
+        [
+            Path.Combine(beside, "Data"),
+            beside,
+            Path.GetFullPath(Path.Combine(
+                beside, "..", "..", "..", "..", "..", "..", "GK3", "Data")),
+        ];
+
+        foreach (string candidate in candidates)
+        {
+            if (Directory.Exists(candidate) &&
+                Directory.EnumerateFiles(candidate, "*.brn").Any())
+            {
+                return candidate;
+            }
+        }
+
+        // Nothing anywhere: name the place a player is meant to fill rather than the one a
+        // developer's checkout happens to have, because that is the message they will read.
+        return candidates[0];
+    }
 
     /// <summary>
     /// Renders one frame with no window and writes it to a file.

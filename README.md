@@ -187,6 +187,75 @@ native libraries under `libs/<rid>/` and converted content under `content/`.
 Native resolution goes through an absolute-path resolver; the global `PATH` is
 never modified.
 
+```console
+dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile
+```
+
+```text
+GK3Reborn.exe          every managed assembly, bundled by single-file publishing
+libs/win-x64/          glfw3, soft_oal, shaderc_shared, and FFmpeg if it is present
+```
+
+### Filling a published tree
+
+The build ships no game content. Two things go in beside the executable:
+
+```text
+Data/                  the original game's archives, copied from your installation
+Reborn.rebarn          the converted content, built by `pack-content`
+```
+
+`Data/` wants these eight files and nothing else:
+
+```text
+ambient.brn  common.brn  core.brn  day1.brn  day123.brn  day2.brn  day23.brn  day3.brn
+```
+
+The `.bik` and `.avi` movies in the original `Data` directory are *not* needed by
+a published game — they are Bink and Indeo, which nothing modern decodes, and the
+pack carries converted H.264 in their place. They are only needed by the
+conversion pipeline, which reads them from the installation directly. Everything
+else in a GK3 installation — `GK3.exe`, `binkw32.dll`, the save games — is
+unused.
+
+The archives are found beside the executable in `Data/`, then loose in the
+executable's own directory, then — for a development build only — six levels up
+at `GK3/Data`. `--data <dir>` overrides all three. A `.rebarn` pack is looked for
+beside the executable first, then in the content workspace. Without a pack the
+game runs on the original 1999 art.
+
+The managed assemblies go *into* the executable rather than into `libs/`;
+relocating them would need a probing-path fallback that bundling makes
+unnecessary. The native libraries are moved out of the `runtimes/<rid>/native`
+tree by targets in `GK3Reborn.Host.csproj`, which also copy in whatever the
+gitignored `libs/<rid>/` beside this file holds — that is where an FFmpeg shared
+build is dropped by hand ([docs/formats/video.md](docs/formats/video.md)). A
+checkout without one publishes fine and ships without a video decoder.
+
+Two loaders have to agree about `libs/<rid>`: the BCL's, hooked with
+`NativeLibrary.SetDllImportResolver`, and Silk.NET's, which does its own
+searching. `NativeLibraryLocator` installs into both.
+
+A publish with no RID keeps the flat developer layout — loose assemblies, every
+platform's natives — but still gathers them under `libs/<rid>/`. Pass
+`-p:RebornCleanPublishLayout=false` for the stock SDK layout, which is worth
+having when bisecting a native-loading failure.
+
+`--offscreen` and `--render --headless-frames` are the two smoke tests that prove
+a published tree loads its natives: the first renders without a window, the
+second opens one for sixty frames.
+
+## Starting the game
+
+No arguments is how a player starts it, and no arguments has to mean something
+sensible on its own: the intro, the menu, and then day one at ten in the morning
+in the lobby. Ray tracing follows the picture quality in the player's settings
+and falls back to none on a device without it. The `.rebarn` pack is used when
+one is there, and the loose enhanced sets are ignored — which is all a shipped
+install has anyway. Naming `--enhanced`, `--workspace` or `--uncompressed` is
+what asks for the loose sets instead; `--rebarn` still forces packs-only and
+refuses to start without a pack, which is what makes a measurement honest.
+
 ## Locale
 
 en-US is the only supported and validated locale. The text, font, layout and

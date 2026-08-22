@@ -1,6 +1,12 @@
 <Project>
 
   <PropertyGroup>
+    <!-- The checkout root, for the few things that live beside the solution rather than
+         inside a project: the hand-dropped native payload in libs/<rid>, above all. -->
+    <RebornRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)'))</RebornRoot>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>

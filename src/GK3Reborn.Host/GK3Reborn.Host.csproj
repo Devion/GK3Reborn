@@ -13,4 +13,122 @@
     <ProjectReference Include="../GK3Reborn.Engine/GK3Reborn.Engine.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Referenced directly, not transitively: this assembly teaches Silk.NET's own path
+         resolver about libs/<rid>, which is the loader the BCL hook cannot reach. -->
+    <PackageReference Include="Silk.NET.Core" />
+  </ItemGroup>
+
+  <!-- ==================================================================================
+       Clean publishing layout. See Plan/01-architecture.md section 8.
+
+       A published tree is meant to be an executable, libs/<rid> and content/ - not the
+       forty loose assemblies and eight-platform runtimes/ tree that a stock publish
+       produces. Managed assemblies are bundled into the executable by single-file
+       publishing (set in the publish profile); this file is what moves the native
+       libraries, which single-file deliberately leaves on disk.
+
+       Two sources feed libs/<rid>:
+
+         - runtimes/<rid>/native/ from the Silk.NET packages - glfw3, soft_oal,
+           shaderc_shared. Relocated below.
+         - libs/<rid>/ beside the solution, where an FFmpeg shared build is dropped by
+           hand because no package carries an LGPL one (docs/formats/video.md). That
+           directory is gitignored, so a checkout without it publishes fine and simply
+           ships without a video decoder.
+
+       Set RebornCleanPublishLayout=false to publish the stock flat layout instead, which
+       is worth having when bisecting a native-loading failure.
+       ================================================================================== -->
+
+  <Target Name="RebornRelocateNativeLibraries"
+          AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(RebornCleanPublishLayout)' != 'false'">
+
+    <ItemGroup>
+      <!-- Publish is computed once per inner build, and MSBuild item state outlives a
+           target, so both halves of this file clear their scratch items first and remove
+           before they add. Without that, a second pass duplicates every relative path
+           and the SDK fails the publish with NETSDK1152. -->
+      <_RebornPortableNative Remove="@(_RebornPortableNative)" />
+      <_RebornRidNative Remove="@(_RebornRidNative)" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <!-- A portable publish keeps the package's own runtimes/<rid>/native/ shape, so the
+           RID is read back out of the path: two directories up from the file. -->
+      <_RebornPortableNative Include="@(ResolvedFileToPublish)"
+                             Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/'))" />
+      <_RebornPortableNative>
+        <RebornRid>$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName($([System.IO.Path]::GetDirectoryName('%(RelativePath)'))))))</RebornRid>
+      </_RebornPortableNative>
+
+      <!-- A RID-specific publish has already flattened them to the root, where they are
+           only distinguishable from the managed assemblies by their asset type. The
+           runtimes/ exclusion keeps the two halves disjoint: without it a portable
+           publish matches both, and every native ships twice - once under its RID and
+           once under a libs/ with no RID at all. -->
+      <_RebornRidNative Include="@(ResolvedFileToPublish)"
+                        Condition="'$(RuntimeIdentifier)' != '' and '%(ResolvedFileToPublish.AssetType)' == 'native' and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/'))" />
+      <_RebornRidNative>
+        <RebornRid>$(RuntimeIdentifier)</RebornRid>
+      </_RebornRidNative>
+    </ItemGroup>
+
+    <ItemGroup>
+      <_RebornRuntimesNative Remove="@(_RebornRuntimesNative)" />
+      <_RebornRuntimesNative Include="@(_RebornPortableNative);@(_RebornRidNative)" />
+      <_RebornRuntimesNative>
+        <RelativePath>libs\%(RebornRid)\%(Filename)%(Extension)</RelativePath>
+      </_RebornRuntimesNative>
+
+      <ResolvedFileToPublish Remove="@(_RebornRuntimesNative)" />
+      <ResolvedFileToPublish Include="@(_RebornRuntimesNative)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="RebornPublishSolutionNativeLibraries"
+          AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(RebornCleanPublishLayout)' != 'false'">
+
+    <ItemGroup>
+      <_RebornSolutionNative Remove="@(_RebornSolutionNative)" />
+    </ItemGroup>
+
+    <!-- A RID-specific publish carries that RID's payload and no other; a portable one
+         carries every RID present, matching the runtimes tree it replaces. -->
+    <ItemGroup Condition="'$(RuntimeIdentifier)' != ''">
+      <_RebornSolutionNative Include="$(RebornRoot)libs\$(RuntimeIdentifier)\**\*" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+      <_RebornSolutionNative Include="$(RebornRoot)libs\**\*" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <!-- A separate pass: well-known metadata such as %(Filename) is not available to
+           inline metadata on the Include that creates the item, where it batches over an
+           empty list and silently yields nothing. Relativising the source path against
+           the checkout root also gets the subdirectories right without either branch
+           above having to spell its own prefix out. -->
+      <_RebornSolutionNative>
+        <RebornRelativePath>$([MSBuild]::MakeRelative('$(RebornRoot)', '%(FullPath)'))</RebornRelativePath>
+      </_RebornSolutionNative>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(_RebornSolutionNative)" />
+      <ResolvedFileToPublish Include="@(_RebornSolutionNative)">
+        <RelativePath>%(_RebornSolutionNative.RebornRelativePath)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+
+    <!-- Not a warning: the solution's libs/ is gitignored and legitimately absent on a
+         fresh checkout. Say so once, plainly, rather than shipping a silent gap. -->
+    <Message Importance="high"
+             Condition="'@(_RebornSolutionNative)' == ''"
+             Text="GK3Reborn: no native payload found under $(RebornRoot)libs\. The published game will have no video decoder; see docs/formats/video.md." />
+  </Target>
+
 </Project>
