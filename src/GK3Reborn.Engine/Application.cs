@@ -173,6 +173,22 @@ public static class Application
         using GameArchives archives = GameArchives.Open(dataDirectory);
         Console.WriteLine($"Content: {archives.Count} archives in {dataDirectory}");
 
+        // Before the window, the device and the menu. A room that is not in the archives
+        // fails the same way whenever it is noticed, and noticing it here means the player
+        // is told what is wrong instead of watching the game quit the moment they press
+        // Play.
+        if (archives.Read(sceneName + ".SIF") is null)
+        {
+            Console.Error.WriteLine(
+                $"No room called {sceneName}: the archives have no {sceneName}.SIF.");
+
+            Console.Error.WriteLine(
+                "Check what was passed to --scene or --start, or drop it and the game "
+                + $"starts where it starts, in {OpeningScene}.");
+
+            return 2;
+        }
+
         // The remake's own content, in the one or two ReBarn volumes that ship beside the
         // executable. Opened once for the session rather than once a room: a pack is
         // memory-mapped, and every texture the loader takes from one is a window onto that
@@ -802,6 +818,13 @@ public static class Application
             }
 
             update.Faces = moving;
+
+            // What an animation's own sound cues reach. Without it the game is silent
+            // wherever the noise belongs to the animation rather than to a line of
+            // dialogue — Gabriel's yawn on waking up is the first one in the game.
+            update.Sound = room is null
+                ? null
+                : (cue, at) => room.PlayAt(cue.Name, at, cue.Gain);
 
             // Who is speaking, which is what decides whether a character runs their
             // talking script or their listening one. The line names its own actor, so the
@@ -2398,7 +2421,19 @@ public static class Application
     private static string? Option(string[] args, string name)
     {
         int at = Array.FindIndex(args, a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
-        return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+
+        if (at < 0 || at + 1 >= args.Length)
+        {
+            return null;
+        }
+
+        string next = args[at + 1];
+
+        // The next flag is not this one's value. `--start --rt high` means "start where the
+        // game starts, and trace at high", not "open the room called --rt" — and taking it
+        // as a room name is a failure a long way from the mistake, after a window has
+        // opened and a menu has been sat through.
+        return next.StartsWith("--", StringComparison.Ordinal) ? null : next;
     }
 
     /// <summary>Where the game is usually installed relative to the repository.</summary>

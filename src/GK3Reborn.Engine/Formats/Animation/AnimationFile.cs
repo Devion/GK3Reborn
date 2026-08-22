@@ -8,7 +8,17 @@ namespace GK3Reborn.Formats.Animation;
 /// <param name="Frame">Which frame it starts on.</param>
 /// <param name="Name">The audio asset.</param>
 /// <param name="Volume">How loud, from 0 to 100.</param>
-public readonly record struct AnimationSound(int Frame, string Name, int Volume);
+/// <param name="Model">
+/// Which model it comes from, or empty for a sound with no place in the room. The game's
+/// own files name one for anything a character does — Gabriel's yawn is <c>gab</c> — which
+/// is what lets it be heard from where they are standing.
+/// </param>
+public readonly record struct AnimationSound(
+    int Frame, string Name, int Volume, string Model = "")
+{
+    /// <summary>How loud it is, as a gain rather than the file's percentage.</summary>
+    public float Gain => Math.Clamp(Volume, 0, 100) / 100f;
+}
 
 /// <summary>A line of dialogue an animation shows and speaks.</summary>
 /// <param name="Frame">Which frame it appears on.</param>
@@ -209,10 +219,14 @@ public sealed class AnimationFile
                     break;
 
                 case "SOUNDS":
+                    // The fourth field is the model the sound comes from — "gab" for
+                    // Gabriel's yawn — which is what puts it in the room rather than in the
+                    // player's head. It was being dropped.
                     Read(section, line => sounds.Add(new AnimationSound(
                         (int)(line.Entries[0].AsNumber() ?? 0),
                         line.Entries[1].Key,
-                        line.Entries.Count > 2 ? (int)(line.Entries[2].AsNumber() ?? 100) : 100)));
+                        line.Entries.Count > 2 ? (int)(line.Entries[2].AsNumber() ?? 100) : 100,
+                        line.Entries.Count > 3 ? line.Entries[3].Key : string.Empty)));
                     break;
 
                 case "GK3":

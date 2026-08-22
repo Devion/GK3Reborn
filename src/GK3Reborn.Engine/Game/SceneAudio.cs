@@ -122,6 +122,43 @@ public sealed class SceneAudio
         return _sounds.Read(name) is { } sound && _backend.Play(sound, bus).Exists;
     }
 
+    /// <summary>Starts a one-shot sound somewhere in the room, at its own level.</summary>
+    /// <param name="name">Its name, extension and all.</param>
+    /// <param name="at">Where it comes from, or null for the listener's own head.</param>
+    /// <param name="gain">How loud, from zero to one, on top of its bus.</param>
+    /// <param name="bus">Which bus to mix it on.</param>
+    /// <returns>True when something played.</returns>
+    /// <remarks>
+    /// What an animation's <c>[SOUNDS]</c> cue needs: the file names a model and a volume,
+    /// and both are lost by playing it flat at full level. Gabriel's yawn comes from where
+    /// Gabriel is.
+    /// </remarks>
+    public bool PlayAt(
+        string name, Vector3? at, float gain = 1f, AudioBus bus = AudioBus.Effects)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_sounds.Read(name) is not { } sound)
+        {
+            return false;
+        }
+
+        AudioVoice voice = _backend.Play(
+            sound, bus, repeat: false, at is { } spot ? AudioPlacement.At(spot) : null);
+
+        if (!voice.Exists)
+        {
+            return false;
+        }
+
+        if (gain < 1f)
+        {
+            _backend.SetVoiceGain(voice, Math.Clamp(gain, 0f, 1f));
+        }
+
+        return true;
+    }
+
     /// <summary>Starts the room's looping bed, replacing whatever was there.</summary>
     /// <param name="name">Its name, or null to stop.</param>
     /// <returns>True when something is now playing.</returns>

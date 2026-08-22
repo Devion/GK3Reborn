@@ -105,6 +105,7 @@ public sealed class SceneUpdate
 
     private float _hurryFactor = DefaultHurryFactor;
 
+    private readonly List<Cue> _cues = [];
     private readonly List<Turning> _actors = [];
     private readonly Dictionary<string, Walking> _walking =
         new(StringComparer.OrdinalIgnoreCase);
@@ -314,7 +315,15 @@ public sealed class SceneUpdate
             return 0;
         }
 
-        // Faces first, because an animation that only moves a face moves no geometry at
+        // The sounds first, before anything that can return. A third of the game's
+        // animations move nothing at all and exist to make a noise — a door, a match, a
+        // yawn — and the branches below let those go without playing a thing.
+        foreach (AnimationSound cue in animation.Sounds)
+        {
+            _cues.Add(new Cue(cue, repeat ? animation.Duration : 0));
+        }
+
+        // Faces next, because an animation that only moves a face moves no geometry at
         // all: ABEANGRY is two frames of eyebrow and nothing else. Asking about the clips
         // first would report a third of the game's expressions as animations that do
         // nothing.
@@ -323,7 +332,9 @@ public sealed class SceneUpdate
 
         if (animation.Actions.Count == 0)
         {
-            if (onAFace)
+            // A face or a sound is still something happening, and a script that waits on
+            // one is waiting for it to finish rather than for nothing.
+            if (onAFace || animation.Sounds.Count > 0)
             {
                 return animation.Duration;
             }
@@ -380,6 +391,16 @@ public sealed class SceneUpdate
 
         return longest;
     }
+
+    /// <summary>
+    /// What plays a sound an animation asks for, or null when there is no device.
+    /// </summary>
+    /// <remarks>
+    /// A function rather than the audio object, so the world can be tested without one —
+    /// the same shape as the clip and animation libraries. It is handed the cue and where
+    /// in the room it comes from, and says whether anything was heard.
+    /// </remarks>
+    public Func<AnimationSound, Vector3?, bool>? Sound { get; set; }
 
     /// <summary>Starts every behaviour script the scene named.</summary>
     /// <remarks>
@@ -1256,6 +1277,34 @@ public sealed class SceneUpdate
             happened.Add(Fire(timer));
         }
 
+        // The noises an animation makes, at the frames it says. Before the clips only so
+        // that a sound and the pose it belongs to land in the same frame.
+        for (int i = _cues.Count - 1; i >= 0; i--)
+        {
+            if (_cues[i].Step(seconds) is not { } due)
+            {
+                continue;
+            }
+
+            // Where it comes from: the model the cue names, if the room has it standing
+            // somewhere. Everything else is played at the listener.
+            Vector3? at = due.Model.Length > 0 ? Where(due.Model) : null;
+
+            if (Sound?.Invoke(due, at) == false)
+            {
+                Diagnostics.Add(new Diagnostic(
+                    "GK3R3316", DiagnosticSeverity.Info,
+                    "An animation asks for a sound the archives do not have.",
+                    _scene.Name, null, "a .WAV of that name", due.Name,
+                    "Common in the corpus: some cues name sounds that were cut."));
+            }
+
+            if (_cues[i].Finished)
+            {
+                _cues.RemoveAt(i);
+            }
+        }
+
         // Animation before walking: a clip poses a model's meshes in the model's own space
         // and walking moves the model, so doing it the other way round would apply this
         // frame's poses to last frame's position.
@@ -1463,6 +1512,65 @@ public sealed class SceneUpdate
     }
 
     /// <summary>One clip running on one model.</summary>
+    /// <summary>
+    /// A sound an animation asked for, waiting for its frame.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from <see cref="Playing"/> because a sound is not a pose: it belongs to
+    /// the animation rather than to a model, it is played once rather than stepped, and an
+    /// animation that moves nothing at all still has sounds to make.
+    /// </remarks>
+    private sealed class Cue
+    {
+        private readonly AnimationSound _sound;
+        private readonly double _at;
+        private readonly double _period;
+
+        private double _elapsed;
+
+        public Cue(AnimationSound sound, double period)
+        {
+            _sound = sound;
+            _at = Math.Max(0, sound.Frame) / (double)AnimationFile.FramesPerSecond;
+            _period = period;
+        }
+
+        /// <summary>Whether it has been played and will not come round again.</summary>
+        public bool Finished { get; private set; }
+
+        /// <summary>Advances the clock and says whether the sound is now due.</summary>
+        /// <param name="seconds">How long since the last frame.</param>
+        /// <returns>The cue when it is due this frame, and null otherwise.</returns>
+        public AnimationSound? Step(double seconds)
+        {
+            if (Finished)
+            {
+                return null;
+            }
+
+            double before = _elapsed;
+            _elapsed += seconds;
+
+            if (before > _at || _elapsed < _at)
+            {
+                return null;
+            }
+
+            // A looping animation makes its noise again every time round; anything else
+            // makes it once.
+            if (_period > 0)
+            {
+                _elapsed -= _period;
+            }
+            else
+            {
+                Finished = true;
+            }
+
+            return _sound;
+        }
+    }
+
     private sealed class Playing
     {
         private readonly bool _repeat;
