@@ -100,6 +100,9 @@ public static class Program
             case "video-info":
                 return VideoInfo(options, diagnostics);
 
+            case "floor-materials":
+                return FloorMaterials(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -184,6 +187,21 @@ public static class Program
 
         Report(diagnostics);
         return imported ? 0 : 3;
+    }
+
+    private static int FloorMaterials(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("floor-materials requires --source.");
+            return 2;
+        }
+
+        bool ok = new FloorMaterialStage(Console.WriteLine).Run(
+            options.Source, options.Workspace, diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
     }
 
     private static int VideoInfo(Options options, DiagnosticBag diagnostics)
@@ -627,6 +645,8 @@ public static class Program
               act-info          Read every vertex animation and say what is in them.
               video-info        Say which movies could be played, from the packs or
                                 the workspace, and decode them to prove it.
+              floor-materials   Say which textures the game walks on, from the floor
+                                object every scene names, and how each is finished.
               import-textures   Check generated texture candidates against the
                                 originals they replace and take the sound ones
                                 into the enhanced set.
