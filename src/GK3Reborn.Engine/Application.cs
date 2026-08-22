@@ -48,8 +48,17 @@ public static class Application
 
         Console.WriteLine();
 
+        // --rt says what the picture costs and outranks the player's own setting, which
+        // is what a flag is for. Without one the settings decide, because nobody starting
+        // the game to play it passes a ray-tracing level on a command line.
+        RayTracingQuality? asked = Option(args, "--rt") is { Length: > 0 } level
+            ? RayTracingSettings.Parse(level)
+            : null;
+
         if (Option(args, "--scene") is { } scene)
         {
+            // A named scene is somebody looking at a room, so it opens in the room. The
+            // menu is still reachable from inside it, and --front asks for it first.
             return RenderScene(
                 Option(args, "--data") ?? DefaultDataDirectory(),
                 scene,
@@ -58,8 +67,9 @@ public static class Application
                 int.TryParse(Option(args, "--frames"), out int frames) ? frames : 0,
                 Option(args, "--screenshot"),
                 args.Contains("--verbose", StringComparer.OrdinalIgnoreCase),
-                RayTracingSettings.Parse(Option(args, "--rt")) ?? RayTracingQuality.None,
+                asked,
                 EnhancedTextureDirectory(args),
+                args.Contains("--front", StringComparer.OrdinalIgnoreCase),
                 args);
         }
 
@@ -75,8 +85,42 @@ public static class Application
             return RenderFrames(args.Contains("--headless-frames", StringComparer.OrdinalIgnoreCase) ? 60 : 0);
         }
 
-        return 0;
+        // Nothing asked for in particular: the game, as a player starts it. The intro, the
+        // menu, and then wherever the story begins.
+        return RenderScene(
+            Option(args, "--data") ?? DefaultDataDirectory(),
+            Option(args, "--start") ?? OpeningScene,
+            Option(args, "--timeblock") ?? OpeningTimeblock,
+            null,
+            0,
+            null,
+            args.Contains("--verbose", StringComparer.OrdinalIgnoreCase),
+            asked,
+            EnhancedTextureDirectory(args),
+            frontEnd: true,
+            args);
     }
+
+    /// <summary>Where the story starts.</summary>
+    /// <remarks>
+    /// Day one at ten in the morning, in the lobby of the Hôtel de Rennes-le-Château, which
+    /// is where GK3 begins and the only room the game itself can open with. <c>--start</c>
+    /// says otherwise for anybody who wants to begin somewhere else.
+    /// </remarks>
+    private const string OpeningScene = "R25";
+
+    /// <summary>The time of day the story starts at.</summary>
+    private const string OpeningTimeblock = "110A";
+
+    /// <summary>
+    /// The films the game opens with, in order.
+    /// </summary>
+    /// <remarks>
+    /// Skipped in a breath if they are not there — an installation without the enhanced
+    /// video, or a run with <c>--rebarn</c> and a pack that holds none, should reach the
+    /// menu rather than stop at a missing file.
+    /// </remarks>
+    private static readonly string[] IntroMovies = ["SIERRA", "INTRO"];
 
     /// <summary>
     /// Opens a window and shows a scene from the game's own archives.
@@ -88,8 +132,11 @@ public static class Application
     /// <param name="frameLimit">Stop after this many frames, or zero to run until closed.</param>
     /// <param name="screenshotPath">Where to write the last frame, if anywhere.</param>
     /// <param name="verbose">Whether to list everything that could not be loaded.</param>
-    /// <param name="quality">How much ray tracing to start with.</param>
+    /// <param name="quality">
+    /// How much ray tracing to start with, or null to use what the player has chosen.
+    /// </param>
     /// <param name="enhancedDirectory">Higher-resolution textures to prefer, if any.</param>
+    /// <param name="frontEnd">Whether to show the intro and the menu before the room.</param>
     /// <param name="args">The command line, for the options only the running scene reads.</param>
     /// <returns>Process exit code.</returns>
     /// <remarks>
@@ -105,8 +152,9 @@ public static class Application
         int frameLimit,
         string? screenshotPath,
         bool verbose,
-        RayTracingQuality quality,
+        RayTracingQuality? quality,
         string? enhancedDirectory,
+        bool frontEnd,
         string[] args)
     {
         if (!Directory.Exists(dataDirectory))
@@ -174,6 +222,14 @@ public static class Application
                 : $"Packs: {packed}");
         }
 
+        // What the player has chosen, read before anything that obeys it exists. A first
+        // run has no file and gets the defaults, which is not a failure and is not reported
+        // as one.
+        Settings settings = Settings.Load();
+
+        Console.WriteLine(File.Exists(Settings.DefaultPath)
+            ? $"Settings: {Settings.DefaultPath}"
+            : $"Settings: none yet, they will be written to {Settings.DefaultPath}");
 
         // --width and --height, for photographing the interface at a display size this
         // machine has not got. Everything about the interface's size is decided from the
@@ -208,8 +264,11 @@ public static class Application
 
         // Sound. The device may not open — a machine without one, or one already held —
         // and the game runs quietly rather than not at all.
-        Audio.OpenAlBackend? audio = Audio.OpenAlBackend.Open(
-            Audio.SpeakerLayout.Stereo, diagnostics);
+        Audio.OpenAlBackend? audio = Audio.OpenAlBackend.Open(settings.Speakers, diagnostics);
+
+        // Before anything plays, so the first sound of the session is already at the level
+        // the player left it at rather than at full volume for a moment.
+        settings.ApplyTo(audio);
 
         var sounds = new SoundLibrary(archives);
 
@@ -345,6 +404,81 @@ public static class Application
             Console.WriteLine("Interface: no font found, nothing is drawn over the room");
         }
 
+        // The menu, and what changing something in it reaches. Everything below is set
+        // live rather than at the next room: a volume that only takes effect after a door
+        // is a volume the player cannot hear themselves setting.
+        var front = new FrontEnd(settings);
+        MenuPage? pages = hud is null ? null : new MenuPage(new Overlay(hud.Overlay.Atlas)
+        {
+            Magnify = hud.Overlay.Magnify,
+        });
+
+        SceneUpdate? live = null;
+
+        void Apply(Settings chosen)
+        {
+            settings = chosen;
+            chosen.ApplyTo(audio);
+
+            if (renderer.SupportsRayTracing)
+            {
+                renderer.Quality = chosen.Quality;
+            }
+
+            api.State.CameraGliding = chosen.CameraGlide;
+            api.State.CinematicsEnabled = chosen.Cinematics;
+
+            if (live is not null)
+            {
+                live.HurryFactor = chosen.HurryFactor;
+            }
+        }
+
+        // At the start, not only when something changes: a stored setting has to reach the
+        // game on a run where the player never opens the menu at all.
+        Apply(settings);
+
+        if (frontEnd && pages is not null)
+        {
+            // --frames is a run that photographs something and ends, and no such run wants
+            // to sit through two films first.
+            if (settings.PlayIntro &&
+                frameLimit == 0 &&
+                !args.Contains("--skip-intro", StringComparer.OrdinalIgnoreCase))
+            {
+                ShowIntro(window, renderer, movies);
+            }
+
+            // --front-page opens on one of the settings pages, for the same reason
+            // --frames exists here: a page three keystrokes in cannot be photographed by a
+            // run that has no keyboard.
+            if (Option(args, "--front-page") is { Length: > 0 } wantedPage &&
+                Enum.TryParse(wantedPage, ignoreCase: true, out FrontEndPage opened))
+            {
+                front.Show(opened);
+            }
+
+            if (ShowMenu(
+                    window,
+                    renderer,
+                    pages,
+                    front,
+                    Apply,
+                    backdrop: true,
+                    frameLimit,
+                    screenshotPath) != FrontEndOutcome.Play)
+            {
+                // Quit from the first menu, so nothing of the room is ever loaded. The
+                // device and the archives go on the way out as they would anyway.
+                audio?.Dispose();
+                return 0;
+            }
+        }
+        else if (frontEnd)
+        {
+            Console.WriteLine("Front end: no font, so the game starts in the room");
+        }
+
         int result = 0;
         bool first = true;
 
@@ -387,7 +521,7 @@ public static class Application
             // enhanced textures, and neither belongs to the next one.
             var loader = new SceneLoader(archives, Console.WriteLine);
 
-            if (!packsOnly && enhancedDirectory is { Length: > 0 })
+            if (!packsOnly && settings.EnhancedTextures && enhancedDirectory is { Length: > 0 })
             {
                 EnhancedTextures enhanced = EnhancedTextures.Open(enhancedDirectory);
                 loader.Enhanced = enhanced;
@@ -438,8 +572,12 @@ public static class Application
                     : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
                 packs);
 
+            // The setting takes the compressed set out of the way as well as the loose one.
+            // It is the same art in a smaller form, so leaving it in would answer "no" with
+            // the enhanced textures still on screen.
             loader.Compressed =
-                args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase)
+                args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase) ||
+                !settings.EnhancedTextures
                     ? null
                     : compressed;
 
@@ -469,7 +607,9 @@ public static class Application
             geometry.Finish();
 
             renderer.SetLights(scene.Lights);
-            renderer.Quality = renderer.SupportsRayTracing ? quality : RayTracingQuality.None;
+            renderer.Quality = renderer.SupportsRayTracing
+                ? quality ?? settings.Quality
+                : RayTracingQuality.None;
 
             if (first)
             {
@@ -552,6 +692,11 @@ public static class Application
                     ? $"Movie: {wanted}, {seconds:F1}s"
                     : $"Movie: {wanted} could not be played");
             }
+
+            // How impatient a double-click is. The room is new every time round this loop
+            // and the setting is not, so it is handed over again here.
+            live = update;
+            update.HurryFactor = settings.HurryFactor;
 
             // What lets an animation actually move something. Vertex poses are left unread:
             // gab alone is 50.2 million samples and nothing deforms yet.
@@ -676,7 +821,7 @@ public static class Application
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
                 new SceneInteraction(scene, api), room, movies, hud, fonts, api.State, console,
-                args);
+                front, pages, Apply, args);
 
             result = exit.Code;
 
@@ -1063,6 +1208,9 @@ public static class Application
     /// </param>
     /// <param name="story">Where the story stands, for the inventory strip.</param>
     /// <param name="console">The developer console, which outlives the room.</param>
+    /// <param name="front">The menu, which Escape opens.</param>
+    /// <param name="pages">What draws it, or null when there is no font to draw with.</param>
+    /// <param name="apply">What to do with a setting the moment it changes.</param>
     /// <param name="options">The command line, for the debugging switches.</param>
     /// <returns>Why the room was left, and where for.</returns>
     /// <remarks>
@@ -1085,10 +1233,15 @@ public static class Application
         FontLibrary fonts,
         GameState story,
         GameConsole console,
+        FrontEnd front,
+        MenuPage? pages,
+        Action<Settings> apply,
         string[] options)
     {
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(fonts);
+        ArgumentNullException.ThrowIfNull(front);
+        ArgumentNullException.ThrowIfNull(apply);
 
         string here = scene.Name;
 
@@ -1251,7 +1404,35 @@ public static class Application
 
             if (!typing && !movies.Playing && window.WasPressed(Platform.CameraAction.Quit))
             {
-                break;
+                if (pages is null)
+                {
+                    // No font, so there is no menu to open and Escape means what it used to.
+                    break;
+                }
+
+                // The same press is still on the frame's books as an editing key, and the
+                // menu reads that one to close itself. Cleared here, or the menu opens and
+                // shuts within the frame.
+                window.EndFrame();
+
+                front.InGame = true;
+
+                FrontEndOutcome chose = ShowMenu(
+                    window, renderer, pages, front, apply, backdrop: false);
+
+                // The room has been standing still behind the menu and the clock has not.
+                // Without this the first frame back advances everything by however long the
+                // player spent in the settings.
+                previous = stopwatch.Elapsed.TotalSeconds;
+
+                if (chose is FrontEndOutcome.Quit)
+                {
+                    break;
+                }
+
+                // Whatever the interface last drew belonged to the menu.
+                renderer.SetOverlay(null);
+                continue;
             }
 
             if (!typing &&
@@ -1464,8 +1645,8 @@ public static class Application
                         menu is not null,
                         menuIndex,
                         menuAt,
-                        room?.Speaker,
-                        room?.Caption,
+                        front.Settings.Captions ? room?.Speaker : null,
+                        front.Settings.Captions ? room?.Caption : null,
                         story.Inventory.ItemsOf("GABRIEL"),
                         story.Inventory.ActiveItemOf("GABRIEL"),
                         InventoryOpen: true,
@@ -1563,6 +1744,239 @@ public static class Application
             + $"({presented / Math.Max(0.001, stopwatch.Elapsed.TotalSeconds):F0} fps)"));
 
         return new RoomExit(0, null);
+    }
+
+    /// <summary>
+    /// Shows the menu until the player leaves it.
+    /// </summary>
+    /// <param name="window">The window.</param>
+    /// <param name="renderer">What draws it.</param>
+    /// <param name="pages">The drawn page.</param>
+    /// <param name="front">What the pages hold and what choosing a row does.</param>
+    /// <param name="apply">What to do with a setting the moment it changes.</param>
+    /// <param name="backdrop">Whether to fill the screen behind it.</param>
+    /// <param name="frames">Leave after this many frames, or zero to wait for the player.</param>
+    /// <param name="photograph">Where to write the last frame, if anywhere.</param>
+    /// <returns>What the player asked for.</returns>
+    /// <remarks>
+    /// <para>
+    /// A loop of its own rather than a mode of the room's. Nothing of the room advances
+    /// while it runs, which is what pausing means, and the frame it draws is the same
+    /// picture the room left on screen with the menu over it.
+    /// </para>
+    /// <para>
+    /// Three ways to work it, all live at once: the arrow keys and Enter, the pointer, and
+    /// dragging a slider. A menu that can only be used one way is a menu somebody cannot
+    /// use.
+    /// </para>
+    /// </remarks>
+    private static FrontEndOutcome ShowMenu(
+        Platform.SilkGameWindow window,
+        VulkanRenderer renderer,
+        MenuPage pages,
+        FrontEnd front,
+        Action<Settings> apply,
+        bool backdrop,
+        int frames = 0,
+        string? photograph = null)
+    {
+        FrontEndPage showing = front.Page;
+
+        pages.Backdrop = backdrop;
+        pages.Reset(front.Items);
+
+        int drawn = 0;
+
+        while (!window.IsClosing)
+        {
+            window.PumpEvents();
+
+            IReadOnlyList<MenuItem> items = front.Items;
+
+            Vector2 pointer = new(
+                window.PointerPosition.X * window.DpiScale,
+                window.PointerPosition.Y * window.DpiScale);
+
+            MenuAction action = MenuAction.None;
+
+            if (window.WasPressed(Platform.EditKey.Up))
+            {
+                pages.Move(items, -1);
+            }
+
+            if (window.WasPressed(Platform.EditKey.Down))
+            {
+                pages.Move(items, 1);
+            }
+
+            if (window.WasPressed(Platform.EditKey.Left))
+            {
+                action = pages.Chose(items, -1);
+            }
+
+            if (window.WasPressed(Platform.EditKey.Right))
+            {
+                action = pages.Chose(items, 1);
+            }
+
+            if (window.WasPressed(Platform.EditKey.Enter))
+            {
+                action = pages.Chose(items);
+            }
+
+            if (window.WasClicked(Platform.PointerButton.Primary))
+            {
+                action = pages.Click(pointer, items);
+            }
+            else if (window.IsDragging && pages.Drag(pointer, items) is { Happened: true } dragged)
+            {
+                // Held rather than clicked: a volume is set by ear, which means hearing it
+                // move rather than hearing where it landed.
+                action = dragged;
+            }
+
+            FrontEndOutcome outcome = front.Choose(action);
+
+            if (action.Happened)
+            {
+                apply(front.Settings);
+            }
+
+            if (window.WasPressed(Platform.EditKey.Escape))
+            {
+                // Out of a settings page to the one before it, and out of the top of the
+                // menu only when there is a room to go back to. From the first menu of all
+                // it does nothing: leaving the game is a row somebody has to choose.
+                if (!front.Back() && front.InGame)
+                {
+                    outcome = FrontEndOutcome.Resume;
+                }
+            }
+
+            if (front.Page != showing)
+            {
+                showing = front.Page;
+                pages.Reset(front.Items);
+            }
+
+            if (outcome != FrontEndOutcome.Stay)
+            {
+                // On the way out rather than on every keystroke: dragging a volume slider
+                // across a page is a hundred changes and none of them is worth a write.
+                if (front.Commit())
+                {
+                    Console.WriteLine($"Settings: written to {Settings.DefaultPath}");
+                }
+
+                return outcome;
+            }
+
+            pages.Build(
+                front.Title,
+                front.Items,
+                window.FramebufferWidth,
+                window.FramebufferHeight,
+                pointer,
+                front.Footer);
+
+            renderer.SetOverlay(pages.Overlay);
+
+            window.EndFrame();
+
+            if (renderer.DrawFrame(0f, 0f, 0f))
+            {
+                drawn++;
+            }
+
+            // --frames, which is how the menu is photographed: a run with no keyboard would
+            // otherwise sit on the first page until somebody closed the window.
+            if (frames > 0 && drawn >= frames)
+            {
+                if (photograph is { Length: > 0 } && renderer.Capture() is { } picture)
+                {
+                    File.WriteAllBytes(
+                        photograph, Formats.Bitmaps.PngWriter.Encode(picture));
+
+                    Console.WriteLine($"Wrote {photograph}");
+                }
+
+                return FrontEndOutcome.Quit;
+            }
+        }
+
+        front.Commit();
+        return FrontEndOutcome.Quit;
+    }
+
+    /// <summary>
+    /// Plays the films the game opens with.
+    /// </summary>
+    /// <param name="window">The window.</param>
+    /// <param name="renderer">What draws them.</param>
+    /// <param name="movies">What plays them.</param>
+    /// <remarks>
+    /// Any key or click skips the rest, not only the one showing: somebody who has seen the
+    /// intro means they have seen the intro. Missing films are passed over in silence,
+    /// because an installation that has none should still reach the menu.
+    /// </remarks>
+    private static void ShowIntro(
+        Platform.SilkGameWindow window, VulkanRenderer renderer, Game.MoviePlayer movies)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        foreach (string name in IntroMovies)
+        {
+            if (movies.Play(name) <= 0)
+            {
+                continue;
+            }
+
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"Intro: {name}, {movies.Seconds:F1}s"));
+
+            double previous = stopwatch.Elapsed.TotalSeconds;
+            bool skipped = false;
+
+            while (!window.IsClosing && movies.Playing)
+            {
+                window.PumpEvents();
+
+                double now = stopwatch.Elapsed.TotalSeconds;
+                double delta = Math.Min(0.1, now - previous);
+                previous = now;
+
+                if (window.WasPressed(Platform.EditKey.Escape) ||
+                    window.WasPressed(Platform.EditKey.Enter) ||
+                    window.WasClicked(Platform.PointerButton.Primary))
+                {
+                    movies.Stop();
+                    skipped = true;
+                }
+                else
+                {
+                    movies.Advance(delta);
+                }
+
+                renderer.SetOverlay(null);
+                renderer.SetMovieFrame(movies.Frame);
+
+                window.EndFrame();
+                renderer.DrawFrame(0f, 0f, 0f);
+            }
+
+            renderer.SetMovieFrame(null);
+
+            foreach (Diagnostic diagnostic in movies.Diagnostics.Items)
+            {
+                Console.Error.WriteLine(diagnostic);
+            }
+
+            if (skipped || window.IsClosing)
+            {
+                Console.WriteLine("Intro: skipped");
+                return;
+            }
+        }
     }
 
     /// <summary>Why a room was left.</summary>

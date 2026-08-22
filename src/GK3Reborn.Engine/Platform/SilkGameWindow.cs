@@ -71,6 +71,8 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         (EditKey.Tab, Key.Tab),
         (EditKey.Up, Key.Up),
         (EditKey.Down, Key.Down),
+        (EditKey.Left, Key.Left),
+        (EditKey.Right, Key.Right),
         (EditKey.Escape, Key.Escape),
         (EditKey.Console, Key.GraveAccent),
     ];

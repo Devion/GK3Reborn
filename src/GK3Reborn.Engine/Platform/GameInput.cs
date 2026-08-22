@@ -72,6 +72,16 @@ public enum EditKey
     /// <summary>The same, the other way.</summary>
     Down,
 
+    /// <summary>Step what is chosen down: a quieter volume, the previous setting.</summary>
+    /// <remarks>
+    /// The arrows and not A and D. Those are movement keys, and a menu that took them would
+    /// walk the camera across the room behind it.
+    /// </remarks>
+    Left,
+
+    /// <summary>The same, the other way.</summary>
+    Right,
+
     /// <summary>Put the console away.</summary>
     Escape,
 

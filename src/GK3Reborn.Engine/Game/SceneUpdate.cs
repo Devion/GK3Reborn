@@ -84,8 +84,26 @@ public sealed class SceneUpdate
     /// is nothing to give the rest of the cast. A stride played faster reads as hurrying;
     /// a stride played at walking speed while the body slides along at twice it does not.
     /// </para>
+    /// <para>
+    /// A setting rather than a constant: how impatient a double-click is belongs to the
+    /// player, not to the game. One means a double-click does nothing but skip the walk's
+    /// leisure, which is a legitimate answer for somebody who wants the pace the game was
+    /// authored at.
+    /// </para>
     /// </remarks>
-    public const float HurryFactor = 2f;
+    public float HurryFactor
+    {
+        get => _hurryFactor;
+
+        // Clamped where it is set rather than trusted: a pace of zero is an actor who never
+        // arrives, and every wait in the game is measured against a walk that ends.
+        set => _hurryFactor = float.IsFinite(value) ? Math.Clamp(value, 1f, 4f) : DefaultHurryFactor;
+    }
+
+    /// <summary>The pace a double-click asks for unless the player has said otherwise.</summary>
+    public const float DefaultHurryFactor = 2f;
+
+    private float _hurryFactor = DefaultHurryFactor;
 
     private readonly List<Turning> _actors = [];
     private readonly Dictionary<string, Walking> _walking =
