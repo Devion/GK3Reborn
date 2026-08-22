@@ -211,8 +211,13 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
             // head whatever else is asked for — but every ambience in the game is mono, and
             // saying so is better than a fountain that follows the player about.
             _al.SetSourceProperty(source, SourceBoolean.SourceRelative, false);
-            _al.SetSourceProperty(
-                source, SourceVector3.Position, placed.Position.X, placed.Position.Y, placed.Position.Z);
+
+            // Into the device's own handedness on the way past. See AudioSpace: the game's
+            // world is left-handed and OpenAL's is not, and a sound handed over as it
+            // stands is heard on the wrong side of the listener.
+            Vector3 where = AudioSpace.Device(placed.Position);
+
+            _al.SetSourceProperty(source, SourceVector3.Position, where.X, where.Y, where.Z);
 
             _al.SetSourceProperty(
                 source, SourceFloat.ReferenceDistance, MathF.Max(1f, placed.Minimum));
@@ -253,9 +258,13 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
                 continue;
             }
 
+            // Kept in the world's own coordinates, because what reads it measures
+            // distances; only what reaches the device is mirrored.
             _voices[i].At = at with { Position = position };
-            _al.SetSourceProperty(
-                _voices[i].Source, SourceVector3.Position, position.X, position.Y, position.Z);
+
+            Vector3 where = AudioSpace.Device(position);
+
+            _al.SetSourceProperty(_voices[i].Source, SourceVector3.Position, where.X, where.Y, where.Z);
 
             Muffle(_voices[i]);
         }
@@ -268,14 +277,21 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
 
         _ear = position;
 
-        _al.SetListenerProperty(ListenerVector3.Position, position.X, position.Y, position.Z);
+        // The head and the way it faces go over together, mirrored the same way as the
+        // sources. Mirroring some of them and not the others does not swap left and right;
+        // it puts everything somewhere that does not exist.
+        Vector3 head = AudioSpace.Device(position);
+        Vector3 face = AudioSpace.Device(forward);
+        Vector3 above = AudioSpace.Device(up);
+
+        _al.SetListenerProperty(ListenerVector3.Position, head.X, head.Y, head.Z);
 
         // Six floats: where the head faces, then which way is up for it. OpenAL takes them
         // as one array and will silently ignore a call that passes them any other way.
         float* orientation = stackalloc float[6]
         {
-            forward.X, forward.Y, forward.Z,
-            up.X, up.Y, up.Z,
+            face.X, face.Y, face.Z,
+            above.X, above.Y, above.Z,
         };
 
         _al.SetListenerProperty(ListenerFloatArray.Orientation, orientation);
@@ -408,7 +424,11 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
             _al.GetSourceProperty(candidate.Source, SourceFloat.ReferenceDistance, out float reference);
             _al.GetSourceProperty(candidate.Source, SourceFloat.MaxDistance, out float maximum);
             _al.GetSourceProperty(candidate.Source, SourceFloat.RolloffFactor, out float rolloff);
-            _al.GetSourceProperty(candidate.Source, SourceVector3.Position, out System.Numerics.Vector3 where);
+            _al.GetSourceProperty(candidate.Source, SourceVector3.Position, out System.Numerics.Vector3 device);
+
+            // Back into the world's coordinates to be read: this is answering "where is
+            // that sound", and the answer has to be in the numbers the scene files use.
+            Vector3 where = AudioSpace.Device(device);
 
             return string.Create(
                 CultureInfo.InvariantCulture,
