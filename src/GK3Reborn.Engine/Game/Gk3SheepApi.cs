@@ -130,6 +130,14 @@ public sealed class Gk3SheepApi : ISheepApi
     /// </remarks>
     public Func<string, string, Approaching, bool, double>? Walks { get; set; }
 
+    /// <summary>Walks an actor to where an animation begins, and says how long it takes.</summary>
+    /// <remarks>
+    /// A hook of its own rather than another <see cref="Approaching"/>, because the name it
+    /// is given is an animation rather than a place: working out where to go means reading
+    /// the clip, and only a standing scene has the clips.
+    /// </remarks>
+    public Func<string, string, bool, double>? WalksToAnimationStart { get; set; }
+
     /// <summary>
     /// What holds something back until the player has walked there, if anything can.
     /// </summary>

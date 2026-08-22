@@ -21,8 +21,32 @@ RETURNED_COAT={ DoesEgoHaveInvItem("MOPED_KEYS") || GetGameVariableInt("MoselyOn
 ```
 
 The script field contains commas and braces, so it has to be lifted out before the rest
-of the line is split. `approach` says how the actor gets into position — `WalkTo`,
-`WalkToSee`, `ANIM` — and `target` says where.
+of the line is split. `approach` says how the actor gets into position and `target` says
+where. There are seven across the corpus:
+
+| approach | uses | target | what it means |
+| --- | ---: | --- | --- |
+| `WalkToSee` | 2,120 | a model | walk until it can be seen. Sight is not worked out, so it walks to the model |
+| `WalkTo` | 688 | a named spot | walk there exactly, and face the heading the spot carries |
+| `ANIM` | 398 | **an animation** | walk to where that animation begins, then play it |
+| `TurnToModel` | 397 | a model | turn on the spot to face it |
+| `none` | 105 | — | do it from where you are |
+| `NearModel` | 17 | a model | the nearest walkable spot to it |
+| `Region` | 1 | a region | never implemented in the original either |
+
+`ANIM` is the odd one and the only one whose target is not a place. A GK3 character has no
+skeleton, so the animation cannot be asked where it puts anybody; what it has instead is
+three axis triads carried along with the body — one at the hips and one under each shoe —
+and `CHARACTERS.TXT` says which mesh, group and vertex each one is. The hip triad on the
+opening frame is where the actor stands. Which way they face comes from the triangle the
+three triads make: its normal, flattened onto the floor, is the direction the body is
+pointing, and comparing that against the hip mesh's own Y axis says whether this clip was
+authored with the model facing −Z (nearly all of them, so the heading is the mesh's
+rotation plus a half turn) or +Z (a few, where it is not).
+
+Without it the action runs from wherever the player happens to be standing: Gabriel pours
+the coffee in the hotel dining room with the pot across the room, which is what the report
+that prompted this said.
 
 Cases the engine answers itself, rather than reading them from a `[LOGIC]` section:
 

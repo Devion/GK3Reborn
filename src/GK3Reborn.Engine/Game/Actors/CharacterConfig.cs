@@ -3,18 +3,37 @@ using GK3Reborn.Formats.Ini;
 
 namespace GK3Reborn.Game.Actors;
 
+/// <summary>One of the axis triads standing in for a bone.</summary>
+/// <param name="Mesh">Which of the model's meshes it is.</param>
+/// <param name="Group">Which group within that mesh.</param>
+/// <param name="Point">Which vertex of that group.</param>
+/// <remarks>
+/// GK3's characters have no skeleton — they are a dozen meshes each posed outright — so
+/// there is nothing to ask where a hip or a foot is. What there is instead is three small
+/// triads of vertices, one at the hips and one under each shoe, carried along by the same
+/// vertex animation as the body and sitting some sixty units out from it. They are the
+/// only handle on where a character is standing and which way they are facing.
+/// </remarks>
+public readonly record struct CharacterAxes(int Mesh, int Group, int Point);
+
 /// <summary>What the game records about one character.</summary>
 /// <param name="Identifier">The three-letter code the file lists them under.</param>
 /// <param name="WalkerHeight">How tall they are, in scene units.</param>
 /// <param name="StartAnimation">The animation that gets them moving from standing.</param>
 /// <param name="WalkAnimation">The stride, looped for as long as they are walking.</param>
 /// <param name="StopAnimation">The animation that brings them to a halt.</param>
+/// <param name="Hips">The triad at the hips, which is where the character stands.</param>
+/// <param name="LeftShoe">The triad under the left shoe.</param>
+/// <param name="RightShoe">The triad under the right shoe.</param>
 public sealed record CharacterConfig(
     string Identifier,
     float WalkerHeight,
     string? StartAnimation,
     string? WalkAnimation,
-    string? StopAnimation);
+    string? StopAnimation,
+    CharacterAxes? Hips = null,
+    CharacterAxes? LeftShoe = null,
+    CharacterAxes? RightShoe = null);
 
 /// <summary>
 /// <c>CHARACTERS.TXT</c> — who the game's people are and how they move.
@@ -22,10 +41,9 @@ public sealed record CharacterConfig(
 /// <remarks>
 /// <para>
 /// An INI file, one section a character, keyed by the three-letter code the models use:
-/// <c>GAB</c>, <c>GRA</c>, <c>ABE</c>. Most of what it holds is for things not built yet —
-/// blink timings, mouth coordinates, the shoe and hip vertices a walker's ground is
-/// measured from — so only the walk is read, and the rest is left in the file rather than
-/// parsed into fields nothing reads.
+/// <c>GAB</c>, <c>GRA</c>, <c>ABE</c>. Much of what it holds is for things not built yet —
+/// blink timings, mouth coordinates, the field of view a head turns within — and that is
+/// left in the file rather than parsed into fields nothing reads.
 /// </para>
 /// <para>
 /// The walk animations are the point. Without them an actor crosses a room in whatever
@@ -76,12 +94,28 @@ public sealed class CharacterLibrary
 
             string? Value(string key) => Line(key)?.Head.Value;
 
+            CharacterAxes? Axes(string prefix)
+            {
+                if (Line(prefix + "AxesMeshIndex")?.Head.AsNumber() is not { } mesh)
+                {
+                    return null;
+                }
+
+                return new CharacterAxes(
+                    (int)mesh,
+                    (int)(Line(prefix + "AxesGroupIndex")?.Head.AsNumber() ?? 0f),
+                    (int)(Line(prefix + "AxesPointIndex")?.Head.AsNumber() ?? 0f));
+            }
+
             library._characters[section.Name] = new CharacterConfig(
                 section.Name,
                 Line("WalkerHeight")?.Head.AsNumber() ?? 0f,
                 Value("StartAnim"),
                 Value("ContAnim"),
-                Value("StopAnim"));
+                Value("StopAnim"),
+                Axes("Hip"),
+                Axes("LShoe"),
+                Axes("RShoe"));
         }
 
         return library;

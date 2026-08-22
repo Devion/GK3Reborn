@@ -283,6 +283,13 @@ public sealed class ActionRunner
             "TURNTOMODEL" or "TURNTO" =>
                 _api.Walks(_api.State.Ego, target, Approaching.Turn, false),
 
+            // The one approach whose target is not a place. It names an animation, and
+            // means walk to where that animation begins before playing it — 398 of the
+            // corpus's approaches, and without it Gabriel pours the coffee from wherever
+            // he happens to be standing while the pot sits across the room.
+            "ANIM" =>
+                _api.WalksToAnimationStart?.Invoke(_api.State.Ego, target, hurry) ?? 0,
+
             _ => 0,
         };
     }

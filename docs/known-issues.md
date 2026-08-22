@@ -4,20 +4,7 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. A dotted line runs above and below drawn text at large scales
-
-**Reported:** 2026-08-22, with a screenshot. Faint dots along the top and the bottom of the
-caption band, reading as part of a border. Hardly visible over a dark surface and plain
-over a light one.
-
-A bitmap font sheet stacks its rows, and half a texel above a letter is the marker strip
-that says where the next row's letters begin. Rounding text to whole pixels closed this
-once, at one size. It is back at the sizes where each sheet pixel is drawn as two or more,
-which is what the caption ladder does past about 1,600 lines.
-
-Reproduce: run at a high resolution and look at the inventory bar.
-
-## 2. NPCs offer Talk as well as Chat and Ask about
+## 1. NPCs offer Talk as well as Chat and Ask about
 
 **Reported:** 2026-08-22. Right-clicking a character lists `Chat`, `Talk` and
 `Ask about...`. Talk looks like the heading the other two sit under rather than a verb of
@@ -27,33 +14,18 @@ Needs checking against the game's own action files before anything is hidden: if
 originals give a character a TALK rule as well as CHAT and TOPIC ones, the verb is real and
 the question is what it does.
 
-## 3. The interface says things the player does not need told
-
-**Reported:** 2026-08-22. `right-click for everything it answers to` is a hint that has
-done its work, and `carrying nothing` states something that is obvious the moment anybody
-picks anything up.
-
-## 4. Inspecting the register does nothing
+## 2. Inspecting the register does nothing
 
 **Reported:** 2026-08-22. The verb is offered and produces no result. Probably an action
 whose script is not performed rather than one that is missing; needs `render-scene --do`
 against that noun to say which.
 
-## 5. Pour coffee plays before Gabriel gets to the table
-
-**Reported:** 2026-08-22, in the hotel dining room. The animation starts at once instead of
-after the walk.
-
-An action's approach is not part of its script, and the approach is supposed to finish
-before the script runs. Either this action's approach is not being found, or its script is
-being run without waiting for it.
-
-## 6. Scene music cuts rather than crossfading (feature)
+## 3. Scene music cuts rather than crossfading (feature)
 
 **Reported:** 2026-08-22. Moving between rooms should fade one room's music into the next
 rather than stopping one and starting the other.
 
-## 7. The Eglise/Church sign reads wrong on RC1's signpost
+## 4. The Eglise/Church sign reads wrong on RC1's signpost
 
 **Reported:** 2026-08-21. **Cause found; the fix is content, not code.**
 
@@ -88,7 +60,7 @@ image) scored a median of 11.4% across all 7,462 enhanced textures and did not p
 in its top twenty-five, so the check has to be about the background region specifically
 rather than about the picture as a whole.
 
-## 8. HDR output (feature)
+## 5. HDR output (feature)
 
 **Requested:** 2026-08-19.
 
@@ -132,6 +104,45 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 ---
 
 ## Closed
+
+### A dotted line ran above and below drawn text — fixed 2026-08-22
+
+Reported with a screenshot: faint dots along the top and bottom of the caption band, plain
+on a light surface and nearly invisible on a dark one.
+
+A font sheet stacks its rows and marks the top of each with a marker strip, so a glyph's
+rectangle runs from one pixel below its own strip to the top of the next row's with nothing
+between them. The sampler filters linearly and a sample at the glyph's edge reaches half a
+texel past it, bringing a quarter of a marker strip with it. Rounding text to whole pixels
+had closed this at one size; it could not close it at the sizes where a sheet pixel is
+drawn as two, which is what the caption ladder does past about 1,600 lines.
+
+`OverlayAtlas.Uv` insets half a texel on every side. Not a switch to nearest sampling — the
+caption sheets are antialiased grey, and filtering is what makes a doubled one read as a
+larger version of itself rather than a magnified bitmap. The same inset stopped a glyph
+reaching into its neighbour, which had been drawing faint ticks between letters.
+
+### The interface said two things it did not need to — fixed 2026-08-22
+
+`right-click for everything it answers to` had done its work, and the inventory bar no
+longer announces how much of nothing is in it. Both gone.
+
+
+### Pour coffee played before Gabriel got to the table — fixed 2026-08-22
+
+Reported in the hotel dining room: the animation started at once instead of after the walk.
+
+`approach=anim` was not implemented, and it is the third most common approach in the game —
+398 of the corpus's 3,617, against 688 `WalkTo` and 397 `TurnToModel`. It fell through to
+"no approach at all", so every one of those actions ran from wherever the player happened
+to be standing.
+
+It is the only approach whose target is not a place: it names an animation, and means walk
+to where that animation begins. `AnimationStart` reads that out of the clip's opening frame
+through the three axis triads `CHARACTERS.TXT` names — hips and both shoes — which is the
+nearest thing a GK3 character has to a skeleton, and which nothing had read before. See
+`docs/formats/actions.md`.
+
 
 ### Accented letters came out as boxes, and the interface was tiny — fixed 2026-08-22
 
@@ -456,7 +467,6 @@ that the shoulder went black. It is applied at 0.55 now.
 A third fault was found while looking: the acceleration structure held the pose
 each model was authored in, so a ray leaving an animated shoulder started inside
 a body still standing at rest. Posed vertices now reach it.
-
 
 
 ### Every scene rendered as its own mirror image — fixed 2026-08-19

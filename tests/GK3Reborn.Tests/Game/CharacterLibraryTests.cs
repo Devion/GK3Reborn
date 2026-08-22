@@ -88,6 +88,19 @@ public sealed class CharacterLibraryTests
     private const string File = """
         [GAB] // Gabriel
 
+          // Hip axes indices
+        HipAxesMeshIndex=5
+        HipAxesGroupIndex=0
+        HipAxesPointIndex=125
+
+          // Shoe axes indices
+        LShoeAxesMeshIndex=1
+        LShoeAxesGroupIndex=0
+        LShoeAxesPointIndex=39
+        RShoeAxesMeshIndex=0
+        RShoeAxesGroupIndex=0
+        RShoeAxesPointIndex=39
+
           // Walker info
         WalkerHeight=76.0
         ShoeThickness=0.75
@@ -149,5 +162,29 @@ public sealed class CharacterLibraryTests
         Assert.Equal("MosWalk", mosely.WalkAnimation);
         Assert.Null(mosely.StartAnimation);
         Assert.Equal(72f, mosely.WalkerHeight, 2);
+    }
+
+    [Fact]
+    public void A_character_carries_the_three_axis_triads()
+    {
+        // The only handle there is on where a character stands and which way they face:
+        // GK3's people have no skeleton, and these three little meshes are what an
+        // approach=anim reads to know where an animation starts. Mesh zero is a real
+        // answer, so the index has to be read rather than treated as absent.
+        CharacterConfig gabriel = CharacterLibrary.Parse(File).Of("gab")!;
+
+        Assert.Equal(new CharacterAxes(5, 0, 125), gabriel.Hips);
+        Assert.Equal(new CharacterAxes(1, 0, 39), gabriel.LeftShoe);
+        Assert.Equal(new CharacterAxes(0, 0, 39), gabriel.RightShoe);
+    }
+
+    [Fact]
+    public void A_character_the_file_gives_no_triads_has_none()
+    {
+        CharacterConfig mosely = CharacterLibrary.Parse(File).Of("MOS")!;
+
+        Assert.Null(mosely.Hips);
+        Assert.Null(mosely.LeftShoe);
+        Assert.Null(mosely.RightShoe);
     }
 }

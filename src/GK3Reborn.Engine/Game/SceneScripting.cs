@@ -723,6 +723,9 @@ public static class SceneScripting
         api.Register("TurnTo", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false, turnOnly: true)));
 
+        api.WalksToAnimationStart = (actor, animation, hurry) =>
+            ToAnimationStart(scene, world, actor, animation, hurry);
+
         api.Register("WalkerBoundaryBlockRegion", _ => SheepValue.FromInt(0));
 
         api.Register("StopWalking", _ =>
@@ -769,6 +772,63 @@ public static class SceneScripting
         // A named spot says which way to stand. A thing says to look at it — from wherever
         // the walk actually ends, which the boundary decides, not from where it was aimed.
         return world.Walk(actor, Approach(world, actor, aim), aim.Heading, aim.Look, hurry);
+    }
+
+    /// <summary>
+    /// Walks an actor to the spot an animation expects them to start from.
+    /// </summary>
+    /// <remarks>
+    /// Nothing happens if the animation moves nobody by that name, which is the right
+    /// answer: an <c>approach=anim</c> naming a scenery animation has nobody to walk, and
+    /// refusing to run the action because of it would lose the action as well as the walk.
+    /// </remarks>
+    private static double ToAnimationStart(
+        LoadedScene scene,
+        SceneUpdate world,
+        string actor,
+        string animation,
+        bool hurry)
+    {
+        void Cannot(string wanted, string got) => world.Diagnostics.Add(new Diagnostic(
+            "GK3R3320", DiagnosticSeverity.Info,
+            "An approach names an animation nothing can be walked to the start of.",
+            animation, null, wanted, got,
+            "The action still runs; the actor simply plays it from where they stand."));
+
+        if (world.Animations?.Read(animation) is not { } read)
+        {
+            Cannot("an .ANM of that name", "nothing");
+            return 0;
+        }
+
+        if (world.Clips is not { } clips)
+        {
+            Cannot("a clip library", "none attached");
+            return 0;
+        }
+
+        if (world.Characters?.Of(actor) is not { } character || character.Hips is null)
+        {
+            Cannot("hip axes in CHARACTERS.TXT for " + actor, "none");
+            return 0;
+        }
+
+        // The model, not the actor. An actor answers to two names — gab and GABRIEL — and a
+        // clip is filed under the model's, so the animation has to be searched for what the
+        // scene actually placed rather than for what the action file called it.
+        string model = scene.Models
+            .FirstOrDefault(m =>
+                string.Equals(m.Name, actor, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(m.Noun, actor, StringComparison.OrdinalIgnoreCase))
+            ?.Name ?? actor;
+
+        if (AnimationStart.Of(read, clips, model, character) is not { } start)
+        {
+            Cannot("a clip in it that poses " + model, "none of its " + read.Actions.Count);
+            return 0;
+        }
+
+        return world.Walk(actor, start.Position, start.Heading, null, hurry);
     }
 
     /// <summary>Stops an actor short of the thing they were sent to.</summary>
