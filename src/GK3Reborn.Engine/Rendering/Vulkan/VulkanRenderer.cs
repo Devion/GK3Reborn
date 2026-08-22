@@ -562,12 +562,15 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// Hands over the frame of a movie to draw over everything, or nothing to stop.
     /// </summary>
     /// <param name="frame">The picture, or null when the movie has finished.</param>
+    /// <param name="cover">
+    /// Whether to fill the window rather than letterbox the picture into it.
+    /// </param>
     /// <remarks>
     /// The renderer knows nothing about what is playing or how far through it is: it is
     /// given a picture each frame and draws it, which keeps decoding, timing and sound out
     /// of the one place that has to keep up with the display.
     /// </remarks>
-    public void SetMovieFrame(Formats.Bitmaps.DecodedImage? frame)
+    public void SetMovieFrame(Formats.Bitmaps.DecodedImage? frame, bool cover = false)
     {
         if (frame is null)
         {
@@ -598,8 +601,19 @@ public sealed unsafe class VulkanRenderer : IDisposable
             }
         }
 
+        _movie.Cover = cover;
         _movie.SetFrame(frame.Value);
     }
+
+    /// <summary>Sets the picture behind the menu.</summary>
+    /// <param name="picture">The image, or null to take it away.</param>
+    /// <remarks>
+    /// The same surface a cutscene uses, so whatever was set last is what shows — which is
+    /// right, because a film and a title screen are never both wanted. It fills the window
+    /// rather than being letterboxed into it.
+    /// </remarks>
+    public void SetBackdrop(Formats.Bitmaps.DecodedImage? picture) =>
+        SetMovieFrame(picture, cover: true);
 
     /// <summary>Sets what the interface looks like this frame.</summary>
     /// <param name="overlay">The display list, or null to draw nothing over the room.</param>

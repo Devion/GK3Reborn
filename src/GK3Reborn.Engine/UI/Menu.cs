@@ -4,6 +4,19 @@ using GK3Reborn.Rendering;
 
 namespace GK3Reborn.UI;
 
+/// <summary>What is behind a page of menu.</summary>
+public enum MenuBehind
+{
+    /// <summary>A picture of its own, which must not be washed over.</summary>
+    Picture,
+
+    /// <summary>Nothing, so the page draws its own screen.</summary>
+    Nothing,
+
+    /// <summary>The room the player is in, dimmed enough to read the page against.</summary>
+    Room,
+}
+
 /// <summary>What kind of thing a row on a menu page is.</summary>
 public enum MenuItemKind
 {
@@ -148,15 +161,33 @@ public sealed class MenuPage
     public int Count { get; private set; }
 
     /// <summary>
-    /// Whether to fill the screen behind the page.
+    /// What is behind the page, and therefore what it has to draw itself.
     /// </summary>
     /// <remarks>
-    /// On for the menu the game opens with, where there is no room behind it and the
-    /// alternative is a black screen with a panel in the middle of it; off for the pause
-    /// menu, where what is behind it is the room the player is in and dimming it is enough.
-    /// Drawn from rectangles like everything else here, so it needs no art.
+    /// The game's own title art is a picture and is left alone: a wash over it to make the
+    /// rows readable would be a wash over the thing the player came to look at, and the
+    /// panel behind the rows already carries that. Without the art there is nothing at all
+    /// behind the page, so it draws its own screen from rectangles. Over a room, a dim.
     /// </remarks>
-    public bool Backdrop { get; set; }
+    public MenuBehind Behind { get; set; } = MenuBehind.Room;
+
+    /// <summary>
+    /// Where down the window the page sits, from zero at the top to one at the bottom.
+    /// </summary>
+    /// <remarks>
+    /// Low over the title art, which has the game's name across the middle of it and should
+    /// not be covered by its own menu. Centred everywhere else.
+    /// </remarks>
+    public float Down { get; set; } = 0.5f;
+
+    /// <summary>
+    /// Where across the window the page sits, from zero at the left to one at the right.
+    /// </summary>
+    /// <remarks>
+    /// Left over the title art, whose lettering is to the right of the angel. A menu that
+    /// covers the name of the game it is the menu for is not a title screen.
+    /// </remarks>
+    public float Across { get; set; } = 0.5f;
 
     /// <summary>One row's height, which is what everything else is measured in.</summary>
     private float Row => Overlay.LineHeight * 1.9f;
@@ -167,14 +198,16 @@ public sealed class MenuPage
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <param name="at">Where the pointer is, for the hover.</param>
-    /// <param name="footer">A line along the bottom, or null.</param>
+    /// <remarks>
+    /// There is no line along the bottom saying which keys work. A menu that tells the
+    /// player what an arrow key does is a menu that thinks they have not used one.
+    /// </remarks>
     public void Build(
         string title,
         IReadOnlyList<MenuItem> items,
         int width,
         int height,
-        Vector2 at,
-        string? footer = null)
+        Vector2 at)
     {
         ArgumentNullException.ThrowIfNull(title);
         ArgumentNullException.ThrowIfNull(items);
@@ -185,7 +218,7 @@ public sealed class MenuPage
         Count = items.Count;
         Index = Math.Clamp(Index, 0, Math.Max(0, items.Count - 1));
 
-        Behind(width, height);
+        Screen(width, height);
 
         float unit = Overlay.LineHeight;
         float pad = unit;
@@ -194,12 +227,12 @@ public sealed class MenuPage
         // The game's own name, on the screen it opens with, at twice the size of a row.
         // A title screen whose title is the same size as its buttons does not read as one.
         int ink = Overlay.Magnify;
-        int large = Backdrop ? ink * 2 : ink;
+        int large = Behind == MenuBehind.Room ? ink : ink * 2;
         float titleUnit = unit * large / ink;
 
         // Wide enough for the longest thing on the page, and never wider than the window
         // has room for. A page of short labels should not be a page-wide slab.
-        float widest = Overlay.Measure(title) * large / (float)ink;
+        float widest = title.Length > 0 ? Overlay.Measure(title) * large / (float)ink : 0;
 
         foreach (MenuItem item in items)
         {
@@ -208,30 +241,48 @@ public sealed class MenuPage
                 Overlay.Measure(item.Text) + Overlay.Measure("    ") + Overlay.Measure(item.Value));
         }
 
-        float panelWidth = Math.Min(width - (4 * unit), Math.Max(widest + (6 * unit), 22 * unit));
-        float titleHeight = row + (titleUnit - unit);
-        float footerHeight = footer is { Length: > 0 } ? row : 0;
-        float panelHeight = titleHeight + (row * items.Count) + footerHeight + pad;
+        // A page with a heading is at least wide enough to look like one; a page without
+        // is a column of short words and should be no wider than it needs.
+        float least = (title.Length > 0 ? 22 : 12) * unit;
 
-        float x = MathF.Round((width - panelWidth) / 2f);
-        float y = MathF.Round((height - panelHeight) / 2f);
+        float panelWidth = Math.Min(width - (4 * unit), Math.Max(widest + (6 * unit), least));
+
+        // No heading where the art already carries the game's name. Drawing "Gabriel
+        // Knight 3" over a picture that says Gabriel Knight is how a menu looks like a
+        // placeholder.
+        float titleHeight = title.Length > 0 ? row + (titleUnit - unit) : pad / 2f;
+        float panelHeight = titleHeight + (row * items.Count) + pad;
+
+        float x = MathF.Round(Math.Clamp(
+            (width * Math.Clamp(Across, 0f, 1f)) - (panelWidth / 2f),
+            unit,
+            Math.Max(unit, width - panelWidth - unit)));
+
+        // Kept on the screen whatever it was asked for: a page taller than the window it
+        // was told to sit low in would otherwise run off the bottom.
+        float y = MathF.Round(Math.Clamp(
+            (height * Math.Clamp(Down, 0f, 1f)) - (panelHeight / 2f),
+            unit,
+            Math.Max(unit, height - panelHeight - unit)));
 
         _panel = new Vector4(x, y, panelWidth, panelHeight);
 
         Overlay.Rect(x, y, panelWidth, panelHeight, Panel);
         Overlay.Rect(x, y, panelWidth, 2, Accent);
 
-        Overlay.Magnify = large;
+        if (title.Length > 0)
+        {
+            Overlay.Magnify = large;
 
-        Overlay.Text(
-            title,
-            MathF.Round(x + ((panelWidth - Overlay.Measure(title)) / 2f)),
-            MathF.Round(y + ((titleHeight - titleUnit) / 2f)),
-            Accent);
+            Overlay.Text(
+                title,
+                MathF.Round(x + ((panelWidth - Overlay.Measure(title)) / 2f)),
+                MathF.Round(y + ((titleHeight - titleUnit) / 2f)),
+                Accent);
 
-        Overlay.Magnify = ink;
-
-        Overlay.Rect(x, y + titleHeight, panelWidth, 1, Rule);
+            Overlay.Magnify = ink;
+            Overlay.Rect(x, y + titleHeight, panelWidth, 1, Rule);
+        }
 
         // The pointer picks the row before anything is drawn, so hovering and the keyboard
         // land on the same row and the drawn highlight is the one that will be clicked.
@@ -250,18 +301,6 @@ public sealed class MenuPage
             Draw(item, i, x, top, panelWidth, row, unit);
 
             _rows.Add((item.Id, new Vector4(x, top, panelWidth, row), item.Kind));
-        }
-
-        if (footer is { Length: > 0 })
-        {
-            float bottom = y + panelHeight - row;
-            Overlay.Rect(x, bottom, panelWidth, 1, Rule);
-
-            Overlay.Text(
-                footer,
-                MathF.Round(x + ((panelWidth - Overlay.Measure(footer)) / 2f)),
-                MathF.Round(bottom + ((row - unit) / 2f)),
-                Dim);
         }
     }
 
@@ -429,17 +468,23 @@ public sealed class MenuPage
     /// <returns>True when it is over the panel.</returns>
     public bool Covers(Vector2 point) => Inside(point, _panel);
 
-    /// <summary>Fills the screen behind the page.</summary>
+    /// <summary>Fills the screen behind the page, where anything is wanted there.</summary>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <remarks>
     /// A gradient in bands rather than a picture: sixteen rectangles cost nothing, there is
     /// no bitmap to ship, and it is right at any size. Over a room it is a single dark wash
-    /// instead, so the player can still see where they are while the game is paused.
+    /// instead, so the player can still see where they are while the game is paused. Over
+    /// the title art it is nothing at all.
     /// </remarks>
-    private void Behind(int width, int height)
+    private void Screen(int width, int height)
     {
-        if (!Backdrop)
+        if (Behind == MenuBehind.Picture)
+        {
+            return;
+        }
+
+        if (Behind == MenuBehind.Room)
         {
             // Paused over a room: dark enough to read the panel against, light enough to
             // see what was on screen.

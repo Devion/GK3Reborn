@@ -440,13 +440,55 @@ public static class Application
 
         if (frontEnd && pages is not null)
         {
+            // The game's own title screen: the angel, with the name painted into it. This
+            // is the one piece of GK3's interface art the port keeps, because it is a
+            // picture rather than a widget — the rows over it are still drawn.
+            // The enhanced set is opened here rather than borrowed from the room loop,
+            // which has not run yet. It only lists a directory.
+            Formats.Bitmaps.DecodedImage? title = TitleArt(
+                archives,
+                !packsOnly && enhancedDirectory is { Length: > 0 }
+                    ? EnhancedTextures.Open(enhancedDirectory)
+                    : null,
+                diagnostics);
+
+            front.Illustrated = title is not null;
+
+            Console.WriteLine(title is { } art
+                ? $"Title: {TitlePicture} at {art.Width}x{art.Height}"
+                : $"Title: no {TitlePicture} in the archives, so the menu draws its own");
+
+            // The theme, under the menu and nowhere else. Looped: it is a minute long and
+            // somebody may sit on the title screen for longer than that.
+            Audio.AudioVoice theme = Theme(audio, sounds);
+
+            Console.WriteLine(theme.Exists
+                ? $"Theme: {ThemeMusic}, under the menu"
+                : $"Theme: no {ThemeMusic} to play, so the menu is silent");
+
+            void Films()
+            {
+                // The film has its own soundtrack and the theme would play under it.
+                audio?.Silence(theme);
+                renderer.SetBackdrop(null);
+
+                ShowIntro(window, renderer, movies, pages);
+
+                renderer.SetBackdrop(title);
+                theme = Theme(audio, sounds);
+            }
+
             // --frames is a run that photographs something and ends, and no such run wants
             // to sit through two films first.
             if (settings.PlayIntro &&
                 frameLimit == 0 &&
                 !args.Contains("--skip-intro", StringComparer.OrdinalIgnoreCase))
             {
-                ShowIntro(window, renderer, movies, pages);
+                Films();
+            }
+            else
+            {
+                renderer.SetBackdrop(title);
             }
 
             // --front-page opens on one of the settings pages, for the same reason
@@ -458,15 +500,35 @@ public static class Application
                 front.Show(opened);
             }
 
-            if (ShowMenu(
+            FrontEndOutcome asked;
+
+            // Round again for the Intro row, which is the one thing on the menu that goes
+            // somewhere and comes back.
+            do
+            {
+                asked = ShowMenu(
                     window,
                     renderer,
                     pages,
                     front,
                     Apply,
-                    backdrop: true,
+                    title is null ? MenuBehind.Nothing : MenuBehind.Picture,
                     frameLimit,
-                    screenshotPath) != FrontEndOutcome.Play)
+                    screenshotPath);
+
+                if (asked == FrontEndOutcome.Intro)
+                {
+                    Films();
+                }
+            }
+            while (asked == FrontEndOutcome.Intro && !window.IsClosing);
+
+            // Neither belongs to the game about to start: the room brings its own sound and
+            // fills the window itself.
+            audio?.Silence(theme);
+            renderer.SetBackdrop(null);
+
+            if (asked != FrontEndOutcome.Play)
             {
                 // Quit from the first menu, so nothing of the room is ever loaded. The
                 // device and the archives go on the way out as they would anyway.
@@ -1418,7 +1480,7 @@ public static class Application
                 front.InGame = true;
 
                 FrontEndOutcome chose = ShowMenu(
-                    window, renderer, pages, front, apply, backdrop: false);
+                    window, renderer, pages, front, apply, MenuBehind.Room);
 
                 // The room has been standing still behind the menu and the clock has not.
                 // Without this the first frame back advances everything by however long the
@@ -1746,6 +1808,67 @@ public static class Application
         return new RoomExit(0, null);
     }
 
+    /// <summary>The game's own title screen.</summary>
+    /// <remarks>
+    /// 640x480 in the archives, and the only piece of GK3's interface art this port keeps:
+    /// it is a painting of an angel with the game's name in it, not a widget with a label
+    /// baked into one language. A replacement in <c>enhanced/textures</c> is preferred if
+    /// somebody makes one, exactly as for every other texture in the game.
+    /// </remarks>
+    private const string TitlePicture = "TITLE.BMP";
+
+    /// <summary>The music under the menu.</summary>
+    /// <remarks>
+    /// The game's own theme, which is the largest sound in the archives and is played
+    /// nowhere else: it belongs to the title screen and always has.
+    /// </remarks>
+    private const string ThemeMusic = "THEME.WAV";
+
+    /// <summary>Finds the title art.</summary>
+    /// <param name="archives">The game's own.</param>
+    /// <param name="enhanced">A higher-resolution set, or null.</param>
+    /// <param name="diagnostics">Where a picture that will not decode is reported.</param>
+    /// <returns>The picture, or null when there is none to be had.</returns>
+    private static Formats.Bitmaps.DecodedImage? TitleArt(
+        GameArchives archives, EnhancedTextures? enhanced, DiagnosticBag diagnostics)
+    {
+        string bare = Path.GetFileNameWithoutExtension(TitlePicture);
+
+        if (enhanced?.Read(bare, diagnostics) is { } better)
+        {
+            return better;
+        }
+
+        try
+        {
+            return archives.Read(TitlePicture) is { } bytes
+                ? Formats.Bitmaps.BitmapDecoder.Decode(bytes, TitlePicture)
+                : null;
+        }
+        catch (FormatException error)
+        {
+            // A menu without its picture is a menu; a game that will not start because a
+            // decorative bitmap is malformed is not.
+            Console.Error.WriteLine($"WARNING GK3R3430: {TitlePicture} would not decode. ({error.Message})");
+            return null;
+        }
+    }
+
+    /// <summary>Starts the theme under the menu.</summary>
+    /// <param name="audio">The device, or null when there is none.</param>
+    /// <param name="sounds">Where sounds come from.</param>
+    /// <returns>The voice, so it can be stopped again.</returns>
+    private static Audio.AudioVoice Theme(Audio.OpenAlBackend? audio, SoundLibrary sounds)
+    {
+        if (audio is null || sounds.Read(ThemeMusic) is not { } music)
+        {
+            return Audio.AudioVoice.None;
+        }
+
+        // On the music bus, so the music slider is the thing that turns it down.
+        return audio.Play(music, Audio.AudioBus.Music, repeat: true);
+    }
+
     /// <summary>
     /// Shows the menu until the player leaves it.
     /// </summary>
@@ -1754,7 +1877,7 @@ public static class Application
     /// <param name="pages">The drawn page.</param>
     /// <param name="front">What the pages hold and what choosing a row does.</param>
     /// <param name="apply">What to do with a setting the moment it changes.</param>
-    /// <param name="backdrop">Whether to fill the screen behind it.</param>
+    /// <param name="behind">What is behind it, and so what it has to draw itself.</param>
     /// <param name="frames">Leave after this many frames, or zero to wait for the player.</param>
     /// <param name="photograph">Where to write the last frame, if anywhere.</param>
     /// <returns>What the player asked for.</returns>
@@ -1776,13 +1899,15 @@ public static class Application
         MenuPage pages,
         FrontEnd front,
         Action<Settings> apply,
-        bool backdrop,
+        MenuBehind behind,
         int frames = 0,
         string? photograph = null)
     {
         FrontEndPage showing = front.Page;
 
-        pages.Backdrop = backdrop;
+        pages.Behind = behind;
+
+        Place(pages, front, behind);
         pages.Reset(front.Items);
 
         int drawn = 0;
@@ -1856,6 +1981,8 @@ public static class Application
             if (front.Page != showing)
             {
                 showing = front.Page;
+
+                Place(pages, front, behind);
                 pages.Reset(front.Items);
             }
 
@@ -1876,8 +2003,7 @@ public static class Application
                 front.Items,
                 window.FramebufferWidth,
                 window.FramebufferHeight,
-                pointer,
-                front.Footer);
+                pointer);
 
             renderer.SetOverlay(pages.Overlay);
 
@@ -1906,6 +2032,25 @@ public static class Application
 
         front.Commit();
         return FrontEndOutcome.Quit;
+    }
+
+    /// <summary>
+    /// Puts the page where it does not cover what is behind it.
+    /// </summary>
+    /// <param name="pages">The page.</param>
+    /// <param name="front">Which page is showing.</param>
+    /// <param name="behind">What is behind it.</param>
+    /// <remarks>
+    /// Down in the left-hand corner over the title art, whose lettering is to the right of
+    /// the angel: a menu that covers the name of the game it is the menu for is not a title
+    /// screen. The settings pages are taller and wider, and centre themselves again.
+    /// </remarks>
+    private static void Place(MenuPage pages, FrontEnd front, MenuBehind behind)
+    {
+        bool overArt = behind == MenuBehind.Picture && front.Page == FrontEndPage.Main;
+
+        pages.Down = overArt ? 0.72f : 0.5f;
+        pages.Across = overArt ? 0.17f : 0.5f;
     }
 
     /// <summary>

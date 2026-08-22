@@ -29,14 +29,92 @@ public sealed class FrontEndTests
         front.Items.Single(i => i.Id == id);
 
     [Fact]
-    public void The_first_page_offers_a_new_game_and_the_pause_page_offers_to_resume()
+    public void The_first_page_is_the_originals_own_five_and_the_pause_page_is_not()
     {
-        Assert.Equal("New Game", Row(Front(), "play").Text);
-        Assert.Equal("Resume", Row(Front(inGame: true), "resume").Text);
+        // The names the 1999 title screen used, in its order.
+        Assert.Equal(
+            ["intro", "play", "load", "options", "quit"],
+            Front().Items.Select(i => i.Id));
+
+        Assert.Equal("Play", Row(Front(), "play").Text);
 
         // Drawn and disabled rather than missing: a menu that simply omits saving leaves
         // the player looking for it.
         Assert.False(Row(Front(), "load").Enabled);
+
+        // Paused, where the intro would be an odd thing to offer somebody in the middle of
+        // the game, and the first row is the one that gives it back to them.
+        FrontEnd paused = Front(inGame: true);
+
+        Assert.Equal(
+            ["resume", "load", "options", "quit"],
+            paused.Items.Select(i => i.Id));
+
+        Assert.Equal("Resume", Row(paused, "resume").Text);
+        Assert.Equal("Leave the Game", Row(paused, "quit").Text);
+    }
+
+    [Fact]
+    public void The_intro_can_be_watched_again_from_the_menu()
+    {
+        Assert.Equal(FrontEndOutcome.Intro, Front().Choose(new MenuAction("intro")));
+
+        // And is not offered while the game is on, so nothing can ask for it there.
+        Assert.DoesNotContain(Front(inGame: true).Items, i => i.Id == "intro");
+    }
+
+    [Fact]
+    public void The_art_carries_the_name_where_there_is_art()
+    {
+        FrontEnd front = Front();
+
+        Assert.Equal("Gabriel Knight 3", front.Title);
+
+        // The picture has the game's name painted into it, so the menu draws no heading of
+        // its own over the top of it.
+        front.Illustrated = true;
+        Assert.Equal(string.Empty, front.Title);
+
+        // Except where the picture is not showing: a settings page is a settings page.
+        front.Show(FrontEndPage.Audio);
+        Assert.Equal("Sound", front.Title);
+
+        // And paused, where what is behind is the room.
+        front.Show(FrontEndPage.Main);
+        front.InGame = true;
+        Assert.Equal("Paused", front.Title);
+    }
+
+    [Fact]
+    public void A_page_with_no_heading_still_draws_its_rows_in_the_window()
+    {
+        var page = new MenuPage(new Overlay(MenuPageTests.Font()))
+        {
+            Behind = MenuBehind.Picture,
+            Down = 0.74f,
+        };
+
+        IReadOnlyList<MenuItem> items = Front().Items;
+
+        page.Build(string.Empty, items, 1280, 720, Vector2.Zero);
+
+        Assert.NotEmpty(page.Overlay.Quads);
+
+        foreach (OverlayQuad quad in page.Overlay.Quads)
+        {
+            Assert.InRange(quad.Destination.Y, 0f, 720f);
+            Assert.InRange(quad.Destination.Y + quad.Destination.W, 0f, 720f);
+        }
+
+        // Low, so the game's name in the middle of the art is not covered by its own menu.
+        Assert.True(
+            page.Overlay.Quads.Min(q => q.Destination.Y) > 720 * 0.4f,
+            "the menu sat over the middle of the title art");
+
+        // Nothing is painted over the picture but the panel and its rows.
+        Assert.DoesNotContain(
+            page.Overlay.Quads,
+            q => q.Destination.Z >= 1280 && q.Destination.W >= 720);
     }
 
     [Fact]
@@ -358,7 +436,7 @@ public sealed class FrontEndTests
 public sealed class MenuPageTests
 {
     /// <summary>A font of fixed four-pixel characters.</summary>
-    private static FontFile Font()
+    internal static OverlayAtlas Font()
     {
         const int Width = 128;
         const int Height = 12;
@@ -378,10 +456,11 @@ public sealed class MenuPageTests
         string characters = new(
             [.. "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz".Distinct().Take(31)]);
 
-        return FontFile.Parse($"Font={characters}\n", sheet, "TEST", new DiagnosticBag());
+        return OverlayAtlas.Build(
+            FontFile.Parse($"Font={characters}\n", sheet, "TEST", new DiagnosticBag()));
     }
 
-    private static MenuPage Page() => new(new Overlay(OverlayAtlas.Build(Font())));
+    private static MenuPage Page() => new(new Overlay(Font()));
 
     private static IReadOnlyList<MenuItem> Items() =>
     [
@@ -493,6 +572,34 @@ public sealed class MenuPageTests
     }
 
     [Fact]
+    public void A_page_goes_where_it_is_put_and_no_further()
+    {
+        MenuPage page = Page();
+        IReadOnlyList<MenuItem> items = Items();
+
+        page.Behind = MenuBehind.Picture;
+        page.Down = 0.72f;
+        page.Across = 0.17f;
+        page.Build("", items, 1280, 720, Vector2.Zero);
+
+        Vector4 panel = page.Overlay.Quads[0].Destination;
+
+        // Left and low, which is where the title art has room for it.
+        Assert.InRange(panel.X + (panel.Z / 2f), 1280 * 0.1f, 1280 * 0.25f);
+        Assert.InRange(panel.Y + (panel.W / 2f), 720 * 0.6f, 720 * 0.85f);
+
+        // And asked for the impossible, it stays on the screen rather than half off it.
+        page.Down = 1f;
+        page.Across = 0f;
+        page.Build("", items, 1280, 720, Vector2.Zero);
+
+        panel = page.Overlay.Quads[0].Destination;
+
+        Assert.True(panel.X >= 0, "the page ran off the left of the window");
+        Assert.True(panel.Y + panel.W <= 720, "the page ran off the bottom of the window");
+    }
+
+    [Fact]
     public void Drawing_the_page_again_does_not_pile_it_up()
     {
         MenuPage page = Page();
@@ -517,6 +624,7 @@ public sealed class MenuPageTests
     {
         MenuPage page = Page();
 
+        page.Behind = MenuBehind.Room;
         page.Build("Title", Items(), 800, 600, Vector2.Zero);
 
         // Paused over a room: one wash over the whole window, and see-through, or the
@@ -526,7 +634,7 @@ public sealed class MenuPageTests
         Assert.Equal(new Vector4(0, 0, 800, 600), wash.Destination);
         Assert.InRange(wash.Color.W, 0.2f, 0.95f);
 
-        page.Backdrop = true;
+        page.Behind = MenuBehind.Nothing;
         page.Build("Title", Items(), 800, 600, Vector2.Zero);
 
         // The first menu of all has no room behind it, so the window has to be covered

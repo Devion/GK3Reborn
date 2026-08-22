@@ -202,6 +202,16 @@ public sealed unsafe class MoviePipeline : IDisposable
         _height = 0;
     }
 
+    /// <summary>
+    /// Whether to fill the window rather than fit inside it.
+    /// </summary>
+    /// <remarks>
+    /// Off for a cutscene, which is letterboxed: filling the window would make everybody in
+    /// it short and wide. On for a still behind the menu, where there is nothing to distort
+    /// and black bars down both sides of the title art look like a fault.
+    /// </remarks>
+    public bool Cover { get; set; }
+
     /// <summary>Draws the frame, fitted to the window.</summary>
     /// <param name="command">Command buffer, inside an active rendering scope.</param>
     /// <param name="width">Window width.</param>
@@ -229,8 +239,12 @@ public sealed unsafe class MoviePipeline : IDisposable
         float wanted = (float)_width / _height;
         float window = (float)width / height;
 
-        float x = wanted > window ? 1f : wanted / window;
-        float y = wanted > window ? window / wanted : 1f;
+        // Fitting takes whichever dimension runs out first; covering takes the other, so
+        // the picture runs off the edges instead of leaving bars.
+        bool wide = Cover ? wanted < window : wanted > window;
+
+        float x = wide ? 1f : wanted / window;
+        float y = wide ? window / wanted : 1f;
 
         Span<float> fit = [x, y, 0f, 0f];
 

@@ -11,6 +11,19 @@ from the game's own caption fonts: sharp at any resolution, scaled by the same f
 as the rest of the interface, translatable, and able to say things the original had no
 button for. A new row costs a line of code and no art at all.
 
+**The title screen itself is the game's own.** `TITLE.BMP` is a painting of an angel with
+the game's name in it, not a widget with a label baked into one language, so it is kept and
+filled to the window. The rows over it are still drawn: `Intro`, `Play`, `Restore`,
+`Settings`, `Quit` — the original's own five, in its own order — in a slim panel down in the
+left-hand corner, clear of the lettering. The menu draws no heading of its own there,
+because the picture already says what the game is. `THEME.WAV`, the largest sound in the
+archives and played nowhere else, runs underneath on the music bus. A replacement for the
+picture in `enhanced/textures` is preferred if anybody makes one, exactly as for every other
+texture in the game.
+
+**No page says which keys work.** A menu that explains what an arrow key does is a menu that
+thinks the player has not used one.
+
 ## What it is made of
 
 Three pieces, and the split is what makes any of it testable.
@@ -89,7 +102,9 @@ holding fills a bar, because a hold with nothing on screen is indistinguishable 
 that is not working. Skipping ends the whole sequence rather than the film showing:
 somebody who has seen it means they have seen it.
 
-Escape in the room opens the same menu with the room still behind it, dimmed. Nothing of
+Choosing `Intro` plays the films again and comes back to the menu, with the theme stopped
+while they run. Escape in the room opens the same pages with the room still behind them,
+dimmed — and no title art, so those pages keep their headings. Nothing of
 the room advances while it is up, which is what pausing means. From a settings page,
 Escape goes back one level; from the top of the menu it resumes. It does **not** leave the
 game — that is a row somebody has to choose — and from the very first menu, where there is

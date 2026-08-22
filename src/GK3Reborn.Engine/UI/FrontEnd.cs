@@ -35,6 +35,9 @@ public enum FrontEndOutcome
     /// <summary>Go back to the room that is already loaded.</summary>
     Resume,
 
+    /// <summary>Play the films the game opens with, then come back here.</summary>
+    Intro,
+
     /// <summary>Leave the game.</summary>
     Quit,
 }
@@ -86,20 +89,27 @@ public sealed class FrontEnd
     /// <summary>Whether anything has been changed since the settings were last written.</summary>
     public bool Dirty { get; private set; }
 
+    /// <summary>
+    /// Whether the game's own title art is on screen behind the menu.
+    /// </summary>
+    /// <remarks>
+    /// It carries the game's name, so the first page draws no heading of its own over it.
+    /// Set by whoever found the picture, because whether it is there is a fact about the
+    /// installation rather than about the menu.
+    /// </remarks>
+    public bool Illustrated { get; set; }
+
     /// <summary>The heading for the page showing.</summary>
     public string Title => Page switch
     {
-        FrontEndPage.Main => InGame ? "Paused" : "Gabriel Knight 3",
+        FrontEndPage.Main => InGame
+            ? "Paused"
+            : Illustrated ? string.Empty : "Gabriel Knight 3",
         FrontEndPage.Options => "Settings",
         FrontEndPage.Video => "Picture",
         FrontEndPage.Audio => "Sound",
         _ => "Playing",
     };
-
-    /// <summary>The line along the bottom of the page showing.</summary>
-    public string Footer => Page == FrontEndPage.Main
-        ? "Arrows to move, Enter to choose"
-        : "Left and right to change, Escape to go back";
 
     /// <summary>The rows of the page showing.</summary>
     public IReadOnlyList<MenuItem> Items => Page switch
@@ -125,6 +135,9 @@ public sealed class FrontEnd
         {
             case "play":
                 return FrontEndOutcome.Play;
+
+            case "intro":
+                return FrontEndOutcome.Intro;
 
             case "resume":
                 return FrontEndOutcome.Resume;
@@ -198,19 +211,30 @@ public sealed class FrontEnd
         return Settings.Save(path);
     }
 
-    private IReadOnlyList<MenuItem> Main() =>
-    [
-        InGame
-            ? MenuItem.Button("resume", "Resume")
-            : MenuItem.Button("play", "New Game"),
+    private IReadOnlyList<MenuItem> Main() => InGame
 
-        // Drawn and disabled rather than hidden. Saving is not built, and a menu that
-        // simply omits it leaves the player wondering where it went.
-        MenuItem.Button("load", "Restore Game", enabled: false),
+        // Paused. No intro from here: the player is in the middle of the game, and the row
+        // they want first is the one that gives it back to them.
+        ? [
+            MenuItem.Button("resume", "Resume"),
+            MenuItem.Button("load", "Restore", enabled: false),
+            MenuItem.Button("options", "Settings"),
+            MenuItem.Button("quit", "Leave the Game"),
+        ]
 
-        MenuItem.Button("options", "Settings"),
-        MenuItem.Button("quit", InGame ? "Leave the Game" : "Quit"),
-    ];
+        // The original's own five, in its own order. Intro first because it is what the
+        // game opens with and somebody who skipped it may want it back.
+        : [
+            MenuItem.Button("intro", "Intro"),
+            MenuItem.Button("play", "Play"),
+
+            // Drawn and disabled rather than hidden. Saving is not built, and a menu that
+            // simply omits it leaves the player wondering where it went.
+            MenuItem.Button("load", "Restore", enabled: false),
+
+            MenuItem.Button("options", "Settings"),
+            MenuItem.Button("quit", "Quit"),
+        ];
 
     private static IReadOnlyList<MenuItem> Options() =>
     [
