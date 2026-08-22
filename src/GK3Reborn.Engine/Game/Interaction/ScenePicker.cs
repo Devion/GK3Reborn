@@ -84,10 +84,11 @@ public sealed class ScenePicker
     /// <summary>Builds a picker for a loaded scene.</summary>
     /// <param name="scene">The scene, with its geometry and its placed models.</param>
     /// <remarks>
-    /// The triangles are gathered once and kept in world space, grouped by object with a
-    /// box around each. A room is fifteen thousand triangles and a click has to be answered
-    /// between two frames; the box rejects nearly all of them before any arithmetic that
-    /// matters happens.
+    /// The triangles are gathered once, grouped by object with a box around each — the
+    /// room's in world space, a model's in its own, since a model can still be moved. A
+    /// room is fifteen thousand triangles and a click has to be answered between two
+    /// frames; the box rejects nearly all of them before any arithmetic that matters
+    /// happens.
     /// </remarks>
     public ScenePicker(LoadedScene scene)
     {
@@ -143,12 +144,19 @@ public sealed class ScenePicker
                 continue;
             }
 
-            if (!MeetsBox(ray, target.Minimum, target.Maximum, best))
+            // A model's triangles are kept in its own space, so the ray goes to where it
+            // is standing now rather than the triangles being moved to meet the ray.
+            if (Into(ray, target) is not { } local)
             {
                 continue;
             }
 
-            if (Nearest(ray, target, best) is not { } distance)
+            if (!MeetsBox(local, target.Minimum, target.Maximum, best))
+            {
+                continue;
+            }
+
+            if (Nearest(local, target, best) is not { } distance)
             {
                 continue;
             }
@@ -239,22 +247,29 @@ public sealed class ScenePicker
         }
     }
 
-    /// <summary>Gathers one placed prop or actor, in world space.</summary>
+    /// <summary>Gathers one placed prop or actor, in the model's own space.</summary>
+    /// <remarks>
+    /// Its own space rather than the room's, because it need not stay where it was put.
+    /// An actor walks: the sink is handed a new transform every frame and the triangles
+    /// gathered here never hear about it, so baking them into the room would leave
+    /// Gabriel's noun standing on the spot he set off from — the pointer finding him
+    /// where he used to be and finding nothing where he is.
+    /// </remarks>
     private void AddModel(PlacedModel placed)
     {
         List<Vector3> triangles = [];
 
         foreach (ModMesh mesh in placed.Model.Meshes)
         {
-            Matrix4x4 toWorld = mesh.MeshToLocal * placed.Transform;
+            Matrix4x4 toModel = mesh.MeshToLocal;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {
                 for (int i = 0; i + 2 < submesh.Indices.Length; i += 3)
                 {
-                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i]], toWorld));
-                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 1]], toWorld));
-                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 2]], toWorld));
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i]], toModel));
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 1]], toModel));
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 2]], toModel));
                 }
             }
         }
@@ -298,6 +313,49 @@ public sealed class ScenePicker
     private static bool IsProp(SceneModel model) =>
         string.Equals(model.Type, "prop", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The ray as the target sees it, or null when the target is nowhere.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The room's own geometry is already in world space and comes back untouched. A model
+    /// is asked where it is standing now and the ray is put through the inverse of that.
+    /// </para>
+    /// <para>
+    /// Distances survive the trip. An affine transform carries the point at <c>t</c> along
+    /// the ray to the point at <c>t</c> along the transformed ray, so a hit found in a
+    /// model's own space is at the same <c>t</c> in the room — which is what lets a
+    /// scaled actor and a wall be compared for which one the ray reached first, and what
+    /// lets the hit point be read off the original ray.
+    /// </para>
+    /// </remarks>
+    private static Ray? Into(Ray ray, Target target)
+    {
+        if (target.Of is not { } placed)
+        {
+            return ray;
+        }
+
+        Matrix4x4 standing = placed.Standing;
+
+        if (standing.IsIdentity)
+        {
+            return ray;
+        }
+
+        // A model scaled to nothing has no inverse and nothing to click on either.
+        if (!Matrix4x4.Invert(standing, out Matrix4x4 back))
+        {
+            return null;
+        }
+
+        // The direction is left unnormalised on purpose: scaling it to unit length is what
+        // would break the equality of distances that the caller relies on.
+        return new Ray(
+            Vector3.Transform(ray.Origin, back),
+            Vector3.TransformNormal(ray.Direction, back));
+    }
 
     /// <summary>The nearest hit on one target, if the ray reaches it at all.</summary>
     private static float? Nearest(Ray ray, Target target, float limit)
@@ -410,7 +468,12 @@ public sealed class ScenePicker
     private static float Component(Vector3 vector, int axis) =>
         axis switch { 0 => vector.X, 1 => vector.Y, _ => vector.Z };
 
-    /// <summary>One nameable thing, with its triangles in world space.</summary>
+    /// <summary>One nameable thing, with its triangles and its box in one space.</summary>
+    /// <remarks>
+    /// Which space depends on what it is. The room's own geometry is in the room's, where
+    /// it cannot go anywhere. A model's is its own, and <see cref="Of"/> is what says
+    /// where that space currently sits in the room.
+    /// </remarks>
     private sealed record Target
     {
         public Target(
@@ -449,11 +512,11 @@ public sealed class ScenePicker
 
         public string? Verb { get; }
 
-        /// <summary>The model this stands for, when it is one that can be hidden.</summary>
+        /// <summary>The model this stands for, when it is one that can move or be hidden.</summary>
         /// <remarks>
-        /// Held rather than copied, because whether a model is drawn changes while the
-        /// scene is standing and the picker is built once. Null for the room's own
-        /// geometry, which is always there.
+        /// Held rather than copied, because both where a model is and whether it is drawn
+        /// change while the scene is standing, and the picker is built once. Null for the
+        /// room's own geometry, which is always there and always where it was.
         /// </remarks>
         public PlacedModel? Of { get; init; }
 

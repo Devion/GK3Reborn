@@ -46,6 +46,27 @@ public sealed record PlacedModel(
     /// <summary>The script that drives it on its own, or null.</summary>
     public string? Gas { get; init; }
 
+    /// <summary>Where it is standing, so that where it stands now can be asked.</summary>
+    /// <remarks>
+    /// The sink owns the live transform: <c>MoveModel</c> writes it every time an actor
+    /// takes a step, and nothing writes it back here. Optional, because a model can be
+    /// built without a room to stand in — the tests do — and then where it was placed is
+    /// all there is to say.
+    /// </remarks>
+    public ISceneSink? Stage { get; init; }
+
+    /// <summary>
+    /// Where it stands <em>now</em>, rather than where the scene first put it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Transform"/> is where it was placed and never changes. An actor crossing
+    /// the room is moved through the sink, so anything asking where somebody is — what is
+    /// under the pointer, what to turn a head towards — has to ask this instead, or it
+    /// answers about the spot they were standing on when the room loaded.
+    /// </remarks>
+    public Matrix4x4 Standing =>
+        Stage is { } stage && Placement.Exists ? stage.TransformOf(Placement) : Transform;
+
     /// <summary>That script, read.</summary>
     /// <remarks>
     /// Settable, because a script may hand a character a different idle while the scene is

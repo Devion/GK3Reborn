@@ -362,7 +362,7 @@ public static class SceneScripting
                 float yaw = float.DegreesToRadians(a[1].AsInt());
                 float pitch = float.DegreesToRadians(a[2].AsInt());
 
-                Vector3 eye = who.Transform.Translation + new Vector3(0, 60, 0);
+                Vector3 eye = who.Standing.Translation + new Vector3(0, 60, 0);
                 Vector3 ahead = Vector3.Transform(
                     new Vector3(MathF.Sin(yaw), MathF.Tan(pitch), MathF.Cos(yaw)) * 100f,
                     Matrix4x4.CreateRotationY(Heading(scene, a[0].AsString())));
@@ -420,7 +420,7 @@ public static class SceneScripting
             if (CharacterHead.Find(placed.Model) is { } head)
             {
                 return Vector3.Transform(
-                    CharacterHead.PivotOf(placed.Model, head), placed.Transform);
+                    CharacterHead.PivotOf(placed.Model, head), placed.Standing);
             }
 
             // Anything else, in the middle. A prop's transform is the identity - its
@@ -438,9 +438,14 @@ public static class SceneScripting
         Vector3 minimum = new(float.MaxValue);
         Vector3 maximum = new(float.MinValue);
 
+        // Where it is standing now, not where the scene first put it: an actor who has
+        // walked is looked at where they went, and asking the placement would aim
+        // everybody at the spot they were on when the room loaded.
+        Matrix4x4 standing = placed.Standing;
+
         foreach (ModMesh mesh in placed.Model.Meshes)
         {
-            Matrix4x4 toWorld = mesh.MeshToLocal * placed.Transform;
+            Matrix4x4 toWorld = mesh.MeshToLocal * standing;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {
@@ -453,7 +458,7 @@ public static class SceneScripting
             }
         }
 
-        return minimum.X > maximum.X ? placed.Transform.Translation : (minimum + maximum) * 0.5f;
+        return minimum.X > maximum.X ? standing.Translation : (minimum + maximum) * 0.5f;
     }
 
     private static PlacedModel? Placed(LoadedScene scene, string name)

@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Game;
@@ -122,6 +122,24 @@ public sealed class ScenePickerTests
             ModFile.FromMeshes(name, [mesh]),
             Matrix4x4.CreateTranslation(0, 0, z),
             kind);
+    }
+
+    /// <summary>The same model, standing in a sink that can be told to move it.</summary>
+    /// <remarks>
+    /// How a model really stands in a room: the sink holds where it is and a walk writes
+    /// a new transform there, so this is the shape the picker has to answer against.
+    /// </remarks>
+    private static PlacedModel Standing(
+        HeadlessSceneSink stage, string name, string? noun, Matrix4x4 where)
+    {
+        PlacedModel model = Model(name, noun, 0f, PlacedModelKind.Actor);
+
+        return model with
+        {
+            Transform = where,
+            Placement = stage.Add(model.Model, where),
+            Stage = stage,
+        };
     }
 
     /// <summary>The pick straight ahead, through the middle pixel of a 65x65 image.</summary>
@@ -270,6 +288,85 @@ public sealed class ScenePickerTests
         moped.Visible = true;
 
         Assert.Equal("wmo", Assert.NotNull(Ahead(picker)).Name);
+    }
+
+    [Fact]
+    public void An_actor_who_walks_takes_their_noun_with_them()
+    {
+        // The bug this exists for: the picker gathers a model's triangles once, and an
+        // actor is moved by handing the sink a new transform. Baking the triangles into
+        // the room at load leaves Gabriel's noun on the spot he set off from — the pointer
+        // finds him where he used to be, and finds nothing where he is now.
+        var stage = new HeadlessSceneSink();
+
+        PlacedModel gabriel =
+            Standing(stage, "gab", "GABRIEL", Matrix4x4.CreateTranslation(0, 0, 120));
+
+        var picker = new ScenePicker(Scene(
+            Room(("wall", 300f)),
+            "model=gab, noun=GABRIEL, type=prop",
+            gabriel));
+
+        Assert.Equal("gab", Assert.NotNull(Ahead(picker)).Name);
+
+        // Two hundred units to his right, still the same distance away.
+        stage.MoveModel(gabriel.Placement, Matrix4x4.CreateTranslation(200, 0, 120));
+
+        // Where he was, there is now the wall behind him.
+        Assert.Equal("wall", Assert.NotNull(Ahead(picker)).Name);
+
+        ScenePick? found = picker.Pick(
+            new Ray(Vector3.Zero, Vector3.Normalize(new Vector3(200, 0, 120))));
+
+        Assert.Equal("gab", Assert.NotNull(found).Name);
+        Assert.Equal(PickKind.Actor, Assert.NotNull(found).Kind);
+
+        // And the hit comes back in the room's units rather than the model's.
+        Assert.Equal(
+            new Vector3(200, 0, 120).Length(), Assert.NotNull(found).Distance, 2);
+    }
+
+    [Fact]
+    public void A_scaled_model_is_still_as_far_away_as_it_looks()
+    {
+        // The ray is sent into the model's own space to meet it, which scales the ray
+        // along with everything else. What must not scale is the answer: an actor at half
+        // size standing 120 units away is 120 units away, or the nearest of two things is
+        // decided by whichever happens to be modelled bigger.
+        var stage = new HeadlessSceneSink();
+
+        PlacedModel small = Standing(
+            stage,
+            "gab",
+            "GABRIEL",
+            Matrix4x4.CreateScale(0.5f) * Matrix4x4.CreateTranslation(0, 0, 120));
+
+        var picker = new ScenePicker(Scene(
+            Room(("wall", 300f)), "model=gab, noun=GABRIEL, type=prop", small));
+
+        ScenePick? found = Ahead(picker);
+
+        Assert.Equal("gab", Assert.NotNull(found).Name);
+        Assert.Equal(120f, Assert.NotNull(found).Distance, 2);
+    }
+
+    [Fact]
+    public void A_model_scaled_to_nothing_is_something_the_ray_goes_past()
+    {
+        // A transform with no inverse cannot be asked where a ray goes in the model's own
+        // space. There is nothing there to click either way, so the ray carries on to the
+        // wall rather than the pick being abandoned.
+        var stage = new HeadlessSceneSink();
+
+        PlacedModel gabriel =
+            Standing(stage, "gab", "GABRIEL", Matrix4x4.CreateTranslation(0, 0, 120));
+
+        var picker = new ScenePicker(Scene(
+            Room(("wall", 300f)), "model=gab, noun=GABRIEL, type=prop", gabriel));
+
+        stage.MoveModel(gabriel.Placement, Matrix4x4.CreateScale(0f));
+
+        Assert.Equal("wall", Assert.NotNull(Ahead(picker)).Name);
     }
 
     [Fact]

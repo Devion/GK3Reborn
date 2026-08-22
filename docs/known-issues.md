@@ -84,6 +84,81 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ## Closed
 
+### Gabriel came and went in the dining room, and the newspaper hung in mid-air — fixed 2026-08-22
+
+Reported: the scene where Gabriel first meets Mosely. Gabriel keeps disappearing and
+appearing, and Mosely's newspaper floats beside him rather than being held.
+
+One cause for both. **Two clips were posing one model at the same time.** `SceneUpdate.Play`
+appended to its playing list and never took anything off it, so an animation the story
+started and an animation a character's idle started both wrote the same mesh groups every
+frame. Which one the eye saw was decided by list order, and the order changed every time one
+of them ended and another began.
+
+DIN110A is where that is worst. Nothing stops Gabriel's `gabIdle.gas` for the coffee scene —
+`StopFidget` is called for Mosely and not for him — so his breathing and his fidgets went on
+choosing clips for the whole two minutes of it, each one fighting `GabDinCoffeeShake`,
+`GabDinCoffeeGet2` and the rest for where his mesh groups were. Mosely's `mosPaperIdle.gas`
+did the same to the double-take: `MosDinPaperFig` holds the paper up in front of his face and
+`MosDinPaperLowerA` lowers it, and the two were running over each other.
+
+The original has three rules here, all in `GKActor::StartAnimation`, `GKProp::StartAnimation`
+and `VertexAnimator::Start`, and the port now has all three:
+
+- **One clip at a time per model.** Starting one stops whatever that model was playing.
+- **A behaviour script never overrides the story.** An idle asking for a clip on a model the
+  story is already animating is dropped, not queued.
+- **The story holds a model's own script while it animates it, and gives it back after.**
+  A pause rather than a stop, so a character goes back to breathing where they left off. A
+  script parked waiting out a clip that was taken from it carries on as soon as it has its
+  model back, which is what the original's paused player does with the next-node request its
+  stopped animation left behind.
+
+Reproduce:
+
+```bash
+GK3Reborn.Host --scene DIN --timeblock 110A --frames 1800 --screenshot before.png
+```
+
+Frame 1800 is about eleven seconds in. Before: the paper hangs to Mosely's right with his
+arms down. Frame 4200, about twenty-five seconds in: Gabriel is not in the picture at all.
+
+
+### Nouns stayed where an actor had been standing — fixed 2026-08-22
+
+Reported: Gabriel walks across the room and his hotspot does not go with him. The pointer
+finds him on the spot he set off from, and finds nothing where he is.
+
+`ScenePicker` gathered every placed model's triangles into world space once, when the room
+loaded, using the transform the scene placed it with. Nothing moves an actor by that
+transform: `SceneUpdate` walks them by handing `ISceneSink.MoveModel` a new one every frame
+and `PlacedModel.Transform` is never written again. So the ray met a room-shaped snapshot of
+where everybody had been at load. The same staleness aimed `LookitActor`: `SceneScripting`
+measured a target's middle through the placement, so an actor was looked at where they used
+to be.
+
+A model's triangles are now kept in the model's own space and the *ray* is put through the
+inverse of where it is standing now — `PlacedModel.Standing`, which asks the sink. That is
+one 4×4 inversion per model per pick against fifteen thousand triangles of room, and it
+means a walking actor costs nothing to keep up with. Distances survive the trip: an affine
+transform carries the point at *t* along the ray to the point at *t* along the transformed
+ray, so a hit in a model's own space is at the same *t* in the room — which is what lets a
+scaled actor and a wall be compared for which the ray reached first.
+
+Still approximate in one way. The triangles are the bind pose, so a character's *shape*
+does not follow their animation — a clip that deforms them well away from their own origin
+is picked against where the artist modelled them. Their position is now right, which is the
+whole of what walking changes.
+
+Reproduce:
+
+```bash
+GK3Reborn.Host --scene LBY --timeblock 110A
+```
+
+Click the floor to walk Gabriel across the lobby, then point at him.
+
+
 ### Mosely was not in the dining room — fixed 2026-08-22
 
 Reported: entering the hotel dining room on Day 1, Mosely should be at his table and the

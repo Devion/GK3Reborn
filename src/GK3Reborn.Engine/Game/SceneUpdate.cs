@@ -136,6 +136,20 @@ public sealed class SceneUpdate
         new(StringComparer.OrdinalIgnoreCase);
 
     private readonly List<Playing> _playing = [];
+
+    /// <summary>
+    /// Models whose behaviour script is held while something else animates them.
+    /// </summary>
+    /// <remarks>
+    /// A character has one animation at a time and a script asking for one outranks the
+    /// idle they were running. The original pauses the idle rather than stopping it —
+    /// <c>GKProp::StartAnimation</c> pauses and <c>OnVertexAnimationStop</c> resumes — so
+    /// a character goes back to breathing where they left off once the scripted moment is
+    /// over. Without it Gabriel's idle goes on choosing fidgets all the way through the
+    /// coffee scene and every one of them fights the scene for his mesh groups.
+    /// </remarks>
+    private readonly HashSet<string> _held = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Gk3SheepApi _api;
     private readonly Glances _glances;
     private readonly ISceneSink _geometry;
@@ -274,6 +288,11 @@ public sealed class SceneUpdate
     /// puts the actor's position and heading back where they were, so a character who
     /// mimes walking has not actually gone anywhere.
     /// </param>
+    /// <param name="fromBehaviour">
+    /// Whether a model's own behaviour script asked for it rather than the story. An idle
+    /// gives way to the story and never the other way about: it is dropped where the story
+    /// is already animating that model, and it is held while the story does.
+    /// </param>
     /// <returns>How long it will take, or zero when there is nothing to play.</returns>
     /// <remarks>
     /// <para>
@@ -288,7 +307,8 @@ public sealed class SceneUpdate
     /// which is wrong-looking but is where the geometry actually goes.
     /// </para>
     /// </remarks>
-    public double Play(string name, bool repeat = false, bool moves = false)
+    public double Play(
+        string name, bool repeat = false, bool moves = false, bool fromBehaviour = false)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -374,6 +394,31 @@ public sealed class SceneUpdate
                 continue;
             }
 
+            // An idle never talks over the story. GK3 gives a model one animator, and a
+            // behaviour script asking it for a clip while something else is animating it
+            // is the request being dropped — GKActor::StartAnimation returns without
+            // starting anything. Without this, Gabriel's idle and the coffee scene both
+            // pose him, every frame, and he flickers between the two.
+            if (fromBehaviour && _playing.Any(p => Drives(p, target) && !p.FromBehaviour))
+            {
+                continue;
+            }
+
+            // And one clip at a time either way: starting one on a model stops whatever
+            // that model was doing, which is what VertexAnimator::Start does before it
+            // does anything else. Two clips on one model is two answers to where its mesh
+            // groups are, decided by whichever was added last.
+            // A script left waiting out a clip that is about to be stopped has to be told,
+            // or it goes on waiting for something that is no longer playing.
+            if (!fromBehaviour &&
+                _playing.Any(p => Drives(p, target) && p.FromBehaviour) &&
+                BehaviourOf(target.Name) is { } interrupted)
+            {
+                interrupted.Interrupted = true;
+            }
+
+            _playing.RemoveAll(p => Drives(p, target));
+
             // The move flag is carried but not yet spent. Committing the ground a clip
             // covered means writing the actor's position, and Walker already owns that —
             // the two have to be reconciled before either may write it.
@@ -383,9 +428,15 @@ public sealed class SceneUpdate
             _walking.Remove(clip.ModelName);
             _walking.Remove(target.Name);
 
+            // Whatever the model does on its own waits until this is over.
+            if (!fromBehaviour)
+            {
+                _held.Add(target.Name);
+            }
+
             _playing.Add(new Playing(
                 clip, target, action, repeat, moves, Where(target.Name),
-                _geometry.TransformOf(target.Placement)));
+                _geometry.TransformOf(target.Placement), fromBehaviour));
             longest = Math.Max(longest, clip.Duration + (action.Frame / 15.0));
         }
 
@@ -529,6 +580,11 @@ public sealed class SceneUpdate
     {
         foreach (Behaviour running in _scenery)
         {
+            if (running.Owner is { } driven && _held.Contains(driven.Name))
+            {
+                continue;
+            }
+
             Step(running, seconds);
         }
 
@@ -536,7 +592,10 @@ public sealed class SceneUpdate
 
         foreach (Fidget fidget in _fidgets.Values)
         {
-            if (fidget.Stopped)
+            // Told to stand still, or standing still because the story is animating them.
+            // The second is a pause rather than a stop: the script is left where it is and
+            // goes on from there once the scene has finished with the model.
+            if (fidget.Stopped || _held.Contains(fidget.Model.Name))
             {
                 continue;
             }
@@ -604,14 +663,15 @@ public sealed class SceneUpdate
                 // would take to come round. Started once and left.
                 case GasAction.Animate when step.Name is { Length: > 0 } spun &&
                                             running.Script.Continuous:
-                    Play(spun, repeat: true);
+                    Play(spun, repeat: true, fromBehaviour: true);
                     running.Remaining = double.MaxValue;
                     break;
 
                 case GasAction.Animate when step.Name is { Length: > 0 } clip:
                     if (Draws(step.Chance))
                     {
-                        running.Remaining += Math.Max(Play(clip, step.Repeats), 1.0 / 60);
+                        running.Remaining += Math.Max(
+                            Play(clip, step.Repeats, fromBehaviour: true), 1.0 / 60);
                     }
 
                     break;
@@ -724,7 +784,8 @@ public sealed class SceneUpdate
 
             if (draw < 0 && running.Script.Steps[i].Name is { Length: > 0 } chosen)
             {
-                running.Remaining += Math.Max(Play(chosen), 1.0 / 60);
+                running.Remaining += Math.Max(
+                    Play(chosen, fromBehaviour: true), 1.0 / 60);
                 return;
             }
         }
@@ -821,6 +882,11 @@ public sealed class SceneUpdate
         _geometry.SetVisible(model.Placement, visible);
     }
 
+    /// <summary>Whether a clip that is playing is the one animating a model.</summary>
+    private static bool Drives(Playing playing, PlacedModel model) =>
+        ReferenceEquals(playing.Target, model) ||
+        playing.Target.Name.Equals(model.Name, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Stops everything a model is doing.</summary>
     /// <param name="model">Its name, or null for everything in the room.</param>
     public void StopAnimating(string? model = null)
@@ -828,12 +894,61 @@ public sealed class SceneUpdate
         if (model is not { Length: > 0 })
         {
             _playing.Clear();
+            _held.Clear();
             return;
         }
 
         _playing.RemoveAll(p =>
             p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
             p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
+
+        // Whatever it does on its own is its own again. A hold outliving the clip that
+        // asked for it leaves a character standing perfectly still for the rest of the
+        // scene.
+        Release(model);
+    }
+
+    /// <summary>Gives a model back to its own script, once nothing else is animating it.</summary>
+    private void Release(string model)
+    {
+        if (_playing.Any(p =>
+                !p.FromBehaviour &&
+                p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        _held.Remove(model);
+
+        if (BehaviourOf(model) is { Interrupted: true } waiting)
+        {
+            waiting.Interrupted = false;
+            waiting.Remaining = 0;
+        }
+    }
+
+    /// <summary>The script a model runs on its own, whichever kind of thing it is.</summary>
+    /// <remarks>
+    /// A prop carries one script for as long as the scene stands; a character carries
+    /// three and runs whichever suits who is talking. Both end up as the same thing here.
+    /// </remarks>
+    private Behaviour? BehaviourOf(string model)
+    {
+        if (_fidgets.TryGetValue(model, out Fidget? fidget))
+        {
+            return fidget.Running;
+        }
+
+        foreach (Behaviour running in _scenery)
+        {
+            if (running.Owner is { } owner &&
+                owner.Name.Equals(model, StringComparison.OrdinalIgnoreCase))
+            {
+                return running;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Who the game's characters are, and how each of them walks.</summary>
@@ -1164,6 +1279,17 @@ public sealed class SceneUpdate
         /// <summary>Seconds until the next step.</summary>
         public double Remaining { get; set; }
 
+        /// <summary>Whether the clip it was waiting out was stopped for something else.</summary>
+        /// <remarks>
+        /// A script that has asked for an animation waits out its length before going on,
+        /// and a continuous one — a fan — waits for ever. Either way the wait is now
+        /// counting down something that is not playing any more, so the script carries on
+        /// as soon as it has its model back. The original reaches the same place: stopping
+        /// the animation asks the player for its next node, and a paused player runs that
+        /// the moment it resumes.
+        /// </remarks>
+        public bool Interrupted { get; set; }
+
         /// <summary>The language's whole state: one integer per name.</summary>
         public Dictionary<string, int> Registers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1328,6 +1454,12 @@ public sealed class SceneUpdate
 
                 happened.Add($"{playing.Clip.Name} finished");
                 _playing.RemoveAt(i);
+
+                // Back to whatever it does when nobody is asking.
+                if (!playing.FromBehaviour)
+                {
+                    Release(playing.Target.Name);
+                }
             }
         }
 
@@ -1588,10 +1720,12 @@ public sealed class SceneUpdate
             bool repeat,
             bool moves,
             Vector3? began,
-            Matrix4x4 standing)
+            Matrix4x4 standing,
+            bool fromBehaviour = false)
         {
             Clip = clip;
             Target = target;
+            FromBehaviour = fromBehaviour;
             _repeat = repeat;
             _moves = moves;
             _delay = action.Frame / (double)AnimationFile.FramesPerSecond;
@@ -1613,6 +1747,14 @@ public sealed class SceneUpdate
         public ActFile Clip { get; }
 
         public PlacedModel Target { get; }
+
+        /// <summary>Whether the model's own behaviour script asked for it.</summary>
+        /// <remarks>
+        /// What separates an idle from the story. One of these may be dropped or stopped
+        /// for the other's sake; two clips from the story are the story contradicting
+        /// itself, and the later one simply wins.
+        /// </remarks>
+        public bool FromBehaviour { get; }
 
         /// <summary>
         /// Where the clip's own space has to be moved to for it to play here.

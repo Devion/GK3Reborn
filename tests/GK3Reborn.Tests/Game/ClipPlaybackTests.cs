@@ -135,7 +135,7 @@ public sealed class ClipPlaybackTests
     /// <param name="model">The model its header names.</param>
     /// <param name="frames">How many frames.</param>
     /// <param name="deform">Whether to also give it a one-vertex shape that climbs in Y.</param>
-    private static byte[] Clip(string model, int frames, bool deform = false)
+    private static byte[] Clip(string model, int frames, bool deform = false, float from = Away)
     {
         List<byte> body = [];
         List<int> offsets = [];
@@ -151,7 +151,7 @@ public sealed class ClipPlaybackTests
             // Starts a long way from the origin, as a real clip does — authored wherever
             // the animator built it — and then advances a unit a frame.
             foreach (float value in new float[]
-                     { 1, 0, 0, 0, 1, 0, 0, 0, 1, Away + frame, 0, 0 })
+                     { 1, 0, 0, 0, 1, 0, 0, 0, 1, from + frame, 0, 0 })
             {
                 block.AddRange(BitConverter.GetBytes(value));
             }
@@ -282,6 +282,115 @@ public sealed class ClipPlaybackTests
         };
 
         return (update, sink);
+    }
+
+    /// <summary>How far away the idle's clip is authored, so the two can be told apart.</summary>
+    private const float Elsewhere = 5000f;
+
+    /// <summary>
+    /// A world where the model also runs a behaviour script of its own.
+    /// </summary>
+    /// <remarks>
+    /// A prop rather than an actor, because a prop's clips play exactly as authored — see
+    /// <c>SceneUpdate.Playing.Correction</c> — so where its mesh ends up says which of the
+    /// two clips is driving it, which is the whole question here.
+    /// </remarks>
+    private static (SceneUpdate Update, Sink Sink) Idling()
+    {
+        var sink = new Sink();
+        sink.Add(Model());
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse(
+                "[ROOM_CAMERAS]\nA, angle={0,0}, pos={0,0,0}, Default", "T.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Placed:
+            [
+                new PlacedModel(
+                    "door", "DOOR", null, Model(), Matrix4x4.Identity,
+                    PlacedModelKind.Prop, new ModelPlacement(0))
+                {
+                    Idle = GK3Reborn.Formats.Animation.GasFile.Parse(Encoding.Latin1.GetBytes("ANIM Fidget\nloop\n")),
+                },
+            ]);
+
+        var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
+        {
+            Animations = new AnimationLibrary(n => n.ToUpperInvariant() switch
+            {
+                "FIDGET.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_Fidget,0,0,0,0,0,0,0,0\n",
+                "WRDBOPEN.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_WrdbOpen,0,0,0,0,0,0,0,0\n",
+                _ => null,
+            }),
+
+            Clips = new ClipLibrary(n => n.ToUpperInvariant() switch
+            {
+                "DOOR_FIDGET.ACT" => Clip("door", 31, from: Elsewhere),
+                "DOOR_WRDBOPEN.ACT" => Clip("door", 31),
+                _ => null,
+            })
+            { KeepVertices = true },
+        };
+
+        update.StartScenery();
+        return (update, sink);
+    }
+
+    /// <summary>Where the model's one mesh has been put, along the axis the clips move on.</summary>
+    private static float Along(Sink sink) => sink.Poses[(0, 0)].Translation.X;
+
+    [Fact]
+    public void The_story_takes_a_model_off_its_own_script_and_gives_it_back()
+    {
+        // The dining room, and the fault it was found through. Mosely reads his newspaper
+        // through an idle script while the coffee scene animates him and the paper; both
+        // posed the same mesh groups every frame, so the paper hung in mid-air beside him
+        // and Gabriel flickered between the scene and his own breathing.
+        (SceneUpdate update, Sink sink) = Idling();
+
+        update.Advance(0.1);
+
+        Assert.Equal(1, update.Animating);
+        Assert.True(Along(sink) > Elsewhere, "the idle should be driving it to start with");
+
+        // The story asks for something else on the same model.
+        Assert.True(update.Play("WrdbOpen") > 0);
+        Assert.Equal(1, update.Animating);
+
+        // For as long as it runs, nothing else touches the model: not a second clip, and
+        // not the idle, which is held rather than stopped.
+        for (int frame = 0; frame < 30; frame++)
+        {
+            update.Advance(1.0 / 60);
+
+            Assert.Equal(1, update.Animating);
+            Assert.True(Along(sink) < Elsewhere, "the story should be driving it throughout");
+        }
+
+        // 31 frames at fifteen a second, and then the model is its own again.
+        update.Advance(31 / 15.0);
+        update.Advance(1.0 / 60);
+
+        Assert.Equal(1, update.Animating);
+        Assert.True(Along(sink) > Elsewhere, "the idle should carry on where it left off");
+    }
+
+    [Fact]
+    public void A_second_clip_on_one_model_replaces_the_first()
+    {
+        // GK3 gives a model one animator, and VertexAnimator::Start stops whatever it was
+        // playing before it starts anything. Two clips posing one model is two answers to
+        // where its mesh groups are, settled by whichever happened to be added last.
+        (SceneUpdate update, _) = World("WrdbOpen", "door_WrdbOpen", "door");
+
+        update.Play("WrdbOpen");
+        update.Play("WrdbOpen");
+        update.Play("WrdbOpen");
+
+        Assert.Equal(1, update.Animating);
     }
 
     [Fact]

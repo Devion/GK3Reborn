@@ -760,6 +760,7 @@ public sealed class SceneLoader
                 PlacedModelKind.Prop,
                 placement)
             {
+                Stage = geometry,
                 Gas = model.Gas,
                 Idle = ReadBehaviour(model.Gas, model.Name, diagnostics),
                 Visible = !model.Hidden,
@@ -867,6 +868,10 @@ public sealed class SceneLoader
             placed.Add(new PlacedModel(
                 actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor, standing)
             {
+                // Where they are now comes from the sink, because walking moves them
+                // there and nothing writes it back to the placement above.
+                Stage = geometry,
+
                 // What they do when nobody is telling them to do anything, while they
                 // speak, and while somebody else does. A scene names all three per actor.
                 Gas = actor.Idle,
