@@ -316,14 +316,27 @@ for a model. The tracing pass reads that one bit and traces the room only when t
 leaves a model. A ray leaving the room still traces everything, so a character still lays a
 shadow on the floor; what is lost is one character shadowing another, which is worth it.
 
-**The ray-traced tier is not reproducible frame to frame.** Two runs of the same build at
-`--rt high` differ across about seven per cent of the frame, because the shadow and
-occlusion denoisers accumulate over however many frames the wall clock allowed. Comparing
-two builds by diffing screenshots therefore needs a difference well above that floor to
-mean anything; below it, look at the picture. `render-scene` is not the tool for this at
-all — it drives `SceneRenderer` directly and never runs the composite pass, so the rig's
-direct light is computed into a target that is then thrown away and characters come out
-lit by the ambient floor alone.
+**The ray-traced tier is not reproducible frame to frame — in the host.** Two runs of the
+same build at `--rt high` differ across about seven per cent of the frame, because the
+shadow and occlusion denoisers accumulate over however many frames the wall clock allowed.
+Comparing two builds by diffing screenshots therefore needs a difference well above that
+floor to mean anything; below it, look at the picture.
+
+**`render-scene` is the tool that does compare.** It runs the whole deferred chain — the
+room's parts, the trace, the filter, the composite — and it builds those stages for one
+render and throws them away with it, so nothing is carried over and the same scene renders
+to the same pixels every time. R25 at `--rt high` twice is byte-identical.
+
+It did not always run that chain. For a while it bound the picture alone and left the other
+three colour targets unbound, so at any ray-traced level the rig's direct light went to a
+target nothing read and characters came out lit by the ambient floor — a class of shading
+bug the tool could not show at all, and three ray-tracing tests that could not pass on any
+machine. Binding one attachment against a pipeline that declares four is undefined
+behaviour besides, and both renderers bound all four from then on.
+
+What it still does not draw is the sky, and reflections: a single frame has no picture
+before it to reflect, so the reflection pass marches against black and adds nothing. Both
+are the host's to show.
 
 **Eight bits cannot encode a half.** A flat normal is `(0.5, 0.5, 1)` and the nearest byte
 is 128, which decodes to 0.0039 rather than 0. An early-out comparing against exactly

@@ -1183,10 +1183,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         if (_scene is not null && _camera is not null && _meshPipeline is not null && _frames is not null)
         {
-            bool tracing = Quality != RayTracingQuality.None &&
-                           _rayTracedPipeline is not null &&
-                           _rayTracedFrames is not null &&
-                           _scene.RayTracing is not null;
+            // The same condition the attachments were chosen by, and it has to be: the
+            // ray-traced pipeline writes light into a target of its own rather than a
+            // picture onto the screen, so using it without the pass that finishes the
+            // frame leaves the rig's light in a target nothing reads and the room lit by
+            // its ambient floor alone. When the compositing stages could not be built,
+            // the plain pipeline is what makes the warning true — the room draws with the
+            // lighting it had before any of this existed.
+            bool tracing = deferred && _rayTracedFrames is not null;
 
             MeshPipeline pipeline = tracing ? _rayTracedPipeline! : _meshPipeline;
             FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
@@ -1561,8 +1565,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         if (_context.SupportsRayTracing)
         {
+            // Light, not a picture. The ray-traced room writes half its lighting into the
+            // scene target, which is GBuffer.LightFormat because those values run past
+            // white; declaring the swapchain's format here instead described a pipeline
+            // that never ran against a target of that format.
             _rayTracedPipeline = MeshPipeline.Create(
-                _context, _format, SceneRenderer.DepthFormat, _shaderCompiler, rayTracing: true);
+                _context, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler,
+                rayTracing: true);
 
             _rayTracedFrames = FrameUniformSet.Create(_context, _rayTracedPipeline, FramesInFlight);
         }

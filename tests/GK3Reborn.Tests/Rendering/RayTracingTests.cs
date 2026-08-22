@@ -91,13 +91,41 @@ public sealed class RayTracingTests
             ]);
     }
 
-    /// <summary>A horizontal quad facing up, centred on the origin.</summary>
-    private static ModFile Floor(float half) => Quad(
-        "white",
+    /// <summary>The floor, as the room's own geometry rather than as a model.</summary>
+    /// <remarks>
+    /// <para>
+    /// It has to be the room. A shadow ray leaving a model traces the room and skips every
+    /// other model, because GK3's people are a dozen overlapping shells and a ray leaving
+    /// the shirt hits the arm inside it — so a floor built out of a <c>.MOD</c> is a floor
+    /// that nothing standing on it can ever shadow, and these tests measured exactly that
+    /// for as long as they were written that way.
+    /// </para>
+    /// <para>
+    /// The case they are about is the real one: something placed in a room, laying a
+    /// shadow on the room. Wound anticlockwise seen from above so the plane normal comes
+    /// out along +Y, since a BSP carries no normals and each triangle is given its own
+    /// plane's.
+    /// </para>
+    /// </remarks>
+    private static BspFile FloorScene(float half) => BspFile.FromParts(
+        "floor",
+        ["floor"],
         [
-            new(-half, 0, -half), new(half, 0, -half), new(half, 0, half), new(-half, 0, half),
+            new BspSurface
+            {
+                ObjectIndex = 0,
+                TextureName = "white",
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            },
         ],
-        Vector3.UnitY);
+        [new BspPolygon { VertexIndexOffset = 0, VertexIndexCount = 4, SurfaceIndex = 0 }],
+        [
+            new(-half, 0, -half), new(-half, 0, half), new(half, 0, half), new(half, 0, -half),
+        ],
+        [new(0, 0), new(0, 1), new(1, 1), new(1, 0)],
+        [0, 1, 2, 3]);
 
     /// <summary>A vertical quad standing on the floor along the x axis.</summary>
     private static ModFile Wall(float half, float height) => Quad(
@@ -142,12 +170,12 @@ public sealed class RayTracingTests
     };
 
     /// <summary>Renders the floor, with or without the wall that shadows it.</summary>
-    private static float Render(SceneRenderer renderer, RayTracingQuality quality, bool wall)
+    private static DecodedImage Picture(SceneRenderer renderer, RayTracingQuality quality, bool wall)
     {
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         geometry.AddTexture("white", White());
-        geometry.Add(Floor(400f));
+        geometry.AddScene(FloorScene(400f));
 
         if (wall)
         {
@@ -157,8 +185,12 @@ public sealed class RayTracingTests
         renderer.SetLights([SideLight()]);
         renderer.Quality = quality;
 
-        return MeanLuminance(renderer.Render(geometry, 200, 200, Overlooking()));
+        return renderer.Render(geometry, 200, 200, Overlooking());
     }
+
+    /// <summary>How bright that render came out.</summary>
+    private static float Render(SceneRenderer renderer, RayTracingQuality quality, bool wall) =>
+        MeanLuminance(Picture(renderer, quality, wall));
 
     /// <summary>
     /// A light too faint to change a pixel, but with a reach long enough that the rig
@@ -190,7 +222,7 @@ public sealed class RayTracingTests
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         geometry.AddTexture("white", White());
-        geometry.Add(Floor(400f));
+        geometry.AddScene(FloorScene(400f));
 
         if (wall)
         {
@@ -215,7 +247,7 @@ public sealed class RayTracingTests
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         geometry.AddTexture("white", White());
-        geometry.Add(Floor(400f));
+        geometry.AddScene(FloorScene(400f));
         geometry.Add(Wall(400f, 120f));
         geometry.Finish();
 
@@ -293,6 +325,28 @@ public sealed class RayTracingTests
         Assert.True(
             withOcclusion < shadowsOnly,
             $"occlusion did not darken anything: {shadowsOnly} to {withOcclusion}");
+    }
+
+    [Fact]
+    public void The_same_scene_renders_to_the_same_pixels_twice()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        // Every filtered stage of a ray-traced frame remembers the frame before it, and
+        // through the host that is the point: the shadow settles over however many frames
+        // the wall clock allowed, so two runs of the same build differ across a few per
+        // cent of the picture and a screenshot diff below that floor means nothing.
+        //
+        // Headless, nothing is carried over — the denoiser and the reflection pass are
+        // built for one render and thrown away with it — so the difference is exactly
+        // nought, which is what lets a render be compared against a reference at all.
+        byte[] first = Picture(renderer, RayTracingQuality.High, wall: true).Pixels;
+        byte[] second = Picture(renderer, RayTracingQuality.High, wall: true).Pixels;
+
+        Assert.Equal(first, second);
     }
 
     [Fact]
