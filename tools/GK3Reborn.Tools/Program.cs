@@ -168,6 +168,7 @@ public static class Program
             options.Model ?? "enhanced/textures/imagegen-pilot",
             options.Variant ?? "_imagegen_2048w",
             options.Tool ?? "unrecorded",
+            options.Force,
             diagnostics);
 
         Report(diagnostics);
@@ -602,6 +603,10 @@ public static class Program
               --workspace <dir>    Content workspace root. Outputs go to build/.
               --ffmpeg-dir <dir>   Directory containing ffmpeg and ffprobe.
               --force              Redo work even when a cached output is still valid.
+                                   For import-textures it also writes over textures
+                                   already in the enhanced set, which are hand-corrected
+                                   and live outside the repository. Without it, anything
+                                   already there is left exactly as it is.
               --verify             Decompress and validate without writing anything.
               --model NAME         Model or scene to render; the extension is optional.
               --timeblock <block>  Which time of day render-scene loads. A story

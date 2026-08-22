@@ -57,6 +57,10 @@ public sealed class TextureImportStage
     /// <param name="candidates">Where the candidates are, relative to the workspace.</param>
     /// <param name="variant">Suffix of the file to take, such as <c>_imagegen_2048w</c>.</param>
     /// <param name="tool">What produced them, for the provenance record.</param>
+    /// <param name="overwrite">
+    /// Whether to write over a texture already in the enhanced set. Off unless somebody
+    /// asks for it; see <see cref="TextureVerdict.Kept"/> for why.
+    /// </param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True when at least one candidate was accepted.</returns>
     public bool Run(
@@ -64,6 +68,7 @@ public sealed class TextureImportStage
         string candidates,
         string variant,
         string tool,
+        bool overwrite,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -93,6 +98,7 @@ public sealed class TextureImportStage
         List<EnhancedTexture> results = [];
         Dictionary<string, int> rejected = new(StringComparer.Ordinal);
         int accepted = 0;
+        int kept = 0;
 
         foreach (string file in Directory.EnumerateFiles(root, "*" + variant + ".png")
                      .OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
@@ -101,18 +107,33 @@ public sealed class TextureImportStage
             name = name[..^variant.Length];
 
             EnhancedTexture result = Examine(name, file, sources, plan, root, workspace);
-            results.Add(result);
 
             foreach (string reason in result.Rejections)
             {
                 rejected[Reason(reason)] = rejected.GetValueOrDefault(Reason(reason)) + 1;
             }
 
-            if (result.Verdict != TextureVerdict.Rejected)
+            if (result.Verdict == TextureVerdict.Rejected)
             {
-                File.Copy(file, Path.Combine(output, name + ".PNG"), overwrite: true);
-                accepted++;
+                results.Add(result);
+                continue;
             }
+
+            string destination = Path.Combine(output, name + ".PNG");
+
+            // What is already there wins. The enhanced set is hand-corrected work, it
+            // lives outside the repository, and an import that wrote over it would leave
+            // nothing to recover from.
+            if (!overwrite && File.Exists(destination))
+            {
+                results.Add(result with { Verdict = TextureVerdict.Kept });
+                kept++;
+                continue;
+            }
+
+            results.Add(result);
+            File.Copy(file, destination, overwrite: true);
+            accepted++;
         }
 
         var manifest = new EnhancedTextureManifest
@@ -130,9 +151,9 @@ public sealed class TextureImportStage
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(manifest, ManifestJson.Options));
 
-        Report(results, accepted, rejected, output, path);
+        Report(results, accepted, kept, rejected, output, path);
 
-        return accepted > 0;
+        return accepted > 0 || kept > 0;
     }
 
     /// <summary>Checks one candidate against the original it would replace.</summary>
@@ -302,12 +323,20 @@ public sealed class TextureImportStage
     private void Report(
         List<EnhancedTexture> results,
         int accepted,
+        int kept,
         IReadOnlyDictionary<string, int> rejected,
         string output,
         string manifest)
     {
         _log($"{results.Count} candidates: {accepted} written to {output}, " +
-             $"{results.Count - accepted} refused");
+             $"{kept} left alone, {results.Count - accepted - kept} refused");
+
+        if (kept > 0)
+        {
+            _log($"  {kept} were already in the enhanced set and were not written over. " +
+                 "That set is hand-corrected work living outside the repository, so " +
+                 "--force is the only way past this and there is no undoing it.");
+        }
 
         foreach ((string reason, int count) in rejected.OrderByDescending(r => r.Value))
         {
@@ -324,7 +353,7 @@ public sealed class TextureImportStage
 
         Dictionary<string, int> warnings = new(StringComparer.Ordinal);
 
-        foreach (EnhancedTexture texture in results.Where(t => t.Verdict != TextureVerdict.Rejected))
+        foreach (EnhancedTexture texture in results.Where(t => t.Verdict == TextureVerdict.Draft))
         {
             foreach (string warning in texture.Warnings)
             {

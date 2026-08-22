@@ -3,6 +3,33 @@
 Work package for whoever — or whatever — produces higher-resolution textures. Generated
 by `GK3Reborn.Tools texture-plan` into `manifests/texture-plan.json`.
 
+## enhanced/textures is hand-corrected, and nothing overwrites it
+
+**A texture already in `ContentWorkspace/enhanced/textures` is never written over.** Many
+of them have been redone by hand. The directory is outside the repository, so there is no
+history to recover anything from, and a rerun of a generator that replaced them would
+destroy that work silently and without anybody noticing until a room looked wrong again.
+
+Every writer of that directory leaves what it finds alone, by default and without being
+asked:
+
+| lane | what it does | how to override |
+| --- | --- | --- |
+| `import-textures` | records the candidate as `kept` and copies nothing | `--force` |
+| `PbrLab/make_basecolour.py` | prints `already there, left alone` and moves on | `--overwrite-existing` |
+
+Both overrides are deliberate, both are documented as destructive, and neither is implied
+by anything else — `--force` on `make_basecolour.py` means *regenerate even if the inputs
+have not changed* and still will not write over a texture that exists.
+
+A regenerated texture is usually a downgrade on what is already there, quite apart from the
+hand corrections: the 324 from the imagegen pilot are better than the local lane produces,
+which is why leaving files alone was the right default even before anybody edited one.
+
+**Replacing one is a manual act.** Delete the file, then run the lane; or write the new
+picture over it yourself. Both are things a person does on purpose to one texture, which is
+the point.
+
 ## Why textures first
 
 Geometry is not what dates this game. All 6,657 textures together hold **213

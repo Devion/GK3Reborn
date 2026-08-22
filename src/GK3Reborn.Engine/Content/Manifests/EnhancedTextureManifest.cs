@@ -24,6 +24,19 @@ public enum TextureVerdict
     /// <summary>Fails a check that would make the game look wrong. Not used.</summary>
     [JsonStringEnumMemberName("rejected")]
     Rejected,
+
+    /// <summary>
+    /// Sound, and not written, because there is already a texture under that name.
+    /// </summary>
+    /// <remarks>
+    /// The enhanced set is <b>hand-corrected work</b>, not whatever a generator last left
+    /// on disk. Textures in it have been redone by hand, and a rerun of an import that
+    /// wrote over them would destroy that silently — the set lives outside the repository,
+    /// so there is no history to get anything back from. An import leaves what it finds
+    /// alone. <c>--force</c> is the only way past it and it is never the default.
+    /// </remarks>
+    [JsonStringEnumMemberName("kept")]
+    Kept,
 }
 
 /// <summary>One candidate texture and what was found out about it.</summary>
