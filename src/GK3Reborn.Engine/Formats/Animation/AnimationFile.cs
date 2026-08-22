@@ -250,8 +250,20 @@ public sealed class AnimationFile
     /// standing on the floor and one standing in a wall.
     /// </para>
     /// <para>
-    /// A line whose numbers are all zero is not a placement. Nearly two thirds of the
-    /// corpus's action lines are written that way and they mean the same as writing nothing.
+    /// <b>Carrying the numbers is what makes a clip absolute, not what the numbers say.</b>
+    /// A line written with eight zeros is an absolute clip whose offset happens to be
+    /// nothing — it plays at the coordinates it was authored at — and a line written with no
+    /// numbers at all is a relative one that plays wherever its model is standing. The
+    /// corpus splits three ways: 4,984 lines carry no numbers, <b>3,931 carry eight
+    /// zeros</b>, and 502 carry a real offset.
+    /// </para>
+    /// <para>
+    /// Treating the eight zeros as "no placement" collapses two fifths of the corpus into
+    /// the wrong half. It is invisible on props, which are placed by the identity either
+    /// way, and it moves every scripted set piece a character performs to wherever that
+    /// character happens to be standing. Mosely reads his newspaper in the hotel dining
+    /// room through one of these: the paper is a prop and stayed on the table, and he was
+    /// corrected onto his model's resting place out beyond the room.
     /// </para>
     /// </remarks>
     private static AnimationPlacement? Placement(IniLine line)
@@ -269,14 +281,6 @@ public sealed class AnimationFile
 
         var worldToModel = new Vector3(At(6), At(8), At(7));
         float worldToModelHeading = At(9);
-
-        if (modelToActor == Vector3.Zero &&
-            worldToModel == Vector3.Zero &&
-            modelToActorHeading == 0 &&
-            worldToModelHeading == 0)
-        {
-            return null;
-        }
 
         Vector3 position = worldToModel + Vector3.Transform(
             modelToActor,

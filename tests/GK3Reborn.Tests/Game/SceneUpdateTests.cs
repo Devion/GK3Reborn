@@ -100,6 +100,9 @@ public sealed class SceneUpdateTests
         public void MoveModel(ModelPlacement placement, Matrix4x4 transform) =>
             Moves[placement.Id] = transform;
 
+        public Matrix4x4 TransformOf(ModelPlacement placement) =>
+            Moves.TryGetValue(placement.Id, out Matrix4x4 where) ? where : Matrix4x4.Identity;
+
         /// <summary>What each texture of each model has been painted over with.</summary>
         public Dictionary<(int Placement, string Texture), string?> Painted { get; } =
             new();

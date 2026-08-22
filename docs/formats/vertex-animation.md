@@ -11,6 +11,31 @@ invalidates that character's entire clip set.
 The format is specified in full in **`Plan/06-c6-rig-solve.md` §3**, transcribed from
 G-Engine and validated against the whole corpus. This is the reader's side of it.
 
+## An action line is relative, absolute, or absolute at nothing
+
+A `.ANM`'s `[ACTIONS]` line names a clip and may carry eight numbers after it. **Carrying
+them is what makes the clip absolute, not what they say.**
+
+| written | count | share | means |
+| --- | ---: | ---: | --- |
+| `0,gab_GabWalk` | 4,984 | 52.9% | relative — play it wherever the model is standing |
+| `0,mos_MosDinPaperShake,0,0,0,0,0,0,0,0` | 3,931 | 41.7% | absolute, offset by nothing — play it at the coordinates it was authored at |
+| `0,wilkes_moped,-12,0,88,90,1200,0,-40,270` | 502 | 5.3% | absolute, offset |
+
+Every walk cycle and every talking fidget is the first kind. Every scripted set piece — a
+character sitting down to read, opening a wardrobe, pouring coffee — is the second.
+
+Reading the eight zeros as "no placement" collapses two fifths of the corpus into the wrong
+half. It is invisible on props, which stand at the identity so the room's coordinates *are*
+the model's, and it moves every set piece a character performs to wherever that character
+happens to be. Mosely reads his newspaper in the hotel dining room through one of these:
+his paper is a prop and stayed on the table while he was corrected out beyond the room.
+
+**A posed mesh is placed relative to its model**, so an absolute clip has to have the
+model's own placement taken back off it. A prop stands at the identity and there is nothing
+to take off; an actor stands wherever the scene put them or wherever they last walked to.
+See `SceneUpdate.Playing.Correction` and `ISceneSink.TransformOf`.
+
 ## Layout
 
 | Offset | Size | Field |

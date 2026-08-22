@@ -21,6 +21,9 @@ public sealed class HeadlessSceneSink : ISceneSink
 {
     private readonly HashSet<string> _textures = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Where each model stands, for the clips that need to know.</summary>
+    private readonly Dictionary<int, Matrix4x4> _standing = [];
+
     private Vector3 _minimum = new(float.MaxValue);
     private Vector3 _maximum = new(float.MinValue);
 
@@ -63,6 +66,11 @@ public sealed class HeadlessSceneSink : ISceneSink
 
         Matrix4x4 placement = transform ?? Matrix4x4.Identity;
         ModelCount++;
+
+        // Where it stands, from the start rather than only once something moves it: an
+        // absolute clip is corrected against this, and a model that has never walked is
+        // still somewhere.
+        _standing[ModelCount - 1] = placement;
 
         for (int index = 0; index < model.Meshes.Count; index++)
         {
@@ -195,7 +203,12 @@ public sealed class HeadlessSceneSink : ISceneSink
     /// </remarks>
     public void MoveModel(ModelPlacement placement, Matrix4x4 transform)
     {
+        _standing[placement.Id] = transform;
     }
+
+    /// <inheritdoc/>
+    public Matrix4x4 TransformOf(ModelPlacement placement) =>
+        _standing.TryGetValue(placement.Id, out Matrix4x4 where) ? where : Matrix4x4.Identity;
 
     /// <inheritdoc/>
     public void AddScene(

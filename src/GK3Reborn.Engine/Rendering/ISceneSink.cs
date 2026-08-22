@@ -266,6 +266,17 @@ public interface ISceneSink
     /// </remarks>
     void MoveModel(ModelPlacement placement, Matrix4x4 transform);
 
+    /// <summary>Where a model stands now.</summary>
+    /// <param name="placement">Which model.</param>
+    /// <returns>Its transform, or the identity when there is no such model.</returns>
+    /// <remarks>
+    /// The live one: what <see cref="Add"/> placed it with, and then whatever
+    /// <see cref="MoveModel"/> last moved it to. A clip authored in the room's own
+    /// coordinates has to be corrected against this, because posing a mesh places it
+    /// relative to the model rather than in the room.
+    /// </remarks>
+    Matrix4x4 TransformOf(ModelPlacement placement);
+
     /// <summary>Gives the room its sky.</summary>
     /// <param name="faces">
     /// The six sides in the order the hardware wants them — right, left, up, down, front,

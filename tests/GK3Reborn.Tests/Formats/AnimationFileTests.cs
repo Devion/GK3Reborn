@@ -1,3 +1,4 @@
+using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
 using GK3Reborn.Foundation.Diagnostics;
@@ -61,21 +62,32 @@ public sealed class AnimationFileTests
     [Fact]
     public void An_action_line_with_no_numbers_places_nothing()
     {
-        // 92% of the corpus's action lines. They mean "play this where the model is".
+        // 4,984 of the corpus's 9,417 action lines — every walk cycle and every talking
+        // fidget. They mean "play this wherever the model is standing".
         AnimationFile animation = Parse("[HEADER]\n60\n\n[ACTIONS]\n1\n0,GRA_WALK.ACT\n");
 
         Assert.Null(Assert.Single(animation.Actions).Placement);
     }
 
     [Fact]
-    public void An_action_line_of_zeroes_places_nothing_either()
+    public void An_action_line_of_zeroes_is_a_placement_of_nothing()
     {
-        // Nearly two thirds of them are written this way and mean the same as writing
-        // nothing at all.
+        // Carrying the numbers is what makes a clip absolute, not what the numbers say.
+        // Eight zeros is an absolute clip whose offset happens to be nothing: it plays at
+        // the coordinates it was authored at, which is not the same thing as playing
+        // wherever its model is standing.
+        //
+        // 3,931 lines are written this way — two fifths of the corpus — and reading them
+        // as "no placement" put every scripted set piece a character performs wherever
+        // that character happened to be. Mosely read his newspaper out beyond the dining
+        // room while the paper, being a prop, stayed on the table.
         AnimationFile animation = Parse(
-            "[HEADER]\n60\n\n[ACTIONS]\n1\n0,GRA_WALK.ACT,0,0,0,0,0,0,0,0\n");
+            "[HEADER]\n60\n\n[ACTIONS]\n1\n0,MOS_MOSDINPAPERSHAKE.ACT,0,0,0,0,0,0,0,0\n");
 
-        Assert.Null(Assert.Single(animation.Actions).Placement);
+        AnimationPlacement placement = Assert.Single(animation.Actions).Placement!.Value;
+
+        Assert.Equal(Vector3.Zero, placement.Position);
+        Assert.Equal(0f, placement.Heading);
     }
 
     [Fact]

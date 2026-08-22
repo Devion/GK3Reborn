@@ -354,7 +354,9 @@ public sealed class SceneUpdate
             _walking.Remove(clip.ModelName);
             _walking.Remove(target.Name);
 
-            _playing.Add(new Playing(clip, target, action, repeat, moves, Where(target.Name)));
+            _playing.Add(new Playing(
+                clip, target, action, repeat, moves, Where(target.Name),
+                _geometry.TransformOf(target.Placement)));
             longest = Math.Max(longest, clip.Duration + (action.Frame / 15.0));
         }
 
@@ -1459,14 +1461,15 @@ public sealed class SceneUpdate
             AnimationAction action,
             bool repeat,
             bool moves,
-            Vector3? began)
+            Vector3? began,
+            Matrix4x4 standing)
         {
             Clip = clip;
             Target = target;
             _repeat = repeat;
             _moves = moves;
             _delay = action.Frame / (double)AnimationFile.FramesPerSecond;
-            _correction = Correction(clip, target, action.Placement);
+            _correction = Correction(clip, target, action.Placement, standing);
             _opened = Opens(clip);
             Began = began;
             Carried = began;
@@ -1521,6 +1524,15 @@ public sealed class SceneUpdate
         /// two hundred and fifty units from the fountain.
         /// </para>
         /// <para>
+        /// And because the model's placement is applied on top, <b>the placement has to be
+        /// taken back off</b> for the clip to land where it was authored. A prop stands at
+        /// the identity, so for years there was nothing to take off and nothing said there
+        /// was; an actor stands wherever the scene put them or wherever they last walked
+        /// to, and leaving that on moves the clip by the whole of it. That is the
+        /// difference between Gabriel pouring the coffee at the counter and Gabriel
+        /// pouring it somewhere out past the wall.
+        /// </para>
+        /// <para>
         /// The reference point is the average of the mesh groups' origins. The original
         /// uses the shoes, named per character in <c>CHARACTERS.TXT</c>, which is not read
         /// yet; the average moves with the same rigid motion and differs only by a constant,
@@ -1528,12 +1540,17 @@ public sealed class SceneUpdate
         /// </para>
         /// </remarks>
         private static Matrix4x4 Correction(
-            ActFile clip, PlacedModel target, AnimationPlacement? placement)
+            ActFile clip, PlacedModel target, AnimationPlacement? placement, Matrix4x4 standing)
         {
             if (placement is { } spot)
             {
-                return Matrix4x4.CreateRotationY(spot.Heading) *
-                       Matrix4x4.CreateTranslation(spot.Position);
+                Matrix4x4 authored =
+                    Matrix4x4.CreateRotationY(spot.Heading) *
+                    Matrix4x4.CreateTranslation(spot.Position);
+
+                return Matrix4x4.Invert(standing, out Matrix4x4 back)
+                    ? authored * back
+                    : authored;
             }
 
             if (target.Kind != PlacedModelKind.Actor)

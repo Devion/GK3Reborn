@@ -121,6 +121,9 @@ public sealed class ClipPlaybackTests
         public void MoveModel(ModelPlacement placement, Matrix4x4 transform) =>
             _inner.MoveModel(placement, transform);
 
+        public Matrix4x4 TransformOf(ModelPlacement placement) =>
+            _inner.TransformOf(placement);
+
         public void AddScene(
             BspFile scene,
             MulFile? lightmaps = null,
@@ -233,9 +236,17 @@ public sealed class ClipPlaybackTests
         string? standing = null,
         bool clipExists = true,
         bool deform = false,
-        PlacedModelKind kind = PlacedModelKind.Actor)
+        PlacedModelKind kind = PlacedModelKind.Actor,
+        Matrix4x4? placedAt = null,
+        bool absolute = false)
     {
         var sink = new Sink();
+
+        // As the loader does. The sink is what knows where a model stands, because it is
+        // the sink that will multiply a posed mesh by it, and a fixture that declares a
+        // model placed without telling the sink is a fixture that cannot see the
+        // difference this makes.
+        sink.Add(Model(), placedAt);
 
         var scene = new LoadedScene(
             "TEST",
@@ -246,15 +257,19 @@ public sealed class ClipPlaybackTests
             Placed:
             [
                 new PlacedModel(
-                    standing ?? model, "DOOR", null, Model(), Matrix4x4.Identity,
+                    standing ?? model, "DOOR", null, Model(), placedAt ?? Matrix4x4.Identity,
                     kind, new ModelPlacement(0)),
             ]);
 
         var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
         {
+            // Four numbers is fewer than a placement needs, so the clip is relative;
+            // eight of them, even all zero, is an absolute clip authored in the room's own
+            // coordinates. That distinction is the whole of what makes a clip absolute.
             Animations = new AnimationLibrary(n =>
                 n.Equals($"{animation}.ANM", StringComparison.OrdinalIgnoreCase)
-                    ? $"[HEADER]\n31\n\n[ACTIONS]\n1\n0,{clipName},0,0,0,0\n"
+                    ? $"[HEADER]\n31\n\n[ACTIONS]\n1\n0,{clipName}" +
+                      (absolute ? ",0,0,0,0,0,0,0,0" : ",0,0,0,0") + "\n"
                     : null),
 
             // Shapes kept, as the launcher keeps them: without that a clip's vertex poses
@@ -473,5 +488,65 @@ public sealed class ClipPlaybackTests
         update.Advance((31 / 15.0) + (5 / 15.0));
 
         Assert.Equal(5f, sink.Poses[(0, 0)].Translation.X, 3);
+    }
+
+    [Fact]
+    public void An_absolute_clip_lands_in_the_room_wherever_its_model_is_standing()
+    {
+        // A clip's mesh transforms are posed relative to the model, and the model's own
+        // placement is applied on top. A prop stands at the identity, so an absolute clip
+        // authored in the room's coordinates lands where it was authored and nothing had
+        // to be done about it — which is why nothing was.
+        //
+        // An actor stands wherever the scene put them or wherever they last walked to. The
+        // placement has to come back off, or the clip is moved by the whole of it: Mosely
+        // read his newspaper out beyond the dining room while the paper, being a prop,
+        // stayed on the table.
+        Matrix4x4 far =
+            Matrix4x4.CreateRotationY(1.1f) * Matrix4x4.CreateTranslation(400, 0, -250);
+
+        (SceneUpdate atOrigin, Sink first) = World(
+            "Sit", "door_Sit", "door", absolute: true);
+
+        (SceneUpdate acrossTheRoom, Sink second) = World(
+            "Sit", "door_Sit", "door", absolute: true, placedAt: far);
+
+        atOrigin.Play("Sit");
+        atOrigin.Advance(0.001);
+
+        acrossTheRoom.Play("Sit");
+        acrossTheRoom.Advance(0.001);
+
+        // What is posed is in the model's space, so the model's placement is what turns it
+        // into a place in the room. Both have to come out at the same place in the room.
+        Matrix4x4 here = first.Poses[(0, 0)];
+        Matrix4x4 there = second.Poses[(0, 0)] * far;
+
+        Assert.Equal(here.Translation.X, there.Translation.X, 2);
+        Assert.Equal(here.Translation.Y, there.Translation.Y, 2);
+        Assert.Equal(here.Translation.Z, there.Translation.Z, 2);
+    }
+
+    [Fact]
+    public void A_relative_clip_still_follows_its_model()
+    {
+        // The other half, and the reason this cannot simply stop correcting: a walk cycle
+        // or a talking fidget carries no placement at all and means "play this wherever
+        // the model is standing". 4,984 of the corpus's 9,417 action lines are these.
+        Matrix4x4 far = Matrix4x4.CreateTranslation(400, 0, -250);
+
+        (SceneUpdate atOrigin, Sink first) = World("Walk", "door_Walk", "door");
+        (SceneUpdate acrossTheRoom, Sink second) = World(
+            "Walk", "door_Walk", "door", placedAt: far);
+
+        atOrigin.Play("Walk");
+        atOrigin.Advance(0.001);
+
+        acrossTheRoom.Play("Walk");
+        acrossTheRoom.Advance(0.001);
+
+        // Posed the same in the model's own space, so the model's placement carries it.
+        Assert.Equal(
+            first.Poses[(0, 0)].Translation.X, second.Poses[(0, 0)].Translation.X, 2);
     }
 }

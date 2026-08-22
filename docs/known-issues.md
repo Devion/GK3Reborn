@@ -84,6 +84,37 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ## Closed
 
+### Mosely was not in the dining room — fixed 2026-08-22
+
+Reported: entering the hotel dining room on Day 1, Mosely should be at his table and the
+scene did not seem to run.
+
+Two faults, one behind the other.
+
+**The actor was being dropped at load.** `DIN110A.SIF` says `pos=MOSTALK` and the scene
+defines `TALK_MOSELY` — a typo in the shipped data, and the only one of its kind in the
+game. The port took an unresolved position as a reason to leave the actor out of the room
+entirely, which took the whole coffee scene with it: the entry script calls
+`SetActorLocation("Mosely","DIN")` and then `StopFidget("mosely")`, and the dialogue after
+that is addressed to him. The original only skips *setting the position* — see
+`GKActor::Init` — and that is what happens now. He stands at the origin until something
+moves him.
+
+**And what moves him was being played in the wrong place.** His idle plays
+`mos_MosDinPaperShake`, whose action line carries eight zeros. Carrying the numbers is what
+makes a clip absolute; the port read all-zero as "no placement" and corrected the clip onto
+the model, so his newspaper — a prop, placed by the identity — stayed on the table while he
+read it from outside the room. 3,931 action lines are written that way, two fifths of the
+corpus.
+
+Fixing that alone moved Gabriel out of the coffee pour, because a posed mesh is placed
+relative to its model and an absolute clip has to have the model's placement taken back
+off. A prop stands at the identity and there was never anything to take off, which is why
+nothing said there was. `ISceneSink.TransformOf` is where that comes from now.
+
+Corpus sweep unchanged apart from Mosely's model appearing in the 33 loads of that scene.
+
+
 ### Scene music cut between rooms rather than crossfading — done 2026-08-22
 
 Leaving a room stopped its bed and entering the next started another, so a door was two

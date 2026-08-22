@@ -703,6 +703,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
+    public Matrix4x4 TransformOf(ModelPlacement placement) =>
+        placement.Exists && placement.Id < _placed.Count
+            ? _placed[placement.Id].Item2
+            : Matrix4x4.Identity;
+
+    /// <inheritdoc/>
     /// <remarks>
     /// Every batch of every mesh is re-placed against the new transform. A mesh that has
     /// been turned keeps its turn, because the turn is folded in when it is applied and the

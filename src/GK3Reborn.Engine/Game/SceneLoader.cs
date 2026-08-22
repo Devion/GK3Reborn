@@ -790,28 +790,44 @@ public sealed class SceneLoader
         foreach (SceneActor actor in init.Actors().Where(a => !a.Hidden))
         {
             // Ego arrives at the scene's entry point; everyone else stands where their own
-            // line says. Both are named spots, and an actor whose spot the scene does not
-            // define has nowhere to be put.
+            // line says.
             ScenePosition? spot = actor.IsEgo
                 ? init.PositionNamed(actor.Position) ?? init.StartPosition()
                 : init.PositionNamed(actor.Position);
 
-            if (spot is null)
+            if (spot is null && actor.Position is { Length: > 0 })
             {
-                // An actor with no spot of their own is placed by a script, which is
-                // ordinary and silent — 206 actor/timeblock pairs in the corpus are like
-                // that. Naming a spot the scene does not define is a different matter, and
-                // happens exactly once: the abbé at MA1 303P.
-                if (actor.IsEgo || actor.Position is { Length: > 0 })
-                {
-                    diagnostics.Add(new Diagnostic(
-                        "SCENE011",
-                        DiagnosticSeverity.Warning,
-                        $"{actor.Name} is placed at '{actor.Position ?? "START"}', which the " +
-                        "scene does not define; the actor is left out."));
-                }
+                // Named a spot the scene does not define. It happens once in the game —
+                // the dining room says Mosely stands at MOSTALK and defines TALK_MOSELY —
+                // and it is a typo in the shipped data rather than anything this can fix.
+                //
+                // <b>The actor is still in the room.</b> The original only skips setting
+                // the position (see GKActor::Init) and leaves everything else alone, and
+                // that matters far more than where they end up standing: the room's entry
+                // script calls SetActorLocation on Mosely and then StopFidget, and the
+                // dialogue that follows is all addressed to him. Leaving him out of the
+                // scene took the whole coffee scene with him.
+                diagnostics.Add(new Diagnostic(
+                    "SCENE011",
+                    DiagnosticSeverity.Warning,
+                    $"{actor.Name} is placed at '{actor.Position}', which the scene does " +
+                    "not define; they stand at the origin until something moves them."));
+            }
 
+            if (spot is null && actor.Position is not { Length: > 0 } && !actor.IsEgo)
+            {
+                // No spot of their own, which is ordinary and silent: 206 actor/timeblock
+                // pairs in the corpus are like that, and a script puts them somewhere.
                 continue;
+            }
+
+            if (spot is null && actor.IsEgo)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE011",
+                    DiagnosticSeverity.Warning,
+                    $"{actor.Name} is the player and the scene defines no START; they " +
+                    "stand at the origin."));
             }
 
             byte[]? bytes = _archives.Read(actor.Name + ".MOD");
@@ -834,16 +850,19 @@ public sealed class SceneLoader
                 diagnostics);
 
             // Heading turns about the up axis; the model's own origin is at its feet, so
-            // the position needs no vertical adjustment.
-            Matrix4x4 placement =
-                Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(spot.Heading)) *
-                Matrix4x4.CreateTranslation(spot.Position);
+            // the position needs no vertical adjustment. An actor with no spot stands at
+            // the origin facing zero, which is what the original leaves them at.
+            Matrix4x4 placement = spot is null
+                ? Matrix4x4.Identity
+                : Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(spot.Heading)) *
+                  Matrix4x4.CreateTranslation(spot.Position);
 
             ModelPlacement standing =
                 geometry.Add(model, placement, TurnedHead(actor.Name, model, spot));
 
             _log?.Invoke(
-                $"actor: {actor.Name} ({actor.Noun}) at {spot.Name}{(actor.IsEgo ? ", ego" : string.Empty)}");
+                $"actor: {actor.Name} ({actor.Noun}) at {spot?.Name ?? "no spot of their own"}" +
+                (actor.IsEgo ? ", ego" : string.Empty));
 
             placed.Add(new PlacedModel(
                 actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor, standing)
@@ -1331,9 +1350,14 @@ public sealed class SceneLoader
     /// artist modelled them, which is what every actor in the game has done until now.
     /// </remarks>
     private Dictionary<int, Matrix4x4>? TurnedHead(
-        string name, ModFile model, ScenePosition spot)
+        string name, ModFile model, ScenePosition? spot)
     {
-        if (Glances.Of(name) is not { } glance || CharacterHead.Find(model) is not { } head)
+        // A glance is worked out from where the actor is standing, so an actor with no spot
+        // has nothing to work one out from. They keep their head straight until something
+        // moves them, which is one frame later than it sounds.
+        if (spot is null ||
+            Glances.Of(name) is not { } glance ||
+            CharacterHead.Find(model) is not { } head)
         {
             return null;
         }
