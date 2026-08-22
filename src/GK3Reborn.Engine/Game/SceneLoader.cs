@@ -411,10 +411,23 @@ public sealed class SceneLoader
 
         SceneCamera? chosen = scene?.CameraNamed(cameraName);
 
-        if (chosen is null)
-        {
-            return Camera.Framing(geometry.Minimum, geometry.Maximum, Vector3.UnitY);
-        }
+        return chosen is null
+            ? Camera.Framing(geometry.Minimum, geometry.Maximum, Vector3.UnitY)
+            : CameraAt(chosen, geometry);
+    }
+
+    /// <summary>Builds the view one of the scene's cameras describes.</summary>
+    /// <param name="chosen">Where it stands and which way it points.</param>
+    /// <param name="geometry">The room, for how far the far plane has to reach.</param>
+    /// <returns>The view.</returns>
+    /// <remarks>
+    /// Separate from the lookup because not every camera in a scene has a name: the
+    /// close-up views are keyed by what they look at rather than called anything.
+    /// </remarks>
+    public static Camera CameraAt(SceneCamera chosen, ISceneSink geometry)
+    {
+        ArgumentNullException.ThrowIfNull(chosen);
+        ArgumentNullException.ThrowIfNull(geometry);
 
         float reach = MathF.Max(1f, (geometry.Maximum - geometry.Minimum).Length());
 

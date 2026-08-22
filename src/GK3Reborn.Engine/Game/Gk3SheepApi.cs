@@ -130,6 +130,23 @@ public sealed class Gk3SheepApi : ISheepApi
     /// </remarks>
     public Func<string, string, Approaching, bool, double>? Walks { get; set; }
 
+    /// <summary>
+    /// The noun of the action being carried out, or empty.
+    /// </summary>
+    /// <remarks>
+    /// Some functions take no arguments and mean "the thing this action is about".
+    /// <c>InspectObject()</c> is the one that matters — <c>REGISTER, INSPECT, ALL,
+    /// script={wait InspectObject();}</c> is the whole of that rule, and without a noun it
+    /// has nothing to look at.
+    /// <para>
+    /// Set when an action starts and left there, rather than restored afterwards. An
+    /// action's script may be deferred until its approach has finished, so the noun has to
+    /// outlive the call that set it; and actions are serialised by their approach anyway,
+    /// so the last one started is the one running.
+    /// </para>
+    /// </remarks>
+    public string ActingOn { get; set; } = string.Empty;
+
     /// <summary>Walks an actor to where an animation begins, and says how long it takes.</summary>
     /// <remarks>
     /// A hook of its own rather than another <see cref="Approaching"/>, because the name it

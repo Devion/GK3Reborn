@@ -103,6 +103,38 @@ public sealed class SceneDefinition
     public IReadOnlyList<SceneCamera> DialogueCameras() =>
         Join(_general?.DialogueCameras(), _specific?.DialogueCameras());
 
+    /// <summary>The close-up views both files declare.</summary>
+    public IReadOnlyList<InspectCamera> InspectCameras() =>
+        [.. _general?.InspectCameras() ?? [], .. _specific?.InspectCameras() ?? []];
+
+    /// <summary>
+    /// The close-up view of a thing, if the scene declares one.
+    /// </summary>
+    /// <param name="key">The noun the player clicked, or a model name.</param>
+    /// <param name="model">The model standing behind that noun, if it is known.</param>
+    /// <returns>The camera, or null.</returns>
+    /// <remarks>
+    /// By noun first and by model second, which is the original's order. A noun is what the
+    /// action file and the player agree on; a model is what the artists framed, and several
+    /// scenes give the camera for a thing only under the name of the mesh drawn there.
+    /// </remarks>
+    public SceneCamera? InspectCameraFor(string key, string? model = null)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        IReadOnlyList<InspectCamera> cameras = InspectCameras();
+
+        SceneCamera? Look(string name, bool byModel) => cameras
+            .FirstOrDefault(c =>
+                c.ByModel == byModel &&
+                string.Equals(c.Key, name, StringComparison.OrdinalIgnoreCase))
+            ?.Camera;
+
+        return Look(key, byModel: false)
+            ?? Look(key, byModel: true)
+            ?? (model is { Length: > 0 } ? Look(model, byModel: true) : null);
+    }
+
     /// <summary>Any camera the scene names, of whatever kind.</summary>
     /// <param name="name">The camera's name.</param>
     /// <returns>The camera, or null when the scene names none such.</returns>

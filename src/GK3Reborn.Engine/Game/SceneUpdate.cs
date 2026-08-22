@@ -1307,13 +1307,17 @@ public sealed class SceneUpdate
     /// </remarks>
     private void MoveView(double seconds)
     {
-        string wanted = _api.State.CameraAngle;
+        // What is being looked at closely outranks where the story left the view, and the
+        // two are kept apart so that letting go of the first returns to the second.
+        string wanted = _api.State.Inspecting is { Length: > 0 } close
+            ? "\u0000" + close
+            : _api.State.CameraAngle;
 
         if (!string.Equals(wanted, _angle, StringComparison.OrdinalIgnoreCase))
         {
             _angle = wanted;
             _from = View;
-            _to = wanted.Length > 0 ? SceneLoader.CameraFor(_scene, _geometry, wanted) : null;
+            _to = Pointing(wanted);
             _glided = _api.State.CameraGliding && _from is not null ? 0 : GlideSeconds;
         }
 
@@ -1341,6 +1345,53 @@ public sealed class SceneUpdate
             NearPlane = _to.NearPlane,
             FarPlane = _to.FarPlane,
         });
+    }
+
+    /// <summary>
+    /// Works out the view a camera key describes.
+    /// </summary>
+    /// <remarks>
+    /// A close-up is looked for by three names in turn, which is the original's order: a
+    /// camera the scene actually names — which is what <c>InspectModelUsingAngle</c> hands
+    /// over — then the noun in the <c>[INSPECT_CAMERAS]</c> section, then the model
+    /// standing behind that noun, because several rooms frame a thing only under the name
+    /// of the mesh drawn there.
+    /// </remarks>
+    private Camera? Pointing(string wanted)
+    {
+        if (wanted.Length == 0)
+        {
+            return null;
+        }
+
+        if (wanted[0] != '\u0000')
+        {
+            return SceneLoader.CameraFor(_scene, _geometry, wanted);
+        }
+
+        string key = wanted[1..];
+
+        string? model = _scene.Models
+            .FirstOrDefault(m => string.Equals(m.Noun, key, StringComparison.OrdinalIgnoreCase))
+            ?.Name;
+
+        if (_scene.Definition.AnyCameraNamed(key) is { } named)
+        {
+            return SceneLoader.CameraAt(named, _geometry);
+        }
+
+        if (_scene.Definition.InspectCameraFor(key, model) is { } close)
+        {
+            return SceneLoader.CameraAt(close, _geometry);
+        }
+
+        Diagnostics.Add(new Diagnostic(
+            "GK3R3204", DiagnosticSeverity.Info,
+            "Nothing declares a close-up of this, so the view stays where it was.",
+            _scene.Name, null, "an [INSPECT_CAMERAS] entry", key,
+            "The original works one out from the object's bounds; this does not yet."));
+
+        return null;
     }
 
     /// <summary>Applies whatever field of view a script has asked for.</summary>

@@ -26,6 +26,17 @@ public sealed record SceneCamera(string Name, Vector3 Position, float Yaw, float
         MathF.Cos(Pitch) * MathF.Cos(Yaw));
 }
 
+/// <summary>A close-up view of one thing in the room.</summary>
+/// <param name="Key">The noun or the model name it belongs to.</param>
+/// <param name="ByModel">
+/// Whether <paramref name="Key"/> is a model rather than a noun. The section keys its
+/// lines both ways — 735 by noun and 470 by model across the corpus — and the two are
+/// looked up in that order, because a noun is what the player clicked and a model is what
+/// happens to be drawn there.
+/// </param>
+/// <param name="Camera">Where the view goes.</param>
+public sealed record InspectCamera(string Key, bool ByModel, SceneCamera Camera);
+
 /// <summary>Where an actor is allowed to stand, as the scene declares it.</summary>
 /// <param name="Texture">Name of the boundary bitmap, without an extension.</param>
 /// <param name="Size">How much of the world it covers, on X and Z, in scene units.</param>
@@ -275,6 +286,52 @@ public sealed class SceneInitFile
     /// </remarks>
     public IReadOnlyList<SceneCamera> DialogueCameras(bool includeConditional = true) =>
         CamerasIn("DIALOGUE_CAMERAS", includeConditional);
+
+    /// <summary>
+    /// The close-up views, one per thing worth looking at closely.
+    /// </summary>
+    /// <param name="includeConditional">Whether to include conditional sections.</param>
+    /// <returns>The views, in file order.</returns>
+    /// <remarks>
+    /// A different shape from every other camera list, which is why it needs its own
+    /// reader: these are keyed by <c>noun=</c> or <c>model=</c> rather than named, so the
+    /// thing on the left of the equals sign is what kind of key it is and the thing on the
+    /// right is the key. 1,205 of them across 144 scene files.
+    /// </remarks>
+    public IReadOnlyList<InspectCamera> InspectCameras(bool includeConditional = true)
+    {
+        List<InspectCamera> cameras = [];
+
+        foreach (IniLine line in _document.LinesOf("INSPECT_CAMERAS", Applies(includeConditional)))
+        {
+            bool byModel = string.Equals(line.Head.Key, "model", StringComparison.OrdinalIgnoreCase);
+
+            if (!byModel &&
+                !string.Equals(line.Head.Key, "noun", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (line.Head.Value is not { Length: > 0 } key ||
+                line.Vector("pos") is not { } position ||
+                line.Find("angle")?.AsNumbers(2) is not { } angle)
+            {
+                continue;
+            }
+
+            cameras.Add(new InspectCamera(
+                key,
+                byModel,
+                new SceneCamera(
+                    key,
+                    position,
+                    float.DegreesToRadians(angle[0]),
+                    float.DegreesToRadians(angle[1]),
+                    IsDefault: false)));
+        }
+
+        return cameras;
+    }
 
     /// <summary>The camera a scene opens on.</summary>
     /// <returns>The default camera, the first one, or null if the scene defines none.</returns>

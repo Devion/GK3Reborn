@@ -4,18 +4,12 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. Inspecting the register does nothing
-
-**Reported:** 2026-08-22. The verb is offered and produces no result. Probably an action
-whose script is not performed rather than one that is missing; needs `render-scene --do`
-against that noun to say which.
-
-## 2. Scene music cuts rather than crossfading (feature)
+## 1. Scene music cuts rather than crossfading (feature)
 
 **Reported:** 2026-08-22. Moving between rooms should fade one room's music into the next
 rather than stopping one and starting the other.
 
-## 3. The Eglise/Church sign reads wrong on RC1's signpost
+## 2. The Eglise/Church sign reads wrong on RC1's signpost
 
 **Reported:** 2026-08-21. **Cause found; the fix is content, not code.**
 
@@ -50,7 +44,7 @@ image) scored a median of 11.4% across all 7,462 enhanced textures and did not p
 in its top twenty-five, so the check has to be about the background region specifically
 rather than about the picture as a whole.
 
-## 4. HDR output (feature)
+## 3. HDR output (feature)
 
 **Requested:** 2026-08-19.
 
@@ -94,6 +88,32 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 ---
 
 ## Closed
+
+### Inspecting the register did nothing — fixed 2026-08-22
+
+`REGISTER, INSPECT, ALL, script={wait InspectObject();}` is the whole of that rule, and
+`InspectObject` was modelled as one of `ScreenLayers` — a modal screen, of which nothing
+draws yet, so the verb was offered and produced nothing.
+
+**Inspecting is a camera, not a screen.** The scene files carry an `[INSPECT_CAMERAS]`
+section giving a close-up position and angle for a thing, and nothing read it: 1,205 of
+them across 144 rooms, 735 keyed by `noun=` and 470 by `model=`. It is a different shape
+from every other camera list — keyed by what it looks at rather than named — so reading it
+the way the named lists are read produces one camera called "noun".
+
+`GameState.Inspecting` sits beside `CameraAngle` rather than replacing it, which is what
+makes `UnInspect` free: the angle the story left the view at is still underneath. A close-up
+is looked for by three names in turn, which is the original's order — a camera the scene
+names, which is what `InspectModelUsingAngle` hands over; then the noun; then the model
+standing behind that noun.
+
+`InspectObject()` also takes no arguments in 1,205 of its uses and means "the thing this
+action is about", so the API now carries the noun of the action being carried out.
+
+Not done: the original works out a close-up on the fly for anything with no authored
+camera, framing it from the object's bounds and looking at a character's face. Without one
+the view stays where it was and says so.
+
 
 ### NPCs offered Talk as well as Chat and Ask about — fixed 2026-08-22
 

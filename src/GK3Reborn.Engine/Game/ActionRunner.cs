@@ -136,6 +136,9 @@ public sealed class ActionRunner
             return new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: false);
         }
 
+        // What the script means when it says "this thing" — see Gk3SheepApi.ActingOn.
+        _api.ActingOn = action.Noun;
+
         double approaching = Approach(action, hurry);
 
         // Get there first. The original runs an action's script only once the player has

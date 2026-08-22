@@ -59,6 +59,25 @@ public sealed class GameState
     public string CameraAngle { get; set; } = string.Empty;
 
     /// <summary>
+    /// What the view is looking at closely, or empty when it is looking at the room.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Inspecting is a camera, not a screen. <c>InspectObject</c> moves the view to the
+    /// close-up the scene declares for a thing and <c>UnInspect</c> brings it back —
+    /// there is nothing drawn over the room and nothing modal about it, which is why
+    /// modelling it as one of <see cref="ScreenLayers"/> left the verb doing nothing
+    /// visible at all.
+    /// </para>
+    /// <para>
+    /// It sits beside <see cref="CameraAngle"/> rather than replacing it, and that is what
+    /// makes coming back free: the angle the story left the view at is still there
+    /// underneath, so clearing this returns to it without anything having to remember it.
+    /// </para>
+    /// </remarks>
+    public string Inspecting { get; set; } = string.Empty;
+
+    /// <summary>
     /// Whether the last camera move was asked to take a moment.
     /// </summary>
     /// <remarks>

@@ -146,6 +146,36 @@ public static class SceneScripting
             arguments => CutTo(api, scene, arguments, forced: false, gliding: true),
             waitable: true);
 
+        // Inspecting is a camera, and only a standing scene has the cameras — which is why
+        // these are registered over the recorded ones here rather than with the rest of the
+        // API. The recorded ones set a screen state that nothing draws, so REGISTER,
+        // INSPECT, whose whole script is `wait InspectObject()`, appeared to do nothing.
+        api.Register("InspectObject", arguments =>
+        {
+            api.State.Inspecting = arguments.Count > 0
+                ? arguments[0].AsString()
+                : api.ActingOn;
+
+            return SheepValue.FromInt(0);
+        }, waitable: true);
+
+        api.Register("InspectModelUsingAngle", arguments =>
+        {
+            // The camera, not the model: the second argument is a camera the scene names,
+            // and naming one is the whole point of this form.
+            api.State.Inspecting = arguments.Count > 1
+                ? arguments[1].AsString()
+                : arguments.Count > 0 ? arguments[0].AsString() : string.Empty;
+
+            return SheepValue.FromInt(0);
+        }, waitable: true);
+
+        api.Register("UnInspect", _ =>
+        {
+            api.State.Inspecting = string.Empty;
+            return SheepValue.FromInt(0);
+        }, waitable: true);
+
         api.Register("SetForcedCameraCuts", arguments =>
         {
             api.State.ForcedCameraCuts = arguments.Count > 0 && arguments[0].AsInt() != 0;
