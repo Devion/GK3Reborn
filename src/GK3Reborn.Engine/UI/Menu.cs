@@ -382,6 +382,48 @@ public sealed class MenuPage
         return new MenuAction(item.Id, step);
     }
 
+    /// <summary>
+    /// Draws what a film says about being skipped.
+    /// </summary>
+    /// <param name="text">How to skip it, said once at the start.</param>
+    /// <param name="part">
+    /// How far through the hold the player is, zero to one. Zero draws the words instead.
+    /// </param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <remarks>
+    /// A hold rather than a click, because a click is what a player does by accident and
+    /// losing the opening of the game to a stray mouse is worse than holding a button for
+    /// half a second. A hold with nothing on screen is indistinguishable from a hold that
+    /// is not working, so it fills a bar while it counts.
+    /// </remarks>
+    public void Skipping(string text, float part, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        Overlay.Begin(width, height);
+
+        float unit = Overlay.LineHeight;
+        float bar = unit * 10f;
+        float y = MathF.Round(height - (unit * 3f));
+
+        if (part <= 0f)
+        {
+            // Low and faint: it is over the opening of the game, and somebody watching it
+            // should be able to ignore it.
+            Overlay.Text(
+                text, MathF.Round((width - Overlay.Measure(text)) / 2f), y, Dim);
+
+            return;
+        }
+
+        float x = MathF.Round((width - bar) / 2f);
+        float thick = MathF.Max(2f, unit / 3f);
+
+        Overlay.Rect(x, y, bar, thick, Track);
+        Overlay.Rect(x, y, bar * Math.Clamp(part, 0f, 1f), thick, Accent);
+    }
+
     /// <summary>Whether a point is on the page at all.</summary>
     /// <param name="point">Where the pointer is.</param>
     /// <returns>True when it is over the panel.</returns>

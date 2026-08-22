@@ -240,6 +240,15 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
 
     /// <inheritdoc/>
+    public bool IsHeld(PointerButton button) =>
+        _mouse is not null &&
+        _mouse.IsButtonPressed(button switch
+        {
+            PointerButton.Secondary => MouseButton.Right,
+            _ => MouseButton.Left,
+        });
+
+    /// <inheritdoc/>
     public bool IsHeld(CameraAction action) =>
         _keyboard is not null &&
         Bindings.TryGetValue(action, out Key[]? keys) &&

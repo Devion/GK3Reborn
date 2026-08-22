@@ -79,8 +79,15 @@ volume slider across a page is a hundred changes and none of them is worth a wri
 
 Run the game with nothing in particular asked for and it plays `SIERRA` and `INTRO`, then
 shows the menu, then opens in `R25` at `110A` — Gabriel's room at the hotel, where the
-story begins. Any key or click during the intro skips the rest of it, not only the film
-showing: somebody who has seen it means they have seen it.
+story begins.
+
+Skipping the intro is Enter, Escape, or the left button **held** for half a second — not a
+click. A click is what somebody does by accident while the machine is still settling down,
+and losing the opening of the game to a stray mouse is worse than holding a button for a
+moment. The way out is written along the bottom for the first few seconds of each film, and
+holding fills a bar, because a hold with nothing on screen is indistinguishable from a hold
+that is not working. Skipping ends the whole sequence rather than the film showing:
+somebody who has seen it means they have seen it.
 
 Escape in the room opens the same menu with the room still behind it, dimmed. Nothing of
 the room advances while it is up, which is what pausing means. From a settings page,

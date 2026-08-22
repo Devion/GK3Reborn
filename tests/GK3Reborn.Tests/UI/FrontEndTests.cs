@@ -539,6 +539,40 @@ public sealed class MenuPageTests
     }
 
     [Fact]
+    public void A_film_says_how_to_skip_it_and_then_shows_the_holding()
+    {
+        MenuPage page = Page();
+
+        page.Skipping("Hold to skip", 0f, 800, 600);
+
+        // Not holding: the words, low down and out of the way of the film.
+        Assert.NotEmpty(page.Overlay.Quads);
+        Assert.All(page.Overlay.Quads, q => Assert.True(
+            q.Destination.Y > 450, "the hint was drawn over the middle of the film"));
+
+        float words = page.Overlay.Quads.Count;
+
+        page.Skipping("Hold to skip", 0.5f, 800, 600);
+
+        // Holding: a bar, half filled. A hold with nothing on screen is indistinguishable
+        // from a hold that is not working.
+        Assert.Equal(2, page.Overlay.Quads.Count);
+        Assert.True(words > 2, "the words were not drawn as text");
+
+        float track = page.Overlay.Quads[0].Destination.Z;
+        float fill = page.Overlay.Quads[1].Destination.Z;
+
+        Assert.Equal(track / 2f, fill, 1);
+
+        page.Skipping("Hold to skip", 1f, 800, 600);
+        Assert.Equal(track, page.Overlay.Quads[1].Destination.Z, 1);
+
+        // And past the end, which is what one frame too many of holding gives.
+        page.Skipping("Hold to skip", 1.4f, 800, 600);
+        Assert.Equal(track, page.Overlay.Quads[1].Destination.Z, 1);
+    }
+
+    [Fact]
     public void Pressing_a_choice_steps_it_forward()
     {
         MenuPage page = Page();

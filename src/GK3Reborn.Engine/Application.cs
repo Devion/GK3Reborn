@@ -446,7 +446,7 @@ public static class Application
                 frameLimit == 0 &&
                 !args.Contains("--skip-intro", StringComparer.OrdinalIgnoreCase))
             {
-                ShowIntro(window, renderer, movies);
+                ShowIntro(window, renderer, movies, pages);
             }
 
             // --front-page opens on one of the settings pages, for the same reason
@@ -1914,15 +1914,36 @@ public static class Application
     /// <param name="window">The window.</param>
     /// <param name="renderer">What draws them.</param>
     /// <param name="movies">What plays them.</param>
+    /// <param name="hint">What draws the way out, or null when there is no font.</param>
     /// <remarks>
-    /// Any key or click skips the rest, not only the one showing: somebody who has seen the
-    /// intro means they have seen the intro. Missing films are passed over in silence,
+    /// <para>
+    /// Enter, or the left button <em>held</em>. A click is what somebody does by accident
+    /// while the machine is still settling down, and losing the opening of the game to a
+    /// stray mouse is worse than holding a button for half a second. Escape works too, on
+    /// the grounds that it is the first thing half the world will try.
+    /// </para>
+    /// <para>
+    /// Skipping ends the whole sequence rather than the film showing: somebody who has seen
+    /// the intro means they have seen the intro. Missing films are passed over in silence,
     /// because an installation that has none should still reach the menu.
+    /// </para>
     /// </remarks>
     private static void ShowIntro(
-        Platform.SilkGameWindow window, VulkanRenderer renderer, Game.MoviePlayer movies)
+        Platform.SilkGameWindow window,
+        VulkanRenderer renderer,
+        Game.MoviePlayer movies,
+        MenuPage? hint)
     {
+        // Long enough not to fire on a click, short enough that nobody wonders whether it
+        // is working — and it says so on screen while it counts.
+        const double HoldToSkip = 0.6;
+
+        // How long the way out stays on screen at the start of each film. Said and then
+        // out of the way: it is over the opening of the game.
+        const double SayFor = 6.0;
+
         var stopwatch = Stopwatch.StartNew();
+        double held = 0;
 
         foreach (string name in IntroMovies)
         {
@@ -1934,7 +1955,8 @@ public static class Application
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"Intro: {name}, {movies.Seconds:F1}s"));
 
-            double previous = stopwatch.Elapsed.TotalSeconds;
+            double began = stopwatch.Elapsed.TotalSeconds;
+            double previous = began;
             bool skipped = false;
 
             while (!window.IsClosing && movies.Playing)
@@ -1945,9 +1967,13 @@ public static class Application
                 double delta = Math.Min(0.1, now - previous);
                 previous = now;
 
+                // Counted across films rather than reset by one ending, so a hold that
+                // spans the join between them still means what it says.
+                held = window.IsHeld(Platform.PointerButton.Primary) ? held + delta : 0;
+
                 if (window.WasPressed(Platform.EditKey.Escape) ||
                     window.WasPressed(Platform.EditKey.Enter) ||
-                    window.WasClicked(Platform.PointerButton.Primary))
+                    held >= HoldToSkip)
                 {
                     movies.Stop();
                     skipped = true;
@@ -1957,7 +1983,21 @@ public static class Application
                     movies.Advance(delta);
                 }
 
-                renderer.SetOverlay(null);
+                if (hint is not null && (held > 0 || now - began < SayFor))
+                {
+                    hint.Skipping(
+                        "Hold the mouse button or press Enter to skip",
+                        (float)(held / HoldToSkip),
+                        window.FramebufferWidth,
+                        window.FramebufferHeight);
+
+                    renderer.SetOverlay(hint.Overlay);
+                }
+                else
+                {
+                    renderer.SetOverlay(null);
+                }
+
                 renderer.SetMovieFrame(movies.Frame);
 
                 window.EndFrame();
@@ -1965,6 +2005,7 @@ public static class Application
             }
 
             renderer.SetMovieFrame(null);
+            renderer.SetOverlay(null);
 
             foreach (Diagnostic diagnostic in movies.Diagnostics.Items)
             {

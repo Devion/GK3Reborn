@@ -152,6 +152,16 @@ public interface IGameInput
     /// <summary>Whether the pointer is being dragged with a button held.</summary>
     bool IsDragging { get; }
 
+    /// <summary>Whether a pointer button is down right now.</summary>
+    /// <param name="button">Which button.</param>
+    /// <returns>True for as long as it is held.</returns>
+    /// <remarks>
+    /// Apart from <see cref="WasClicked"/> because a hold is a different gesture from a
+    /// click, and the interesting thing about it is how long it has lasted. What reads this
+    /// is counting seconds; what reads a click is acting once.
+    /// </remarks>
+    bool IsHeld(PointerButton button);
+
     /// <summary>The printable characters typed since the last poll.</summary>
     /// <remarks>
     /// Characters rather than keys, because what a console wants is what the player meant
