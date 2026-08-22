@@ -64,6 +64,28 @@ public sealed class WavFile
     /// <summary>How long it lasts, in seconds.</summary>
     public double Duration => SampleRate > 0 ? (double)FrameCount / SampleRate : 0;
 
+    /// <summary>Builds a sound from samples somebody else decoded.</summary>
+    /// <param name="name">Name it will be known by.</param>
+    /// <param name="samples">Interleaved sixteen-bit samples.</param>
+    /// <param name="channels">One for mono, two for stereo.</param>
+    /// <param name="sampleRate">Frames a second.</param>
+    /// <returns>The sound.</returns>
+    /// <remarks>
+    /// For sound that never was a RIFF file: a movie's track arrives out of a video
+    /// decoder already decoded, and wrapping it in a header only to parse the header back
+    /// off would be a round trip for nothing.
+    /// </remarks>
+    public static WavFile FromSamples(
+        string name, short[] samples, int channels, int sampleRate)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(samples);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+
+        return new WavFile(name, channels, sampleRate, samples);
+    }
+
     /// <summary>Reads a RIFF file.</summary>
     /// <param name="bytes">The file.</param>
     /// <param name="name">Name used in diagnostics.</param>

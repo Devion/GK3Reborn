@@ -9,6 +9,7 @@ using GK3Reborn.Rendering;
 using GK3Reborn.UI;
 using GK3Reborn.Rendering.Materials;
 using GK3Reborn.Rendering.Vulkan;
+using GK3Reborn.Sheep;
 
 namespace GK3Reborn;
 
@@ -219,6 +220,39 @@ public static class Application
         Console.WriteLine(audio is null
             ? "Audio: none, the game runs silent"
             : $"Audio: {audio.DeviceName}");
+
+        // Movies. The packs hold them, and so does the workspace unless --rebarn says the
+        // packs are the whole of the answer — the same rule as every other enhanced kind,
+        // with the loose file winning where both have one.
+        VideoLibrary videos = VideoLibrary.Open(
+            packsOnly || enhancedDirectory is not { Length: > 0 }
+                ? string.Empty
+                : Beside(enhancedDirectory, "video"),
+            packs);
+
+        using var movies = new Game.MoviePlayer(videos, audio);
+
+        if (videos.Count > 0)
+        {
+            // Null: the search walks up from the executable to find libs/<rid> on its
+            // own, which is the only thing this could pass it anyway.
+            bool decoder = Content.MoviePlayback.Prepare(null, diagnostics);
+
+            Console.WriteLine(
+                $"Movies: {videos.Count} available ({videos.LooseCount} loose, " +
+                $"{videos.PackedCount} packed)" +
+                (decoder
+                    ? $", decoded by FFmpeg from {Content.MoviePlayback.LoadedFrom}"
+                    : ", but there is no decoder"));
+
+            foreach (Diagnostic diagnostic in diagnostics.Items)
+            {
+                if (diagnostic.Code == "GK3R1160")
+                {
+                    Console.Error.WriteLine(diagnostic);
+                }
+            }
+        }
 
         // The host outlives the room. Its scripts and its registrations belong to the
         // story rather than to the room, and reloading them at every door would lose
@@ -506,6 +540,18 @@ public static class Application
             // walking functions need something to walk in. The scene functions close over
             // the room they were given and the last registration wins.
             SceneScripting.Attach(api, scene, loader.Glances, room, update, Behaviour);
+            Showing(api, movies);
+
+            // --movie NAME plays one straight away, which is how a cutscene is looked at
+            // without finding the point in the story that plays it.
+            if (first && Option(args, "--movie") is { Length: > 0 } wanted)
+            {
+                double seconds = movies.Play(wanted);
+
+                Console.WriteLine(seconds > 0
+                    ? $"Movie: {wanted}, {seconds:F1}s"
+                    : $"Movie: {wanted} could not be played");
+            }
 
             // What lets an animation actually move something. Vertex poses are left unread:
             // gab alone is 50.2 million samples and nothing deforms yet.
@@ -629,7 +675,8 @@ public static class Application
 
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api), room, hud, fonts, api.State, console, args);
+                new SceneInteraction(scene, api), room, movies, hud, fonts, api.State, console,
+                args);
 
             result = exit.Code;
 
@@ -723,6 +770,62 @@ public static class Application
         "F_CAPTION_D_26", "F_CAPTION_D_20", "F_CAPTION_D_16", "F_CAPTION_DEFAULT",
         "F_ARIAL_T12", "F_ARIAL_T10", "F_ARIAL_T8",
     ];
+
+    /// <summary>
+    /// Lets the scripts play a movie.
+    /// </summary>
+    /// <param name="api">The host.</param>
+    /// <param name="movies">What plays them.</param>
+    /// <remarks>
+    /// <para>
+    /// All three are waitable, and what they wait for is the movie's own length — which is
+    /// why <see cref="Gk3SheepApi.SecondsFor"/> has to answer for them as well as
+    /// <see cref="Gk3SheepApi.Register"/> performing them. A script that plays a cutscene
+    /// and then speaks would otherwise speak over it.
+    /// </para>
+    /// <para>
+    /// A movie that will not play returns nothing to wait for, so the script carries on.
+    /// The original does the same: its callback runs whether or not the video played, and
+    /// a missing cutscene should cost the cutscene rather than the rest of the game.
+    /// </para>
+    /// <para>
+    /// <c>PlayMovie</c> is the windowed form and the other two are full screen. Both are
+    /// drawn the same way here — fitted to the window, letterboxed — because a window
+    /// inside a window is a decision about the interface that nothing else in this port
+    /// has made yet.
+    /// </para>
+    /// </remarks>
+    private static void Showing(Gk3SheepApi api, Game.MoviePlayer movies)
+    {
+        double Start(IReadOnlyList<SheepValue> arguments)
+        {
+            if (arguments.Count == 0)
+            {
+                return 0;
+            }
+
+            string name = arguments[0].AsString();
+            double seconds = movies.Play(name);
+
+            Console.WriteLine(seconds > 0
+                ? $"Movie: {name}, {seconds:F1}s"
+                : $"Movie: {name} could not be played");
+
+            return seconds;
+        }
+
+        foreach (string called in (string[])["PlayMovie", "PlayFullScreenMovie", "PlayFullScreenMovieX"])
+        {
+            api.Register(called, a => SheepValue.FromInt((int)Start(a)), waitable: true);
+        }
+
+        // Asked before the call is performed, which is why it opens the movie to find out
+        // and the performing call then finds it already playing.
+        api.MovieSeconds = name => movies.Playing && string.Equals(
+            movies.Showing, name, StringComparison.OrdinalIgnoreCase)
+                ? movies.Seconds - movies.At
+                : movies.Play(name);
+    }
 
     /// <summary>A sibling of the enhanced textures directory.</summary>
     /// <param name="enhanced">Where the enhanced colour textures are.</param>
@@ -952,6 +1055,7 @@ public static class Application
     /// <param name="update">The world going on by itself.</param>
     /// <param name="interaction">Turns pointing at the room into doing something to it.</param>
     /// <param name="room">What the room sounds like, if there is a device.</param>
+    /// <param name="movies">What plays a cutscene when a script asks for one.</param>
     /// <param name="hud">The interface, if there is a font to draw it with.</param>
     /// <param name="fonts">
     /// The game's fonts, so a window that changes size can be given a different rung of the
@@ -976,6 +1080,7 @@ public static class Application
         SceneUpdate update,
         SceneInteraction interaction,
         SceneAudio? room,
+        Game.MoviePlayer movies,
         GameHud? hud,
         FontLibrary fonts,
         GameState story,
@@ -1016,6 +1121,11 @@ public static class Application
 
         var stopwatch = Stopwatch.StartNew();
         double previous = 0;
+
+        // Whether a movie was on screen last frame, so the renderer is told to stop drawing
+        // one exactly once rather than every frame for the rest of the room.
+        bool showingMovie = false;
+        int saidAboutMovies = 0;
         int presented = 0;
         string? hovering = null;
         string? spoken = null;
@@ -1111,7 +1221,35 @@ public static class Application
                 Typing(window, console);
             }
 
-            if (!typing && window.WasPressed(Platform.CameraAction.Quit))
+            if (movies.Playing)
+            {
+                // A movie has the screen and the keyboard. Escape ends it rather than the
+                // room, which is what every game does and what a player will try first.
+                if (window.WasPressed(Platform.CameraAction.Quit))
+                {
+                    movies.Stop();
+                }
+                else
+                {
+                    movies.Advance(delta);
+                }
+
+                renderer.SetMovieFrame(movies.Frame);
+                showingMovie = true;
+
+                for (; saidAboutMovies < movies.Diagnostics.Items.Count; saidAboutMovies++)
+                {
+                    Console.Error.WriteLine(movies.Diagnostics.Items[saidAboutMovies]);
+                }
+            }
+            else if (showingMovie)
+            {
+                // Once, on the frame after it ended, rather than every frame afterwards.
+                renderer.SetMovieFrame(null);
+                showingMovie = false;
+            }
+
+            if (!typing && !movies.Playing && window.WasPressed(Platform.CameraAction.Quit))
             {
                 break;
             }
@@ -1306,7 +1444,14 @@ public static class Application
                 Console.WriteLine($"  {room.Speaker}: {caption}");
             }
 
-            if (hud is not null)
+            // Nothing of the room is drawn over a movie: not the caption of whatever was
+            // being said when it started, not the noun under the pointer, not the
+            // inventory. The original stops for a cutscene and so does this.
+            if (movies.Playing)
+            {
+                renderer.SetOverlay(null);
+            }
+            else if (hud is not null)
             {
                 Hover showing = menu ?? hover;
 

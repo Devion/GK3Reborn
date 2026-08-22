@@ -140,6 +140,97 @@ public sealed unsafe class VulkanTexture : IDisposable
         return new VulkanTexture(context, image, memory, view, sampler, mips);
     }
 
+    /// <summary>
+    /// Writes new pixels into a texture that already exists.
+    /// </summary>
+    /// <param name="pixels">The image, four bytes a pixel, tightly packed, top row first.</param>
+    /// <param name="width">Its width, which must be the width it was created at.</param>
+    /// <param name="height">Its height, likewise.</param>
+    /// <remarks>
+    /// <para>
+    /// For a moving picture. Creating a texture a frame would work and would allocate and
+    /// free device memory thirty times a second, and it would have to keep every frame
+    /// alive until the frames in flight that read it were done with it.
+    /// </para>
+    /// <para>
+    /// One submission and one wait, per frame. That is a device stall, and it is the right
+    /// trade here and nowhere else: a movie has the screen to itself, so there is nothing
+    /// else in flight for the stall to hold up, and the alternative is a ring of staging
+    /// buffers and a fence to go with them.
+    /// </para>
+    /// <para>
+    /// Only for a texture with one level. A mip chain would have to be rebuilt from the new
+    /// pixels, and a movie has no use for one.
+    /// </para>
+    /// </remarks>
+    public void Refresh(ReadOnlySpan<byte> pixels, int width, int height)
+    {
+        int wanted = width * height * 4;
+
+        if (MipLevels != 1 || pixels.Length < wanted || wanted <= 0)
+        {
+            return;
+        }
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = (ulong)wanted,
+            Usage = BufferUsageFlags.TransferSrcBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        _context.Api.CreateBuffer(_context.Device, in bufferInfo, null, out Buffer staging);
+        _context.Api.GetBufferMemoryRequirements(
+            _context.Device, staging, out MemoryRequirements requirements);
+
+        DeviceMemory stagingMemory = _context.Allocate(
+            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        _context.Api.BindBufferMemory(_context.Device, staging, stagingMemory, 0);
+
+        try
+        {
+            void* mapped;
+            _context.Api.MapMemory(_context.Device, stagingMemory, 0, (ulong)wanted, 0, &mapped);
+            pixels[..wanted].CopyTo(new Span<byte>(mapped, wanted));
+            _context.Api.UnmapMemory(_context.Device, stagingMemory);
+
+            CommandBuffer command = _context.BeginOneShot();
+
+            // From whatever the shader last read it as. Undefined rather than
+            // ShaderReadOnly because the contents are about to be replaced entirely, and
+            // saying so lets the driver skip preserving them.
+            TransitionRange(
+                _context, command, Image, 0, 1,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+            var region = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                },
+                ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+            };
+
+            _context.Api.CmdCopyBufferToImage(
+                command, staging, Image, ImageLayout.TransferDstOptimal, 1, in region);
+
+            TransitionRange(
+                _context, command, Image, 0, 1,
+                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+
+            _context.EndOneShot(command);
+        }
+        finally
+        {
+            _context.Api.DestroyBuffer(_context.Device, staging, null);
+            _context.Api.FreeMemory(_context.Device, stagingMemory, null);
+        }
+    }
+
     private static void UploadBlocks(
         VulkanContext context, Image image, CompressedImage source, uint mips)
     {

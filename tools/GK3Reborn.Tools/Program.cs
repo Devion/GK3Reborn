@@ -97,6 +97,9 @@ public static class Program
             case "act-info":
                 return ActInfo(options, diagnostics);
 
+            case "video-info":
+                return VideoInfo(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -181,6 +184,22 @@ public static class Program
 
         Report(diagnostics);
         return imported ? 0 : 3;
+    }
+
+    private static int VideoInfo(Options options, DiagnosticBag diagnostics)
+    {
+        // Neither is required. With no workspace it reports the packs, which is what a
+        // shipped game has; with no packs it reports the workspace, which is what a
+        // development tree has; with both it reports which of them wins.
+        bool ok = new VideoInfoStage(Console.WriteLine).Run(
+            options.Workspace,
+            options.Packs ?? options.Workspace,
+            options.Model,
+            options.Deep,
+            diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
     }
 
     private static int ActInfo(Options options, DiagnosticBag diagnostics)
@@ -606,6 +625,8 @@ public static class Program
                                 report what came out. --model limits it to one
                                 location.
               act-info          Read every vertex animation and say what is in them.
+              video-info        Say which movies could be played, from the packs or
+                                the workspace, and decode them to prove it.
               import-textures   Check generated texture candidates against the
                                 originals they replace and take the sound ones
                                 into the enhanced set.
@@ -676,6 +697,9 @@ public static class Program
 
         public string? Workspace { get; init; }
 
+        /// <summary>Where the ReBarn volumes are, when they are not beside the workspace.</summary>
+        public string? Packs { get; init; }
+
         public string? FfmpegDirectory { get; init; }
 
         public string? Model { get; init; }
@@ -729,6 +753,7 @@ public static class Program
         public static Options Parse(string[] args)
         {
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
+            string? packs = null;
             string? input = null;
             string? timeblock = null, camera = null, rayTracing = null;
             int width = 1024, height = 768;
@@ -755,6 +780,10 @@ public static class Program
                     case "--source" when i + 1 < args.Length:
                         source = args[++i];
                         break;
+                    case "--packs" when i + 1 < args.Length:
+                        packs = args[++i];
+                        break;
+
                     case "--workspace" when i + 1 < args.Length:
                         workspace = args[++i];
                         break;
@@ -841,6 +870,7 @@ public static class Program
                 Command = args[0],
                 Source = source,
                 Workspace = workspace,
+                Packs = packs,
                 FfmpegDirectory = ffmpeg,
                 Force = force,
                 Verify = verify,

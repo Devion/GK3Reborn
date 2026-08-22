@@ -70,6 +70,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private TrianglePipeline? _triangle;
     private OverlayPipeline? _overlay;
     private SkyboxPipeline? _skybox;
+
+    /// <summary>The movie over everything, when one is playing.</summary>
+    /// <remarks>
+    /// Built the first time a frame is handed over rather than at startup, because most of
+    /// a session never plays one and a pipeline nobody uses is a pipeline nobody has tested.
+    /// </remarks>
+    private MoviePipeline? _movie;
     private SceneGeometry? _skyOwner;
     private OverlayAtlas? _overlayAtlas;
 
@@ -551,6 +558,49 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _overlayAtlas = atlas;
     }
 
+    /// <summary>
+    /// Hands over the frame of a movie to draw over everything, or nothing to stop.
+    /// </summary>
+    /// <param name="frame">The picture, or null when the movie has finished.</param>
+    /// <remarks>
+    /// The renderer knows nothing about what is playing or how far through it is: it is
+    /// given a picture each frame and draws it, which keeps decoding, timing and sound out
+    /// of the one place that has to keep up with the display.
+    /// </remarks>
+    public void SetMovieFrame(Formats.Bitmaps.DecodedImage? frame)
+    {
+        if (frame is null)
+        {
+            _movie?.Clear();
+            return;
+        }
+
+        if (_movie is null)
+        {
+            if (_context is null || _shaderCompiler is null)
+            {
+                return;
+            }
+
+            try
+            {
+                _movie = MoviePipeline.Create(_context, _shaderCompiler, _format);
+            }
+            catch (VulkanException error)
+            {
+                // Said out loud and once: a cutscene that silently does not appear looks
+                // like the game having hung, and the sound plays either way.
+                Console.Error.WriteLine(
+                    "WARNING GK3R3420: The movie pipeline could not be built, so cutscenes " +
+                    "play without a picture. (" + error.Message + ")");
+
+                return;
+            }
+        }
+
+        _movie.SetFrame(frame.Value);
+    }
+
     /// <summary>Sets what the interface looks like this frame.</summary>
     /// <param name="overlay">The display list, or null to draw nothing over the room.</param>
     public void SetOverlay(Overlay? overlay)
@@ -580,6 +630,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _rayTracedPipeline?.Dispose();
             _frames?.Dispose();
             _meshPipeline?.Dispose();
+            _movie?.Dispose();
             _skybox?.Dispose();
             _overlay?.Dispose();
             _triangle?.Dispose();
@@ -1239,6 +1290,10 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
             }
 
+            // Over the room and under the interface. A movie covers the window, so what
+            // is behind it does not matter; the captions that go with one do.
+            _movie?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+
             // On top of the room and inside the same pass: the interface has no business
             // in the depth buffer, and starting a second pass to say so would cost a store
             // and a load of the whole colour target.
@@ -1512,6 +1567,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         };
 
         _vk.CmdBeginRendering(buffer, in overlayRendering);
+        _movie?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
         _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
         _vk.CmdEndRendering(buffer);
     }

@@ -147,6 +147,14 @@ public sealed class Gk3SheepApi : ISheepApi
     /// </remarks>
     public string ActingOn { get; set; } = string.Empty;
 
+    /// <summary>How long a movie runs, asked before it is played.</summary>
+    /// <remarks>
+    /// A hook rather than a library lookup, because the length lives in the movie's own
+    /// container and only the thing that can open one knows it. Null means no movies,
+    /// which is a machine with no decoder: the scripts still run and wait for nothing.
+    /// </remarks>
+    public Func<string, double>? MovieSeconds { get; set; }
+
     /// <summary>Walks an actor to where an animation begins, and says how long it takes.</summary>
     /// <remarks>
     /// A hook of its own rather than another <see cref="Approaching"/>, because the name it
@@ -229,6 +237,11 @@ public sealed class Gk3SheepApi : ISheepApi
             "WALKTO" or "WALKTOANIMATION" => Length(arguments, Approaching.Walk),
             "WALKTOSEEMODEL" => Length(arguments, Approaching.WalkToSee),
             "TURNTOMODEL" or "TURNTO" => Length(arguments, Approaching.Turn),
+
+            // A movie is as long as the movie is, which only whatever plays it knows.
+            // Answering nothing would have a script speak over its own cutscene.
+            "PLAYMOVIE" or "PLAYFULLSCREENMOVIE" or "PLAYFULLSCREENMOVIEX" =>
+                MovieSeconds?.Invoke(first) ?? 0,
 
             _ => 0,
         };

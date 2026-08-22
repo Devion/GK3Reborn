@@ -37,3 +37,11 @@ Third-party components
 
 Redistributed third-party components and their licenses are listed in
 licenses/THIRD-PARTY.md, generated as part of the release process.
+
+FFmpeg is a runtime dependency rather than a redistributed component: the
+cutscenes are decoded through FFMediaToolkit (MIT) over FFmpeg's own shared
+libraries, which are located at run time from libs/<rid> or from the system
+and are not part of this source tree. A build of FFmpeg placed there must be
+an LGPL one, and its own licence and source-offer obligations travel with it
+rather than with this project. A machine with no FFmpeg runs the game without
+its cutscenes.
