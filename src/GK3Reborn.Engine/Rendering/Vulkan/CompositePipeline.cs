@@ -44,6 +44,10 @@ internal sealed unsafe class CompositePipeline : IDisposable
         layout(set = 0, binding = 3) uniform sampler2D occlusionTarget;
         layout(set = 0, binding = 4) uniform sampler2D reflectionTarget;
 
+        // How much of the rig's light survives the things standing in the room, as opposed
+        // to the room itself. One where nobody is in the way.
+        layout(set = 0, binding = 5) uniform sampler2D dynamicTarget;
+
         // How much of the traced occlusion to believe. Not all of it: the lightmaps these
         // rooms ship with were baked with occlusion already in them, so a hemisphere of
         // rays is measuring something the bake has largely accounted for, and applying it
@@ -69,12 +73,28 @@ internal sealed unsafe class CompositePipeline : IDisposable
             float shadow = clamp(texelFetch(shadowTarget, pixel, 0).r, 0.0, 1.0);
             float open = clamp(texelFetch(occlusionTarget, pixel, 0).r, 0.0, 1.0);
 
-            // Alpha carries whether occlusion applies here at all. A bulb is not dimmed
-            // by the shade around it.
-            float occlusion = mix(1.0, open, kOcclusionStrength * indirect.a);
+            // Alpha carries what the indirect term is: zero for a surface that carries
+            // its own brightness, a half for the ambient floor, one for a bake.
+            //
+            // A bulb is not dimmed by the shade around it, so occlusion applies to the
+            // other two and not to it.
+            float lightmapped = step(0.75, indirect.a);
+            float shaded = step(0.25, indirect.a);
 
-            // The rig's light, as much of it as actually arrives.
-            vec3 arrived = direct * shadow;
+            float occlusion = mix(1.0, open, kOcclusionStrength * shaded);
+
+            // How much of the rig's light a moving thing takes away, kept apart from the
+            // room's own shadowing above because the two are subtracted at different
+            // points. See below.
+            float unblocked = clamp(texelFetch(dynamicTarget, pixel, 0).r, 0.0, 1.0);
+
+            // The rig's light, as much of it as the *room* lets through. This is the term
+            // the bake is comparable to, because the bake was made with the room and
+            // nothing else in it.
+            vec3 accounted = direct * shadow;
+
+            // And what actually arrives, once whoever is standing there is counted too.
+            vec3 arrived = accounted * unblocked;
 
             // And what the bake holds that the rig has not just accounted for.
             //
@@ -89,10 +109,22 @@ internal sealed unsafe class CompositePipeline : IDisposable
             // to be chosen. Where the rig explains the bake this falls to nothing and the
             // picture is ray traced outright; where it explains none of it — a window with
             // no light behind it, a corner lit only by bounce — the bake survives whole.
-            // And it is the *arrived* light that is subtracted, not the light the rig
-            // would give with nothing in the way: a rig this size has lamps in the rooms
-            // next door, which contribute on paper and are stopped by a wall in fact.
-            vec3 residual = max(indirect.rgb - arrived, vec3(0.0));
+            // And it is the light that got past the *room* that is subtracted, not the
+            // light the rig would give with nothing in the way: a rig this size has lamps
+            // in the rooms next door, which contribute on paper and are stopped by a wall
+            // in fact.
+            //
+            // What is emphatically not subtracted is the light a character is standing in
+            // front of. Subtracting the fully occluded term is what made characters cast
+            // no shadow for as long as this pass has existed: block a light and `arrived`
+            // falls, `residual` rises by exactly as much, and the sum is unchanged. The
+            // bake refilled every shadow the moment it was drawn. The bake cannot know
+            // about somebody who walked into the room after 1999, so its light is credited
+            // against the room's occlusion only, and the shadow is taken off the result.
+            // Only against the bake. The ambient floor is not a second copy of anything
+            // the rig computes, so nothing is taken off it — it is simply light that is
+            // there, and it survives to be occluded below.
+            vec3 residual = max(indirect.rgb - (accounted * lightmapped), vec3(0.0));
 
             vec3 lit = (residual * occlusion) + arrived;
 
@@ -161,10 +193,12 @@ internal sealed unsafe class CompositePipeline : IDisposable
         ShaderModule vertexModule = Module(vk, device, compiler, Vertex, ShaderStage.Vertex);
         ShaderModule fragmentModule = Module(vk, device, compiler, Fragment, ShaderStage.Fragment);
 
-        DescriptorSetLayoutBinding* bindings =
-            stackalloc DescriptorSetLayoutBinding[5];
+        const uint inputs = 6;
 
-        for (uint i = 0; i < 5; i++)
+        DescriptorSetLayoutBinding* bindings =
+            stackalloc DescriptorSetLayoutBinding[(int)inputs];
+
+        for (uint i = 0; i < inputs; i++)
         {
             bindings[i] = new DescriptorSetLayoutBinding
             {
@@ -178,7 +212,7 @@ internal sealed unsafe class CompositePipeline : IDisposable
         var layoutInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 5,
+            BindingCount = inputs,
             PBindings = bindings,
         };
 
@@ -195,14 +229,14 @@ internal sealed unsafe class CompositePipeline : IDisposable
 
         vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out PipelineLayout layout);
 
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 16);
+        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 48);
 
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = 4,
+            MaxSets = 8,
         };
 
         vk.CreateDescriptorPool(device, in poolInfo, null, out DescriptorPool pool);
@@ -339,11 +373,15 @@ internal sealed unsafe class CompositePipeline : IDisposable
             vk, device, vertexModule, fragmentModule, setLayout, layout, handle, pool, sampler);
     }
 
-    /// <summary>Points the pass at the five things it reads.</summary>
+    /// <summary>Points the pass at the six things it reads.</summary>
     /// <param name="indirect">Ambient and baked light, before occlusion.</param>
     /// <param name="direct">The rig's light, before shadowing.</param>
     /// <param name="shadow">The denoised fraction of that light which arrives.</param>
     /// <param name="occlusion">The denoised fraction of the hemisphere that is open.</param>
+    /// <param name="dynamicShadow">
+    /// The denoised fraction of the rig's light that the characters and props standing in
+    /// the room leave alone. One everywhere in a scene with nobody in it.
+    /// </param>
     /// <param name="reflections">
     /// The two buffers reflections alternate between, most recent first each frame.
     /// </param>
@@ -356,6 +394,7 @@ internal sealed unsafe class CompositePipeline : IDisposable
         ImageView direct,
         ImageView shadow,
         ImageView occlusion,
+        ImageView dynamicShadow,
         ReadOnlySpan<ImageView> reflections)
     {
         DescriptorSetLayout* layouts = stackalloc DescriptorSetLayout[2]
@@ -380,8 +419,8 @@ internal sealed unsafe class CompositePipeline : IDisposable
             }
         }
 
-        DescriptorImageInfo* images = stackalloc DescriptorImageInfo[10];
-        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[10];
+        DescriptorImageInfo* images = stackalloc DescriptorImageInfo[12];
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[12];
 
         for (uint which = 0; which < 2; which++)
         {
@@ -392,11 +431,12 @@ internal sealed unsafe class CompositePipeline : IDisposable
                 shadow,
                 occlusion,
                 reflections.Length > which ? reflections[(int)which] : occlusion,
+                dynamicShadow,
             ];
 
-            for (uint i = 0; i < 5; i++)
+            for (uint i = 0; i < 6; i++)
             {
-                uint at = (which * 5) + i;
+                uint at = (which * 6) + i;
 
                 images[at] = new DescriptorImageInfo
                 {
@@ -422,7 +462,7 @@ internal sealed unsafe class CompositePipeline : IDisposable
             }
         }
 
-        _vk.UpdateDescriptorSets(_device, 10, writes, 0, null);
+        _vk.UpdateDescriptorSets(_device, 12, writes, 0, null);
     }
 
     /// <summary>Draws the frame.</summary>

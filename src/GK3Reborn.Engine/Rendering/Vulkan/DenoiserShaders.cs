@@ -125,6 +125,23 @@ internal static class DenoiserShaders
             Light lights[64];
         } rig;
 
+        // The third channel: how much of the rig's light a *moving* thing takes away.
+        //
+        // It is kept apart from the shadow channel rather than folded into it because the
+        // composite needs the two separately. The bake already contains every shadow the
+        // room casts on itself, so what the rig has to be credited with — and subtracted
+        // from the bake, or it is counted twice — is the light that arrives past the room
+        // alone. A character was never in the bake, so what it blocks has to come off the
+        // result after that subtraction. Fold them together and the residual grows by
+        // exactly what the character removed and the shadow disappears, which is what used
+        // to happen: nothing a person walked past ever darkened.
+        layout(set = 0, binding = 8, std430) writeonly buffer DynamicMask
+        {
+            uint data[];
+        } dynamicMask;
+
+        layout(set = 0, binding = 9, r16f) writeonly uniform image2D dynamicFraction;
+
         layout(push_constant) uniform Trace
         {
             mat4 viewProjectionInverse;
@@ -145,6 +162,7 @@ internal static class DenoiserShaders
 
         shared uint gShadow;
         shared uint gOcclusion;
+        shared uint gDynamic;
 
         float Random(vec2 pixel, float salt)
         {
@@ -161,16 +179,25 @@ internal static class DenoiserShaders
             bitangent = cross(normal, tangent);
         }
 
-        // What a ray leaving this pixel is allowed to hit.
+        // The two halves of the acceleration structure. See RayTracingScene.MaskFor.
+        const uint kRoomOnly = 0x01u;
+        const uint kModelsOnly = 0x02u;
+        const uint kEverything = 0xFFu;
+
+        // What an *occlusion* ray leaving this pixel is allowed to hit.
         //
         // Everything, unless the pixel is on a model — a character or a prop — in which
         // case the room and nothing else. The mesh pass writes a negative roughness into
         // the normal target to say so, which is the whole of the signal; see
-        // RayTracingScene.MaskFor for why it has to exist. A ray leaving the room still
-        // traces everything, so a character still lays a shadow on the floor.
-        uint TraceMask(float roughness)
+        // RayTracingScene.MaskFor for why it has to exist: GK3's people are a stack of
+        // overlapping shells and a ray leaving the shirt hits the arm inside it.
+        //
+        // Shadow rays no longer come through here. They are traced twice against the two
+        // halves separately, because the composite needs to tell a shadow the bake already
+        // holds from one a character is casting now.
+        uint OcclusionMaskFor(float roughness)
         {
-            return roughness < 0.0 ? 0x01u : 0xFFu;
+            return roughness < 0.0 ? kRoomOnly : kEverything;
         }
 
         bool Occluded(vec3 origin, vec3 direction, float reach, uint mask)
@@ -196,6 +223,10 @@ internal static class DenoiserShaders
         // What this light gives this pixel before anything blocks it, as a single number.
         // The same falloff, cone and lambert term the raster pass uses, so the weights
         // this samples by are the weights the result is multiplied back into.
+        // This must agree with EvaluateRig's falloff exactly, or the light a pixel is most
+        // likely to trace towards is not the light that is actually lighting it — the
+        // estimate stays unbiased but its variance goes up, and a pixel would sample the
+        // ground bounce while the sun did the shading.
         float Contribution(Light light, vec3 position, vec3 normal, out vec3 toLight)
         {
             toLight = light.positionAndStart.xyz - position;
@@ -214,6 +245,11 @@ internal static class DenoiserShaders
             float reach = clamp((end - distance) / max(end - start, 0.001), 0.0, 1.0);
             float attenuation = reach * reach;
 
+            if (light.cone.z >= 1.5)
+            {
+                attenuation = 1.0;
+            }
+
             if (attenuation <= 0.0)
             {
                 return 0.0;
@@ -221,7 +257,7 @@ internal static class DenoiserShaders
 
             float cone = 1.0;
 
-            if (light.cone.z > 0.5)
+            if (mod(light.cone.z, 2.0) > 0.5)
             {
                 float aligned = dot(-direction, light.directionAndEnd.xyz);
                 cone = smoothstep(light.cone.y, light.cone.x, aligned);
@@ -337,6 +373,7 @@ internal static class DenoiserShaders
             {
                 gShadow = 0u;
                 gOcclusion = 0u;
+                gDynamic = 0u;
             }
 
             barrier();
@@ -349,6 +386,7 @@ internal static class DenoiserShaders
             int samples = max(trace.samples, 1);
             int litCount = samples;
             int openCount = samples;
+            int clearCount = samples;
 
             if (inside && depth > 0.0 && depth < 1.0)
             {
@@ -359,10 +397,12 @@ internal static class DenoiserShaders
                 vec3 position = homogeneous.xyz / homogeneous.w;
                 vec4 surface = texelFetch(normalTarget, pixel, 0);
                 vec3 normal = normalize(surface.xyz);
-                uint mask = TraceMask(surface.w);
+                bool onModel = surface.w < 0.0;
+                uint mask = OcclusionMaskFor(surface.w);
 
                 litCount = 0;
                 openCount = 0;
+                clearCount = 0;
 
                 // Several rays rather than one. A single ray is an unbiased estimate of
                 // the fraction and a terrible one — its error is half, every frame — and
@@ -371,8 +411,18 @@ internal static class DenoiserShaders
                 // worth something on its own.
                 for (int i = 0; i < samples; i++)
                 {
-                    litCount +=
-                        ShadowRay(position, normal, vec2(pixel), i, samples, mask) ? 1 : 0;
+                    // The same ray twice, against one half of the structure each time.
+                    // ShadowRay is deterministic in the pixel and the sample index, so
+                    // both calls pick the same light and the same point on its emitter —
+                    // the two answers are about one ray, which is what makes it sound to
+                    // treat them as the static and moving halves of its visibility.
+                    litCount += ShadowRay(
+                        position, normal, vec2(pixel), i, samples, kRoomOnly) ? 1 : 0;
+
+                    // A model does not shadow another model, by the same argument that
+                    // stops it shadowing itself, so nothing here is traced for one.
+                    clearCount += onModel || ShadowRay(
+                        position, normal, vec2(pixel), i, samples, kModelsOnly) ? 1 : 0;
 
                     openCount +=
                         OcclusionRay(position, normal, vec2(pixel), i, samples, mask) ? 1 : 0;
@@ -386,6 +436,7 @@ internal static class DenoiserShaders
             // be written as ten-tenths.
             bool lit = litCount == samples;
             bool open = openCount == samples;
+            bool clear = clearCount == samples;
 
             if (inside)
             {
@@ -394,6 +445,9 @@ internal static class DenoiserShaders
 
                 imageStore(occlusionFraction, pixel,
                     vec4(float(openCount) / float(samples), 0.0, 0.0, 0.0));
+
+                imageStore(dynamicFraction, pixel,
+                    vec4(float(clearCount) / float(samples), 0.0, 0.0, 0.0));
             }
 
             uint bit = BitInTile(uvec2(gl_LocalInvocationID.xy));
@@ -408,6 +462,11 @@ internal static class DenoiserShaders
                 atomicOr(gOcclusion, bit);
             }
 
+            if (clear)
+            {
+                atomicOr(gDynamic, bit);
+            }
+
             barrier();
 
             if (gl_LocalInvocationIndex == 0u)
@@ -416,6 +475,7 @@ internal static class DenoiserShaders
 
                 shadowMask.data[tile] = gShadow;
                 occlusionMask.data[tile] = gOcclusion;
+                dynamicMask.data[tile] = gDynamic;
             }
         }
         """;

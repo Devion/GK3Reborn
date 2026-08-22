@@ -63,6 +63,7 @@ public sealed class SceneRenderStage
     /// <param name="advanceSeconds">How much time to let pass afterwards.</param>
     /// <param name="glance">An actor to point at something, as <c>actor:target</c>.</param>
     /// <param name="enhanced">Higher-resolution textures to prefer, or null for none.</param>
+    /// <param name="heads">How far to subdivide a character's head; zero draws it as authored.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -82,6 +83,7 @@ public sealed class SceneRenderStage
         double advanceSeconds,
         string? glance,
         string? enhanced,
+        int heads,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -127,7 +129,7 @@ public sealed class SceneRenderStage
             _log($"story: {request.State.Timeblock} in {request.State.Location}, first visit");
         }
 
-        var loader = new SceneLoader(archives, _log);
+        var loader = new SceneLoader(archives, _log) { SmoothHeads = heads };
 
         if (enhanced is { Length: > 0 })
         {

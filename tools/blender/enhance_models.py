@@ -21,8 +21,15 @@ model's declared role rather than from rig data.
 
 Texture work is deliberately absent. Upscaling and PBR channel generation are an image
 pipeline, not a mesh one, and putting them here would couple two stages that fail for
-unrelated reasons. This script only bakes a normal map, and only where subdivision
-actually produced geometry worth baking.
+unrelated reasons.
+
+`--bake` will bake the enhanced geometry down onto the original UVs, but it is off by
+default because the result was measured and it is nearly empty: 74 of 76 textures over a
+mixed sample of props and characters came back perfectly flat. GK3's meshes already carry
+welded, smooth vertex normals, and a subdivided surface converges to exactly those
+normals - so a tangent-space map has no difference left to record. What the modifiers
+change is position and silhouette, and neither of those fits in a normal map. The code is
+kept, gated and instrumented, so the next person does not have to find this out again.
 """
 
 import argparse
@@ -55,7 +62,10 @@ def parse_args(argv):
     parser.add_argument("--include-review", action="store_true",
                         help="Also process models the classifier flagged as ambiguous.")
     parser.add_argument("--lods", type=int, default=2, help="Number of reduced LODs to emit.")
-    parser.add_argument("--no-bake", action="store_true", help="Skip normal-map baking.")
+    parser.add_argument("--bake", action="store_true",
+                        help="Bake the enhanced geometry into normal maps. Off by "
+                             "default: measured, it records almost nothing. See "
+                             "docs/mesh-enhancement.md.")
     parser.add_argument("--dry-run", action="store_true", help="Report the plan and stop.")
     return parser.parse_args(argv)
 
@@ -65,8 +75,16 @@ def reset_scene():
 
 
 def import_glb(path):
+    """Imports a glTF and returns the mesh objects it added, in file order.
+
+    Only the new ones: the bake needs the model twice over in one scene - once enhanced
+    and once as it shipped - and a second import has to come back as its own list rather
+    than as everything present.
+    """
+    before = {o.name for o in bpy.context.scene.objects}
     bpy.ops.import_scene.gltf(filepath=str(path))
-    return [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    return [o for o in bpy.context.scene.objects
+            if o.type == "MESH" and o.name not in before]
 
 
 def triangle_count(objects):
@@ -230,7 +248,228 @@ def run_gltfpack(path):
     return path.stat().st_size
 
 
-def process(model, glb_in, out_root, args):
+# The bake is what gets any of this onto the screen. The engine draws the original
+# .MOD geometry - there is no glTF reader in it - so a bevelled edge or a subdivided
+# cheek exists only in `enhanced/models` until it is baked into a tangent-space map
+# the texture path already carries. Where the mesh work shows up at runtime, it shows
+# up through here.
+BAKE_MARGIN = 8
+BAKE_FALLBACK_SIZE = 512
+
+# How far the baked surface has to lean away from the low-poly one before the map is
+# worth keeping, in degrees at the 99th percentile. A bake that comes back flatter than
+# this recorded nothing the interpolated vertex normals did not already say, and writing
+# it costs a texture upload to state the obvious - or, where the image pipeline generated
+# a map for the same surface, replaces something informative with something that is not.
+BAKE_MIN_TILT = 2.0
+
+
+def texture_of(material):
+    """The texture name a material stands for, or None if it stands for nothing.
+
+    The exporter names a material after the submesh's texture, so the two are the same
+    string - which is what lets a baked map be filed where the engine already looks for
+    one. `(none)` is the exporter's placeholder for a submesh with no texture at all.
+    """
+    name = (material.name or "").split(".")[0].strip()
+    return None if not name or name == "(none)" else name.upper()
+
+
+def bake_target(material, image):
+    """Points a material's bake at `image` and returns the node, creating what is missing."""
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    node = nodes.new("ShaderNodeTexImage")
+    node.image = image
+    node.select = True
+    nodes.active = node
+    return node
+
+
+def source_normal(directory, texture):
+    """The generated normal map for a texture, if the image pipeline made one."""
+    for suffix in (".PNG", ".png"):
+        candidate = directory / f"{texture}{suffix}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def tilt_of(pixels):
+    """How far a baked tangent-space map leans off flat, in degrees at p50 and p99."""
+    import numpy as np
+
+    n = pixels.reshape(-1, 4)[:, :3] * 2.0 - 1.0
+    length = np.sqrt((n * n).sum(axis=1))
+    length[length < 1e-8] = 1.0
+    degrees = np.degrees(np.arccos(np.clip(n[:, 2] / length, -1.0, 1.0)))
+    return float(np.median(degrees)), float(np.percentile(degrees, 99))
+
+
+def blend_whiteout(base, detail):
+    """Whiteout blend of two tangent-space normal maps, both as float RGBA arrays.
+
+    The two maps say different things and both are wanted: the bake carries curvature
+    the low-poly mesh does not have, and the generated map carries surface detail that
+    was never modelled at any resolution. Whiteout adds the tangents and multiplies the
+    heights, which keeps both without either flattening the other.
+    """
+    import numpy as np
+
+    a = base.reshape(-1, 4)[:, :3] * 2.0 - 1.0
+    b = detail.reshape(-1, 4)[:, :3] * 2.0 - 1.0
+
+    out = np.empty_like(a)
+    out[:, 0] = a[:, 0] + b[:, 0]
+    out[:, 1] = a[:, 1] + b[:, 1]
+    out[:, 2] = a[:, 2] * b[:, 2]
+
+    length = np.sqrt((out * out).sum(axis=1))
+    length[length < 1e-8] = 1.0
+    out /= length[:, None]
+
+    merged = base.reshape(-1, 4).copy()
+    merged[:, :3] = out * 0.5 + 0.5
+    return merged.reshape(base.shape)
+
+
+def save_normal(image, path):
+    """Writes a normal map as linear data rather than as a picture.
+
+    The colour space is set when the image is created and deliberately not touched here:
+    assigning `colorspace_settings.name` reallocates the buffer, so doing it after the
+    pixels are written saves a black image and reports success. It cost an afternoon.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.file_format = "PNG"
+    image.filepath_raw = str(path)
+    image.save()
+
+
+def bake_normal_maps(low, high, out_root, seen):
+    """Bakes the enhanced geometry down onto the original UVs, one map per texture.
+
+    `low` and `high` are paired objects - the model as the game ships it and the model
+    after beveling or subdivision. The map records the difference, which is the whole
+    of what the enhancement produced that the engine can currently draw.
+
+    A texture is baked once per run even when several models share it. GABE_HAIR is
+    worn by both GAB and GAG, and a second bake would silently overwrite the first with
+    a map made from different geometry.
+    """
+    import numpy as np
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 1
+    scene.cycles.use_denoising = False
+    scene.render.bake.use_selected_to_active = True
+    scene.render.bake.margin = BAKE_MARGIN
+    scene.render.bake.use_clear = True
+    scene.render.bake.normal_space = "TANGENT"
+
+    generated = out_root / "normals"
+    kept = out_root / "normals-source"
+    baked = []
+    flat = []
+
+    for low_object, high_object in zip(low, high):
+        if not low_object.data.materials or not low_object.data.uv_layers:
+            continue
+
+        # How far the ray looks for the high-poly surface. Proportional to the object,
+        # because a model here can be a whole staircase or an alarm clock, and a fixed
+        # extrusion either misses the one or wraps around the other.
+        size = max(low_object.dimensions)
+        scene.render.bake.cage_extrusion = max(0.05, size * 0.02)
+
+        targets = {}
+        for material in low_object.data.materials:
+            texture = texture_of(material) if material else None
+            if texture is None or texture in seen:
+                continue
+
+            existing = source_normal(kept, texture) or source_normal(generated, texture)
+            width = height = BAKE_FALLBACK_SIZE
+            if existing is not None:
+                probe = bpy.data.images.load(str(existing), check_existing=False)
+                width, height = probe.size
+                bpy.data.images.remove(probe)
+
+            image = bpy.data.images.new(
+                f"bake_{texture}", width=width, height=height,
+                alpha=False, float_buffer=True, is_data=True)
+            targets[material.name] = (texture, image, bake_target(material, image))
+            seen.add(texture)
+
+        if not targets:
+            continue
+
+        select_only([high_object])
+        low_object.select_set(True)
+        bpy.context.view_layer.objects.active = low_object
+
+        try:
+            # Passed to the operator rather than left on the scene. Called from a script
+            # the operator takes its own property defaults, not the scene's, and
+            # use_selected_to_active defaults to off - which bakes the low mesh onto
+            # itself and writes a perfectly flat map that looks like a successful run.
+            bpy.ops.object.bake(
+                type="NORMAL",
+                use_selected_to_active=True,
+                cage_extrusion=scene.render.bake.cage_extrusion,
+                normal_space="TANGENT",
+                margin=BAKE_MARGIN,
+                use_clear=True)
+        except RuntimeError as error:
+            print(f"[gk3r]   bake failed on {low_object.name}: {error}")
+            for texture, image, _ in targets.values():
+                seen.discard(texture)
+                bpy.data.images.remove(image)
+            continue
+
+        for texture, image, _ in targets.values():
+            pixels = np.array(image.pixels[:], dtype=np.float32)
+            middle, edge = tilt_of(pixels)
+
+            # Measured rather than assumed, because the answer was not the expected one:
+            # subdividing a mesh whose vertex normals are already smooth bakes flat. The
+            # low-poly surface's interpolated normals are what the limit surface converges
+            # to, so there is no difference left for a tangent-space map to carry. What
+            # subdivision changes is the silhouette, and a normal map cannot hold a
+            # silhouette. See docs/mesh-enhancement.md.
+            if edge < BAKE_MIN_TILT:
+                flat.append({"texture": texture, "p50": middle, "p99": edge})
+                bpy.data.images.remove(image)
+                continue
+
+            # The generated map is kept aside the first time it is merged into, so that
+            # the merge reads the same input every run instead of compounding on its own
+            # output. Without it a second pass blends a blended map.
+            live = source_normal(generated, texture)
+            keep = kept / f"{texture}.PNG"
+            if live is not None and not keep.exists():
+                keep.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(live, keep)
+
+            base = source_normal(kept, texture)
+            if base is not None:
+                detail = bpy.data.images.load(str(base), check_existing=False)
+                detail.colorspace_settings.name = "Non-Color"
+                if tuple(detail.size) == tuple(image.size):
+                    pixels = blend_whiteout(
+                        np.array(detail.pixels[:], dtype=np.float32), pixels)
+                bpy.data.images.remove(detail)
+
+            image.pixels.foreach_set(pixels)
+            save_normal(image, generated / f"{texture}.PNG")
+            baked.append({"texture": texture, "p50": middle, "p99": edge})
+            bpy.data.images.remove(image)
+
+    return baked, flat
+
+
+def process(model, glb_in, out_root, args, seen):
     reset_scene()
     objects = import_glb(glb_in)
     if not objects:
@@ -255,6 +494,18 @@ def process(model, glb_in, out_root, args):
     export_glb(objects, out)
     run_gltfpack(out)
 
+    # Only where the enhancement actually produced something. A model the modifiers left
+    # alone bakes to a flat map, which is worse than no map: it costs a texture upload and
+    # overwrites whatever the image pipeline generated for that surface.
+    baked, flat = [], []
+    if args.bake and after > before:
+        original = import_glb(glb_in)
+        try:
+            baked, flat = bake_normal_maps(original, objects, out_root, seen)
+        finally:
+            select_only(original)
+            bpy.ops.object.delete()
+
     lods = []
     for level in range(1, args.lods + 1):
         ratio = 0.5 ** level
@@ -272,6 +523,8 @@ def process(model, glb_in, out_root, args):
         "trianglesBefore": before,
         "trianglesAfter": after,
         "lods": lods,
+        "bakedNormals": baked,
+        "flatNormals": flat,
     }
 
 
@@ -319,10 +572,14 @@ def main():
     results = []
     started = time.time()
 
+    # Textures already baked this run. A texture belongs to whichever model reached it
+    # first; see bake_normal_maps.
+    seen = set()
+
     for index, model in enumerate(queue, start=1):
         source = source_root / f"{model['name']}.glb"
         try:
-            result = process(model, source, out_root, args)
+            result = process(model, source, out_root, args, seen)
         except Exception as error:  # noqa: BLE001 - one bad model must not stop the run
             result = {"name": model["name"], "status": "failed", "error": str(error)}
             print(f"[gk3r] FAILED {model['name']}: {error}")
@@ -338,6 +595,8 @@ def main():
         "enhanced": sum(1 for r in results if r["status"] == "enhanced"),
         "failed": sum(1 for r in results if r["status"] == "failed"),
         "skippedByDisposition": skipped,
+        "bakedNormals": sum(len(r.get("bakedNormals", ())) for r in results),
+        "flatNormals": sum(len(r.get("flatNormals", ())) for r in results),
         "models": results,
     }
 

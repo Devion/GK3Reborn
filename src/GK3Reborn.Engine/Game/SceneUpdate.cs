@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Actors;
@@ -1914,9 +1915,42 @@ public sealed class SceneUpdate
 
             for (int mesh = 0; mesh < Clip.MeshCount; mesh++)
             {
-                if (Clip.PoseAt(mesh, at, _repeat) is { } pose)
+                Matrix4x4? pose = Clip.PoseAt(mesh, at, _repeat);
+
+                // A refined head is drawn from geometry the clip has never heard of, so the
+                // clip's vertices are read as a motion and applied to the mesh instead of
+                // being written into it. Everything else about the frame is unchanged.
+                if (Target.Head is { } rig && rig.Mesh == mesh)
                 {
-                    geometry.PoseMesh(Target.Placement, mesh, pose * _correction);
+                    // Whatever happens, a refined head is never reshaped: the buffer being
+                    // drawn holds thousands of vertices and the clip has a few hundred to
+                    // say about them. Falling through to the ordinary path would rely on the
+                    // renderer noticing the size mismatch and dropping the write, which is a
+                    // long way from here and silent when it happens.
+                    if (Turn(rig, at) is { } turn)
+                    {
+                        if (pose is { } placed)
+                        {
+                            geometry.PoseMesh(Target.Placement, mesh, turn * placed * _correction);
+                        }
+                        else
+                        {
+                            // No transform track for the head in this clip, so the mesh keeps
+                            // its own and the fit goes on top of it. TurnMesh is exactly that.
+                            geometry.TurnMesh(Target.Placement, mesh, turn);
+                        }
+                    }
+                    else if (pose is { } carried)
+                    {
+                        geometry.PoseMesh(Target.Placement, mesh, carried * _correction);
+                    }
+
+                    continue;
+                }
+
+                if (pose is { } value)
+                {
+                    geometry.PoseMesh(Target.Placement, mesh, value * _correction);
                 }
 
                 // The shapes, where the clip has them. Without these a character is mesh
@@ -1930,6 +1964,94 @@ public sealed class SceneUpdate
                 }
             }
         }
+
+        /// <summary>The rigid motion a clip is asking a refined head to make.</summary>
+        /// <param name="rig">The head's authored vertices, which is what the clip addresses.</param>
+        /// <param name="at">Which frame, with a fraction of the way to the next.</param>
+        /// <returns>The transform, or null when this clip does not move the head.</returns>
+        /// <remarks>
+        /// <para>
+        /// Every submesh the clip shapes on this frame is used, all at once: the fit wants as
+        /// many points spread as widely as possible, and a hairline on its own is a poor
+        /// lever arm for a rotation. A submesh whose vertex count disagrees with the model's
+        /// is skipped rather than trusted — that is what a clip belonging to a different
+        /// character looks like, and 12.9% of the corpus is filed under the wrong name.
+        /// </para>
+        /// <para>
+        /// <b>A fit that comes back badly is not used.</b> The corpus survey says every one
+        /// of the fifty-six models with head clips is rigid — 1.0% of head width at the median
+        /// of medians — so this is a guard rather than a routine path. What it guards against
+        /// is the handful of clips that genuinely do deform a head: <c>GAB_GABTE3HDOFF</c>,
+        /// the worst frame in the game at 17%, is Gabriel's head coming off. Where the fit is
+        /// refused the vertex track is dropped and the head is carried by the clip's own
+        /// transform track instead. It is decided once per clip rather than per frame, so a
+        /// character near the threshold cannot flicker between the two answers.
+        /// <c>GK3Reborn.Tools head-solve</c> is where the corpus's error is measured.
+        /// </para>
+        /// </remarks>
+        private Matrix4x4? Turn(HeadRig rig, float at)
+        {
+            if (_fitsHead is false)
+            {
+                return null;
+            }
+
+            _from.Clear();
+            _to.Clear();
+
+            foreach (int submesh in Clip.ShapedSubmeshes(rig.Mesh))
+            {
+                if (submesh < 0 || submesh >= rig.Rest.Length ||
+                    Clip.ShapeAt(rig.Mesh, submesh, at, _repeat) is not { } shape ||
+                    shape.Count != rig.Rest[submesh].Length)
+                {
+                    continue;
+                }
+
+                // By sample rather than wholesale: the three axis markers every mesh group
+                // carries sit sixty units out and do not move with the head, and a fit that
+                // includes them is decided by them.
+                foreach (int vertex in rig.Sample[submesh])
+                {
+                    _from.Add(rig.Rest[submesh][vertex]);
+                    _to.Add(shape[vertex]);
+                }
+            }
+
+            if (_from.Count < 3)
+            {
+                return null;
+            }
+
+            Matrix4x4? fit = RigidFit.Solve(
+                CollectionsMarshal.AsSpan(_from),
+                CollectionsMarshal.AsSpan(_to),
+                out float residual);
+
+            // Above every model's ninety-ninth percentile but two — ma2 at 8.3% and glb at
+            // 15.5% — and below the frames that are actually somebody's head coming off.
+            const float limit = 0.08f;
+
+            _fitsHead ??= fit is not null && rig.Span > 0f && residual <= limit * rig.Span;
+
+            return _fitsHead is true ? fit : null;
+        }
+
+        /// <summary>
+        /// Whether this clip's head vertices and this model's head are the same head.
+        /// </summary>
+        /// <remarks>
+        /// Decided from the first frame that shapes the head and then kept, so the answer
+        /// cannot change under a character mid-clip. Null until there has been a frame to
+        /// decide it on.
+        /// </remarks>
+        private bool? _fitsHead;
+
+        /// <summary>Scratch for the head fit, kept so a frame does not allocate.</summary>
+        private readonly List<Vector3> _from = [];
+
+        /// <summary>Scratch for the head fit, kept so a frame does not allocate.</summary>
+        private readonly List<Vector3> _to = [];
     }
 
     /// <summary>The middle of a set of points, or the origin when there are none.</summary>

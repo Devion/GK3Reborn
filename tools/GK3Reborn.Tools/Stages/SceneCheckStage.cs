@@ -89,6 +89,14 @@ public sealed class SceneCheckStage
 
         Behaviours(archives, tally);
 
+        foreach (string shell in tally.CameraShells)
+        {
+            if (!archives.Exists(shell + ".MOD"))
+            {
+                tally.MissingCameraShells.Add(shell);
+            }
+        }
+
         Report(tally, deep);
 
         foreach (Diagnostic diagnostic in tally.Failures)
@@ -270,6 +278,22 @@ public sealed class SceneCheckStage
             tally.NoBoundary.Add(loaded.Name);
         }
 
+        // What keeps the camera inside the room. Named in the text rather than loaded here,
+        // because whether the shell exists is a question about the corpus and answering it
+        // does not need the model read: a scene that names one no archive holds is a room
+        // the camera can leave, and that is silent until somebody flies out of a wall.
+        IReadOnlyList<string> shells = definition.CameraBounds();
+
+        if (shells.Count == 0)
+        {
+            tally.NoCameraShell.Add(loaded.Name);
+        }
+
+        foreach (string shell in shells)
+        {
+            tally.CameraShells.Add(shell);
+        }
+
         if (loaded.Ambient.Count > 0)
         {
             tally.Soundtracks++;
@@ -425,6 +449,20 @@ public sealed class SceneCheckStage
         if (tally.NoBoundary.Count > 0)
         {
             _log($"  declaring none: {string.Join(", ", tally.NoBoundary.Order(StringComparer.Ordinal))}");
+        }
+
+        _log($"  {tally.CameraShells.Count} distinct camera bounds models fence the camera in");
+
+        if (tally.NoCameraShell.Count > 0)
+        {
+            _log("  naming no camera bounds, so the camera may leave the room: " +
+                 string.Join(", ", tally.NoCameraShell.Order(StringComparer.Ordinal)));
+        }
+
+        if (tally.MissingCameraShells.Count > 0)
+        {
+            _log("  camera bounds named that no archive holds: " +
+                 string.Join(", ", tally.MissingCameraShells.Order(StringComparer.Ordinal)));
         }
 
         _log($"  {tally.Soundtracks} name a soundtrack: {tally.SoundtracksRead.Count} distinct " +
@@ -609,6 +647,12 @@ public sealed class SceneCheckStage
         public HashSet<string> Bitmaps { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public HashSet<string> NoBoundary { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> CameraShells { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> NoCameraShell { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> MissingCameraShells { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public HashSet<string> Unanswered { get; } = new(StringComparer.OrdinalIgnoreCase);
 

@@ -92,6 +92,8 @@ public sealed class GameHud
     private readonly List<(string Verb, Vector4 Bounds)> _rows = [];
     private readonly List<(string Item, Vector4 Bounds)> _slots = [];
 
+    private Vector4 _strip;
+
     /// <summary>Creates the interface over an overlay.</summary>
     /// <param name="overlay">Where it draws.</param>
     public GameHud(Overlay overlay)
@@ -313,6 +315,17 @@ public sealed class GameHud
         return -1;
     }
 
+    /// <summary>Whether a point is on the interface rather than on the room behind it.</summary>
+    /// <param name="point">Where the player clicked, in pixels.</param>
+    /// <returns>True when the interface is what was clicked.</returns>
+    /// <remarks>
+    /// The inventory strip is an opaque bar across the foot of the screen and it is always
+    /// there. Without this a click on it goes through to whatever the ray finds behind it,
+    /// which is nearly always the floor at the player's feet — so putting the pointer on
+    /// the interface would walk them.
+    /// </remarks>
+    public bool OverInterface(Vector2 point) => Inside(point, _strip);
+
     /// <summary>Which inventory item is at a point.</summary>
     /// <param name="point">Where the player clicked, in pixels.</param>
     /// <returns>The item, or null.</returns>
@@ -466,6 +479,8 @@ public sealed class GameHud
 
         Overlay.Rect(0, y, width, h, Panel);
         Overlay.Rect(0, y, width, 1, Rule);
+
+        _strip = new Vector4(0, y, width, h);
 
         // No count and no "carrying nothing": the row of items says both, and an empty
         // row says the empty case better than a sentence about it does.

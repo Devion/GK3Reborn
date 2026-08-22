@@ -76,6 +76,16 @@ public sealed class SceneDefinition
     /// <returns>Its name, or null if neither file says.</returns>
     public string? FloorObject() => _specific?.FloorObject() ?? _general?.FloorObject();
 
+    /// <summary>The models that fence the camera in.</summary>
+    /// <returns>Their names, general file first.</returns>
+    /// <remarks>
+    /// Joined rather than overridden, unlike the floor and the boundary beside it. A
+    /// timeblock file that names a bounds model means "and this one as well" — the
+    /// original merges these additively and the corpus is written for that.
+    /// </remarks>
+    public IReadOnlyList<string> CameraBounds() =>
+        Join(_general?.CameraBounds(), _specific?.CameraBounds());
+
     /// <summary>The models the scene places.</summary>
     /// <returns>The models, general file first.</returns>
     public IReadOnlyList<SceneModel> Models() => MergeModels();

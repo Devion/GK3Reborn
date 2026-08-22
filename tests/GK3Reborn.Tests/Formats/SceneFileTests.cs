@@ -103,6 +103,39 @@ public sealed class SceneFileTests
     }
 
     [Fact]
+    public void Camera_bounds_accumulate_across_the_blocks_that_apply()
+    {
+        // The one general setting the original adds to rather than overriding. R25 names
+        // the room's shell unconditionally and a second one for the timeblocks where
+        // Sidney is out on the desk; reading only the last would lose the room's own.
+        const string Both =
+            """
+            [GENERAL]
+            cameraBounds=R25CameraBounds
+
+            [GENERAL={IsCurrentTime("202p")}]
+            cameraBounds=r25_sidcm
+            """;
+
+        SceneInitFile init = SceneInitFile.Parse(
+            Both, "R25.SIF", _ => true);
+
+        Assert.Equal(["R25CameraBounds", "r25_sidcm"], init.CameraBounds());
+    }
+
+    [Fact]
+    public void Camera_bounds_in_a_block_that_does_not_apply_are_left_out()
+    {
+        SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");
+
+        Assert.Equal(["R25CameraBounds"], init.CameraBounds());
+    }
+
+    [Fact]
+    public void A_scene_that_fences_the_camera_in_nowhere_says_so_with_an_empty_list() =>
+        Assert.Empty(SceneInitFile.Parse("[GENERAL]\nfloor=ma2_floor\n", "MA2.SIF").CameraBounds());
+
+    [Fact]
     public void Cameras_carry_their_angles_in_radians_and_their_default()
     {
         SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");

@@ -113,3 +113,31 @@ Only the player hurries. The `hurry` flag travels from the click through
 `SceneInteraction.Do` and `ActionRunner.Run` to the approach; a script that sends somebody
 somewhere passes false, because a script's timings are written against the pace the game
 walks at and arriving an actor before their line is worse than making the player wait.
+
+## Clicking the ground
+
+A click that finds nothing to do falls through to the floor: if the ray reached the object
+the scene's `floor=` line names, and nothing nearer, the player walks there.
+`SceneInteraction.FloorTarget` answers where.
+
+The floor is one object among a hundred and the scene says which, which is what makes this
+precise rather than a guess about what looks like ground. A rug, a bed or an open doorway
+standing in front of the floor is a click on the rug, the bed or the doorway — the ray
+stops at the nearest thing either way, so the same test that resolves a verb resolves this.
+
+Two refusals matter. A floor object the scene also gives a **noun** is a thing rather than
+ground, and the noun wins; TE3's floor is declared `noclick` for exactly this reason, which
+strips its noun and hands it back to the walker. And a click that **dismisses an open verb
+menu** never walks, because "not that after all" is the one gesture that would otherwise be
+impossible to make without crossing the room.
+
+Where the ray landed is not where the actor goes. The floor mesh runs under the furniture
+and out through the doorways, so the point is put through `WalkBoundary.NearestWalkable`
+first and the boundary decides; a spot it cannot reach still walks, as near as the search
+gets. The **clicked height is kept** while the boundary decides the ground plan, because
+the boundary is a plan seen from above and has no storeys — on a staircase its answer alone
+cannot say which of two floors above one another was meant.
+
+This is what the original does. `Scene::Interact` in the reference casts at the BSP when
+nothing interactive was hit, compares the hit object's name against the scene's floor model
+name, and calls `FindNearestWalkablePosition` before walking the ego there.

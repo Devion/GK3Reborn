@@ -98,4 +98,14 @@ public sealed record PlacedModel(
     /// player can click on things nobody can see.
     /// </remarks>
     public bool Visible { get; set; } = true;
+
+    /// <summary>The head as the clips address it, when the head being drawn is refined.</summary>
+    /// <remarks>
+    /// Null for a prop, and null for a character whose head is drawn as authored. When it is
+    /// here, <see cref="Model"/> already carries the subdivided head and this is the only
+    /// remaining record of the vertices a <c>.ACT</c> is talking about — so the clip is
+    /// played by fitting these against what it says and moving the mesh, rather than by
+    /// writing its vertices into a buffer that is no longer the right size.
+    /// </remarks>
+    public Actors.HeadRig? Head { get; init; }
 }

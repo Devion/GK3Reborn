@@ -683,7 +683,12 @@ public static class Application
 
             // A fresh loader each time: it carries the last room's glances and its count of
             // enhanced textures, and neither belongs to the next one.
-            var loader = new SceneLoader(archives, Console.WriteLine);
+            var loader = new SceneLoader(archives, Console.WriteLine)
+            {
+                // The player's preference, with a command-line override so a screenshot can
+                // be taken of the same room both ways without editing a settings file.
+                SmoothHeads = HeadLevels(args, settings),
+            };
 
             if (!packsOnly && settings.EnhancedTextures && enhancedDirectory is { Length: > 0 })
             {
@@ -770,7 +775,13 @@ public static class Application
             // idempotent and the renderer calls it again when the scene is set.
             geometry.Finish();
 
-            renderer.SetLights(scene.Lights);
+            // With the geometry's extent, so the rig can tell a lamp that decays from the
+            // scene's key light — placed tens of thousands of units away with the two
+            // hundred unit range 3ds Max left in the file and its attenuation switched off.
+            // Honouring that range does not dim the sun, it deletes it. See
+            // GpuLight.IsDistantKey.
+            renderer.SetLights(
+                scene.Lights, new SceneExtent(geometry.Minimum, geometry.Maximum));
             renderer.Quality = renderer.SupportsRayTracing
                 ? quality ?? settings.Quality
                 : RayTracingQuality.None;
@@ -1551,6 +1562,32 @@ public static class Application
             Speed = MathF.Max(50f, (geometry.Maximum - geometry.Minimum).Length() * 0.15f),
         };
 
+        // The shell the scene's artists drew around the space the camera may occupy. Without
+        // it the player can walk the view out through a wall and look at the room from
+        // behind, which is a picture no part of the game was built to survive.
+        // --free-camera gives that back, because looking at the geometry from outside is
+        // exactly how some of it gets checked.
+        if (scene.CameraShell is not { IsEmpty: false } shell)
+        {
+            Console.WriteLine("Camera bounds: none, so the camera may go anywhere");
+        }
+        else if (options.Contains("--free-camera", StringComparer.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("Camera bounds: off, so the camera may leave the room");
+        }
+        else
+        {
+            camera.Confine = shell.Resolve;
+
+            // A viewpoint outside its own shell is not fatal — the way back in is always
+            // open — but it is worth saying, because from out there the walls behave
+            // backwards and there is nothing on screen to explain why.
+            if (!shell.Contains(template.Position))
+            {
+                Console.WriteLine($"Camera bounds: {scene.Name}'s view starts outside them");
+            }
+        }
+
         camera.CopyFrom(template);
 
         Console.WriteLine();
@@ -1891,6 +1928,27 @@ public static class Application
                         ? interaction.Do(open, open.Actions[menuIndex].LocalizedVerb, hurry)
                         : null
                     : interaction.Do(hover, hurry: hurry);
+
+                // Nothing to do to the thing clicked, so ask whether it was the ground and
+                // go there. Three things have to be true. No verb menu was open, because
+                // the click that closes a menu means "not that after all" and would
+                // otherwise be impossible to make without crossing the room. The pointer
+                // was not on the interface: the inventory strip lies across the foot of
+                // the screen, exactly where the floor at the player's feet is drawn, and a
+                // click on it must not go through. And the ray reached the floor.
+                if (did is null &&
+                    menu is null &&
+                    hud?.OverInterface(pointer) != true &&
+                    interaction.FloorTarget(hover) is { } ground)
+                {
+                    double crossing = update.Walk(story.Ego, ground, hurry: hurry);
+
+                    Console.WriteLine(crossing > 0
+                        ? string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"{story.Ego}: walking to {ground.X:F0}, {ground.Z:F0}, {crossing:F1}s")
+                        : $"{story.Ego}: nowhere to walk from here");
+                }
 
                 if (menu is not null)
                 {
@@ -2307,6 +2365,14 @@ public static class Application
                     Console.WriteLine($"Settings: written to {Settings.DefaultPath}");
                 }
 
+                // The click that chose Play is still on the frame's books, and this is the
+                // one path out of the loop that does not reach the EndFrame at the bottom
+                // of it. Without this the room reads the same click on its first frame and
+                // acts on whatever the pointer happens to be over — which is how pressing
+                // Play sent Gabriel to the wardrobe, the Play row and the wardrobe being
+                // at the same place on the screen.
+                window.EndFrame();
+
                 return outcome;
             }
 
@@ -2620,6 +2686,28 @@ public static class Application
         float.TryParse(y, CultureInfo.InvariantCulture, out float py)
             ? new Vector2(px, py)
             : null;
+
+    /// <summary>How far to subdivide a character's head.</summary>
+    /// <param name="args">The command line.</param>
+    /// <param name="settings">What the player chose.</param>
+    /// <returns>The number of levels, within range.</returns>
+    /// <remarks>
+    /// <c>--heads N</c> sets it and <c>--flat-heads</c> is <c>--heads 0</c>, which is the
+    /// 1999 outline. Anything unreadable falls back to the setting rather than to a guess:
+    /// a typo should not silently change what the picture is being compared against.
+    /// </remarks>
+    private static int HeadLevels(string[] args, Settings settings)
+    {
+        if (args.Contains("--flat-heads", StringComparer.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        return Option(args, "--heads") is { } value &&
+               int.TryParse(value, CultureInfo.InvariantCulture, out int levels)
+            ? Math.Clamp(levels, 0, Game.Actors.HeadRefinement.MaximumLevels)
+            : settings.SmoothHeads;
+    }
 
     /// <summary>Reads an option's value from the command line.</summary>
     private static string? Option(string[] args, string name)

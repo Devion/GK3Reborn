@@ -4,7 +4,78 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. The Eglise/Church sign reads wrong on RC1's signpost
+## 1. Several rooms of the hotel loaded and standing at once (feature)
+
+**Requested:** 2026-08-22. **Investigated; not attempted.** The question was how well
+Gabriel's room, the hallway and the lobby would interconnect if all three were resident
+together.
+
+**They do not share a coordinate space.** Each location's `.BSP` is authored around its own
+origin. The doorway between R25 and the hallway is at x 220.9-254.9, z 292.8-295.5 in R25
+and at x 270.4-304.9, z 406.7-411.4 in HAL — the same 34-unit door, in two different frames.
+
+A rigid transform between them does exist and can be recovered from the shared doorway: a
+half turn about Y and then a translation of about (525.6, 0, 703.2) carries R25 into HAL's
+space. Checking it against a third object agrees to within about two units — HAL's
+`hal_r25_gbkg`, its own rendition of the room seen through the door, starts at x 195.0,
+z 410.7 where the transform predicts 197.0, 409.6. **But nothing in the game's data states
+it.** No `.SIF` key, no scene asset field, nothing. Each adjacency would have to be measured
+by hand and written down, and where the geometry is symmetric — HAL's two staircases against
+the lobby's two — a half turn and no turn fit the shared features equally well, so it cannot
+be recovered automatically either.
+
+**The rooms already contain each other, badly.** This is the deeper problem. The artists
+solved "see the next room through the door" in 1999 with painted-in background geometry:
+
+| in | object | triangles | is |
+| --- | --- | --- | --- |
+| R25 | `r25_hal_bkg` | 1,038 | the hallway, as seen from the room |
+| HAL | `hal_r25_gbkg` | 865 | room 25, as seen from the hallway |
+| HAL | `hal_r21_gbkg` … `hal_r33_gbkg`, `hal_clo_gbkg` | 8,487 more | the other seven doors |
+
+**9,352 of HAL's 15,381 triangles are fake neighbours** — 61% of the hallway. Load HAL and
+R25 together and the real hallway and R25's painted copy of it occupy the same space, which
+z-fights; so does the room against HAL's copy of the room. Every `gbkg` and `bkg` object
+would have to be suppressed on whichever side is real, and `SceneLoader.HiddenObjects`
+already has the mechanism, but the naming is a convention rather than a declaration and
+nothing marks which objects are stand-ins.
+
+**Three engine assumptions are one-room-at-a-time**, in rising order of difficulty:
+
+1. `SceneGeometry.AddScene` takes no transform and disposes the lightmap it holds before
+   packing a new atlas, indexing it by the new BSP's own surface indices. A second scene
+   silently unlights the first. Needs a transform argument and a per-batch atlas index.
+2. `WalkBoundary` covers one room — R25's is 369x386 units — and so do `WalkFloor`,
+   `ScenePicker`, `ActionResolver`, `SceneAudio` and `GameState.Location`. Each would become
+   a set keyed by which room a point is in.
+3. **The light rig is the hard cap.** `GpuLight.Capacity` is 64 and `Choose` keeps the
+   brightest by intensity across the whole scene. R25, HAL and LBY declare 62, 92 and 41
+   authored lights: 195 between them, so two thirds would be dropped and the room the player
+   is standing in could lose its lamps to a brighter fixture two rooms away. Per-region or
+   per-object light culling is a prerequisite, not a polish item.
+
+**The cost is affordable; the work is not small.** Measured at 110A without `--enhanced`:
+
+    R25   10,461 triangles    925 surfaces   120 textures    9 MB   62 lights   390 ms
+    HAL   15,381 triangles  1,924 surfaces   186 textures   14 MB   92 lights   405 ms
+    LBY    8,887 triangles    952 surfaces   103 textures   10 MB   41 lights   414 ms
+
+About 35,000 triangles and 33 MB of textures for the three, which is nothing. With
+`--enhanced` it is not nothing: R25 and the hallway together already hold 933 MB of textures
+on the device, and that is two rooms in sequence rather than three at once.
+
+**What it would buy.** Very little that the painted backgrounds do not already buy, because
+the original was designed so that the only thing you ever see of the next room is what the
+artists painted through the doorway. The case it would buy is a door that opens onto a room
+you can then walk into without a load — and the load is 400 ms.
+
+**If it is picked up, the order is:** per-region light culling first (item 3, and it is
+worth having on its own for TE2B's 148 lights); then a transform and a shared lightmap atlas
+on `AddScene` (item 1); then a room-keyed navigation and interaction set (item 2); then a
+hand-authored adjacency table with the transform per doorway; and last the suppression list
+for the stand-in geometry.
+
+## 2. The Eglise/Church sign reads wrong on RC1's signpost
 
 **Reported:** 2026-08-21. **Cause found; the fix is content, not code.**
 
@@ -39,7 +110,7 @@ image) scored a median of 11.4% across all 7,462 enhanced textures and did not p
 in its top twenty-five, so the check has to be about the background region specifically
 rather than about the picture as a whole.
 
-## 2. HDR output (feature)
+## 3. HDR output (feature)
 
 **Requested:** 2026-08-19.
 

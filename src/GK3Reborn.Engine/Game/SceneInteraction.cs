@@ -1,4 +1,5 @@
-﻿using GK3Reborn.Game.Interaction;
+﻿using System.Numerics;
+using GK3Reborn.Game.Interaction;
 using GK3Reborn.Rendering;
 using GK3Reborn.UI.Interaction;
 
@@ -51,9 +52,11 @@ public readonly record struct Hover(ScenePick? Pick, IReadOnlyList<AvailableActi
 /// </remarks>
 public sealed class SceneInteraction
 {
+    private readonly LoadedScene _scene;
     private readonly ScenePicker _picker;
     private readonly ActionResolver? _actions;
     private readonly ActionRunner _runner;
+    private readonly string? _floor;
 
     /// <summary>Creates the interaction over a loaded scene.</summary>
     /// <param name="scene">The room.</param>
@@ -63,9 +66,11 @@ public sealed class SceneInteraction
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(api);
 
+        _scene = scene;
         _picker = new ScenePicker(scene) { Blocked = api.State.BlockedHitTests };
         _actions = scene.Actions;
         _runner = new ActionRunner(api);
+        _floor = scene.Definition.FloorObject();
     }
 
     /// <summary>What the last click did, for whoever wants to say so.</summary>
@@ -122,5 +127,64 @@ public sealed class SceneInteraction
 
         Last = _runner.Run(rule, hurry);
         return Last;
+    }
+
+    /// <summary>
+    /// Where a click would send the player, when it landed on the floor and nothing else.
+    /// </summary>
+    /// <param name="hover">What was under the pointer, from <see cref="At"/>.</param>
+    /// <returns>
+    /// A spot to walk to, or null when the click was not a click on open floor.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// The room's floor is one named object among a hundred and the scene says which —
+    /// the same <c>floor=</c> line <see cref="LoadedScene.Ground"/> reads for heights. So
+    /// a floor click is a pick that reached that object and nothing nearer: a rug, a bed
+    /// or a doorway standing in front of it is a click on the rug, the bed or the doorway,
+    /// which is what the original does and what the player means.
+    /// </para>
+    /// <para>
+    /// The answer is the nearest spot the boundary allows rather than the point itself.
+    /// The floor mesh runs under the furniture and out through the doorways, so aiming at
+    /// where the ray landed would send an actor into a wardrobe; the boundary is the
+    /// authority on where a person may stand and it puts them against it instead. A point
+    /// out of reach still walks — <see cref="Navigation.WalkPath"/> gets as near as the
+    /// floor allows — because getting closer beats refusing to move.
+    /// </para>
+    /// <para>
+    /// The clicked height is kept while the boundary decides the ground plan, because the
+    /// boundary is a bitmap seen from above and has no storeys: on a staircase its answer
+    /// alone cannot say which of the two floors above one another was meant.
+    /// </para>
+    /// </remarks>
+    public Vector3? FloorTarget(Hover hover)
+    {
+        if (hover.Pick is not { Kind: PickKind.Geometry } pick ||
+            _floor is not { Length: > 0 } floor ||
+            !string.Equals(pick.Name, floor, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // A floor the scene names is a floor the player can act on, and the noun wins: one
+        // object cannot be both the thing clicked and the ground under it. The noun rather
+        // than whether it answers to anything right now, because a thing that answers to
+        // nothing here and now is still a thing rather than somewhere to stand. TE3's
+        // floor is declared <c>noclick</c> for exactly this reason and so carries no noun at
+        // all — it is the floor, and the player is meant to walk on it.
+        if (pick.Noun is { Length: > 0 })
+        {
+            return null;
+        }
+
+        if (_scene.Walkable is not { } boundary)
+        {
+            return pick.Point;
+        }
+
+        return boundary.NearestWalkable(pick.Point) is { } stand
+            ? new Vector3(stand.X, pick.Point.Y, stand.Z)
+            : null;
     }
 }

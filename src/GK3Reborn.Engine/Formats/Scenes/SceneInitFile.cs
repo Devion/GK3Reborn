@@ -249,6 +249,28 @@ public sealed class SceneInitFile
             .Select(l => l.Value("floor"))
             .LastOrDefault(v => !string.IsNullOrEmpty(v));
 
+    /// <summary>The models that fence the camera in.</summary>
+    /// <returns>Their names, in the order the file declares them; empty when it declares none.</returns>
+    /// <remarks>
+    /// <para>
+    /// Every one that applies, rather than the last: camera bounds are the one general
+    /// setting the original <em>adds</em> to instead of overriding, and the corpus relies
+    /// on it. R25 names <c>R25CameraBounds</c> for the room and then <c>r25_sidcm</c> in
+    /// the conditional block for the timeblocks where Sidney is out on the desk, fencing
+    /// the camera out of the space the close-up needs.
+    /// </para>
+    /// <para>
+    /// These are not objects in the room's geometry but models of their own — invisible
+    /// shells authored around the walkable space, which is why they can be sealed where a
+    /// room with doorways in it is not.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> CameraBounds() =>
+        [.. _document.LinesOf("GENERAL", Applies(includeConditional: true))
+            .Select(l => l.Value("cameraBounds"))
+            .Where(v => !string.IsNullOrEmpty(v))
+            .Select(v => v!)];
+
     /// <summary>Where the scene's global light sits.</summary>
     /// <returns>The position, or null.</returns>
     /// <remarks>

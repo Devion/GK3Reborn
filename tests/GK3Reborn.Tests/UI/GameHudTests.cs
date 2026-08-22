@@ -70,6 +70,24 @@ public sealed class GameHudTests
     }
 
     [Fact]
+    public void The_inventory_strip_is_interface_rather_than_room()
+    {
+        // It is an opaque bar across the foot of the screen and it is always there. A click
+        // on it that went through would find the floor at the player's feet and walk them,
+        // so putting the pointer on the interface would move the game.
+        GameHud hud = Hud();
+        hud.Build(State(), 800, 600);
+
+        Assert.True(
+            hud.OverInterface(new Vector2(400, 599)),
+            "the foot of the screen is the inventory strip");
+
+        Assert.False(
+            hud.OverInterface(new Vector2(400, 300)),
+            "the middle of the screen is the room");
+    }
+
+    [Fact]
     public void The_label_stays_inside_the_window_when_the_pointer_is_at_the_edge()
     {
         GameHud hud = Hud();

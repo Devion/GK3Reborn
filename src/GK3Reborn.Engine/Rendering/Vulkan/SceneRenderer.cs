@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using Silk.NET.Vulkan;
 
@@ -135,10 +135,12 @@ public sealed unsafe class SceneRenderer : IDisposable
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
-    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights)
+    /// <param name="scene">What the geometry occupies; default decides nothing.</param>
+    public void SetLights(
+        IReadOnlyList<Formats.Scenes.AuthoredLight> lights, SceneExtent scene = default)
     {
-        _frames.SetLights(lights);
-        _rayTracedFrames?.SetLights(lights);
+        _frames.SetLights(lights, scene);
+        _rayTracedFrames?.SetLights(lights, scene);
     }
 
     /// <summary>Renders geometry and returns the image.</summary>
@@ -432,7 +434,12 @@ public sealed unsafe class SceneRenderer : IDisposable
         reflections.Bind(depth.View, normal.View, motion.View, lit.View);
 
         composite.Bind(
-            scene.View, direct.View, denoiser.Shadow, denoiser.Occlusion, reflections.Buffers);
+            scene.View,
+            direct.View,
+            denoiser.Shadow,
+            denoiser.Occlusion,
+            denoiser.DynamicShadow,
+            reflections.Buffers);
 
         RayTracingSettings settings = RayTracingSettings.For(Quality);
 

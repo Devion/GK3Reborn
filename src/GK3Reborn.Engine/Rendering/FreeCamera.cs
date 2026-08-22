@@ -41,6 +41,24 @@ public sealed class FreeCamera
     /// <summary>How much the view turns per pixel of pointer movement, in radians.</summary>
     public float LookSensitivity { get; set; } = 0.004f;
 
+    /// <summary>
+    /// What decides how far a step is allowed to get, or null to let it go anywhere.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Given where the camera is and the offset it wants to move by; answers where it ends
+    /// up, which may be short of the offset and off to one side of it — a camera stopped
+    /// dead by every wall it brushed would be unusable, so what stops it is expected to
+    /// let it slide along instead.
+    /// </para>
+    /// <para>
+    /// A hook rather than the thing itself. What the camera may not pass through is a
+    /// question about the room, and the room belongs to the game rather than to the
+    /// renderer; see <c>Game.Navigation.CameraBounds</c>, which is what fills this in.
+    /// </para>
+    /// </remarks>
+    public Func<Vector3, Vector3, Vector3>? Confine { get; set; }
+
     /// <summary>Which way the camera looks.</summary>
     public Vector3 Forward => new(
         MathF.Cos(_pitch) * MathF.Sin(_yaw),
@@ -130,7 +148,9 @@ public sealed class FreeCamera
         if (movement.LengthSquared() > 1e-9f)
         {
             float speed = Speed * (input.IsHeld(CameraAction.Fast) ? 4f : 1f);
-            Position += Vector3.Normalize(movement) * speed * seconds;
+            Vector3 step = Vector3.Normalize(movement) * speed * seconds;
+
+            Position = Confine is { } fence ? fence(Position, step) : Position + step;
         }
     }
 

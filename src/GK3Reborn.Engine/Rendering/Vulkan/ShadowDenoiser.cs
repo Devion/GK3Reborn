@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -98,6 +98,29 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
     /// <summary>The denoised fraction of the hemisphere each pixel can see.</summary>
     public ImageView Occlusion => _channels[1].Result.View;
 
+    /// <summary>
+    /// The denoised fraction of the direct light that the things standing in the room —
+    /// characters and props — leave alone.
+    /// </summary>
+    /// <remarks>
+    /// One where nothing is in the way, which is every pixel of a scene with nobody in it,
+    /// so a room with no one in it composites exactly as it did before this existed.
+    /// <see cref="Shadow"/> is the room's own shadowing and is the half the bake already
+    /// contains; this is the half it cannot.
+    /// </remarks>
+    public ImageView DynamicShadow => _channels[2].Result.View;
+
+    /// <summary>Where each channel's tile bitmask is bound in the trace stage.</summary>
+    /// <remarks>
+    /// Not <c>3 + c</c>. The rig uniform sits at five and a third channel would have
+    /// landed on it — silently, because a descriptor write does not object to being
+    /// pointed at a binding of another type until the shader reads it.
+    /// </remarks>
+    private static ReadOnlySpan<uint> TraceMaskBinding => [3, 4, 8];
+
+    /// <summary>Where each channel's per-pixel fraction image is bound.</summary>
+    private static ReadOnlySpan<uint> TraceFractionBinding => [6, 7, 9];
+
     /// <summary>Builds every stage and every buffer, for one viewport size.</summary>
     /// <param name="context">The device.</param>
     /// <param name="compiler">Compiler for the stages.</param>
@@ -145,20 +168,24 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         var poolSizes = stackalloc DescriptorPoolSize[]
         {
             new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 1),
-            new DescriptorPoolSize(DescriptorType.SampledImage, 128),
-            new DescriptorPoolSize(DescriptorType.Sampler, 16),
-            new DescriptorPoolSize(DescriptorType.StorageImage, 64),
-            new DescriptorPoolSize(DescriptorType.StorageBuffer, 64),
-            new DescriptorPoolSize(DescriptorType.UniformBuffer, 32),
+            new DescriptorPoolSize(DescriptorType.SampledImage, 256),
+            new DescriptorPoolSize(DescriptorType.Sampler, 32),
+            new DescriptorPoolSize(DescriptorType.StorageImage, 128),
+            new DescriptorPoolSize(DescriptorType.StorageBuffer, 128),
+            new DescriptorPoolSize(DescriptorType.UniformBuffer, 64),
             new DescriptorPoolSize(DescriptorType.AccelerationStructureKhr, 4),
         };
 
+        // Five sets a channel plus the one the trace stage uses. The old sixteen was
+        // exactly the two channels' worth, so a third would have failed to allocate at
+        // the last set rather than at the first — and an out-of-pool descriptor set is a
+        // null handle, not an exception.
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 7,
             PPoolSizes = poolSizes,
-            MaxSets = 16,
+            MaxSets = 32,
         };
 
         vk.CreateDescriptorPool(device, in poolInfo, null, out DescriptorPool pool);
@@ -170,6 +197,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
 
         Channel[] channels =
         [
+            Channel.Create(context, width, height, tiles),
             Channel.Create(context, width, height, tiles),
             Channel.Create(context, width, height, tiles),
         ];
@@ -290,7 +318,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
             };
 
             writes.Add(Buffered(
-                _traceSet, (uint)(3 + c), DescriptorType.StorageBuffer, &maskInfo));
+                _traceSet, TraceMaskBinding[c], DescriptorType.StorageBuffer, &maskInfo));
 
             var fractionInfo = new DescriptorImageInfo
             {
@@ -298,7 +326,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
                 ImageLayout = ImageLayout.General,
             };
 
-            writes.Add(Storage(_traceSet, (uint)(6 + c), &fractionInfo));
+            writes.Add(Storage(_traceSet, TraceFractionBinding[c], &fractionInfo));
 
             channel.Sets = Allocate(_classify.SetLayout, 5);
 
@@ -664,6 +692,11 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         Binding(5, DescriptorType.UniformBuffer),
         Binding(6, DescriptorType.StorageImage),
         Binding(7, DescriptorType.StorageImage),
+
+        // The dynamic-shadow channel, out of order because the rig took five.
+        // TraceMaskBinding and TraceFractionBinding are the same table read the other way.
+        Binding(8, DescriptorType.StorageBuffer),
+        Binding(9, DescriptorType.StorageImage),
     ];
 
     private static DescriptorSetLayoutBinding[] DenoiseBindings() =>

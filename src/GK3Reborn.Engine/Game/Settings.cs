@@ -71,6 +71,22 @@ public sealed record Settings
     /// <summary>Whether to use the higher-resolution textures where they exist.</summary>
     public bool EnhancedTextures { get; init; } = true;
 
+    /// <summary>
+    /// How many times a character's head is subdivided, or zero to draw it as authored.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only the head. A character's body deforms and is addressed by vertex index, so it
+    /// cannot be refined without invalidating that character's clips; the head is rigid and
+    /// can. See <see cref="Actors.HeadRefinement"/>.
+    /// </para>
+    /// <para>
+    /// Two by default, which is where a twenty-triangle hairdo stops reading as a polygon.
+    /// Zero is a real answer for somebody who wants the 1999 outline.
+    /// </para>
+    /// </remarks>
+    public int SmoothHeads { get; init; } = 2;
+
     /// <summary>Whether the camera travels between angles or cuts.</summary>
     public bool CameraGlide { get; init; } = true;
 
@@ -183,6 +199,7 @@ public sealed record Settings
         Speakers = Enum.IsDefined(Speakers) ? Speakers : SpeakerLayout.Stereo,
         Picture = Enum.IsDefined(Picture) ? Picture : PictureQuality.High,
         HurryFactor = float.IsFinite(HurryFactor) ? Math.Clamp(HurryFactor, 1f, 4f) : 2f,
+        SmoothHeads = Math.Clamp(SmoothHeads, 0, Actors.HeadRefinement.MaximumLevels),
     };
 
     /// <summary>Hands the audio levels to the mixer.</summary>

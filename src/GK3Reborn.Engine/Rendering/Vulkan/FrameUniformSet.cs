@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Scenes;
 using Silk.NET.Vulkan;
@@ -176,11 +176,16 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
     /// <summary>Uploads the lights a scene was authored with.</summary>
     /// <param name="lights">The rig; more than the shader holds are narrowed down.</param>
-    public void SetLights(IReadOnlyList<AuthoredLight> lights)
+    /// <param name="scene">
+    /// What the geometry occupies, which is what tells a light that decays from one placed
+    /// far outside the room with a range it could never span. Default decides nothing and
+    /// every light keeps its stored range.
+    /// </param>
+    public void SetLights(IReadOnlyList<AuthoredLight> lights, SceneExtent scene = default)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
-        IReadOnlyList<AuthoredLight> chosen = GpuLight.Choose(lights);
+        IReadOnlyList<AuthoredLight> chosen = GpuLight.Choose(lights, scene);
 
         int stride = Marshal.SizeOf<GpuLight>();
         byte[] bytes = new byte[16 + (GpuLight.Capacity * stride)];
@@ -191,7 +196,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
         for (int i = 0; i < chosen.Count; i++)
         {
-            GpuLight light = GpuLight.From(chosen[i]);
+            GpuLight light = GpuLight.From(chosen[i], scene);
             MemoryMarshal.Write(bytes.AsSpan(16 + (i * stride), stride), in light);
         }
 

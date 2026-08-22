@@ -97,6 +97,93 @@ public sealed class LightRigTests
     private static float Reach(float distance, float start, float end) =>
         Math.Clamp((end - distance) / MathF.Max(end - start, 0.001f), 0f, 1f);
 
+
+    [Fact]
+    public void The_scene_key_is_a_sun_and_not_a_light_with_a_two_hundred_unit_range()
+    {
+        // Every one of the game's 111 scenekey lights looks like this: the attenuation
+        // switch off, a stored far range of about 200, and a position tens of thousands of
+        // units away. Honouring that range does not dim the sun, it deletes it — for the
+        // ground as much as for the person standing on it, which is why exteriors had
+        // baked building shadows and no daylight on anybody.
+        AuthoredLight sun = At(
+            new Vector3(13_280f, 17_988f, 16_149f),
+            usesAttenuation: false,
+            start: 80f,
+            end: 200f);
+
+        var town = new SceneExtent(new Vector3(-3_000f, -100f, -5_000f), new Vector3(5_000f, 2_000f, 1_000f));
+
+        Assert.True(GpuLight.IsDistantKey(sun, town), "the scene key was not recognised as a sun");
+
+        GpuLight packed = GpuLight.From(sun, town);
+
+        Assert.True(packed.Cone.Z >= 1.5f, "the sun was not flagged directional for the shader");
+    }
+
+    [Fact]
+    public void A_switched_off_fill_light_inside_the_room_keeps_its_range()
+    {
+        // The other half of the rule, and what keeps the lobby from washing out again.
+        // This light also has its switch off, but it sits in the room it lights and its
+        // range reaches the geometry, so the falloff is the artists' and is honoured.
+        AuthoredLight fill = At(
+            new Vector3(40f, 60f, 20f), usesAttenuation: false, start: 10f, end: 77f);
+
+        var lobby = new SceneExtent(new Vector3(-400f, 0f, -400f), new Vector3(400f, 300f, 400f));
+
+        Assert.False(GpuLight.IsDistantKey(fill, lobby), "a fill light in the room was treated as a sun");
+
+        GpuLight packed = GpuLight.From(fill, lobby);
+
+        Assert.True(packed.Cone.Z < 1.5f, "a fill light was flagged directional");
+        Assert.Equal(77f, GpuLight.RangeOf(fill));
+    }
+
+    [Fact]
+    public void Nothing_becomes_a_sun_when_the_scene_extent_is_unknown()
+    {
+        // The default extent has to decide nothing. An empty box would answer confidently
+        // and wrongly: every light in the game is further from a point than its range, so
+        // every light would become a sun and every room would be a flat wash.
+        AuthoredLight fill = At(
+            new Vector3(40f, 60f, 20f), usesAttenuation: false, start: 10f, end: 77f);
+
+        Assert.False(GpuLight.IsDistantKey(fill, default));
+    }
+
+    [Fact]
+    public void A_sun_outranks_the_lamps_when_the_rig_is_crowded()
+    {
+        // Sorted by the two hundred units left in the file, the sun is the first light
+        // dropped from a full rig and the last given a shadow ray. It is the sun.
+        AuthoredLight sun = At(
+            new Vector3(13_280f, 17_988f, 16_149f), usesAttenuation: false, start: 80f, end: 200f);
+        AuthoredLight lamp = At(
+            new Vector3(10f, 60f, 10f), usesAttenuation: true, start: 100f, end: 2_000f);
+
+        var town = new SceneExtent(new Vector3(-3_000f, -100f, -5_000f), new Vector3(5_000f, 2_000f, 1_000f));
+
+        Assert.Equal("scenekey", GpuLight.Choose([lamp, sun], town)[0].Name);
+    }
+
+    private static AuthoredLight At(
+        Vector3 position, bool usesAttenuation, float start, float end) =>
+        new(
+            usesAttenuation ? "omni02" : "scenekey",
+            AuthoredLightKind.Point,
+            position,
+            -Vector3.UnitY,
+            Vector3.One,
+            HotSpot: 0f,
+            Falloff: 0f,
+            AttenuationStart: start,
+            AttenuationEnd: end,
+            UsesAttenuation: usesAttenuation,
+            CastsShadows: true,
+            Intensity: 1f,
+            Radius: 2f);
+
     private static AuthoredLight Light(string name, bool usesAttenuation, float start, float end) =>
         new(
             name,

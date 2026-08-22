@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Platform;
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
@@ -179,10 +179,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
-    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights)
+    /// <param name="scene">What the geometry occupies; default decides nothing.</param>
+    public void SetLights(
+        IReadOnlyList<Formats.Scenes.AuthoredLight> lights, SceneExtent scene = default)
     {
-        _frames?.SetLights(lights);
-        _rayTracedFrames?.SetLights(lights);
+        _frames?.SetLights(lights, scene);
+        _rayTracedFrames?.SetLights(lights, scene);
     }
 
     /// <summary>Sets what to draw, and from where.</summary>
@@ -1457,6 +1459,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 _extraViews[GBuffer.Direct - 1],
                 _denoiser.Shadow,
                 _denoiser.Occlusion,
+                _denoiser.DynamicShadow,
                 _reflections.Buffers);
 
             _composed = true;

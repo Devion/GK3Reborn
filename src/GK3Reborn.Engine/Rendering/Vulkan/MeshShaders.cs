@@ -493,13 +493,24 @@ internal static class MeshShaders
                 // to what the artists' own bakes look like.
                 float attenuation = reach * reach;
 
+                // A distant key — the sun, the moon, the sky fill — has no falloff at
+                // all. Its stored range is leftover data that cannot reach the scene, so
+                // applying it does not dim the light, it deletes it. The room and the
+                // people standing in it read this the same way, which is the point: a
+                // character lit by a different set of lights from the wall behind them
+                // never looks like they are in the room. See GpuLight.IsDistantKey.
+                if (light.cone.z >= 1.5)
+                {
+                    attenuation = 1.0;
+                }
+
                 if (attenuation <= 0.0)
                 {
                     continue;
                 }
 
                 float cone = 1.0;
-                if (light.cone.z > 0.5)
+                if (mod(light.cone.z, 2.0) > 0.5)
                 {
                     float aligned = dot(-direction, light.directionAndEnd.xyz);
                     cone = smoothstep(light.cone.y, light.cone.x, aligned);
@@ -657,6 +668,11 @@ internal static class MeshShaders
             vec3 geometric = normalize(inNormal);
             vec3 toEye = normalize(frame.cameraPosition.xyz - inWorld);
 
+            // A character or a prop rather than the room. It decides which instances a
+            // ray leaving this pixel may hit, and nothing else: the lighting itself is the
+            // same for both, deliberately.
+            bool isModel = draw.shading.z >= 1.5;
+
             vec2 uv = ParallaxCoord(geometric, toEye, draw.shading.w);
 
             vec4 sampled = texture(baseColor, uv);
@@ -746,7 +762,7 @@ internal static class MeshShaders
             // for a roughness takes its absolute value; see RayTracingScene.MaskFor.
             outNormalTarget = vec4(
                 normal,
-                draw.shading.z >= 1.5 ? -surface.roughness : surface.roughness);
+                isModel ? -surface.roughness : surface.roughness);
             outMotion = vec2(0.0);
 
             #ifdef RAY_TRACING
@@ -822,7 +838,25 @@ internal static class MeshShaders
             // Neither term is occluded here. Both occlusions are traced once a pixel and
             // filtered over many frames, and neither is available until this pass has
             // finished.
-            outColor = vec4(albedo * mix(ambient, baked, useLightmap), 1.0);
+            // Alpha says what this indirect term *is*, in three states, because the
+            // compositing pass has to treat them differently: zero for a surface that
+            // carries its own brightness, a half for the ambient floor, one for a bake.
+            //
+            // Only a bake is a second copy of the light the rig is computing afresh, so
+            // only a bake may be subtracted against. The ambient floor is not double
+            // counting anything — subtracting the rig from it drove it to nothing wherever
+            // a lamp reached, which took the ambient occlusion with it, since occlusion
+            // multiplies the residual and there was no residual left. A character, who has
+            // no lightmap and is therefore all ambient, lost it everywhere.
+            // The bake at full strength, not scaled by the tier's bakedWeight the way the
+            // rasterised path scales it. Measured, on RC1: scaling it deepens a cast
+            // shadow from 19% to 28% and costs the whole frame 22% of its brightness,
+            // because the rig does not deliver what the bake was carrying. Turning the
+            // lightmap down is the right lever for "ray trace it properly" and it is one
+            // line — but the rig's 1999 intensities have to be calibrated against it first,
+            // across 111 scenes, or it just makes the game darker.
+            outColor = vec4(
+                albedo * mix(ambient, baked, useLightmap), useLightmap > 0.5 ? 1.0 : 0.5);
             outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1), 1.0);
             #else
             // Indirect light. There is no gathered bounce, so the bake stands in for it,

@@ -97,6 +97,9 @@ public static class Program
             case "act-info":
                 return ActInfo(options, diagnostics);
 
+            case "head-solve":
+                return HeadSolve(options, diagnostics);
+
             case "video-info":
                 return VideoInfo(options, diagnostics);
 
@@ -144,9 +147,11 @@ public static class Program
                 options.Advance,
                 options.Glance,
                 EnhancedDirectory(options),
+                options.Heads,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
-                options.Source, options.Model, output, options.Width, options.Height, diagnostics);
+                options.Source, options.Model, output, options.Width, options.Height,
+                options.Heads, diagnostics);
 
         Report(diagnostics);
         return rendered ? 0 : 3;
@@ -233,6 +238,21 @@ public static class Program
 
         Report(diagnostics);
         return clean ? 0 : 3;
+    }
+
+    private static int HeadSolve(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("head-solve requires --source.");
+            return 2;
+        }
+
+        bool rigid = new HeadSolveStage(Console.WriteLine).Run(
+            options.Source, options.Model, options.Output, diagnostics);
+
+        Report(diagnostics);
+        return rigid ? 0 : 3;
     }
 
     private static int CheckScenes(Options options, DiagnosticBag diagnostics)
@@ -643,6 +663,7 @@ public static class Program
                                 report what came out. --model limits it to one
                                 location.
               act-info          Read every vertex animation and say what is in them.
+              head-solve        Measure how rigidly every character's head moves.
               video-info        Say which movies could be played, from the packs or
                                 the workspace, and decode them to prove it.
               floor-materials   Say which textures the game walks on, from the floor
@@ -676,6 +697,10 @@ public static class Program
                                    textures, not only what a scene is made of.
               --variant SUFFIX     Which of each candidate's files import-textures
                                    takes (default _imagegen_2048w).
+              --heads N            How far render-model subdivides a character's
+                                   head, 0 to 3. The same refinement the game
+                                   applies, so a before and after can be
+                                   rendered from one command.
               --tool NAME          What produced the candidates, recorded as
                                    provenance by import-textures.
               --texconv PATH       Where texconv.exe is, for pack-content.
@@ -756,6 +781,9 @@ public static class Program
 
         public string? Variant { get; init; }
 
+        /// <summary>How far render-model subdivides a character's head.</summary>
+        public int Heads { get; init; }
+
         public string? Tool { get; init; }
 
         public string? Enhanced { get; init; }
@@ -786,6 +814,7 @@ public static class Program
             double advance = 0;
             string? glance = null;
             string? variant = null;
+            int heads = 0;
             string? tool = null;
             string? enhanced = null;
             bool force = false;
@@ -874,6 +903,10 @@ public static class Program
                     case "--variant" when i + 1 < args.Length:
                         variant = args[++i];
                         break;
+                    case "--heads" when i + 1 < args.Length:
+                        heads = int.TryParse(
+                            args[++i], CultureInfo.InvariantCulture, out int levels) ? levels : 0;
+                        break;
                     case "--tool" when i + 1 < args.Length:
                         tool = args[++i];
                         break;
@@ -913,6 +946,7 @@ public static class Program
                 Advance = advance,
                 Glance = glance,
                 Variant = variant,
+                Heads = heads,
                 Tool = tool,
                 Enhanced = enhanced,
             };

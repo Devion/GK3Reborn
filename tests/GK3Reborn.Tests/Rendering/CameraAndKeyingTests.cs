@@ -252,6 +252,37 @@ public sealed class CameraAndKeyingTests
     }
 
     /// <summary>Input with one action held down and nothing else happening.</summary>
+    [Fact]
+    public void A_step_the_room_refuses_is_the_step_the_camera_takes()
+    {
+        var camera = new FreeCamera { Position = Vector3.Zero, Speed = 100f };
+        Vector3 asked = Vector3.Zero;
+
+        // Whatever the room says, and nothing about how it decided: what is being pinned
+        // here is that the camera asks at all, and moves to the answer rather than to
+        // where it was going.
+        camera.Confine = (from, movement) =>
+        {
+            asked = movement;
+            return from + (movement * 0.25f);
+        };
+
+        camera.Update(new HeldInput(CameraAction.Forward), 1f);
+
+        Assert.Equal(100f, asked.Length(), 0.01f);
+        Assert.Equal(25f, camera.Position.Length(), 0.01f);
+    }
+
+    [Fact]
+    public void A_camera_with_nothing_to_stop_it_moves_the_whole_step()
+    {
+        var camera = new FreeCamera { Position = Vector3.Zero, Speed = 100f };
+
+        camera.Update(new HeldInput(CameraAction.Forward), 1f);
+
+        Assert.Equal(100f, camera.Position.Length(), 0.01f);
+    }
+
     private sealed class HeldInput(CameraAction held) : IGameInput
     {
         public Vector2 PointerDelta => Vector2.Zero;

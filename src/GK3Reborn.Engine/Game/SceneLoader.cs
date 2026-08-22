@@ -53,6 +53,17 @@ public sealed record LoadedScene(
     private WalkFloor? _ground;
     private bool _groundSought;
 
+    /// <summary>
+    /// The shell that keeps the camera inside the room, when the scene names one.
+    /// </summary>
+    /// <remarks>
+    /// Beside the record's other members rather than among them because only a scene that
+    /// was actually loaded can have one — <see cref="SceneLoader.Compose"/> reads the text
+    /// and no models at all, and a corpus sweep over five hundred rooms has no camera to
+    /// fence in.
+    /// </remarks>
+    public Navigation.CameraBounds? CameraShell { get; init; }
+
     /// <summary>The lights the artists authored for this time of day.</summary>
     public IReadOnlyList<AuthoredLight> Lights => Asset?.Lights ?? [];
 
@@ -256,6 +267,13 @@ public sealed class SceneLoader
     /// </remarks>
     public CompressedTextures? Compressed { get; set; }
 
+    /// <summary>How many times to subdivide a character's head; zero draws it as authored.</summary>
+    /// <remarks>
+    /// Characters only, and only their heads. See <see cref="Actors.HeadRefinement"/> for
+    /// why that is the one part of a GK3 character which can be re-meshed at all.
+    /// </remarks>
+    public int SmoothHeads { get; set; }
+
     private int _normalsUsed;
     private int _ormsUsed;
     private int _heightsUsed;
@@ -357,7 +375,10 @@ public sealed class SceneLoader
             placed,
             ReadActions(init, request, diagnostics),
             init.Soundtracks(),
-            ReadSoundtracks(init, diagnostics));
+            ReadSoundtracks(init, diagnostics))
+        {
+            CameraShell = ReadCameraBounds(init, diagnostics),
+        };
     }
 
     /// <summary>
@@ -584,6 +605,55 @@ public sealed class SceneLoader
         }
 
         return boundary;
+    }
+
+    /// <summary>Reads the shells that fence the camera into the room.</summary>
+    /// <remarks>
+    /// A scene that names none, or names one no archive holds, gets no bounds and a camera
+    /// that can go anywhere — which is what every scene did before this and is a great deal
+    /// better than a room the camera cannot move in. The names are model files rather than
+    /// objects in the geometry: nothing draws them, and only this reads them.
+    /// </remarks>
+    private CameraBounds? ReadCameraBounds(SceneDefinition init, DiagnosticBag diagnostics)
+    {
+        IReadOnlyList<string> named = init.CameraBounds();
+
+        if (named.Count == 0)
+        {
+            return null;
+        }
+
+        List<ModFile> shells = [];
+
+        foreach (string name in named)
+        {
+            byte[]? bytes = _archives.Read(name + ".MOD");
+
+            if (bytes is null)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE013",
+                    DiagnosticSeverity.Warning,
+                    $"The scene's camera bounds are {name}.MOD, which no archive contains; " +
+                    "nothing keeps the camera inside the room."));
+
+                continue;
+            }
+
+            shells.Add(ModFile.Parse(bytes, name + ".MOD"));
+        }
+
+        if (shells.Count == 0)
+        {
+            return null;
+        }
+
+        var bounds = new CameraBounds(shells);
+
+        _log?.Invoke(
+            $"camera bounds: {string.Join(", ", named)}, {bounds.TriangleCount} triangles");
+
+        return bounds.IsEmpty ? null : bounds;
     }
 
     /// <summary>Reads the one or two initialisation files that describe a scene.</summary>
@@ -842,7 +912,13 @@ public sealed class SceneLoader
                 continue;
             }
 
-            ModFile model = ModFile.Parse(bytes, actor.Name + ".MOD");
+            ModFile parsedActor = ModFile.Parse(bytes, actor.Name + ".MOD");
+
+            // Before the textures are read and before the model is placed, because both work
+            // from the geometry and only one of the two versions should reach either. The rig
+            // that comes back is what keeps the clips playable; see HeadRefinement.
+            (ModFile model, Actors.HeadRig? head) =
+                Actors.HeadRefinement.Apply(parsedActor, SmoothHeads);
 
             LoadTextures(
                 geometry,
@@ -868,6 +944,10 @@ public sealed class SceneLoader
             placed.Add(new PlacedModel(
                 actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor, standing)
             {
+                // Null unless the head was actually refined, which is what tells the clip
+                // playback whether to shape the head's vertices or to fit them.
+                Head = head,
+
                 // Where they are now comes from the sink, because walking moves them
                 // there and nothing writes it back to the placement above.
                 Stage = geometry,
