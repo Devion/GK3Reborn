@@ -445,18 +445,21 @@ public static class Application
             // picture rather than a widget — the rows over it are still drawn.
             // The enhanced set is opened here rather than borrowed from the room loop,
             // which has not run yet. It only lists a directory.
-            Formats.Bitmaps.DecodedImage? title = TitleArt(
+            (Formats.Bitmaps.DecodedImage? title, string from) = TitleArt(
                 archives,
-                !packsOnly && enhancedDirectory is { Length: > 0 }
+                settings.EnhancedTextures && !packsOnly && enhancedDirectory is { Length: > 0 }
                     ? EnhancedTextures.Open(enhancedDirectory)
                     : null,
                 diagnostics);
 
             front.Illustrated = title is not null;
 
+            // Which of the two it took, because they are indistinguishable on screen until
+            // somebody has actually upscaled the picture — and a run that quietly used the
+            // 640x480 original looks exactly like one that used the new one.
             Console.WriteLine(title is { } art
-                ? $"Title: {TitlePicture} at {art.Width}x{art.Height}"
-                : $"Title: no {TitlePicture} in the archives, so the menu draws its own");
+                ? $"Title: {TitlePicture} at {art.Width}x{art.Height}, {from}"
+                : $"Title: no {TitlePicture} to be had, so the menu draws its own screen");
 
             // The theme, under the menu and nowhere else. Looped: it is a minute long and
             // somebody may sit on the title screen for longer than that.
@@ -1828,29 +1831,29 @@ public static class Application
     /// <param name="archives">The game's own.</param>
     /// <param name="enhanced">A higher-resolution set, or null.</param>
     /// <param name="diagnostics">Where a picture that will not decode is reported.</param>
-    /// <returns>The picture, or null when there is none to be had.</returns>
-    private static Formats.Bitmaps.DecodedImage? TitleArt(
+    /// <returns>The picture and where it came from, or null when there is none to be had.</returns>
+    private static (Formats.Bitmaps.DecodedImage? Picture, string From) TitleArt(
         GameArchives archives, EnhancedTextures? enhanced, DiagnosticBag diagnostics)
     {
         string bare = Path.GetFileNameWithoutExtension(TitlePicture);
 
         if (enhanced?.Read(bare, diagnostics) is { } better)
         {
-            return better;
+            return (better, $"from {enhanced.Directory}");
         }
 
         try
         {
             return archives.Read(TitlePicture) is { } bytes
-                ? Formats.Bitmaps.BitmapDecoder.Decode(bytes, TitlePicture)
-                : null;
+                ? (Formats.Bitmaps.BitmapDecoder.Decode(bytes, TitlePicture), "from the archives")
+                : (null, string.Empty);
         }
         catch (FormatException error)
         {
             // A menu without its picture is a menu; a game that will not start because a
             // decorative bitmap is malformed is not.
             Console.Error.WriteLine($"WARNING GK3R3430: {TitlePicture} would not decode. ({error.Message})");
-            return null;
+            return (null, string.Empty);
         }
     }
 
