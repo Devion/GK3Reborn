@@ -1,5 +1,6 @@
 ﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Rebarn;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Content;
@@ -34,6 +35,8 @@ public sealed class CompressedTextures
     private readonly Dictionary<string, string> _orm = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _height = new(StringComparer.OrdinalIgnoreCase);
 
+    private RebarnContent? _packs;
+
     private CompressedTextures(string directory) => Directory = directory;
 
     /// <summary>Where the textures were read from.</summary>
@@ -61,18 +64,59 @@ public sealed class CompressedTextures
     /// A missing directory is not an error, the same as the enhanced set: the game runs
     /// from a legally obtained installation and this is an addition to it.
     /// </remarks>
-    public static CompressedTextures Open(string directory)
+    public static CompressedTextures Open(string directory) => Open(directory, null);
+
+    /// <summary>Indexes a build directory, a set of ReBarn packs, or both.</summary>
+    /// <param name="directory">
+    /// The content workspace's <c>build</c> directory, which holds <c>textures</c>,
+    /// <c>normals</c> and <c>orm</c> beside each other. May be empty or missing.
+    /// </param>
+    /// <param name="packs">
+    /// Packs beside the executable, or null for none.
+    /// </param>
+    /// <returns>The set, empty when neither has anything.</returns>
+    /// <remarks>
+    /// Packs are indexed first and loose files overwrite them, so a texture recompressed
+    /// into <c>build/</c> during a session is what gets drawn without the pack having to be
+    /// rebuilt. That is the same way round as PNG beating DDS, and for the same reason: the
+    /// looser and more recent thing wins while a set is still moving.
+    /// </remarks>
+    public static CompressedTextures Open(string directory, RebarnContent? packs)
     {
         ArgumentNullException.ThrowIfNull(directory);
 
-        var set = new CompressedTextures(directory);
+        var set = new CompressedTextures(directory) { _packs = packs };
 
-        Index(Path.Combine(directory, "textures"), set._colour);
-        Index(Path.Combine(directory, "normals"), set._normal);
-        Index(Path.Combine(directory, "orm"), set._orm);
-        Index(Path.Combine(directory, "height"), set._height);
+        if (packs is not null)
+        {
+            IndexPack(packs, RebarnKind.Texture, set._colour);
+            IndexPack(packs, RebarnKind.Normal, set._normal);
+            IndexPack(packs, RebarnKind.Orm, set._orm);
+            IndexPack(packs, RebarnKind.Height, set._height);
+        }
+
+        // An empty directory means the packs and nothing else — what --rebarn asks for.
+        // Combining it with "textures" would produce a relative path and index whatever
+        // happened to be beside the working directory, which is worse than indexing nothing.
+        if (directory.Length > 0)
+        {
+            Index(Path.Combine(directory, "textures"), set._colour);
+            Index(Path.Combine(directory, "normals"), set._normal);
+            Index(Path.Combine(directory, "orm"), set._orm);
+            Index(Path.Combine(directory, "height"), set._height);
+        }
 
         return set;
+    }
+
+    /// <summary>Registers a pack's names, with no path, so a read falls through to the pack.</summary>
+    private static void IndexPack(
+        RebarnContent packs, RebarnKind kind, Dictionary<string, string> into)
+    {
+        foreach (string name in packs.Names(kind))
+        {
+            into[name] = string.Empty;
+        }
     }
 
     private static void Index(string directory, Dictionary<string, string> into)
@@ -129,14 +173,14 @@ public sealed class CompressedTextures
     /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
     /// <returns>The texture, or null when there is none or it is unreadable.</returns>
     public CompressedImage? Read(string name, DiagnosticBag? diagnostics = null) =>
-        Read(_colour, name, "texture", diagnostics);
+        Read(_colour, RebarnKind.Texture, name, "texture", diagnostics);
 
     /// <summary>Reads a compressed normal map.</summary>
     /// <param name="name">The colour texture's name.</param>
     /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
     /// <returns>The map, or null when there is none or it is unreadable.</returns>
     public CompressedImage? ReadNormal(string name, DiagnosticBag? diagnostics = null) =>
-        Read(_normal, name, "normal map", diagnostics);
+        Read(_normal, RebarnKind.Normal, name, "normal map", diagnostics);
 
     /// <summary>Reads a compressed occlusion/roughness/metalness map.</summary>
     /// <param name="name">The colour texture's name.</param>
@@ -149,28 +193,40 @@ public sealed class CompressedTextures
     /// space bug it is.
     /// </remarks>
     public CompressedImage? ReadOrm(string name, DiagnosticBag? diagnostics = null) =>
-        Read(_orm, name, "ORM map", diagnostics);
+        Read(_orm, RebarnKind.Orm, name, "ORM map", diagnostics);
 
     /// <summary>Reads a compressed height map.</summary>
     /// <param name="name">The colour texture's name.</param>
     /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
     /// <returns>The map, or null when there is none or it is unreadable.</returns>
     public CompressedImage? ReadHeight(string name, DiagnosticBag? diagnostics = null) =>
-        Read(_height, name, "height map", diagnostics);
+        Read(_height, RebarnKind.Height, name, "height map", diagnostics);
 
     /// <remarks>
     /// A file that will not read falls back rather than failing the load, exactly as the
     /// enhanced set does: generated content is a draft until somebody has looked at it, and
     /// one bad file in a set of hundreds should cost that texture and nothing else.
     /// </remarks>
-    private static CompressedImage? Read(
-        Dictionary<string, string> from, string name, string what, DiagnosticBag? diagnostics)
+    private CompressedImage? Read(
+        Dictionary<string, string> from,
+        RebarnKind kind,
+        string name,
+        string what,
+        DiagnosticBag? diagnostics)
     {
         ArgumentNullException.ThrowIfNull(name);
 
         if (!from.TryGetValue(Path.GetFileNameWithoutExtension(name), out string? file))
         {
             return null;
+        }
+
+        // An empty path is a name that only a pack holds. The pack hands back a window onto
+        // its own mapping rather than a copy, which is what makes this the cheapest path
+        // there is: nothing is read, decoded or allocated between the file and the device.
+        if (file.Length == 0)
+        {
+            return _packs?.ReadTexture(kind, name, diagnostics);
         }
 
         try

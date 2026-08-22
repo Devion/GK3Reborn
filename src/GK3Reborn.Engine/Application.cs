@@ -118,6 +118,62 @@ public static class Application
         using GameArchives archives = GameArchives.Open(dataDirectory);
         Console.WriteLine($"Content: {archives.Count} archives in {dataDirectory}");
 
+        // The remake's own content, in the one or two ReBarn volumes that ship beside the
+        // executable. Opened once for the session rather than once a room: a pack is
+        // memory-mapped, and every texture the loader takes from one is a window onto that
+        // mapping rather than a copy of it.
+        //
+        // Before the window and the device on purpose, so that --rebarn with no pack fails
+        // in a moment rather than after a Vulkan instance has been built for nothing.
+        var packDiagnostics = new DiagnosticBag();
+        string packDirectory = PackDirectory(args);
+        using RebarnContent packs = RebarnContent.Open(packDirectory, packDiagnostics);
+
+        foreach (Diagnostic diagnostic in packDiagnostics.Items)
+        {
+            Console.Error.WriteLine(diagnostic);
+        }
+
+        // --rebarn: the packs and nothing else. Every loose source of enhanced content is
+        // taken out of the way, which is the only way to measure what the shipped form
+        // costs — with the loose sets in front of it, a run measures those instead.
+        bool packsOnly = args.Contains("--rebarn", StringComparer.OrdinalIgnoreCase);
+
+        if (packsOnly && args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase))
+        {
+            // --rebarn says "the packs and nothing else", --uncompressed says "not the
+            // compressed layer", and a pack holds nothing but compressed textures. Together
+            // they ask for no enhanced content at all, which is what no flags already does.
+            Console.Error.WriteLine(
+                "--rebarn and --uncompressed contradict each other: a pack holds nothing "
+                + "but compressed textures.");
+            Console.Error.WriteLine(
+                "Drop --uncompressed to measure the packs, or drop --rebarn to compare "
+                + "against the loose sets.");
+
+            return 2;
+        }
+
+        if (packsOnly && packs.VolumeCount == 0)
+        {
+            // Refused rather than warned. Falling back would run the game on the original
+            // textures and report perfectly good timings for something nobody asked to
+            // measure, which is the shape of every expensive mistake in this project.
+            Console.Error.WriteLine($"--rebarn: no .rebarn pack in {packDirectory}.");
+            Console.Error.WriteLine(
+                "Build one with `pack-content`, or pass --packs <dir> to say where they are.");
+
+            return 2;
+        }
+
+        if (packs.Describe() is { } packed)
+        {
+            Console.WriteLine(packsOnly
+                ? $"Packs: {packed} (--rebarn: loose enhanced content ignored)"
+                : $"Packs: {packed}");
+        }
+
+
         // --width and --height, for photographing the interface at a display size this
         // machine has not got. Everything about the interface's size is decided from the
         // framebuffer, so there is no other way to see what a 4K display would show.
@@ -297,7 +353,7 @@ public static class Application
             // enhanced textures, and neither belongs to the next one.
             var loader = new SceneLoader(archives, Console.WriteLine);
 
-            if (enhancedDirectory is { Length: > 0 })
+            if (!packsOnly && enhancedDirectory is { Length: > 0 })
             {
                 EnhancedTextures enhanced = EnhancedTextures.Open(enhancedDirectory);
                 loader.Enhanced = enhanced;
@@ -324,27 +380,9 @@ public static class Application
                 loader.Orms = flat ? null : orms;
                 loader.Heights = flat ? null : heights;
 
-                // The block-compressed build of the same set, which is preferred over both
-                // wherever it has an answer: nothing to decode, a mip chain already built,
-                // and a quarter of the video memory.
-                CompressedTextures compressed = CompressedTextures.Open(
-                    CompressedTextureDirectory(args, enhancedDirectory));
-
-                loader.Compressed =
-                    args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase)
-                        ? null
-                        : compressed;
-
                 if (first && normals.Count > 0)
                 {
                     Console.WriteLine($"Normal maps: {normals.Count} available");
-                }
-
-                if (first && loader.Compressed is { Count: > 0 })
-                {
-                    Console.WriteLine(
-                        $"Compressed textures: {compressed.Count} available with " +
-                        $"{compressed.NormalCount} normal map(s) in {compressed.Directory}");
                 }
 
                 if (first)
@@ -353,6 +391,30 @@ public static class Application
                         ? $"Enhanced textures: {enhanced.Count} available in {enhancedDirectory}"
                         : $"Enhanced textures: none found in {enhancedDirectory}");
                 }
+            }
+
+            // The block-compressed build of the same set, preferred over the originals
+            // wherever it has an answer: nothing to decode, a mip chain already built, and
+            // a quarter of the video memory. Outside the --enhanced block on purpose — a
+            // shipped game has packs and no content workspace at all, and the packs are the
+            // whole of its enhanced content.
+            CompressedTextures compressed = CompressedTextures.Open(
+                packsOnly
+                    ? string.Empty
+                    : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
+                packs);
+
+            loader.Compressed =
+                args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase)
+                    ? null
+                    : compressed;
+
+            if (first && loader.Compressed is { Count: > 0 })
+            {
+                Console.WriteLine(
+                    $"Compressed textures: {compressed.Count} available with " +
+                    $"{compressed.NormalCount} normal map(s), {compressed.OrmCount} ORM and " +
+                    $"{compressed.HeightCount} height");
             }
 
             var loading = Stopwatch.StartNew();
@@ -1517,6 +1579,45 @@ public static class Application
     /// the cheap form of them — but <c>--uncompressed</c> turns it off, which is what makes
     /// it possible to put the two side by side and see what the compression cost.
     /// </remarks>
+    /// <summary>Where the ReBarn packs are.</summary>
+    /// <param name="args">Command line, for <c>--packs</c> and <c>--workspace</c>.</param>
+    /// <returns>The first directory that holds a pack, or the executable's own.</returns>
+    /// <remarks>
+    /// <c>--packs</c> wins outright when it is given. Otherwise the first place that holds
+    /// one: beside the executable, then the content workspace, which is where
+    /// <c>pack-content</c> writes during development.
+    /// </remarks>
+    private static string PackDirectory(string[] args)
+    {
+        if (Option(args, "--packs") is { Length: > 0 } named)
+        {
+            return named;
+        }
+
+        // Beside the executable first, because that is where a shipped game puts them and
+        // where a player would drop one. The workspace after it, because that is where the
+        // packer writes during development and copying fifteen gigabytes to try a build is
+        // not something anybody should have to do.
+        string[] candidates =
+        [
+            AppContext.BaseDirectory,
+            Option(args, "--workspace") is { Length: > 0 } workspace ? workspace : string.Empty,
+            DefaultWorkspaceDirectory(),
+        ];
+
+        foreach (string candidate in candidates)
+        {
+            if (candidate.Length > 0 &&
+                Directory.Exists(candidate) &&
+                Directory.EnumerateFiles(candidate, "*" + Formats.Rebarn.RebarnFormat.Extension).Any())
+            {
+                return candidate;
+            }
+        }
+
+        return AppContext.BaseDirectory;
+    }
+
     private static string CompressedTextureDirectory(string[] args, string enhancedDirectory)
     {
         if (Option(args, "--workspace") is { Length: > 0 } workspace)

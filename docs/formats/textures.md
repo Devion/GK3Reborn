@@ -108,11 +108,25 @@ reading it agrees to within a rounding step, so both sources take the one path.
 ### The reader
 
 Deliberately narrow, like `PngReader`: two-dimensional, no arrays, no cube maps, and only
-BC5 and BC7. `DX10` headers are read for the DXGI format, and the older `BC5U` and `ATI2`
-four-character codes are understood. Anything else is refused by name so that a pipeline
-which starts emitting BC1 or a half-float is heard from rather than misread.
+BC4, BC5 and BC7. `DX10` headers are read for the DXGI format, and the older `BC5U`, `ATI2`,
+`BC4U` and `ATI1` four-character codes are understood. Anything else is refused by name so
+that a pipeline which starts emitting BC1 or a half-float is heard from rather than misread.
 
 The one piece of arithmetic worth testing is the mip chain: nothing in the file says where
 a level begins, and a level narrower than four pixels still occupies a whole block. Divide
 instead of rounding up and the tail of the chain is zero-length and every offset after it
 is wrong — which only shows once a surface is far enough away to be minified.
+
+**A BC4 block is eight bytes, not sixteen**, and every level offset depends on that. It is
+the format the height maps take, because every height map the pipeline produces is grey
+stored as RGB — one channel of real information in three channels of file. Ask
+`CompressedImage.BytesPerBlock` rather than the `BlockBytes` constant anywhere the format is
+not known to be one of the sixteen-byte ones.
+
+### Where they come from
+
+Loose `.dds` under `build/`, or a ReBarn pack beside the executable — see
+[rebarn.md](rebarn.md). The pack is the shipped form: entries are stored rather than
+deflated and aligned to 256 bytes, so a texture is memory-mapped and handed to the device
+without being copied at all. Loose files win over the pack for the same name, so a
+recompressed texture takes effect without a fifteen-gigabyte rebuild.

@@ -18,6 +18,15 @@ public enum BlockFormat
 
     /// <summary>Two channels, linear. What the normal maps are compressed to.</summary>
     Bc5Unorm,
+
+    /// <summary>One channel, linear. What the height maps are compressed to.</summary>
+    /// <remarks>
+    /// Half the size of every other format here, because a BC4 block is eight bytes rather
+    /// than sixteen. Every height map the pipeline produces is grey — measured, not assumed
+    /// — so one channel is all of the information there was, and BC4 spends its whole block
+    /// on it instead of a seventh of one.
+    /// </remarks>
+    Bc4Unorm,
 }
 
 /// <summary>
@@ -42,8 +51,21 @@ public readonly record struct CompressedImage(
     ReadOnlyMemory<byte> Blocks,
     string Name)
 {
-    /// <summary>How many bytes one 4×4 block takes. Sixteen, for every format here.</summary>
+    /// <summary>How many bytes one 4×4 block takes in the common formats. Sixteen.</summary>
+    /// <remarks>
+    /// BC4 is the exception at eight. Use <see cref="BytesPerBlock(BlockFormat)"/> rather
+    /// than this wherever the format is not known to be one of the sixteen-byte ones.
+    /// </remarks>
     public const int BlockBytes = 16;
+
+    /// <summary>How many bytes one 4×4 block of a format takes.</summary>
+    /// <param name="format">The block format.</param>
+    /// <returns>Eight for BC4, sixteen for the rest.</returns>
+    public static int BytesPerBlock(BlockFormat format) =>
+        format == BlockFormat.Bc4Unorm ? 8 : BlockBytes;
+
+    /// <summary>How many bytes one 4×4 block of this image takes.</summary>
+    public int BlockSize => BytesPerBlock(Format);
 
     /// <summary>Where a level starts and how long it is.</summary>
     /// <param name="level">Level index, zero being the largest.</param>
@@ -59,7 +81,7 @@ public readonly record struct CompressedImage(
 
         for (int i = 0; ; i++)
         {
-            int length = Blocks4(width) * Blocks4(height) * BlockBytes;
+            int length = Blocks4(width) * Blocks4(height) * BlockSize;
 
             if (i == level)
             {
@@ -101,10 +123,13 @@ public static class DdsFile
     private const uint FourCcDx10 = 0x30315844; // "DX10"
     private const uint FourCcBc5U = 0x55354342; // "BC5U"
     private const uint FourCcAti2 = 0x32495441; // "ATI2", the older spelling of BC5
+    private const uint FourCcBc4U = 0x55344342; // "BC4U"
+    private const uint FourCcAti1 = 0x31495441; // "ATI1", the older spelling of BC4
 
     private const uint DxgiBc7Unorm = 98;
     private const uint DxgiBc7UnormSrgb = 99;
     private const uint DxgiBc5Unorm = 83;
+    private const uint DxgiBc4Unorm = 80;
 
     /// <summary>Whether the data looks like a DDS file at all.</summary>
     /// <param name="data">The bytes.</param>
@@ -140,6 +165,7 @@ public static class DdsFile
         {
             FourCcDx10 => (Extended(data, name), ExtendedHeaderEnd),
             FourCcBc5U or FourCcAti2 => (BlockFormat.Bc5Unorm, HeaderEnd),
+            FourCcBc4U or FourCcAti1 => (BlockFormat.Bc4Unorm, HeaderEnd),
             _ => throw Fail(
                 name, 84, "a block-compressed format", $"four-character code {FourCc(fourCc)}"),
         };
@@ -153,7 +179,8 @@ public static class DdsFile
         for (int level = 0; level < mips; level++)
         {
             expected += (long)CompressedImage.Blocks4(levelWidth)
-                * CompressedImage.Blocks4(levelHeight) * CompressedImage.BlockBytes;
+                * CompressedImage.Blocks4(levelHeight)
+                * CompressedImage.BytesPerBlock(format);
 
             levelWidth = Math.Max(1, levelWidth / 2);
             levelHeight = Math.Max(1, levelHeight / 2);
@@ -191,7 +218,8 @@ public static class DdsFile
             DxgiBc7UnormSrgb => BlockFormat.Bc7Srgb,
             DxgiBc7Unorm => BlockFormat.Bc7Unorm,
             DxgiBc5Unorm => BlockFormat.Bc5Unorm,
-            _ => throw Fail(name, HeaderEnd, "BC5 or BC7", $"DXGI format {dxgi}"),
+            DxgiBc4Unorm => BlockFormat.Bc4Unorm,
+            _ => throw Fail(name, HeaderEnd, "BC4, BC5 or BC7", $"DXGI format {dxgi}"),
         };
     }
 
@@ -205,5 +233,5 @@ public static class DdsFile
             "GK3R1094", DiagnosticSeverity.Error,
             $"{name} is not a DDS this reader can decode.",
             name, offset, expected, actual,
-            "Two-dimensional BC5 or BC7, with or without a mip chain."));
+            "Two-dimensional BC4, BC5 or BC7, with or without a mip chain."));
 }

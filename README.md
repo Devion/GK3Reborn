@@ -94,6 +94,34 @@ cropping them would shift the UI overlays they sit under.
 Videos are keyed by uppercase base name with no extension, because the game's
 data references them that way.
 
+`pack-content` is the last stage: it encodes everything under `enhanced/` to
+block-compressed DDS and packs it into the one or two `.rebarn` volumes that ship
+beside the executable, so a built game is an executable and two files rather than
+forty thousand.
+
+```
+dotnet run --project tools/GK3Reborn.Tools --   pack-content --workspace "path/to/ContentWorkspace"
+```
+
+`Reborn.rebarn` holds colour, emissive, models and video; `RebornMaterials.rebarn`
+holds the normal, ORM and height maps, which the renderer already treats as
+optional — deleting it degrades the picture instead of breaking the game. Entries
+are stored rather than deflated and aligned to 256 bytes, so a texture is
+memory-mapped and handed to the device without being decoded or copied. The engine
+reads every `*.rebarn` beside itself in name order and the last one wins, which is
+all a patch or a mod pack needs. `pack-list`, `pack-extract` and `pack-verify` read
+one back; `pack-verify` also decodes every DDS with the engine's own reader, because
+a checksum only proves the bytes survived, not that the loader will accept them.
+
+`--rebarn` runs the game on the packs alone, with every loose source of enhanced
+content taken out of the way, which is the only honest way to measure what the
+shipped form costs. It refuses to start rather than fall back if no pack is found.
+
+The source tree does not move: designers keep editing `enhanced/textures`, and
+re-running `pack-content` catches the pack up. Only what changed is re-encoded. See
+[docs/formats/rebarn.md](docs/formats/rebarn.md) for the container, the format
+chosen for each channel and why there are no texture atlases.
+
 ## Layout
 
 ```text

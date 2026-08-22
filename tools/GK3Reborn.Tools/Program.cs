@@ -31,6 +31,14 @@ public static class Program
             return args.Length == 0 ? 1 : 0;
         }
 
+        // Parsed by the pack commands themselves: they carry a dozen flags of their own,
+        // and putting all of them into the record every other command shares would make
+        // those commands' help worse to no purpose.
+        if (Stages.PackCommands.Commands.Contains(args[0], StringComparer.Ordinal))
+        {
+            return Stages.PackCommands.Run(args);
+        }
+
         Options options = Options.Parse(args);
         if (options.Error is not null)
         {
@@ -577,6 +585,11 @@ public static class Program
               lighting-analysis Measure the baked lighting, as evidence for light rigs.
               derive-lighting   Propose a light rig per scene and time of day.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
+              pack-content      Encode the enhanced content to DDS and pack it into the
+                                one or two ReBarn volumes that ship beside the game.
+              pack-list         Say what a ReBarn pack holds.
+              pack-extract      Write a pack's entries back out as loose files.
+              pack-verify       Read every entry and check it against its checksum.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
               sheep             Disassemble every compiled Sheep script, gather the
@@ -624,6 +637,12 @@ public static class Program
                                    takes (default _imagegen_2048w).
               --tool NAME          What produced the candidates, recorded as
                                    provenance by import-textures.
+              --texconv PATH       Where texconv.exe is, for pack-content.
+              --cap KIND=N         Longest edge pack-content encodes a kind at, such as
+                                   normals=1024. Colour is never capped by default.
+              --kinds a,b          Which kinds of content a pack command touches.
+              --single-volume      pack-content writes one file rather than two.
+              --dry-run            Report what pack-content would do and write nothing.
               --enhanced DIR       Textures to use in place of the archives',
                                    named without extensions. Relative paths are
                                    taken from --workspace.

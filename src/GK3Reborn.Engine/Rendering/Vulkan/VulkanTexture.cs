@@ -123,6 +123,7 @@ public sealed unsafe class VulkanTexture : IDisposable
             BlockFormat.Bc7Srgb => Format.BC7SrgbBlock,
             BlockFormat.Bc7Unorm => Format.BC7UnormBlock,
             BlockFormat.Bc5Unorm => Format.BC5UnormBlock,
+            BlockFormat.Bc4Unorm => Format.BC4UnormBlock,
             _ => throw new VulkanException($"No Vulkan format for {source.Format}."),
         };
 
