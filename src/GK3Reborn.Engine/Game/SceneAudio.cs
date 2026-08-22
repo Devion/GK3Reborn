@@ -32,8 +32,31 @@ public sealed class SceneAudio
     private readonly IAudioBackend _backend;
     private readonly Queue<string> _speaking = new();
 
+    /// <summary>
+    /// How long a bed takes to fade when its own soundtrack does not say.
+    /// </summary>
+    /// <remarks>
+    /// Most of them do say. A <c>.STK</c> gives each sound a <c>FadeOutMS</c> — R25's theme
+    /// asks for three seconds — and that is the artists' own answer to how long this room
+    /// should take to stop being the room you are in. This is only for the ones that leave
+    /// it out: long enough to hear as a change of place rather than a cut, and about as
+    /// long as walking through a door takes.
+    /// </remarks>
+    private const double FadeSeconds = 1.5;
+
     private AudioVoice _ambience;
     private AudioVoice _line;
+
+    /// <summary>The bed being faded out, if a room change is under way.</summary>
+    private AudioVoice _leaving;
+    private double _faded = FadeSeconds;
+    private double _fadeLength = FadeSeconds;
+
+    /// <summary>What the playing bed's soundtrack asks for when it stops, in milliseconds.</summary>
+    private int _bedFadeMs;
+
+    /// <summary>And what the one being decoded will ask for.</summary>
+    private int _nextFadeMs;
 
     /// <summary>Creates the scene's audio.</summary>
     /// <param name="sounds">Where the decoded sounds are.</param>
@@ -170,6 +193,10 @@ public sealed class SceneAudio
     {
         ArgumentNullException.ThrowIfNull(soundtracks);
 
+        // Whatever was playing is already on its way out — see Leave — so nothing here
+        // stops anything. A room that names no soundtrack leaves that fade to finish on
+        // its own, which is a room going quiet rather than the sound being cut off.
+
         // In the order the file lists them, not the sorted set: a soundtrack opens with the
         // sound that establishes the room, and taking them alphabetically starts R25 on its
         // mood rather than its theme.
@@ -183,9 +210,8 @@ public sealed class SceneAudio
                     // lookup, rather than by whether it decodes, which costs the decode.
                     if (_sounds.Has(sound.Name))
                     {
-                        Silence();
-
                         _waiting = sound.Name;
+                        _nextFadeMs = sound.FadeOutMs;
                         _where = PlacementOf(sound);
 
                         // Said now rather than when the decode lands, because the caller
@@ -331,6 +357,99 @@ public sealed class SceneAudio
         Hush();
         Loop(null);
         Quiet();
+        Drop();
+    }
+
+    /// <summary>
+    /// Ends the room without ending what it sounds like.
+    /// </summary>
+    /// <remarks>
+    /// Everything the room being left was <em>saying</em> belongs to that room and stops.
+    /// What it sounded like does not: the next room's bed fades in over it, so leaving one
+    /// place for another is heard as a change of place rather than as two cuts. If the next
+    /// room names no ambience at all, this one fades out on its own — which is the same
+    /// crossfade with nothing on the other side of it.
+    /// </remarks>
+    public void Leave()
+    {
+        Hush();
+        Quiet();
+
+        Drop();
+
+        _pending = null;
+        _waiting = null;
+
+        _leaving = _ambience;
+        _ambience = AudioVoice.None;
+        Ambience = null;
+        AmbienceAt = null;
+
+        // The outgoing sound's own fade, because that is whose stopping this is.
+        _fadeLength = _bedFadeMs > 0 ? _bedFadeMs / 1000.0 : FadeSeconds;
+        _faded = _leaving.Exists ? 0 : _fadeLength;
+        _bedFadeMs = 0;
+    }
+
+    /// <summary>Starts a bed under whatever is fading out.</summary>
+    private void Fade(string? name, AudioPlacement? at)
+    {
+        if (name is null || _sounds.Read(name) is not { } sound)
+        {
+            return;
+        }
+
+        // Silent to begin with, and brought up by Update. Starting it at full and turning
+        // the other one down would be a cut with a tail rather than a crossfade.
+        _ambience = _backend.Play(sound, AudioBus.Ambience, repeat: true, at);
+
+        if (!_ambience.Exists)
+        {
+            return;
+        }
+
+        _backend.SetVoiceGain(_ambience, _leaving.Exists ? 0f : 1f);
+
+        Ambience = name;
+        AmbienceAt = at;
+        _bedFadeMs = _nextFadeMs;
+    }
+
+    /// <summary>Moves a crossfade along, and ends it when it is over.</summary>
+    private void Crossfade(double seconds)
+    {
+        if (_faded >= _fadeLength)
+        {
+            return;
+        }
+
+        _faded += Math.Max(0, seconds);
+        float part = (float)Math.Clamp(_faded / Math.Max(0.001, _fadeLength), 0, 1);
+
+        if (_leaving.Exists)
+        {
+            _backend.SetVoiceGain(_leaving, 1f - part);
+        }
+
+        if (_ambience.Exists)
+        {
+            _backend.SetVoiceGain(_ambience, part);
+        }
+
+        if (part >= 1f)
+        {
+            Drop();
+        }
+    }
+
+    /// <summary>Stops whatever was fading out.</summary>
+    private void Drop()
+    {
+        if (_leaving.Exists)
+        {
+            _backend.Silence(_leaving);
+            _leaving = AudioVoice.None;
+        }
     }
 
     /// <summary>Starts the next line when the last one has finished.</summary>
@@ -338,9 +457,12 @@ public sealed class SceneAudio
     /// Called once a frame. The device is the clock: a line is over when its source stops,
     /// not when a timer says it should have, so the two never drift apart.
     /// </remarks>
-    public void Update()
+    /// <param name="seconds">How long since the last frame, for the crossfade.</param>
+    public void Update(double seconds = 0)
     {
         _backend.Update();
+
+        Crossfade(seconds);
 
         // A soundtrack is a five-minute MP3 and decoding one is a quarter of a second, which
         // used to sit between a room being ready and the player seeing it. It is decoded
@@ -357,7 +479,11 @@ public sealed class SceneAudio
 
             if (finished.IsCompletedSuccessfully && finished.Result is not null)
             {
-                Loop(name, at);
+                // Under whatever is on its way out, rather than in place of it. A room's
+                // bed is a five-minute MP3 and takes a moment to decode, so by the time
+                // this lands the fade is already part of the way through — which is right:
+                // the old room has been fading since the player left it.
+                Fade(name, at);
             }
         }
 

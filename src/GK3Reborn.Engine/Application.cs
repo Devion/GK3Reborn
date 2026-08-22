@@ -516,11 +516,14 @@ public static class Application
                 request.State.EnterLocation(request.State.Ego, scene.Name);
             }
 
-            // Silence before the room is entered, not after. Everything the room being
-            // left was saying belongs to that room; the entering script, on the other
-            // hand, may well say something itself, and cutting it off a moment later is
-            // how a scripted arrival loses its own first line.
-            room?.Silence();
+            // Before the room is entered, not after. Everything the room being left was
+            // saying belongs to that room; the entering script, on the other hand, may well
+            // say something itself, and cutting it off a moment later is how a scripted
+            // arrival loses its own first line.
+            //
+            // What the room sounded like is not stopped, only started on its way out, so
+            // the next room's bed comes up underneath it.
+            room?.Leave();
 
             if (scene.Actions?.Find("SCENE", "ENTER") is { } entering)
             {
@@ -1233,7 +1236,7 @@ public static class Application
 
             // The device is the clock for dialogue: the next line of a voice-over starts
             // when the last one's source stops, so they never overlap and never drift.
-            room?.Update();
+            room?.Update(delta);
 
             if (room?.Caption is { Length: > 0 } caption && caption != spoken)
             {

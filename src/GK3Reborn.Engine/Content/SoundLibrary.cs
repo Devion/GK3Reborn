@@ -23,16 +23,36 @@ namespace GK3Reborn.Content;
 /// </remarks>
 public sealed class SoundLibrary
 {
-    private readonly GameArchives _archives;
+    private readonly Func<string, byte[]?> _open;
+    private readonly Func<string, bool> _exists;
     private readonly Dictionary<string, WavFile?> _read = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Creates a library.</summary>
     /// <param name="archives">The game's archives.</param>
     public SoundLibrary(GameArchives archives)
+        : this(NotNull(archives).Read, NotNull(archives).Exists)
+    {
+    }
+
+    /// <summary>Creates a library over anything that can produce a file's bytes.</summary>
+    /// <param name="open">Given a full file name, returns its bytes or null.</param>
+    /// <param name="exists">
+    /// Whether a file is there, without reading it. Kept apart from
+    /// <paramref name="open"/> because a soundtrack is a five-minute MP3 and choosing
+    /// between them must not cost a decode each.
+    /// </param>
+    public SoundLibrary(Func<string, byte[]?> open, Func<string, bool>? exists = null)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+
+        _open = open;
+        _exists = exists ?? (name => open(name) is not null);
+    }
+
+    private static GameArchives NotNull(GameArchives archives)
     {
         ArgumentNullException.ThrowIfNull(archives);
-
-        _archives = archives;
+        return archives;
     }
 
     /// <summary>Diagnostics raised while reading.</summary>
@@ -60,7 +80,7 @@ public sealed class SoundLibrary
 
             foreach (string candidate in Spellings(name))
             {
-                if (_archives.Read(candidate) is { } bytes)
+                if (_open(candidate) is { } bytes)
                 {
                     sound = WavFile.Read(bytes, name, Diagnostics);
                 }
@@ -85,7 +105,7 @@ public sealed class SoundLibrary
 
         foreach (string candidate in Spellings(name))
         {
-            if (_archives.Exists(candidate))
+            if (_exists(candidate))
             {
                 return true;
             }

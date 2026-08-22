@@ -69,11 +69,24 @@ ignored exactly as the original ignores them:
 Those waits are zero in the original too. Matching that matters more than fixing the
 spelling.
 
+## What plays
+
+The first sound of the first track, looped, and placed in the room where the file places
+it. A soundtrack is a *program* — pick one of these, wait four to nine seconds, repeat —
+and running it properly is a scheduler of its own; this is the simple half of it, and a
+room that hums is much closer to right than a room that is silent.
+
+**`FadeOutMS` is used, and it is the artists' own number.** Leaving a room does not stop
+its bed; it starts it on its way out while the next room's comes up underneath, and how
+long that takes is what the outgoing sound's own soundtrack asks for — three seconds for
+R25's theme. A soundtrack that leaves the key out gets a second and a half, which is about
+how long walking through a door takes. See `SceneAudio.Leave`.
+
 ## What is not here
 
-**Nothing plays.** Reading a soundtrack is separate from running one, which needs a clock
-and an audio device — neither exists. `LoadedScene.AmbienceRead` is what a room would
-sound like; `PlaySoundTrack`, `StopSoundTrack` and `StopAllSoundTracks` are still
-recorded rather than performed.
+The program itself: no waits, no `Random`, no `Repeat` counts, and nothing after the first
+looping sound. `StopMethod` is read and not acted on other than through the crossfade, and
+`FadeInMs` is not used at all.
 
-Sound assets themselves are `.WAV`, 1,167 of them, and are not read either.
+`PlaySoundTrack`, `StopSoundTrack` and `StopAllSoundTracks` are still recorded rather than
+performed.

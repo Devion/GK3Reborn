@@ -163,8 +163,26 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
         {
             if (voice.Bus == bus || bus == AudioBus.Master)
             {
-                _al.SetSourceProperty(voice.Source, SourceFloat.Gain, Gain(voice.Bus));
+                _al.SetSourceProperty(voice.Source, SourceFloat.Gain, Gain(voice));
             }
+        }
+    }
+
+    /// <inheritdoc/>
+    public void SetVoiceGain(AudioVoice voice, float gain)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        foreach (Voice playing in _voices)
+        {
+            if (playing.Id != voice.Id)
+            {
+                continue;
+            }
+
+            playing.Level = Math.Clamp(gain, 0f, 1f);
+            _al.SetSourceProperty(playing.Source, SourceFloat.Gain, Gain(playing));
+            return;
         }
     }
 
@@ -443,6 +461,9 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
     private float Gain(AudioBus bus) =>
         _gains.GetValueOrDefault(bus, 1f) * _gains.GetValueOrDefault(AudioBus.Master, 1f);
 
+    /// <summary>How loud a voice should be: its bus, its master, and its own level.</summary>
+    private float Gain(Voice voice) => Gain(voice.Bus) * voice.Level;
+
     /// <summary>Uploads a sound, or returns the buffer it already has.</summary>
     private uint Buffer(WavFile sound)
     {
@@ -498,5 +519,8 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
 
         /// <summary>Its low-pass, or zero when the device has no EFX.</summary>
         public uint Filter { get; set; }
+
+        /// <summary>Its own level, under the bus, for fading one voice against another.</summary>
+        public float Level { get; set; } = 1f;
     }
 }

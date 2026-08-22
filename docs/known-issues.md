@@ -4,12 +4,7 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. Scene music cuts rather than crossfading (feature)
-
-**Reported:** 2026-08-22. Moving between rooms should fade one room's music into the next
-rather than stopping one and starting the other.
-
-## 2. The Eglise/Church sign reads wrong on RC1's signpost
+## 1. The Eglise/Church sign reads wrong on RC1's signpost
 
 **Reported:** 2026-08-21. **Cause found; the fix is content, not code.**
 
@@ -44,7 +39,7 @@ image) scored a median of 11.4% across all 7,462 enhanced textures and did not p
 in its top twenty-five, so the check has to be about the background region specifically
 rather than about the picture as a whole.
 
-## 3. HDR output (feature)
+## 2. HDR output (feature)
 
 **Requested:** 2026-08-19.
 
@@ -88,6 +83,23 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 ---
 
 ## Closed
+
+### Scene music cut between rooms rather than crossfading — done 2026-08-22
+
+Leaving a room stopped its bed and entering the next started another, so a door was two
+cuts with a gap between them.
+
+`SceneAudio.Leave` now ends what the room was *saying* without ending what it sounded
+like: the outgoing bed keeps playing and the next room's comes up underneath it. That
+needed per-voice gain in the audio backend, since a crossfade is two voices on one bus at
+different levels.
+
+**How long it takes is the game's own number.** A `.STK` gives each sound a `FadeOutMS` —
+R25's theme asks for three seconds — and that is the artists' answer to how long this room
+should take to stop being the room you are in. A soundtrack that leaves it out gets a
+second and a half. A room that names no soundtrack at all lets the last one fade out on its
+own, which is the same crossfade with nothing on the other side of it.
+
 
 ### Inspecting the register did nothing — fixed 2026-08-22
 

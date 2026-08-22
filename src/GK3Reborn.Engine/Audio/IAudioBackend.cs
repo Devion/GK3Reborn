@@ -55,6 +55,16 @@ public interface IAudioBackend : IDisposable
     /// <summary>Sets the linear gain of a bus.</summary>
     void SetBusGain(AudioBus bus, float gain);
 
+    /// <summary>Sets how loud one voice is, on top of its bus.</summary>
+    /// <param name="voice">The voice.</param>
+    /// <param name="gain">Its own level, from zero to one.</param>
+    /// <remarks>
+    /// A bus is a setting and this is a moment: what it exists for is crossfading one
+    /// room's music into the next, which needs two voices at different levels on the same
+    /// bus at the same time. A voice that has finished is ignored rather than refused.
+    /// </remarks>
+    void SetVoiceGain(AudioVoice voice, float gain);
+
     /// <summary>Starts a sound.</summary>
     /// <param name="sound">The decoded sound.</param>
     /// <param name="bus">Which bus it is mixed on.</param>
