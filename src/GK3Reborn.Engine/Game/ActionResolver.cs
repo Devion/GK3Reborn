@@ -77,7 +77,7 @@ public sealed class ActionResolver
     {
         ArgumentNullException.ThrowIfNull(noun);
 
-        List<AvailableAction> result = [];
+        List<(NvcAction Rule, AvailableAction Offer)> found = [];
         HashSet<string> seenVerbs = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (NvcFile file in _files)
@@ -101,7 +101,7 @@ public sealed class ActionResolver
                     continue;
                 }
 
-                result.Add(new AvailableAction
+                found.Add((action, new AvailableAction
                 {
                     ActionId = $"{action.Noun}:{action.Verb}",
                     NvcProvenance = action.Source,
@@ -109,15 +109,40 @@ public sealed class ActionResolver
                     IconSemantic = IconFor(action.Verb),
                     Category = CategoryFor(action.Verb),
                     Enabled = true,
-                });
+                }));
             }
         }
 
-        // Inspect first, so left click always has something predictable to do.
-        return [.. result
-            .OrderBy(a => a.Category == ActionCategory.Inspect ? 0 : 1)
-            .ThenBy(a => result.IndexOf(a))];
+        bool topics = found.Exists(f => Verbs?.IsTopic(f.Rule.Verb) ?? false);
+
+        // Inspect first, so left click always has something predictable to do. OrderBy is
+        // stable, so everything else keeps the order the files gave it.
+        return [.. found
+            .Where(f => !topics || !OpensTheTopicList(f.Rule))
+            .Select(f => f.Offer)
+            .OrderBy(a => a.Category == ActionCategory.Inspect ? 0 : 1)];
     }
+
+    /// <summary>
+    /// Whether a rule is the Talk that exists only to reach the topics.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TALK</c> is a real verb with 127 rules of its own, and most of them do something
+    /// no topic does: Larry has a line, Prince James has a conversation, and nine rules are
+    /// guarded by <c>NOT_DIALOGUE_TOPICS_LEFT</c> and are what a character says once there
+    /// is nothing left to ask them. Those all stay.
+    /// </para>
+    /// <para>
+    /// Thirty-two are guarded by <c>DIALOGUE_TOPICS_LEFT</c>, and that case means exactly
+    /// "there is something to ask about". In the original, choosing Talk there opened the
+    /// list of <c>T_</c> verbs; this port puts them on the menu itself, so offering Talk
+    /// beside them is offering the player a door into the room they are standing in.
+    /// </para>
+    /// </remarks>
+    private static bool OpensTheTopicList(NvcAction action) =>
+        string.Equals(action.Verb, "TALK", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(action.Case, "DIALOGUE_TOPICS_LEFT", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Finds the rule a verb on a noun would run.</summary>
     /// <param name="noun">The thing being acted on.</param>

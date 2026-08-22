@@ -4,28 +4,18 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. NPCs offer Talk as well as Chat and Ask about
-
-**Reported:** 2026-08-22. Right-clicking a character lists `Chat`, `Talk` and
-`Ask about...`. Talk looks like the heading the other two sit under rather than a verb of
-its own.
-
-Needs checking against the game's own action files before anything is hidden: if the
-originals give a character a TALK rule as well as CHAT and TOPIC ones, the verb is real and
-the question is what it does.
-
-## 2. Inspecting the register does nothing
+## 1. Inspecting the register does nothing
 
 **Reported:** 2026-08-22. The verb is offered and produces no result. Probably an action
 whose script is not performed rather than one that is missing; needs `render-scene --do`
 against that noun to say which.
 
-## 3. Scene music cuts rather than crossfading (feature)
+## 2. Scene music cuts rather than crossfading (feature)
 
 **Reported:** 2026-08-22. Moving between rooms should fade one room's music into the next
 rather than stopping one and starting the other.
 
-## 4. The Eglise/Church sign reads wrong on RC1's signpost
+## 3. The Eglise/Church sign reads wrong on RC1's signpost
 
 **Reported:** 2026-08-21. **Cause found; the fix is content, not code.**
 
@@ -60,7 +50,7 @@ image) scored a median of 11.4% across all 7,462 enhanced textures and did not p
 in its top twenty-five, so the check has to be about the background region specifically
 rather than about the picture as a whole.
 
-## 5. HDR output (feature)
+## 4. HDR output (feature)
 
 **Requested:** 2026-08-19.
 
@@ -104,6 +94,24 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 ---
 
 ## Closed
+
+### NPCs offered Talk as well as Chat and Ask about — fixed 2026-08-22
+
+Reported as Talk looking like the heading the other two sit under. It is not: `TALK` is a
+real verb with 127 rules of its own, and most of them play a line or open a conversation no
+topic reaches.
+
+Thirty-two of them are guarded by `DIALOGUE_TOPICS_LEFT`, which means exactly "there is
+something to ask about". In the original, choosing Talk there opened the list of `T_`
+verbs — and this port puts that list on the menu itself, so those thirty-two were offering
+the player a door into the room they were already standing in. Those are hidden when topics
+are on the menu beside them. Every other Talk stays, including the nine guarded by
+`NOT_DIALOGUE_TOPICS_LEFT`, which are what a character says once there is nothing left to
+ask them.
+
+Without `VERBS.TXT` nothing is hidden: whether a verb is a topic is only knowable from that
+file, and showing one verb too many beats hiding one the player needs.
+
 
 ### A dotted line ran above and below drawn text — fixed 2026-08-22
 

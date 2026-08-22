@@ -167,4 +167,77 @@ public sealed class TopicTests
 
         Assert.Null(api.State.Conversation);
     }
+
+    /// <summary>A person who can be talked to and asked about two things.</summary>
+    private const string TalkingFile = """
+        BUTHANE, LOOK, ALL, script={}
+        BUTHANE, TALK, DIALOGUE_TOPICS_LEFT, script={}
+        BUTHANE, T_INTRODUCE, ALL, script={}
+        BUTHANE, T_TOUR_GROUP, ALL, script={}
+        """;
+
+    private static IReadOnlyList<string> Offered(ActionResolver resolver, string noun) =>
+        [.. resolver.Resolve(noun).Select(a => a.LocalizedVerb)];
+
+    [Fact]
+    public void A_talk_that_only_opens_the_topic_list_is_not_offered_beside_it()
+    {
+        // DIALOGUE_TOPICS_LEFT means "there is something to ask about", and in the original
+        // choosing Talk there opened the list of those things. The list is on the menu
+        // itself here, so Talk would be a door into the room the player is standing in.
+        IReadOnlyList<string> offered = Offered(
+            Resolver(new GameState(), TalkingFile), "BUTHANE");
+
+        Assert.Contains("T_INTRODUCE", offered);
+        Assert.Contains("T_TOUR_GROUP", offered);
+        Assert.Contains("LOOK", offered);
+        Assert.DoesNotContain("TALK", offered);
+    }
+
+    [Fact]
+    public void A_talk_that_does_something_of_its_own_stays()
+    {
+        // Ninety-five of the corpus's 127 Talk rules are guarded by something other than
+        // DIALOGUE_TOPICS_LEFT, and they are the ones with a line or a conversation behind
+        // them. Larry's is one: he has no topics at all and a voice-over to play.
+        IReadOnlyList<string> offered = Offered(
+            Resolver(new GameState(), """
+                LARRY, LOOK, ALL, script={}
+                LARRY, TALK, ALL, script={}
+                """),
+            "LARRY");
+
+        Assert.Contains("TALK", offered);
+    }
+
+    [Fact]
+    public void The_talk_for_when_there_is_nothing_left_to_ask_stays()
+    {
+        // The other half of the pair, and the reason this cannot simply drop every Talk.
+        // Nine rules in the corpus are guarded by NOT_DIALOGUE_TOPICS_LEFT: they are what a
+        // character says once the player has run out of things to ask them, and they are
+        // the only thing that verb reaches at that point.
+        //
+        // Its opposite needs no filtering at all — with no topics left the case is not
+        // satisfied and the rule never reaches the menu.
+        IReadOnlyList<string> offered = Offered(
+            Resolver(new GameState(), """
+                EMILIO, TALK, NOT_DIALOGUE_TOPICS_LEFT, script={}
+                """),
+            "EMILIO");
+
+        Assert.Contains("TALK", offered);
+    }
+
+    [Fact]
+    public void Without_the_verb_file_nothing_is_hidden()
+    {
+        // Whether a verb is a topic is only knowable from VERBS.TXT. Without it the port
+        // cannot tell that Talk duplicates anything, and showing one verb too many beats
+        // hiding one the player needs.
+        var resolver = new ActionResolver(new Gk3SheepApi(new GameState()));
+        resolver.Add(NvcFile.Parse(TalkingFile, "test.nvc", new DiagnosticBag()));
+
+        Assert.Contains("TALK", Offered(resolver, "BUTHANE"));
+    }
 }
