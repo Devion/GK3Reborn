@@ -120,7 +120,13 @@ public static class Application
     /// video, or a run with <c>--rebarn</c> and a pack that holds none, should reach the
     /// menu rather than stop at a missing file.
     /// </remarks>
-    private static readonly string[] IntroMovies = ["SIERRA", "INTRO"];
+    private static readonly string[] IntroMovies = [SierraLogo, TheIntro];
+
+    /// <summary>The publisher's logo, which the game opens with and nothing else wants.</summary>
+    private const string SierraLogo = "SIERRA";
+
+    /// <summary>The opening of the game itself.</summary>
+    private const string TheIntro = "INTRO";
 
     /// <summary>
     /// Opens a window and shows a scene from the game's own archives.
@@ -445,20 +451,31 @@ public static class Application
             // picture rather than a widget — the rows over it are still drawn.
             // The enhanced set is opened here rather than borrowed from the room loop,
             // which has not run yet. It only lists a directory.
-            (Formats.Bitmaps.DecodedImage? title, string from) = TitleArt(
+            // Three places it can come from and one of them is all a shipped game has.
+            // The enhanced set is opened here rather than borrowed from the room loop,
+            // which has not run yet; both it and the compressed set only list what is
+            // there.
+            TitleScreen title = TitleArt(
                 archives,
                 settings.EnhancedTextures && !packsOnly && enhancedDirectory is { Length: > 0 }
                     ? EnhancedTextures.Open(enhancedDirectory)
                     : null,
+                settings.EnhancedTextures
+                    ? CompressedTextures.Open(
+                        packsOnly
+                            ? string.Empty
+                            : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
+                        packs)
+                    : null,
                 diagnostics);
 
-            front.Illustrated = title is not null;
+            front.Illustrated = title.Exists;
 
-            // Which of the two it took, because they are indistinguishable on screen until
+            // Which of them it took, because they are indistinguishable on screen until
             // somebody has actually upscaled the picture — and a run that quietly used the
             // 640x480 original looks exactly like one that used the new one.
-            Console.WriteLine(title is { } art
-                ? $"Title: {TitlePicture} at {art.Width}x{art.Height}, {from}"
+            Console.WriteLine(title.Exists
+                ? $"Title: {TitlePicture} at {title.Width}x{title.Height}, {title.From}"
                 : $"Title: no {TitlePicture} to be had, so the menu draws its own screen");
 
             // The theme, under the menu and nowhere else. Looped: it is a minute long and
@@ -469,15 +486,15 @@ public static class Application
                 ? $"Theme: {ThemeMusic}, under the menu"
                 : $"Theme: no {ThemeMusic} to play, so the menu is silent");
 
-            void Films()
+            void Films(IReadOnlyList<string> which)
             {
                 // The film has its own soundtrack and the theme would play under it.
                 audio?.Silence(theme);
                 renderer.SetBackdrop(null);
 
-                ShowIntro(window, renderer, movies, pages);
+                ShowIntro(window, renderer, movies, pages, which);
 
-                renderer.SetBackdrop(title);
+                title.Show(renderer);
                 theme = Theme(audio, sounds);
             }
 
@@ -487,11 +504,11 @@ public static class Application
                 frameLimit == 0 &&
                 !args.Contains("--skip-intro", StringComparer.OrdinalIgnoreCase))
             {
-                Films();
+                Films(IntroMovies);
             }
             else
             {
-                renderer.SetBackdrop(title);
+                title.Show(renderer);
             }
 
             // --front-page opens on one of the settings pages, for the same reason
@@ -515,13 +532,15 @@ public static class Application
                     pages,
                     front,
                     Apply,
-                    title is null ? MenuBehind.Nothing : MenuBehind.Picture,
+                    title.Exists ? MenuBehind.Picture : MenuBehind.Nothing,
                     frameLimit,
                     screenshotPath);
 
                 if (asked == FrontEndOutcome.Intro)
                 {
-                    Films();
+                    // The film, not the publisher's logo. Somebody who asked for the intro
+                    // asked for the intro.
+                    Films([TheIntro]);
                 }
             }
             while (asked == FrontEndOutcome.Intro && !window.IsClosing);
@@ -1830,30 +1849,87 @@ public static class Application
     /// <summary>Finds the title art.</summary>
     /// <param name="archives">The game's own.</param>
     /// <param name="enhanced">A higher-resolution set, or null.</param>
+    /// <param name="compressed">The block-compressed set, packs included, or null.</param>
     /// <param name="diagnostics">Where a picture that will not decode is reported.</param>
-    /// <returns>The picture and where it came from, or null when there is none to be had.</returns>
-    private static (Formats.Bitmaps.DecodedImage? Picture, string From) TitleArt(
-        GameArchives archives, EnhancedTextures? enhanced, DiagnosticBag diagnostics)
+    /// <returns>The picture and where it came from; empty when there is none to be had.</returns>
+    /// <remarks>
+    /// In the order somebody working on the picture would want: the loose file they are
+    /// editing, then the compressed build or the pack, then the original in the archives.
+    /// A shipped game has only the last two, and <c>--rebarn</c> is that game.
+    /// </remarks>
+    private static TitleScreen TitleArt(
+        GameArchives archives,
+        EnhancedTextures? enhanced,
+        CompressedTextures? compressed,
+        DiagnosticBag diagnostics)
     {
         string bare = Path.GetFileNameWithoutExtension(TitlePicture);
 
         if (enhanced?.Read(bare, diagnostics) is { } better)
         {
-            return (better, $"from {enhanced.Directory}");
+            return new TitleScreen(better, null, $"from {enhanced.Directory}");
+        }
+
+        if (compressed?.Read(bare, diagnostics) is { } blocks)
+        {
+            // A pack is what a shipped game has and is opened with no directory at all,
+            // which is how the two are told apart without asking the pack.
+            return new TitleScreen(
+                null,
+                blocks,
+                compressed.Directory.Length > 0
+                    ? $"from {compressed.Directory}"
+                    : "from a pack");
         }
 
         try
         {
             return archives.Read(TitlePicture) is { } bytes
-                ? (Formats.Bitmaps.BitmapDecoder.Decode(bytes, TitlePicture), "from the archives")
-                : (null, string.Empty);
+                ? new TitleScreen(
+                    Formats.Bitmaps.BitmapDecoder.Decode(bytes, TitlePicture),
+                    null,
+                    "from the archives")
+                : default;
         }
         catch (FormatException error)
         {
             // A menu without its picture is a menu; a game that will not start because a
             // decorative bitmap is malformed is not.
             Console.Error.WriteLine($"WARNING GK3R3430: {TitlePicture} would not decode. ({error.Message})");
-            return (null, string.Empty);
+            return default;
+        }
+    }
+
+    /// <summary>The picture behind the menu, in whichever form it was found.</summary>
+    /// <param name="Picture">Pixels, from a loose file or the archives.</param>
+    /// <param name="Blocks">Or block-compressed, from the compressed build or a pack.</param>
+    /// <param name="From">Where it came from, for the report.</param>
+    private readonly record struct TitleScreen(
+        Formats.Bitmaps.DecodedImage? Picture, Formats.Bitmaps.CompressedImage? Blocks, string From)
+    {
+        /// <summary>Whether there is a picture at all.</summary>
+        public bool Exists => Picture is not null || Blocks is not null;
+
+        /// <summary>How wide it is.</summary>
+        public int Width => Picture?.Width ?? Blocks?.Width ?? 0;
+
+        /// <summary>How tall it is.</summary>
+        public int Height => Picture?.Height ?? Blocks?.Height ?? 0;
+
+        /// <summary>Puts it behind the menu.</summary>
+        /// <param name="renderer">What draws it.</param>
+        public void Show(VulkanRenderer renderer)
+        {
+            ArgumentNullException.ThrowIfNull(renderer);
+
+            if (Blocks is { } blocks)
+            {
+                renderer.SetBackdrop(blocks);
+            }
+            else
+            {
+                renderer.SetBackdrop(Picture);
+            }
         }
     }
 
@@ -1920,6 +1996,12 @@ public static class Application
             window.PumpEvents();
 
             IReadOnlyList<MenuItem> items = front.Items;
+
+            // Every frame, because a window that goes fullscreen doubles in height and a
+            // menu that stayed the size it was laid out at would be a postage stamp in the
+            // middle of it.
+            pages.Overlay.Magnify = MenuMagnification(
+                window.FramebufferHeight, pages.Overlay.Atlas.Font.Height);
 
             Vector2 pointer = new(
                 window.PointerPosition.X * window.DpiScale,
@@ -2037,6 +2119,20 @@ public static class Application
         return FrontEndOutcome.Quit;
     }
 
+    /// <summary>How much to draw the menu's letters at.</summary>
+    /// <param name="framebufferHeight">How tall the window is, in pixels.</param>
+    /// <param name="glyphHeight">How tall the sheet's letters are.</param>
+    /// <returns>A whole-number magnification, one or more.</returns>
+    /// <remarks>
+    /// A menu is not a caption. Captions are sized to be readable without covering the
+    /// room; a menu is the only thing on screen, and one drawn at caption size on a large
+    /// display reads as a dialogue box from another decade. A row comes out at about a
+    /// twenty-second of the window's height, which is roughly what the original's own
+    /// buttons were on the screen they were drawn for.
+    /// </remarks>
+    private static int MenuMagnification(int framebufferHeight, int glyphHeight) =>
+        Math.Max(1, (int)MathF.Round(framebufferHeight / 22f / Math.Max(1, glyphHeight)));
+
     /// <summary>
     /// Puts the page where it does not cover what is behind it.
     /// </summary>
@@ -2063,6 +2159,7 @@ public static class Application
     /// <param name="renderer">What draws them.</param>
     /// <param name="movies">What plays them.</param>
     /// <param name="hint">What draws the way out, or null when there is no font.</param>
+    /// <param name="films">Which films, in order.</param>
     /// <remarks>
     /// <para>
     /// Enter, or the left button <em>held</em>. A click is what somebody does by accident
@@ -2071,16 +2168,23 @@ public static class Application
     /// the grounds that it is the first thing half the world will try.
     /// </para>
     /// <para>
-    /// Skipping ends the whole sequence rather than the film showing: somebody who has seen
-    /// the intro means they have seen the intro. Missing films are passed over in silence,
-    /// because an installation that has none should still reach the menu.
+    /// <b>Skipping ends the film showing and not the sequence.</b> The logo and the intro
+    /// are two different things to sit through: somebody who skips the publisher's logo has
+    /// said nothing at all about whether they want to watch the opening of the game. So a
+    /// cold start is two skips, and the button has to be let go between them — a hold that
+    /// carried across the join would take the second film with the first.
+    /// </para>
+    /// <para>
+    /// Missing films are passed over in silence, because an installation that has none
+    /// should still reach the menu.
     /// </para>
     /// </remarks>
     private static void ShowIntro(
         Platform.SilkGameWindow window,
         VulkanRenderer renderer,
         Game.MoviePlayer movies,
-        MenuPage? hint)
+        MenuPage? hint,
+        IReadOnlyList<string> films)
     {
         // Long enough not to fire on a click, short enough that nobody wonders whether it
         // is working — and it says so on screen while it counts.
@@ -2093,7 +2197,11 @@ public static class Application
         var stopwatch = Stopwatch.StartNew();
         double held = 0;
 
-        foreach (string name in IntroMovies)
+        // Whether the button that skipped the last film is still down. Until it comes up
+        // again it means nothing, or one long press would clear the whole sequence.
+        bool spent = false;
+
+        foreach (string name in films)
         {
             if (movies.Play(name) <= 0)
             {
@@ -2115,16 +2223,24 @@ public static class Application
                 double delta = Math.Min(0.1, now - previous);
                 previous = now;
 
-                // Counted across films rather than reset by one ending, so a hold that
-                // spans the join between them still means what it says.
-                held = window.IsHeld(Platform.PointerButton.Primary) ? held + delta : 0;
+                bool down = window.IsHeld(Platform.PointerButton.Primary);
+
+                if (!down)
+                {
+                    spent = false;
+                }
+
+                held = down && !spent ? held + delta : 0;
 
                 if (window.WasPressed(Platform.EditKey.Escape) ||
                     window.WasPressed(Platform.EditKey.Enter) ||
                     held >= HoldToSkip)
                 {
                     movies.Stop();
+
                     skipped = true;
+                    spent = down;
+                    held = 0;
                 }
                 else
                 {
@@ -2160,10 +2276,16 @@ public static class Application
                 Console.Error.WriteLine(diagnostic);
             }
 
-            if (skipped || window.IsClosing)
+            if (window.IsClosing)
             {
-                Console.WriteLine("Intro: skipped");
                 return;
+            }
+
+            if (skipped)
+            {
+                // Said, but not obeyed for the rest of them: the next film is a different
+                // thing to have decided about.
+                Console.WriteLine($"Intro: {name} skipped");
             }
         }
     }

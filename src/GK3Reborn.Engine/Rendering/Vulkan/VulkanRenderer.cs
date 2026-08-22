@@ -615,6 +615,39 @@ public sealed unsafe class VulkanRenderer : IDisposable
     public void SetBackdrop(Formats.Bitmaps.DecodedImage? picture) =>
         SetMovieFrame(picture, cover: true);
 
+    /// <summary>Sets the picture behind the menu, from blocks.</summary>
+    /// <param name="picture">The compressed image.</param>
+    /// <remarks>
+    /// What a shipped game has: the title screen comes out of a pack in the same form as
+    /// every other texture, and nothing on the way here decompresses it.
+    /// </remarks>
+    public void SetBackdrop(Formats.Bitmaps.CompressedImage picture)
+    {
+        if (_movie is null)
+        {
+            if (_context is null || _shaderCompiler is null)
+            {
+                return;
+            }
+
+            try
+            {
+                _movie = MoviePipeline.Create(_context, _shaderCompiler, _format);
+            }
+            catch (VulkanException error)
+            {
+                Console.Error.WriteLine(
+                    "WARNING GK3R3420: The movie pipeline could not be built, so the menu "
+                    + "has no picture behind it. (" + error.Message + ")");
+
+                return;
+            }
+        }
+
+        _movie.Cover = true;
+        _movie.SetPicture(picture);
+    }
+
     /// <summary>Sets what the interface looks like this frame.</summary>
     /// <param name="overlay">The display list, or null to draw nothing over the room.</param>
     public void SetOverlay(Overlay? overlay)

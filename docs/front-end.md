@@ -17,12 +17,29 @@ filled to the window. The rows over it are still drawn: `Intro`, `Play`, `Restor
 `Settings`, `Quit` — the original's own five, in its own order — in a slim panel down in the
 left-hand corner, clear of the lettering. The menu draws no heading of its own there,
 because the picture already says what the game is. `THEME.WAV`, the largest sound in the
-archives and played nowhere else, runs underneath on the music bus. A replacement for the
-picture in `enhanced/textures` is preferred if anybody makes one, exactly as for every other
-texture in the game.
+archives and played nowhere else, runs underneath on the music bus.
+
+It is looked for in three places, in the order somebody working on the picture would want
+them: `enhanced/textures/TITLE.PNG`, then the block-compressed build **or a pack**, then the
+original in the archives. A shipped game has only the last two, so the packed form is not an
+afterthought — it is the one that ships. The console line says which was used, because an
+upscale and the 640×480 original are indistinguishable on screen until somebody has actually
+done the upscale.
+
+**It fills the window without changing shape, and stops cropping before it cuts the
+lettering.** A 4:3 painting on a 16:9 display is covered outright — a third of its height
+goes, which is the black bands it was drawn with and a little of the angel. Past a third it
+stops and lets bars appear instead, because an ultrawide display would otherwise crop until
+the game's own name ran off the bottom. `MoviePipeline.Fit` is the whole of that rule and is
+tested against every shape of picture and window that turns up.
 
 **No page says which keys work.** A menu that explains what an arrow key does is a menu that
 thinks the player has not used one.
+
+**The menu grows with the window**, measured every frame rather than at the size it was laid
+out for: a row is about a twenty-second of the window's height. Captions are sized to be
+readable without covering the room; a menu is the only thing on screen, and one drawn at
+caption size on a large display reads as a dialogue box from another decade.
 
 ## What it is made of
 
@@ -94,16 +111,20 @@ Run the game with nothing in particular asked for and it plays `SIERRA` and `INT
 shows the menu, then opens in `R25` at `110A` — Gabriel's room at the hotel, where the
 story begins.
 
-Skipping the intro is Enter, Escape, or the left button **held** for half a second — not a
-click. A click is what somebody does by accident while the machine is still settling down,
-and losing the opening of the game to a stray mouse is worse than holding a button for a
-moment. The way out is written along the bottom for the first few seconds of each film, and
-holding fills a bar, because a hold with nothing on screen is indistinguishable from a hold
-that is not working. Skipping ends the whole sequence rather than the film showing:
-somebody who has seen it means they have seen it.
+Skipping is Enter, Escape, or the left button **held** for half a second — not a click. A
+click is what somebody does by accident while the machine is still settling down, and losing
+the opening of the game to a stray mouse is worse than holding a button for a moment. The
+way out is written along the bottom for the first few seconds of each film, and holding
+fills a bar, because a hold with nothing on screen is indistinguishable from a hold that is
+not working.
 
-Choosing `Intro` plays the films again and comes back to the menu, with the theme stopped
-while they run. Escape in the room opens the same pages with the room still behind them,
+**Skipping ends the film showing, not the sequence.** The publisher's logo and the intro are
+two different things to sit through, and somebody who skips the first has said nothing about
+whether they want to watch the second — so a cold start is two skips. The button has to be
+let go between them, or one long press would take both.
+
+Choosing `Intro` plays **the intro** and comes back to the menu — not the logo, because
+somebody who asked for the intro asked for the intro. The theme stops while it runs. Escape in the room opens the same pages with the room still behind them,
 dimmed — and no title art, so those pages keep their headings. Nothing of
 the room advances while it is up, which is what pausing means. From a settings page,
 Escape goes back one level; from the top of the menu it resumes. It does **not** leave the
