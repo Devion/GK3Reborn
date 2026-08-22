@@ -342,9 +342,6 @@ public sealed class GameHud
         Overlay.Rect(0, 0, width, height, Panel);
         Overlay.Rect(0, height - 1, width, 1, Rule);
         Overlay.Text(state.Place, 12 * unit, 5 * unit, Dim);
-
-        string hint = "right-click for everything it answers to";
-        Overlay.Text(hint, width - Overlay.Measure(hint) - (12 * unit), 5 * unit, Dim);
     }
 
     /// <summary>
@@ -463,13 +460,9 @@ public sealed class GameHud
         Overlay.Rect(0, y, width, h, Panel);
         Overlay.Rect(0, y, width, 1, Rule);
 
-        string label = state.Inventory.Count == 0
-            ? "carrying nothing"
-            : string.Create(CultureInfo.InvariantCulture, $"carrying {state.Inventory.Count}");
-
-        Overlay.Text(label, 12 * unit, y + (7 * unit), Dim);
-
-        float x = Overlay.Measure(label) + (28 * unit);
+        // No count and no "carrying nothing": the row of items says both, and an empty
+        // row says the empty case better than a sentence about it does.
+        float x = 12 * unit;
 
         foreach (string item in state.Inventory)
         {

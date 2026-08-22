@@ -96,11 +96,29 @@ public sealed class OverlayAtlas
     /// <summary>Texture coordinates of a character.</summary>
     /// <param name="glyph">Where it is in the font's sheet.</param>
     /// <returns>Left, top, width and height, in texture coordinates.</returns>
-    public Vector4 Uv(Glyph glyph) => new(
-        (float)glyph.X / Image.Width,
-        (float)glyph.Y / Image.Height,
-        (float)glyph.Width / Image.Width,
-        (float)glyph.Height / Image.Height);
+    /// <remarks>
+    /// <b>Half a texel in on every side.</b> A glyph's rectangle runs from one pixel below
+    /// its row's marker strip to the top of the next row's, with nothing between them, and
+    /// the sampler filters linearly — so a sample taken at the glyph's very edge reaches
+    /// half a texel past it and brings a quarter of a marker strip back with it. That drew
+    /// a dotted line over and under every line of text, invisible at the size the layout
+    /// was authored at and plain at the sizes where a sheet pixel covers two screen ones.
+    ///
+    /// Insetting rather than switching the sampler to nearest: the caption sheets are
+    /// antialiased grey rather than hard-edged, and filtering them is what makes a doubled
+    /// one read as a larger version of itself instead of as a magnified bitmap.
+    /// </remarks>
+    public Vector4 Uv(Glyph glyph)
+    {
+        // Never past the middle: a one-pixel glyph has no interior to inset into.
+        float inset = MathF.Min(0.5f, MathF.Min(glyph.Width, glyph.Height) * 0.25f);
+
+        return new(
+            (glyph.X + inset) / Image.Width,
+            (glyph.Y + inset) / Image.Height,
+            (glyph.Width - (2f * inset)) / Image.Width,
+            (glyph.Height - (2f * inset)) / Image.Height);
+    }
 }
 
 /// <summary>

@@ -4,7 +4,56 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. The Eglise/Church sign reads wrong on RC1's signpost
+## 1. A dotted line runs above and below drawn text at large scales
+
+**Reported:** 2026-08-22, with a screenshot. Faint dots along the top and the bottom of the
+caption band, reading as part of a border. Hardly visible over a dark surface and plain
+over a light one.
+
+A bitmap font sheet stacks its rows, and half a texel above a letter is the marker strip
+that says where the next row's letters begin. Rounding text to whole pixels closed this
+once, at one size. It is back at the sizes where each sheet pixel is drawn as two or more,
+which is what the caption ladder does past about 1,600 lines.
+
+Reproduce: run at a high resolution and look at the inventory bar.
+
+## 2. NPCs offer Talk as well as Chat and Ask about
+
+**Reported:** 2026-08-22. Right-clicking a character lists `Chat`, `Talk` and
+`Ask about...`. Talk looks like the heading the other two sit under rather than a verb of
+its own.
+
+Needs checking against the game's own action files before anything is hidden: if the
+originals give a character a TALK rule as well as CHAT and TOPIC ones, the verb is real and
+the question is what it does.
+
+## 3. The interface says things the player does not need told
+
+**Reported:** 2026-08-22. `right-click for everything it answers to` is a hint that has
+done its work, and `carrying nothing` states something that is obvious the moment anybody
+picks anything up.
+
+## 4. Inspecting the register does nothing
+
+**Reported:** 2026-08-22. The verb is offered and produces no result. Probably an action
+whose script is not performed rather than one that is missing; needs `render-scene --do`
+against that noun to say which.
+
+## 5. Pour coffee plays before Gabriel gets to the table
+
+**Reported:** 2026-08-22, in the hotel dining room. The animation starts at once instead of
+after the walk.
+
+An action's approach is not part of its script, and the approach is supposed to finish
+before the script runs. Either this action's approach is not being found, or its script is
+being run without waiting for it.
+
+## 6. Scene music cuts rather than crossfading (feature)
+
+**Reported:** 2026-08-22. Moving between rooms should fade one room's music into the next
+rather than stopping one and starting the other.
+
+## 7. The Eglise/Church sign reads wrong on RC1's signpost
 
 **Reported:** 2026-08-21. **Cause found; the fix is content, not code.**
 
@@ -39,7 +88,7 @@ image) scored a median of 11.4% across all 7,462 enhanced textures and did not p
 in its top twenty-five, so the check has to be about the background region specifically
 rather than about the picture as a whole.
 
-## 2. HDR output (feature)
+## 8. HDR output (feature)
 
 **Requested:** 2026-08-19.
 
