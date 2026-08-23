@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -29,6 +29,12 @@ namespace GK3Reborn.UI;
 /// </param>
 /// <param name="Panorama">What the binoculars can see from here, when they are up.</param>
 /// <param name="Aim">Where the camera is looking, in degrees: heading, then pitch.</param>
+/// <param name="Verbs">
+/// What can be done to whatever the screen is about. Only the close-up of one thing uses
+/// it, and it is what makes the inventory worth opening: 619 of the game's actions are
+/// written about an item rather than about the room, and every one of them is guarded by
+/// a case that asks whether the inventory is what the player is looking at.
+/// </param>
 public readonly record struct ScreenView(
     Screen Screen,
     IReadOnlyList<string> Inventory,
@@ -40,7 +46,8 @@ public readonly record struct ScreenView(
     IReadOnlyList<DrivingStop>? Stops = null,
     Func<string, int>? Pictures = null,
     Panorama? Panorama = null,
-    Vector2 Aim = default);
+    Vector2 Aim = default,
+    IReadOnlyList<string>? Verbs = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -287,17 +294,59 @@ public sealed class ScreenPainter
             Dim);
     }
 
-    /// <summary>One thing, close up.</summary>
+    /// <summary>
+    /// One thing, close up, and what can be done to it.
+    /// </summary>
+    /// <remarks>
+    /// The verbs are the point. An item's own actions — look at it, think about it, read
+    /// it, scan it into Sidney — are written in <c>INV_ALL.NVC</c> and every one of them is
+    /// guarded by <c>ALL_INV</c>, which asks whether the inventory is on top. So this is
+    /// the only place they can be reached, and a close-up with nothing on it but the item's
+    /// name was a screen with 619 actions behind it and no way to any of them.
+    /// </remarks>
     private void Inspect(ScreenView view, Vector4 body, float top, float unit)
     {
         string subject = view.Screen.Subject ?? view.Held ?? string.Empty;
 
         Overlay.Text(Pretty(subject), body.X + (20 * unit), top, Ink);
 
+        float y = top + (Overlay.LineHeight * 2);
+
+        if (view.Verbs is not { Count: > 0 } verbs)
+        {
+            Overlay.Text(
+                "Nothing to do with it here. Right-click in the room to use it on something.",
+                body.X + (20 * unit),
+                y,
+                Dim);
+
+            return;
+        }
+
+        float row = Overlay.LineHeight + (12 * unit);
+        float width = Math.Min(body.Z - (40 * unit), 320f * unit);
+
+        foreach (string verb in verbs)
+        {
+            if (y + row > body.Y + body.W - row)
+            {
+                break;
+            }
+
+            var bounds = new Vector4(body.X + (16 * unit), y, width, row);
+
+            Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, Panel);
+            Overlay.Rect(bounds.X, bounds.Y, 2 * unit, bounds.W, Rule);
+            Overlay.Text(Pretty(verb), bounds.X + (12 * unit), y + (6 * unit), Ink);
+
+            _hits.Add(("verb:" + verb, bounds));
+            y += row + (4 * unit);
+        }
+
         Overlay.Text(
-            "Right-click in the room to do something with it.",
+            "Right-click in the room to use it on something.",
             body.X + (20 * unit),
-            top + (Overlay.LineHeight * 2),
+            body.Y + body.W - Overlay.LineHeight - (12 * unit),
             Dim);
     }
 

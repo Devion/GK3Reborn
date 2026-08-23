@@ -86,9 +86,33 @@ a hotspot is not a puzzle, and neither is guessing which icon means "look".
 noun as its heading, not a ring of icons whose meanings have to be learned. The row under
 the pointer is lit; clicking it performs that verb, clicking anywhere else dismisses it.
 
+**Inspect and its undo are on the list, and neither is in the data.** Both verbs are in
+`VERBS.TXT` and no action file names `INSPECT_UNDO` at all: the original adds one or the
+other to the bar itself, whichever the thing under the pointer is not already being looked
+at closely (`Scene::OnClicked`). Without the undo there is no way back out of a close-up,
+and a close-up outlives the room it was of.
+
+**A numbered exit is called after the place it leads to.** RC1's ways out are `EXIT`,
+`EXIT1` to `EXIT5`, in no order anybody could infer. The rule behind the door says where it
+goes — `SetLocation("rc3")` — and `ESTRINGS.TXT` says what that place is called, so the
+label reads "Rennes-le-Château: Outside Church". Same file, same reason, for the corner of
+the screen: "Hotel Lobby - Day 1, 10am - 12pm" rather than `LBY - 110A`.
+
 **The inventory is a strip along the bottom that never goes away.** The original put it
 behind a mode change, so checking what you were carrying cost you the sight of the room you
-were carrying it in.
+were carrying it in. Clicking a slot takes the thing in hand; clicking it again opens it
+close up, which is where its own verbs are — look at it, think about it, read it, scan it
+into Sidney. All 619 of those live in `INV_ALL.NVC` behind cases that ask whether the
+inventory is what the player is looking at, so the close-up is the only place they can be
+reached.
+
+**Using an item on something is one row of the menu.** An action file writes it as a rule
+whose verb is the item's name — `BUTHANE, WALLET, MET_BUTHANE` — which is indistinguishable
+from an ordinary verb without `VERBS.TXT` to say which is which. Listed flat they read as
+the same kind of thing, and late in the game there are thirty items against three real
+verbs, so they go behind one **Use...** row that opens a column of its own. Only the things
+actually carried appear there: offering every item on every noun is offering the player each
+puzzle's solution as a menu entry from the first room.
 
 **Captions are shown for every spoken line**, with the speaker above them, read out of the
 `[GK3]` section of the animation that carries the audio.

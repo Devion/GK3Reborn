@@ -27,6 +27,12 @@ namespace GK3Reborn.UI;
 /// <param name="InventoryOpen">Whether the inventory is showing.</param>
 /// <param name="Place">Where this is, for the corner.</param>
 /// <param name="Console">The developer console, when it is showing.</param>
+/// <param name="Items">
+/// The things in the bag this noun answers to, which the menu offers behind one row rather
+/// than listing beside the verbs. An action file writes "use the wallet on Buthane" as a
+/// rule whose verb is <c>WALLET</c>, so without somewhere to put them the menu is a list of
+/// verbs with a player's whole inventory shuffled into it in no particular order.
+/// </param>
 public readonly record struct HudState(
     string? Noun,
     IReadOnlyList<string> Verbs,
@@ -41,7 +47,8 @@ public readonly record struct HudState(
     string? Held,
     bool InventoryOpen,
     string Place,
-    GameConsole? Console = null);
+    GameConsole? Console = null,
+    IReadOnlyList<string>? Items = null);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -315,6 +322,51 @@ public sealed class GameHud
         return -1;
     }
 
+    /// <summary>What the row at an index is, or null when there is no such row.</summary>
+    /// <param name="index">Which row.</param>
+    /// <returns>Its verb, its item, or <see cref="UseRow"/>.</returns>
+    /// <remarks>
+    /// The menu is no longer one row per verb: it carries a row that opens the bag and a
+    /// row for each thing in it. So what a row means has to be asked rather than looked up
+    /// by position in the verb list, which was only ever right while the two agreed.
+    /// </remarks>
+    public string? RowNamed(int index) =>
+        index >= 0 && index < _rows.Count ? _rows[index].Verb : null;
+
+    /// <summary>How many rows the menu is showing.</summary>
+    public int RowCount => _rows.Count;
+
+    /// <summary>The middle of a menu row, in pixels.</summary>
+    /// <param name="index">Which row.</param>
+    /// <returns>Its centre, or the origin when there is no such row.</returns>
+    /// <remarks>
+    /// So that "what was drawn" and "what answers to a click" can be checked against one
+    /// another without a mouse. Nothing in the game calls it.
+    /// </remarks>
+    public Vector2 RowMiddle(int index) =>
+        index >= 0 && index < _rows.Count ? Middle(_rows[index].Bounds) : Vector2.Zero;
+
+    /// <summary>The middle of an inventory slot, in pixels.</summary>
+    /// <param name="item">The item it holds.</param>
+    /// <returns>Its centre, or the origin when the strip is not showing it.</returns>
+    public Vector2 SlotMiddle(string item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        foreach ((string held, Vector4 bounds) in _slots)
+        {
+            if (held.Equals(item, StringComparison.OrdinalIgnoreCase))
+            {
+                return Middle(bounds);
+            }
+        }
+
+        return Vector2.Zero;
+    }
+
+    private static Vector2 Middle(Vector4 bounds) =>
+        new(bounds.X + (bounds.Z / 2f), bounds.Y + (bounds.W / 2f));
+
     /// <summary>Whether a point is on the interface rather than on the room behind it.</summary>
     /// <param name="point">Where the player clicked, in pixels.</param>
     /// <returns>True when the interface is what was clicked.</returns>
@@ -427,16 +479,29 @@ public sealed class GameHud
         string heading = Pretty(state.Noun ?? string.Empty);
         float w = Overlay.Measure(heading);
 
-        foreach (string verb in state.Verbs)
+        // The verbs, and then one row standing for everything in the bag that this noun
+        // answers to. Those are items rather than verbs and there can be thirty of them, so
+        // they go in a column of their own that opens when the row is selected.
+        IReadOnlyList<string> items = state.Items ?? [];
+        List<string> rows = [.. state.Verbs];
+
+        if (items.Count > 0)
         {
-            w = Math.Max(w, Overlay.Measure(Pretty(verb)));
+            rows.Add(UseRow);
+        }
+
+        bool opening = items.Count > 0 && state.MenuIndex >= rows.Count - 1;
+
+        foreach (string verb in rows)
+        {
+            w = Math.Max(w, Overlay.Measure(Label(verb)));
         }
 
         // The same padding either side of whatever turned out to be widest.
         w += padding * 2;
 
         float title = Overlay.LineHeight + (8f * unit);
-        float h = title + (row * state.Verbs.Count) + padding;
+        float h = title + (row * rows.Count) + padding;
         float x = Math.Clamp(state.MenuAt.X, 0, Math.Max(0, width - w));
         float y = Math.Clamp(state.MenuAt.Y, 0, Math.Max(0, height - h));
 
@@ -444,7 +509,7 @@ public sealed class GameHud
         Overlay.Text(heading, x + padding, y + (4 * unit), Accent);
         Overlay.Rect(x, y + title, w, 1, Rule);
 
-        for (int i = 0; i < state.Verbs.Count; i++)
+        for (int i = 0; i < rows.Count; i++)
         {
             float top = y + title + (row * i);
             var bounds = new Vector4(x, top, w, row);
@@ -458,10 +523,61 @@ public sealed class GameHud
             }
 
             Overlay.Text(
-                Pretty(state.Verbs[i]), x + padding, top + (4 * unit), chosen ? Accent : Ink);
-            _rows.Add((state.Verbs[i], bounds));
+                Label(rows[i]), x + padding, top + (4 * unit), chosen ? Accent : Ink);
+            _rows.Add((rows[i], bounds));
+        }
+
+        if (!opening)
+        {
+            return;
+        }
+
+        // The second column, beside the first rather than over it, so the row that opened
+        // it stays visible and the player can see what they are choosing between.
+        float itemWidth = padding * 2;
+
+        foreach (string item in items)
+        {
+            itemWidth = Math.Max(itemWidth, Overlay.Measure(Pretty(item)) + (padding * 2));
+        }
+
+        float itemHeight = (row * items.Count) + padding;
+        float itemX = Math.Clamp(x + w + (2 * unit), 0, Math.Max(0, width - itemWidth));
+        float itemY = Math.Clamp(
+            y + title + (row * (rows.Count - 1)), 0, Math.Max(0, height - itemHeight));
+
+        Overlay.Rect(itemX, itemY, itemWidth, itemHeight, PanelLit);
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            float top = itemY + (row * i);
+            var bounds = new Vector4(itemX, top, itemWidth, row);
+
+            bool chosen = rows.Count + i == state.MenuIndex;
+
+            if (chosen)
+            {
+                Overlay.Rect(itemX, top, itemWidth, row, new Vector4(0.28f, 0.31f, 0.37f, 1f));
+                Overlay.Rect(itemX, top, 2 * unit, row, Accent);
+            }
+
+            Overlay.Text(
+                Pretty(items[i]), itemX + padding, top + (4 * unit), chosen ? Accent : Ink);
+
+            _rows.Add((items[i], bounds));
         }
     }
+
+    /// <summary>The row that stands for "use something on this".</summary>
+    /// <remarks>
+    /// A sentinel rather than a verb, because no verb in the game is spelt with a control
+    /// character and this one must never be mistaken for something the player can perform.
+    /// </remarks>
+    public const string UseRow = "\u0001use";
+
+    /// <summary>What a menu row reads as.</summary>
+    private static string Label(string verb) =>
+        verb == UseRow ? "Use..." : Pretty(verb);
 
     /// <summary>
     /// The strip along the bottom.
@@ -600,6 +716,16 @@ public sealed class GameHud
         }
 
         string text = name.Replace('_', ' ').Trim();
+
+        // Something already written for a person to read is left exactly as it is. The
+        // nouns and verbs in the data are shouted — FRONT_DOOR, GO_UP — and want title
+        // case; a name out of the game's own string table is not, and recasing
+        // "Rennes-le-Chateau: Outside Church" gives it a lower-case C in the middle of a
+        // place name.
+        if (text.Any(char.IsLower))
+        {
+            return text;
+        }
 
         // A topic is a thing to talk about rather than a thing to do.
         if (text.StartsWith("T ", StringComparison.OrdinalIgnoreCase) && text.Length > 2)

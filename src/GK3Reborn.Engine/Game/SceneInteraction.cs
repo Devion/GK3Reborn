@@ -8,13 +8,23 @@ namespace GK3Reborn.Game;
 /// <summary>What the pointer is over and what can be done to it.</summary>
 /// <param name="Pick">The thing itself, or null when the pointer is over nothing.</param>
 /// <param name="Actions">The verbs it answers to, here and now, most likely first.</param>
-public readonly record struct Hover(ScenePick? Pick, IReadOnlyList<AvailableAction> Actions)
+/// <param name="Called">
+/// What to call it on screen, when that is not its noun. Only the exits use it, and they
+/// need it: the artists numbered RC1's ways out <c>EXIT</c>, <c>EXIT1</c> to <c>EXIT5</c>,
+/// in no order anybody could infer, and the interface was drawing "Exit3" at a player who
+/// has no way of knowing what three means.
+/// </param>
+public readonly record struct Hover(
+    ScenePick? Pick, IReadOnlyList<AvailableAction> Actions, string? Called = null)
 {
     /// <summary>Nothing under the pointer.</summary>
     public static Hover Nothing => new(null, []);
 
     /// <summary>What the scene calls the thing, or null.</summary>
     public string? Noun => Pick?.Noun;
+
+    /// <summary>What to show the player, which is the noun unless something better is known.</summary>
+    public string? Label => Called is { Length: > 0 } named ? named : Noun;
 
     /// <summary>Whether there is anything to do.</summary>
     public bool Actionable => Noun is { Length: > 0 } && Actions.Count > 0;
@@ -56,6 +66,7 @@ public sealed class SceneInteraction
     private readonly ScenePicker _picker;
     private readonly ActionResolver? _actions;
     private readonly ActionRunner _runner;
+    private readonly Gk3SheepApi _api;
     private readonly string? _floor;
 
     /// <summary>Creates the interaction over a loaded scene.</summary>
@@ -70,6 +81,7 @@ public sealed class SceneInteraction
         _picker = new ScenePicker(scene) { Blocked = api.State.BlockedHitTests };
         _actions = scene.Actions;
         _runner = new ActionRunner(api);
+        _api = api;
         _floor = scene.Definition.FloorObject();
     }
 
@@ -97,8 +109,114 @@ public sealed class SceneInteraction
             return new Hover(pick, []);
         }
 
-        return new Hover(pick, _actions.Resolve(noun));
+        IReadOnlyList<AvailableAction> offered =
+            WithInspect(noun, _actions.Resolve(noun, _api.State.Ego, Carrying));
+
+        return new Hover(pick, offered, Called(noun, pick, offered));
     }
+
+    /// <summary>The verb that looks closely at something, and the one that stops.</summary>
+    private const string Inspect = "INSPECT";
+
+    /// <summary>Stops looking closely at something.</summary>
+    private const string Undo = "INSPECT_UNDO";
+
+    /// <summary>
+    /// Adds the close-up verb to what a thing answers to, and the way back out of it.
+    /// </summary>
+    /// <param name="noun">The thing under the pointer.</param>
+    /// <param name="offered">What the action files say about it.</param>
+    /// <returns>The same list, with at most one of the two close-up verbs on the front.</returns>
+    /// <remarks>
+    /// <para>
+    /// Both verbs are in <c>VERBS.TXT</c> and neither is in the action files: 40 rules in
+    /// the corpus name <c>INSPECT</c> and none names <c>INSPECT_UNDO</c>, because the
+    /// original engine put both on the bar itself rather than reading them —
+    /// <c>Scene::OnClicked</c> adds one or the other to every noun it shows a bar for.
+    /// </para>
+    /// <para>
+    /// <b>The way out is the part that was missing.</b> Inspecting the register moved the
+    /// view to a close-up of it and nothing could move it back: not walking away, not
+    /// clicking elsewhere, and not leaving the room, so the phone room and every room after
+    /// it opened pointing at a register that was not in them.
+    /// </para>
+    /// </remarks>
+    private List<AvailableAction> WithInspect(
+        string noun, IReadOnlyList<AvailableAction> offered)
+    {
+        bool looking = _api.State.Inspecting.Equals(noun, StringComparison.OrdinalIgnoreCase);
+
+        List<AvailableAction> all =
+            [.. offered.Where(a =>
+                !a.LocalizedVerb.Equals(looking ? Inspect : Undo, StringComparison.OrdinalIgnoreCase))];
+
+        string verb = looking ? Undo : Inspect;
+
+        if (all.Exists(a => a.LocalizedVerb.Equals(verb, StringComparison.OrdinalIgnoreCase)))
+        {
+            return all;
+        }
+
+        all.Insert(0, new AvailableAction
+        {
+            ActionId = $"{noun}:{verb}",
+            NvcProvenance = "the engine",
+            LocalizedVerb = verb,
+            IconSemantic = "eye",
+            Category = ActionCategory.Inspect,
+            Enabled = true,
+        });
+
+        return all;
+    }
+
+    /// <summary>
+    /// What the player has to use on things.
+    /// </summary>
+    /// <remarks>
+    /// An action file writes "use the wallet on Buthane" as a rule whose verb is
+    /// <c>WALLET</c>, so an item in the bag is a verb the world answers to and an item that
+    /// is not is a verb nobody may choose. Offering all of them regardless is offering the
+    /// player every puzzle's solution as a menu item from the first room.
+    /// </remarks>
+    private IReadOnlyCollection<string> Carrying => _api.State.Inventory.ItemsOf(_api.State.Ego);
+
+    /// <summary>
+    /// What to call a thing whose noun is not worth showing.
+    /// </summary>
+    /// <param name="noun">What the scene calls it.</param>
+    /// <param name="pick">The thing itself, for the default verb its model declares.</param>
+    /// <param name="offered">What it answers to, for when the model declares no verb.</param>
+    /// <returns>A better name, or null to use the noun.</returns>
+    /// <remarks>
+    /// Only the numbered exits, and the name comes out of the game's own data: the rule
+    /// behind the door says where it goes and <see cref="GameStrings.ExitName"/> turns that
+    /// into what the place is called.
+    /// </remarks>
+    private string? Called(string noun, ScenePick pick, IReadOnlyList<AvailableAction> offered)
+    {
+        if (!GameStrings.IsNumberedExit(noun) || _actions is null)
+        {
+            return null;
+        }
+
+        string? verb = pick.Verb is { Length: > 0 } named
+            ? named
+            : offered.Count > 0 ? offered[0].LocalizedVerb : null;
+
+        return Strings.ExitName(
+            verb is { Length: > 0 } chosen
+                ? _actions.Find(noun, chosen, _api.State.Ego)?.Script
+                : null);
+    }
+
+    /// <summary>What the game's own names for things are, when anything read them.</summary>
+    /// <remarks>
+    /// Settable rather than read here, because the archives belong to the launcher and this
+    /// is built per room. Left alone it knows nothing and every numbered exit is called
+    /// "Exit", which is still better than a number.
+    /// </remarks>
+    public GameStrings Strings { get; set; } = GameStrings.None;
 
     /// <summary>Does something to what is under the pointer.</summary>
     /// <param name="hover">What was under it, from <see cref="At"/>.</param>
@@ -120,8 +238,27 @@ public sealed class SceneInteraction
             return null;
         }
 
-        if (_actions.Find(noun, chosen) is not { } rule)
+        // The two close-up verbs are the engine's own and no file writes them down, so
+        // they are performed here — as the original does, by running a script it makes up
+        // on the spot. A file that does declare INSPECT still wins: 40 rules do, and some
+        // of them do more than move the camera.
+        if (_actions.Find(noun, chosen, _api.State.Ego) is not { } rule)
         {
+            if (chosen.Equals(Inspect, StringComparison.OrdinalIgnoreCase))
+            {
+                _api.ActingOn = noun;
+                _api.State.Inspecting = noun;
+
+                return Last = new ActionOutcome(noun, chosen, "ALL", [], Ran: true);
+            }
+
+            if (chosen.Equals(Undo, StringComparison.OrdinalIgnoreCase))
+            {
+                _api.State.Inspecting = string.Empty;
+
+                return Last = new ActionOutcome(noun, chosen, "ALL", [], Ran: true);
+            }
+
             return null;
         }
 

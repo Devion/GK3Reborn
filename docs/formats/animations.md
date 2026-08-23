@@ -35,8 +35,13 @@ that happen on a frame, opening with how many of them there are.
 | `[GK3]` | `<frame>,LIPSYNCH,<noun>,MOUTH03` | Put a mouth shape on somebody |
 | `[GK3]` | `<frame>,FACETEX,<noun>,<bitmap>,<part>` | Paint a bitmap over a region of a face |
 | `[GK3]` | `<frame>,UNFACETEX,<noun>,<part>` | Take it off again |
+| `[MVISIBILITY]` | `<frame>,<model>,<on\|off>` | Draw a model from this frame on, or stop |
+| `[MVISIBILITY]` | `<frame>,<model>,<mesh>,<submesh>,<on\|off>` | The same for one part of it |
 | `[MTEXTURES]` | `<frame>,<model>,<mesh>,<submesh>,<texture>` | Swap a model's texture; read, not applied |
-| `[OPTIONS]` | | Present on 139 files; not read |
+| `[OPTIONS]` | `<frame>,FRAMERATE,<n>` | Run at this rate rather than fifteen |
+| `[OPTIONS]` | `<frame>,SIMPLE,<n>` / `<frame>,NOINTERPOLATE` | Read past; neither changes what happens |
+| `[STEXTURES]` | | 78 files; scene textures, not read |
+| `[MORPHS]` | | 7 files; not read |
 
 A caption is a sentence and contains commas, so everything past the fourth field belongs to
 the caption rather than being further fields. Section counts are ignored in favour of the
@@ -46,6 +51,23 @@ is wrong.
 `SPEAKER`/`CAPTION` is 7,380 of the game's lines and `SpeakerCaption` only 211, in the long
 cutscenes — a reader that handles only the documented-looking one understands three percent
 of the dialogue.
+
+**`[MVISIBILITY]` is how somebody who is not in the room walks into it.** 208 animations
+carry one. `EmlRc1ExitLobby` is the plain case: two `[ACTIONS]` lines swing the hotel door
+and move Emilio, two `[SOUNDS]` cues make the door's noise, and `0,eml,on` is the only thing
+in the file that says he is there at all. Reading everything except that line gives a door
+that opens by itself, with a sound, and nobody behind it — which is what it did.
+
+Frame zero is applied the moment the animation starts rather than a tick later, because a
+change on the opening frame states what is true while the animation runs; waiting shows one
+frame of the old state, and for a character being brought into the room that is one frame of
+them standing at the origin.
+
+**A frame rate is per animation.** Fifteen unless an `[OPTIONS]` line says otherwise, which
+thirty of them do — from 5 to 580. The option carries a frame number, so in principle the
+rate may change part-way through; one animation in the game does that and nothing appears to
+play it, so the last rate named wins for the whole clip, as the reference also does. The rate
+governs the vertex clips the animation starts as well as its own schedule.
 
 The face nodes are the largest thing in the section by a long way: 98,410 `LIPSYNCH` and
 1,268 `FACETEX`/`UNFACETEX`. They are what makes a mouth move while a line plays and what

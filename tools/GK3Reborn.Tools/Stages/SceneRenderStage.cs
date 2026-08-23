@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats;
@@ -171,6 +171,12 @@ public sealed class SceneRenderStage
         {
             return false;
         }
+
+        // The pose the scene states everything opens in. An init anim takes no time — it
+        // says where a door rests and how a person is sitting — so unlike anything else
+        // this tool leaves out, it belongs in a single frame. Without it Emilio's chair is
+        // empty and RC1's copy of the hotel door hangs in its bind pose.
+        PoseOpening(archives, scene, geometry, diagnostics);
 
         // Before anything that draws the world, so that what an action changed - a van
         // moved into the road, a region shut off - is in the picture rather than behind it.
@@ -683,6 +689,38 @@ public sealed class SceneRenderStage
         {
             _log($"  nothing can be done to: {string.Join(", ", unknown.Take(12))}" +
                  (unknown.Count > 12 ? $", and {unknown.Count - 12} more" : string.Empty));
+        }
+    }
+
+    /// <summary>
+    /// Puts everything the scene gives an opening pose into it.
+    /// </summary>
+    /// <remarks>
+    /// The same call the launcher makes, with the same two libraries behind it. A
+    /// <see cref="SceneUpdate"/> is built and thrown away: nothing here advances it, so
+    /// none of what it can do that takes time happens, and the one thing that takes no
+    /// time does.
+    /// </remarks>
+    private void PoseOpening(
+        GameArchives archives, LoadedScene scene, SceneGeometry geometry, DiagnosticBag diagnostics)
+    {
+        var api = new Gk3SheepApi(new GameState());
+        var update = new SceneUpdate(scene, api, new Game.Actors.Glances(), geometry)
+        {
+            Clips = new ClipLibrary(archives),
+            Animations = new AnimationLibrary(archives),
+        };
+
+        int posed = update.Open();
+
+        if (posed > 0)
+        {
+            _log($"opening pose: {posed} clip(s) sampled");
+        }
+
+        foreach (Diagnostic problem in update.Diagnostics.Items)
+        {
+            diagnostics.Add(problem);
         }
     }
 

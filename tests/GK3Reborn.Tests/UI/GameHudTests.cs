@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Ui;
 using GK3Reborn.Foundation.Diagnostics;
@@ -53,10 +53,12 @@ public sealed class GameHudTests
         Vector2 at = default,
         Vector2? menuAt = null,
         int index = 0,
-        string? caption = null) =>
+        string? caption = null,
+        IReadOnlyList<string>? items = null,
+        IReadOnlyList<string>? carrying = null) =>
         new(noun, verbs ?? ["LOOK", "OPEN"], "LOOK", at, menu, index, menuAt ?? at,
-            caption is null ? null : "GABRIEL", caption, [], null,
-            InventoryOpen: true, "R25 - 110A");
+            caption is null ? null : "GABRIEL", caption, carrying ?? [], null,
+            InventoryOpen: true, "R25 - 110A", null, items);
 
     [Fact]
     public void An_empty_room_still_draws_the_bars_that_are_always_there()
@@ -257,5 +259,91 @@ public sealed class GameHudTests
 
         // And padded rather than exactly the text's width, or the letters touch the edge.
         Assert.True(panel >= heading + 8, $"no padding: {panel} against {heading}");
+    }
+
+    [Fact]
+    public void The_menu_offers_the_bag_behind_one_row_rather_than_beside_the_verbs()
+    {
+        // An action file writes "use the wallet on Buthane" as a rule whose verb is
+        // WALLET, so an item and a verb are indistinguishable in the data. Listed flat
+        // they read as the same kind of thing, and late in the game there are thirty of
+        // them against three real verbs.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(noun: "BUTHANE", verbs: ["LOOK", "TALK"], menu: true, at: at,
+                  items: ["WALLET", "BINOCULARS"]),
+            800, 600);
+
+        Assert.Equal(3, hud.RowCount);
+        Assert.Equal("LOOK", hud.RowNamed(0));
+        Assert.Equal("TALK", hud.RowNamed(1));
+        Assert.Equal(GameHud.UseRow, hud.RowNamed(2));
+    }
+
+    [Fact]
+    public void Selecting_that_row_opens_the_things_in_it()
+    {
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(noun: "BUTHANE", verbs: ["LOOK", "TALK"], menu: true, at: at, index: 2,
+                  items: ["WALLET", "BINOCULARS"]),
+            800, 600);
+
+        Assert.Equal(5, hud.RowCount);
+        Assert.Equal("WALLET", hud.RowNamed(3));
+        Assert.Equal("BINOCULARS", hud.RowNamed(4));
+    }
+
+    [Fact]
+    public void An_item_row_can_be_clicked_where_it_was_drawn()
+    {
+        // The whole point of laying out and hit-testing in one pass. A second column that
+        // draws in one place and answers in another is worse than no second column.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(noun: "BUTHANE", verbs: ["LOOK"], menu: true, at: at, index: 1,
+                  items: ["WALLET"]),
+            800, 600);
+
+        int row = hud.RowCount - 1;
+
+        Assert.Equal("WALLET", hud.RowNamed(row));
+
+        // Its middle, found from where the hit test says it is.
+        Vector2 middle = hud.RowMiddle(row);
+
+        Assert.Equal(row, hud.RowAt(middle));
+    }
+
+    [Fact]
+    public void A_menu_with_nothing_to_use_has_no_row_for_it()
+    {
+        GameHud hud = Hud();
+
+        hud.Build(
+            State(noun: "DOOR", verbs: ["LOOK", "OPEN"], menu: true, at: new Vector2(10, 10)),
+            800, 600);
+
+        Assert.Equal(2, hud.RowCount);
+        Assert.Null(hud.RowNamed(2));
+    }
+
+    [Fact]
+    public void An_inventory_slot_can_be_clicked_where_it_was_drawn()
+    {
+        // It was drawn and never asked about: nothing called ItemAt, so the strip along the
+        // foot of the screen was a picture of an inventory rather than one.
+        GameHud hud = Hud();
+
+        hud.Build(State(carrying: ["WALLET", "BINOCULARS"]), 800, 600);
+
+        Assert.Equal("WALLET", hud.ItemAt(hud.SlotMiddle("WALLET")));
+        Assert.Equal("BINOCULARS", hud.ItemAt(hud.SlotMiddle("BINOCULARS")));
     }
 }

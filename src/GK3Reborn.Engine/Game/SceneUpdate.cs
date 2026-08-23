@@ -441,11 +441,22 @@ public sealed class SceneUpdate
             // The move flag is carried but not yet spent. Committing the ground a clip
             // covered means writing the actor's position, and Walker already owns that —
             // the two have to be reconciled before either may write it.
+            //
             // The original does this explicitly: starting a vertex animation on a
             // character cancels whatever walk was in progress. It is also what keeps the
             // model to one driver at a time.
-            _walking.Remove(clip.ModelName);
-            _walking.Remove(target.Name);
+            //
+            // <b>But not for a clip the model's own behaviour asked for.</b> The original
+            // exempts those by name — "we don't want to cancel the turn part of a walk due
+            // to a breathing anim", GKActor::StartAnimation — and without the exemption an
+            // idle firing mid-stride stopped the walk dead and then, being a clip that
+            // gives back the ground it covered, put the walker back where the idle started.
+            // That is what a player sees as their character resetting halfway across a room.
+            if (!fromBehaviour)
+            {
+                _walking.Remove(clip.ModelName);
+                _walking.Remove(target.Name);
+            }
 
             // Whatever the model does on its own waits until this is over.
             if (!fromBehaviour)
@@ -541,6 +552,7 @@ public sealed class SceneUpdate
             return 0;
         }
 
+        _posed.Clear();
         int posed = 0;
 
         foreach (PlacedModel model in _scene.Models)
@@ -552,15 +564,29 @@ public sealed class SceneUpdate
                 continue;
             }
 
-            // Whatever the pose says about what is drawn, before the pose itself. An
-            // opening animation may carry an [MVISIBILITY] line, and it means the same
-            // thing here as it does while one plays.
-            Reveal(animation.Visibility.Where(v => v.Frame <= 0));
+            // Whatever the pose says about what is drawn, before the pose itself — but
+            // only about this model, for the same reason the clips below are filtered.
+            Reveal(animation.Visibility
+                .Where(v => v.Frame <= 0 && Names(model, v.Model)));
 
             foreach (AnimationAction action in animation.Actions)
             {
                 if (Clips.Read(action.Name) is not { } clip ||
                     !_models.TryGetValue(clip.ModelName, out PlacedModel? target))
+                {
+                    continue;
+                }
+
+                // <b>Only the clip belonging to the model that declared the pose.</b> An
+                // animation is a schedule for as many models as it likes, and an opening
+                // pose is one model's statement about itself: the lobby's black marker
+                // opens with GabLbyGetMarker, which is a clip for the marker and a clip
+                // for Gabriel picking it up. Sampling both put the player at the front
+                // desk before the scene had begun, and then the room's own entry script
+                // moved him again — which is what a player sees as their character
+                // starting in the wrong place. The reference passes the model's name to
+                // Animator::Sample for exactly this.
+                if (!ReferenceEquals(target, model))
                 {
                     continue;
                 }
@@ -576,17 +602,30 @@ public sealed class SceneUpdate
 
                 pose.Open(_geometry);
 
-                // Where the pose leaves them is where they now are. An absolute opening
-                // animation is the only thing that says where several of the game's
-                // characters stand, and a walk that starts from the spot the scene never
-                // set would set off from the origin.
-                Follow(target.Name, pose.Carried);
+                // Where the pose leaves them is where they now are. An opening animation
+                // is the only thing that says where several of the game's characters
+                // stand, and leaving the position the scene never set would have anything
+                // that asks — a walk, a glance, IsActorNear — answer about the origin
+                // while the character is sitting in a chair on the other side of the room.
+                if (target.Kind == PlacedModelKind.Actor)
+                {
+                    Vector3 settled = pose.Settled(_geometry.TransformOf(target.Placement));
+
+                    Follow(target.Name, settled);
+                    _posed.Add((target.Noun ?? target.Name, settled));
+                }
+
                 posed++;
             }
         }
 
         return posed;
     }
+
+    /// <summary>Who an opening pose moved, and where to, for whoever wants to say so.</summary>
+    public IReadOnlyList<(string Who, Vector3 Where)> Posed => _posed;
+
+    private readonly List<(string Who, Vector3 Where)> _posed = [];
 
     /// <summary>Gives a character a different script for one of the three things they do.</summary>
     /// <param name="actor">Their model name or noun.</param>
@@ -690,10 +729,17 @@ public sealed class SceneUpdate
 
         foreach (Fidget fidget in _fidgets.Values)
         {
-            // Told to stand still, or standing still because the story is animating them.
-            // The second is a pause rather than a stop: the script is left where it is and
-            // goes on from there once the scene has finished with the model.
-            if (fidget.Stopped || _held.Contains(fidget.Model.Name))
+            // Told to stand still, standing still because the story is animating them, or
+            // busy walking. All three are a pause rather than a stop: the script is left
+            // where it is and goes on from there afterwards, which is what the original
+            // does — Walker::OnWalkToFinished starts the idle again when the walk ends.
+            //
+            // Walking is on this list because an idle and a walk are two answers to where
+            // a character's feet are. The reference keeps them apart by playing the walk
+            // through the same animator, so a fidget cannot be in the middle of one; here
+            // the stride is its own thing, and letting a fidget pose the same model at the
+            // same time is the two of them writing over each other every frame.
+            if (fidget.Stopped || _held.Contains(fidget.Model.Name) || Crossing(fidget.Model))
             {
                 continue;
             }
@@ -716,6 +762,21 @@ public sealed class SceneUpdate
             }
         }
     }
+
+    /// <summary>Whether a name is one of a model's own.</summary>
+    private static bool Names(PlacedModel model, string name) =>
+        model.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+        (model.Noun is { Length: > 0 } noun && noun.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether a model is walking somewhere, under either of its names.</summary>
+    /// <remarks>
+    /// A walk is filed under whichever name the caller used — a script says
+    /// <c>WalkTo("Gabriel", ...)</c> and an action's approach says <c>gab</c> — so asking
+    /// about one of the two answers "no" about half the walks in the game.
+    /// </remarks>
+    private bool Crossing(PlacedModel model) =>
+        _walking.ContainsKey(model.Name) ||
+        (model.Noun is { Length: > 0 } noun && _walking.ContainsKey(noun));
 
     /// <summary>Whether a name is one of a model's two.</summary>
     private static bool Same(PlacedModel model, string name) =>
@@ -1101,6 +1162,31 @@ public sealed class SceneUpdate
         ArgumentNullException.ThrowIfNull(actor);
 
         return _logical.TryGetValue(actor, out Vector3 where) ? where : null;
+    }
+
+    /// <summary>Where an actor is walking to, if they are walking anywhere.</summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <returns>The end of their route, or null when they are standing still.</returns>
+    /// <remarks>
+    /// The end of the route rather than what was asked for: a walk the boundary cannot
+    /// complete stops as near as it can, and a script asking whether somebody is on their
+    /// way somewhere means where they will actually arrive.
+    /// </remarks>
+    public Vector3? Heading(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (_walking.TryGetValue(actor, out Walking? walking))
+        {
+            return walking.Walker.Destination;
+        }
+
+        // Under the other name. A scene places `eml` and calls him EMILIO, and a script
+        // uses whichever it feels like.
+        return _standing.TryGetValue(actor, out PlacedModel? placed) &&
+               _walking.TryGetValue(placed.Name, out Walking? theirs)
+            ? theirs.Walker.Destination
+            : null;
     }
 
     /// <summary>
@@ -2102,6 +2188,19 @@ public sealed class SceneUpdate
         /// started, so nothing is scheduled, nothing sounds and nothing finishes.
         /// </remarks>
         public void Open(ISceneSink geometry) => Pose(geometry, 0);
+
+        /// <summary>Where in the room the opening pose leaves the model standing.</summary>
+        /// <param name="standing">The model's own placement, which is applied on top.</param>
+        /// <returns>The world position of its mesh groups' average origin.</returns>
+        /// <remarks>
+        /// <b>Not where the scene said it stands.</b> An opening pose can put a character
+        /// somewhere else entirely — Emilio's seats him in the lobby's loveseat, and his
+        /// line in the scene file gives no position at all — so anything that asks where he
+        /// is has to ask the pose rather than the placement. It is the same measure
+        /// <see cref="Correction"/> works from, so the two cannot disagree.
+        /// </remarks>
+        public Vector3 Settled(Matrix4x4 standing) =>
+            Vector3.Transform(_opened, _correction * standing);
 
         /// <summary>Where the clip's mesh groups sit on its opening frame.</summary>
         private static Vector3 Opens(ActFile clip) => Average(Enumerable

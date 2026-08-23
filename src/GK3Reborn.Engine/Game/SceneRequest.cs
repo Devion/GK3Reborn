@@ -104,6 +104,12 @@ public sealed class SceneRequest
         state.Location = name;
         state.SetActorLocation(state.Ego, name);
 
+        // A close-up belongs to the room it is a close-up of. Carrying one through a door
+        // pointed the next room's camera at a thing that is not in it, and there was no way
+        // back: inspecting the lobby's register and then walking into the phone room left
+        // every room after it framed on a register.
+        state.Inspecting = string.Empty;
+
         return new SceneRequest(name, null, state, api);
     }
 

@@ -768,6 +768,50 @@ public static class SceneScripting
             world.StopWalking();
             return SheepValue.FromInt(0);
         });
+
+        // How far somebody is from a named spot, which the background scripts poll
+        // constantly and were being told "not near" about every time. The answer decides
+        // whether the room's own life happens: RC1 waits for Gabriel to walk away from the
+        // hotel door before sending Emilio out of it, and 96 conditions across the corpus
+        // are one of these two.
+        api.Register("IsActorNear", a => SheepValue.FromInt(
+            Near(scene, world.Where(Actor(api, a, 0)), Name(a, 1), Distance(a, 2))));
+
+        // The same question about where they are going rather than where they are. A
+        // script that wants to know whether somebody is on their way over cannot ask about
+        // their feet, because at the moment it asks they have not moved yet.
+        api.Register("IsWalkingActorNear", a => SheepValue.FromInt(
+            Near(scene, world.Heading(Actor(api, a, 0)), Name(a, 1), Distance(a, 2))));
+    }
+
+    /// <summary>The radius an argument asks about, in scene units.</summary>
+    /// <remarks>
+    /// A negative one is a mistake in the data rather than a very small circle; the
+    /// original refuses it outright and so does this, which is what the zero means.
+    /// </remarks>
+    private static float Distance(IReadOnlyList<SheepValue> arguments, int index) =>
+        arguments.Count > index && arguments[index].AsFloat() is > 0 and { } given
+            ? given
+            : 0f;
+
+    /// <summary>Whether a point is within a distance of one of the scene's named spots.</summary>
+    /// <remarks>
+    /// Flat, on the ground plan. The spots carry a height and several of them are authored
+    /// at zero against a floor that is not, so a distance through the vertical would answer
+    /// "far away" about somebody standing on the mark.
+    /// </remarks>
+    private static int Near(LoadedScene scene, Vector3? who, string spot, float distance)
+    {
+        if (who is not { } here ||
+            distance <= 0 ||
+            scene.Definition.PositionNamed(spot) is not { } named)
+        {
+            return 0;
+        }
+
+        Vector3 apart = here - named.Position;
+
+        return (apart.X * apart.X) + (apart.Z * apart.Z) < distance * distance ? 1 : 0;
     }
 
     /// <summary>

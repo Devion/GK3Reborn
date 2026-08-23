@@ -158,6 +158,17 @@ public sealed class Walker
     /// <summary>Whether there is any walking left, or any turning after it.</summary>
     public bool Walking => _at < _route.Count || Turning;
 
+    /// <summary>
+    /// Where the route ends, which is not always where the caller asked to go.
+    /// </summary>
+    /// <remarks>
+    /// A route that cannot reach its goal stops as near as the floor allows, and this is
+    /// that spot rather than the unreachable one. <c>IsWalkingActorNear</c> asks about it:
+    /// a script that wants to know whether somebody is on their way over means the place
+    /// they will actually end up.
+    /// </remarks>
+    public Vector3 Destination => _route.Count > 0 ? _route[^1] : Position;
+
     /// <summary>Whether the route is done and only the arrival turn is left.</summary>
     private bool Turning =>
         _at >= _route.Count &&

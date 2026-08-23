@@ -1,4 +1,4 @@
-# Scene text: initialisation files and scene assets
+﻿# Scene text: initialisation files and scene assets
 
 Two text formats say what a scene *is*. Neither is binary, and both were easy to
 overlook next to the BSP and MUL files — which was a mistake, because between them
@@ -410,11 +410,38 @@ The baseline, which is what a regression shows up against:
 `[ACTORS]` lines carry `pos=`, naming a spot in `[POSITIONS]` — `pos=GRACE_INIT`, and
 `GRACE_INIT` defined in the same timeblock file. Ego carries none and starts at `START`.
 
-An actor with no `pos=` is placed by a script rather than by the file, which is ordinary:
-206 actor-and-timeblock pairs in the corpus are like that, and they are skipped silently
-until there is something to run their scripts. Naming a spot the scene does not define is
-a different matter and is reported as `SCENE011`; it happens exactly once in the corpus,
-for the abbé at `MA1 303P`.
+An actor with no `pos=` is placed by something other than the file, which is ordinary: 206
+actor-and-timeblock pairs in the corpus are like that. **They are still in the room.** The
+original only declines to *set* a position (`GKActor::Init`) and leaves everything else
+alone; what places them is their `initanim=` or the script that walks them in. Skipping
+them instead took Emilio out of the lobby and left the hotel door in the square outside
+opening by itself.
+
+The same goes for `hidden`, which is where several characters start: RC1 hides Emilio while
+he is still indoors and the animation that walks him out turns him back on. A model that was
+never read cannot be shown.
+
+Naming a spot the scene does not define is a different matter and is reported as `SCENE011`;
+it happens exactly once in the corpus, for the abbé at `MA1 303P`.
+
+### Opening poses
+
+`initanim=` on a model or actor line names an animation, and **it is a statement about where
+the thing rests rather than something that happens**: RC1's copy of the hotel door is placed
+by `Rc1PlaceLbyDoor`, Madeline is stood by her van by `MadRc1FigM`, Emilio is sat in the
+lobby by `EmlLbyBreathe`. 316 lines carry one.
+
+So the animation's opening frame is sampled and the animation is never played, which is
+`Animator::Sample(anim, 0)` in the reference. The difference is not cosmetic: several of
+these carry an absolute placement, and playing one takes seven seconds to arrive at a pose
+that is meant to be true from the first frame — with the footsteps and the door sounds of
+somebody walking in.
+
+**Only the declaring model's own clip is sampled.** An animation is a schedule for as many
+models as it likes, and an opening pose is one model's statement about itself: the lobby's
+black marker opens with `GabLbyGetMarker`, which is a clip for the marker *and* a clip for
+Gabriel picking it up. Sampling both put the player at the front desk before the scene had
+begun. The reference passes the model's name to `Animator::Sample` for exactly this.
 
 ### Camera angles
 

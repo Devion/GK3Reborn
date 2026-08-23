@@ -403,6 +403,15 @@ public static class Application
         // them is ever used up.
         Game.Actions.VerbLibrary verbs = Game.Actions.VerbLibrary.Open(archives);
 
+        // What the game calls places and times, in the player's own language. Without it
+        // the corner of the screen reads "LBY - 110A", which is two codes and no help.
+        GameStrings strings = GameStrings.Open(archives);
+
+        if (strings.Count > 0)
+        {
+            Console.WriteLine($"Names: {strings.Count} from ESTRINGS.TXT");
+        }
+
                 var host = new ScriptHost(api);
 
         // Scripts wait for real here, unlike in the tools, because here there is a clock
@@ -998,7 +1007,13 @@ public static class Application
             // states each of those as an animation and means its first frame.
             if (update.Open() is > 0 and { } posed)
             {
-                Console.WriteLine($"Opening pose: {posed} clip(s) sampled");
+                Console.WriteLine(
+                    $"Opening pose: {posed} clip(s) sampled" +
+                    (update.Posed.Count > 0
+                        ? ", " + string.Join(", ", update.Posed.Select(m => string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"{m.Who} at {m.Where.X:F0}, {m.Where.Z:F0}")))
+                        : string.Empty));
             }
 
             // What a room does when nobody is asking it to: the lobby's ceiling fans turn
@@ -1102,9 +1117,10 @@ public static class Application
 
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api), room, movies, hud, Cut, api, screens, sidney,
+                new SceneInteraction(scene, api) { Strings = strings },
+                room, movies, hud, Cut, api, screens, sidney,
                 map, binoculars, api.State, console,
-                front, pages, Apply, args);
+                front, pages, Apply, args, strings);
 
             result = exit.Code;
 
@@ -1497,7 +1513,24 @@ public static class Application
     /// </remarks>
     private static void Opening(string[] args, Gk3SheepApi api, LoadedScene scene)
     {
-        if (Option(args, "--do")?.Split(':') is [string noun, string verb] &&
+        // Several, separated by semicolons, because one action is often the setup for the
+        // one worth looking at: inspecting a thing and then walking away from it needs both
+        // to have happened before the picture is taken.
+        foreach (string asked in Option(args, "--do")?.Split(';', StringSplitOptions.RemoveEmptyEntries) ?? [])
+        {
+            Do(asked, api, scene);
+        }
+
+        Opened(args, api, scene);
+    }
+
+    /// <summary>Performs one <c>--do</c>.</summary>
+    /// <param name="asked">The action, as <c>noun:verb</c>.</param>
+    /// <param name="api">The host.</param>
+    /// <param name="scene">The room it acts on.</param>
+    private static void Do(string asked, Gk3SheepApi api, LoadedScene scene)
+    {
+        if (asked.Split(':') is [string noun, string verb] &&
             scene.Actions?.Find(noun.Trim(), verb.Trim()) is { } rule)
         {
             ActionOutcome outcome = new ActionRunner(api).Run(rule);
@@ -1511,6 +1544,15 @@ public static class Application
 
             Console.WriteLine($"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: {did}");
         }
+    }
+
+    /// <summary>The rest of the switches that set something going before the player takes over.</summary>
+    /// <param name="args">The command line.</param>
+    /// <param name="api">The host.</param>
+    /// <param name="scene">The room they act on.</param>
+    private static void Opened(string[] args, Gk3SheepApi api, LoadedScene scene)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
 
         if (Option(args, "--play") is { Length: > 0 } clip)
         {
@@ -1518,13 +1560,40 @@ public static class Application
             Console.WriteLine($"Playing {clip}");
         }
 
-        // Open a screen on the way in, for looking at one on purpose. The story opens all
-        // of them itself; this is how a screenshot of one gets taken.
-        if (Option(args, "--screen") is { Length: > 0 } wanted &&
-            Enum.TryParse(wanted, ignoreCase: true, out ScreenKind kind))
+        // Things in the bag, for looking at what carrying them changes. Half of what the
+        // action files offer is written about an item the player is holding, so a room
+        // photographed with empty pockets is a room with half its menu missing.
+        if (Option(args, "--carry") is { Length: > 0 } carrying)
         {
-            api.State.Screens.Show(new Screen(kind));
-            Console.WriteLine($"Screen: {kind}");
+            foreach (string item in carrying.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                api.State.Inventory.Add(api.State.Ego, item.Trim());
+            }
+
+            Console.WriteLine(
+                $"Carrying: {string.Join(", ", api.State.Inventory.ItemsOf(api.State.Ego))}");
+        }
+
+        // Open a screen on the way in, for looking at one on purpose. The story opens all
+        // of them itself; this is how a screenshot of one gets taken. A colon names what
+        // the screen is about, which the ones about a single thing need — an item close-up
+        // with no item is a frame of chrome.
+        if (Option(args, "--screen") is { Length: > 0 } wanted &&
+            wanted.Split(':') is [string named, ..] &&
+            Enum.TryParse(named, ignoreCase: true, out ScreenKind kind))
+        {
+            string? about = wanted.Split(':') is [_, string subject, ..] ? subject : null;
+
+            if (about is { Length: > 0 })
+            {
+                // Carried, because a screen about something the player does not have is a
+                // screen the action files answer differently about.
+                api.State.Inventory.Add(api.State.Ego, about);
+                api.State.Inventory.SetActive(api.State.Ego, about);
+            }
+
+            api.State.Screens.Show(new Screen(kind, about));
+            Console.WriteLine($"Screen: {kind}{(about is null ? string.Empty : $" ({about})")}");
         }
 
         // And put something into Sidney on the way in, for the same reason: its screens are
@@ -1648,6 +1717,9 @@ public static class Application
     /// <param name="pages">What draws it, or null when there is no font to draw with.</param>
     /// <param name="apply">What to do with a setting the moment it changes.</param>
     /// <param name="options">The command line, for the debugging switches.</param>
+    /// <param name="strings">
+    /// What the game calls places and times, for the corner of the screen.
+    /// </param>
     /// <returns>Why the room was left, and where for.</returns>
     /// <remarks>
     /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
@@ -1677,7 +1749,8 @@ public static class Application
         FrontEnd front,
         MenuPage? pages,
         Action<Settings> apply,
-        string[] options)
+        string[] options,
+        GameStrings strings)
     {
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(cut);
@@ -2061,9 +2134,12 @@ public static class Application
                 window.FramebufferWidth,
                 window.FramebufferHeight);
 
-            if (hover.Noun != hovering)
+            // What the player sees, not the noun behind it: the numbered exits are drawn
+            // as the place they lead to, and a log that says EXIT3 cannot be matched
+            // against a screenshot that says "Outside Church".
+            if (hover.Label != hovering)
             {
-                hovering = hover.Noun;
+                hovering = hover.Label;
 
                 if (hovering is { Length: > 0 })
                 {
@@ -2105,14 +2181,18 @@ public static class Application
                 }
             }
 
-            if (menu is { } listed)
+            if (menu is not null)
             {
                 // One selection, three ways to move it. The wheel steps through the list
                 // and wraps, because two or three verbs are not worth a dead end at either
                 // end; putting the pointer on a row moves it there instead.
-                if (window.ScrollDelta != 0 && listed.Actions.Count > 0)
+                //
+                // Over the rows the menu actually drew rather than over the verbs it was
+                // given: the row that opens the bag and the things inside it are rows too,
+                // and a wheel that stops short of them cannot reach them.
+                if (window.ScrollDelta != 0 && hud?.RowCount > 0)
                 {
-                    int count = listed.Actions.Count;
+                    int count = hud.RowCount;
 
                     menuIndex = (((menuIndex - window.ScrollDelta) % count) + count) % count;
                 }
@@ -2172,6 +2252,19 @@ public static class Application
                             camera.Aim = sight.Angle;
                         }
                     }
+                    else if (chose.StartsWith("verb:", StringComparison.Ordinal) &&
+                             panel.Subject is { Length: > 0 } about &&
+                             scene.Actions?.Find(about, chose[5..], story.Ego) is { } onItem)
+                    {
+                        // The item's own action, run where it was written to run: with the
+                        // inventory still on top, because that is what its case asked about
+                        // and a script may well close the screen itself.
+                        ActionOutcome ran = new ActionRunner(api).Run(onItem);
+
+                        Console.WriteLine(
+                            $"{about}:{chose[5..]} [{onItem.Case}] - " +
+                            $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
+                    }
                     else
                     {
                         OnScreen(chose, story, sidney, update, console);
@@ -2224,7 +2317,8 @@ public static class Application
                         DrivingMap.Open(story, scene.Name),
                         renderer.OverlayPicture,
                         seen,
-                        camera.Aim),
+                        camera.Aim,
+                        ItemVerbs(panel, scene, story)),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -2243,7 +2337,32 @@ public static class Application
                 continue;
             }
 
-            if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
+            // The strip along the foot of the screen is the inventory, so a click on it is
+            // a click on what the player is carrying rather than on the room behind it.
+            // Once to take a thing in hand, again to look at it closely — which is where
+            // its own verbs live, because the action files guard every one of them behind
+            // "the inventory is what you are looking at".
+            if (!console.Open &&
+                window.WasClicked(Platform.PointerButton.Primary) &&
+                hud?.ItemAt(pointer) is { Length: > 0 } clicked)
+            {
+                if (string.Equals(
+                        story.Inventory.ActiveItemOf(story.Ego),
+                        clicked,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    story.Screens.Show(new Screen(ScreenKind.InventoryInspect, clicked));
+                    Console.WriteLine($"inventory: looking at {clicked}");
+                }
+                else
+                {
+                    story.Inventory.SetActive(story.Ego, clicked);
+                    Console.WriteLine($"inventory: holding {clicked}");
+                }
+
+                menu = null;
+            }
+            else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
             {
                 // A click inside the open menu takes whatever is selected; a click anywhere
                 // else dismisses it without doing anything, which is what every menu does.
@@ -2253,9 +2372,16 @@ public static class Application
                 // walking the action puts in front of itself is run rather than walked.
                 bool hurry = window.WasDoubleClicked(Platform.PointerButton.Primary);
 
+                // What the selected row means, which is a verb, an item to use, or the
+                // row that only opens the bag. The last of those is not something to do,
+                // so a click on it is left to the frame after, by which time the column
+                // it opened is showing and has rows of its own.
+                string? chosenRow = inside ? hud?.RowNamed(menuIndex) : null;
+                bool openingBag = chosenRow == GameHud.UseRow;
+
                 ActionOutcome? did = menu is { } open
-                    ? inside && menuIndex < open.Actions.Count
-                        ? interaction.Do(open, open.Actions[menuIndex].LocalizedVerb, hurry)
+                    ? chosenRow is { Length: > 0 } && !openingBag
+                        ? interaction.Do(open, chosenRow, hurry)
                         : null
                     : interaction.Do(hover, hurry: hurry);
 
@@ -2280,7 +2406,7 @@ public static class Application
                         : $"{story.Ego}: nowhere to walk from here");
                 }
 
-                if (menu is not null)
+                if (menu is not null && !openingBag)
                 {
                     menu = null;
                 }
@@ -2323,8 +2449,10 @@ public static class Application
 
                 hud.Build(
                     new HudState(
-                        showing.Noun,
-                        [.. showing.Actions.Select(a => a.LocalizedVerb)],
+                        showing.Label,
+                        [.. showing.Actions
+                            .Where(a => !IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs))
+                            .Select(a => a.LocalizedVerb)],
                         hover.Default,
                         pointer,
                         menu is not null,
@@ -2332,11 +2460,14 @@ public static class Application
                         menuAt,
                         front.Settings.Captions ? room?.Speaker : null,
                         front.Settings.Captions ? room?.Caption : null,
-                        story.Inventory.ItemsOf("GABRIEL"),
-                        story.Inventory.ActiveItemOf("GABRIEL"),
+                        story.Inventory.ItemsOf(story.Ego),
+                        story.Inventory.ActiveItemOf(story.Ego),
                         InventoryOpen: true,
-                        $"{scene.Name} - {story.Timeblock}",
-                        console),
+                        strings.Where(scene.Name, story.Timeblock.ToString()),
+                        console,
+                        [.. showing.Actions
+                            .Where(a => IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs))
+                            .Select(a => a.LocalizedVerb)]),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -3054,6 +3185,46 @@ public static class Application
                 break;
         }
     }
+
+    /// <summary>
+    /// What can be done to the item a close-up is showing.
+    /// </summary>
+    /// <param name="panel">The screen on top.</param>
+    /// <param name="scene">The room, which is where the action files are.</param>
+    /// <param name="story">The game, for who the player is and what they carry.</param>
+    /// <returns>The verbs, or null when the screen is not about an item.</returns>
+    /// <remarks>
+    /// Asked while the close-up is already on the stack, which is the whole trick: every
+    /// one of these actions is guarded by <c>ALL_INV</c> or one of its two ego-specific
+    /// forms, and all three are <c>IsTopLayerInventory()</c>. Resolving them from the room
+    /// answers "no" to every one.
+    /// </remarks>
+    private static IReadOnlyList<string>? ItemVerbs(
+        Screen panel, LoadedScene scene, GameState story)
+    {
+        if (panel.Kind != ScreenKind.InventoryInspect ||
+            panel.Subject is not { Length: > 0 } item ||
+            scene.Actions is not { } actions)
+        {
+            return null;
+        }
+
+        return [.. actions
+            .Resolve(item, story.Ego, story.Inventory.ItemsOf(story.Ego))
+            .Select(a => a.LocalizedVerb)];
+    }
+
+    /// <summary>Whether a verb is a thing in the bag rather than something to do.</summary>
+    /// <param name="verb">The verb an action file wrote.</param>
+    /// <param name="verbs">What the game says each verb is.</param>
+    /// <returns>True for an inventory item.</returns>
+    /// <remarks>
+    /// The two are written identically — <c>BUTHANE, WALLET, MET_BUTHANE</c> looks exactly
+    /// like <c>BUTHANE, LOOK, ALL</c> — and only <c>VERBS.TXT</c> tells them apart. Without
+    /// it a menu offers "Wallet" beside "Look" as though they were the same kind of thing.
+    /// </remarks>
+    private static bool IsAnItem(string verb, Game.Actions.VerbLibrary? verbs) =>
+        verbs?.KindOf(verb) == Game.Actions.VerbKind.Inventory;
 
     /// <summary>What a click inside Sidney means.</summary>
     private static void OnSidney(

@@ -170,6 +170,144 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ## Closed
 
+### Emilio was not in the lobby, and the hotel door opened by itself — fixed 2026-08-23
+
+Reported: no NPC in the hotel lobby; and on stepping out of the hotel, a door animation
+plays a couple of seconds after Gabriel arrives, with a door sound and nobody there.
+
+**One cause, two symptoms, and neither of them was about doors.** `SceneLoader.PlaceActors`
+skipped an actor twice over: one with no `pos=` on its line, and one the scene declared
+`hidden`. Both are ordinary — 206 actor/timeblock pairs in the corpus have no position, and
+`hidden` is where several characters start — and the original skips neither. `GKActor::Init`
+only declines to *set* a position; what places the actor is its `initanim=` or the script
+that walks it in.
+
+Emilio is one of each. `LBY110A.SIF` gives him no position and an `initanim=EmlLbyBreathe`
+that sits him in the lobby's loveseat; `RC1110A.SIF` declares him `hidden` until the moment
+he comes out of the hotel. So the lobby had one fewer person in it than it said, and RC1 had
+nobody to show.
+
+Three things were missing behind that:
+
+- **`initanim=` was parsed and never applied**, on 316 SIF lines. It is a statement about
+  where a thing rests rather than something that happens, so its opening frame is sampled
+  and the animation is never played — `Animator::Sample(anim, 0)` in the reference. Without
+  it the lobby's copy of the front door, Madeline's map and bag, and every seated character
+  stood in their bind pose. `SceneUpdate.Open` does it now, before `SCENE:ENTER` runs, and
+  `render-scene` does it too: an init anim takes no time, so unlike everything else that
+  tool leaves out, it belongs in a single frame.
+- **`[MVISIBILITY]` was not read**, in 208 of the game's animations. It is how somebody who
+  is not in the room walks into it: `EmlRc1ExitLobby` opens the hotel door on one line and
+  turns Emilio on with another. The door swung and made its noise because those are an
+  `[ACTIONS]` clip and a `[SOUNDS]` cue, which were read — so the failure looked like a
+  door opening by itself rather than like a missing person.
+- **`IsActorNear` and `IsWalkingActorNear` always answered "no".** RC1 waits for Gabriel to
+  walk away from the hotel door before sending Emilio out of it, and polls that every two
+  seconds; answering "no" sent him out immediately, through the door Gabriel was standing
+  in. 96 conditions across the corpus ask one of the two.
+
+`[OPTIONS] FRAMERATE` is read now as well. Thirty animations name a rate between 5 and 580
+and all of them were played at fifteen.
+
+### The wrong line, and half the action files out of reach — fixed 2026-08-23
+
+Not reported; found while checking the above. **`ActionResolver` took the first rule in file
+order for a noun and verb.** The original scores the *case* instead and takes the highest —
+catch-alls lowest, a timeblock's override above them, a condition somebody actually wrote
+above that, and "the first time you did this" above everything. The lobby writes `REGISTER,
+LOOK, GABE_ALL` above `REGISTER, LOOK, NOT_SEEN_REGISTER`, so looking at the register for
+the first time gave the line Gabriel says about one he has already read.
+
+Three more of the same kind, all measured against the reference's `ActionManager`:
+
+- **`ANY_OBJECT` was not a wildcard noun.** `ANY_OBJECT, LOOK, ALL` is the game's answer for
+  looking at anything nobody wrote a line for, and it was silence instead.
+- **`ANY_INV_ITEM` was not a wildcard verb**, so using an item on something with no rule for
+  that pairing did nothing rather than saying so.
+- **Eight nouns that stand for two people were unknown**: `LADY_H_ESTELLE`, `GRACE_N_MOSE`,
+  `GABE_N_MOSE`, `WILKES_N_BUCHELLI`, `TWO_MEN`, `BUTHANE_MOSE_BUCHELLI`, `DEAD_CLOTHES`
+  and `DEAD_THROATS`. Nothing in the data declares the equivalence; the reference hard-codes
+  the same list and says so.
+
+`check-scenes` counts **36,723** verbs available across the corpus where it counted 24,126,
+all of them still with a script the runner can perform.
+
+### The inventory was a picture of an inventory — fixed 2026-08-23
+
+`GameHud.ItemAt` existed and nothing called it, so the strip along the foot of the screen
+could not be clicked. Worse, all **619** actions in `INV_ALL.NVC` were unreachable: every
+one is guarded by `ALL_INV`, `GABE_ALL_INV` or `GRACE_ALL_INV`, all three of which are
+`IsTopLayerInventory()`, and nothing ever put the inventory on top.
+
+Now: clicking a slot takes the thing in hand, clicking it again opens it close up, and the
+close-up lists what can be done to it — which is where those 619 actions live. On a thing in
+the room the menu offers **Use...**, and choosing it opens a second column of the things in
+the bag that this noun answers to. Only the things actually carried: an item verb is written
+exactly like an ordinary one, so without `VERBS.TXT` to tell them apart the menu offered
+Buthane a wallet Gabriel had not found yet.
+
+### Exits called Exit3, and a corner that read LBY - 110A — fixed 2026-08-23
+
+`ESTRINGS.TXT` was unread. It names all 79 locations and all 17 timeblocks, and the driving
+map was scraping its own third of it with a hand-rolled parser.
+
+RC1's ways out are `EXIT`, `EXIT1` to `EXIT5`, numbered in no order anybody could infer, and
+the interface drew the number. An exit is now called after the place it leads to, read out
+of its own rule — `EXIT3` runs `SetLocation("rc3")` and `loc_rc3` is "Rennes-le-Château:
+Outside Church". One that opens something other than a room, like RC1's `EXIT5` raising the
+driving map, is called "Exit" and nothing more.
+
+### Inspecting the register followed you into the next room — fixed 2026-08-23
+
+Reported: leaving the lobby for the phone room and coming back opened on a close-up of the
+register rather than on Gabriel. The register had been inspected first, which was the whole
+of it.
+
+`InspectObject` sets `GameState.Inspecting`, and **only a script could clear it.** Nothing
+did: not walking away, not clicking elsewhere, and not leaving the room — so every room
+after it aimed its camera at a thing that was not in it. The original never has this problem
+because it puts the way out on the bar itself: `Scene::OnClicked` adds `INSPECT` to every
+noun it shows a bar for, and `INSPECT_UNDO` in its place while that noun is the one being
+inspected. Both verbs are in `VERBS.TXT`; neither is in any action file, which is why
+reading the files alone never found them. The port offers both the same way now, and a
+change of room clears the close-up regardless.
+
+### Gabriel talked to Emilio from across the lobby — fixed 2026-08-23
+
+Reported alongside the above. Asking somebody about something took two steps in the
+original: `TALK`, which carries the approach — `EMILIO, TALK, DIALOGUE_TOPICS_LEFT,
+approach=ANIM, target=GabEmlLbyShake` walks Gabriel over and shakes his hand — and then a
+list of topics, which carry no approach because by then he is already standing there.
+
+This port puts the topics straight on the menu, which is the improvement `docs/screens.md`
+asks for, and it dropped the walk along with the step it replaced. A topic now borrows the
+approach of the Talk it was hoisted out of. Only the approach: the script it runs is its own
+and untouched, which is what `Plan/03` §2.3 requires of anything that modernises input.
+
+### A character reset halfway across a room — fixed 2026-08-23
+
+Reported: Gabriel's position sometimes resets while walking. **An idle fidget could fire
+mid-stride.** `SceneUpdate.Play` cancelled any walk in progress whatever asked for the clip,
+and an ordinary clip gives back the ground it covered when it ends — so the walk stopped and
+the walker was put back where the idle had started.
+
+The original exempts a character's own script by name, and says why:
+"we don't want to cancel the turn part of a walk due to a breathing anim"
+(`GKActor::StartAnimation`). Two rules now, both the reference's: a behaviour clip never
+cancels a walk, and nothing a model does on its own runs while it is crossing the room. Both
+are a pause rather than a stop, so the idle carries on from where it was when the walk ends,
+as `Walker::OnWalkToFinished` does.
+
+**And an opening pose was sampling every clip in its animation.** The lobby's black marker
+declares `initanim=GabLbyGetMarker`, which is a clip for the marker and a clip for Gabriel
+picking it up: sampling both stood the player at the front desk before the scene had begun,
+and the room's own entry script then moved him again. An opening pose is one model's
+statement about itself, and only that model's clip is sampled now — the third argument to
+`Animator::Sample` in the reference, and the reason it is there.
+
+Measured afterwards, the lobby at 110A opens with Emilio at 9, 41 in the loveseat and Jean
+at 431, 255 on her mark, and nothing has touched Gabriel. `--frames 60` prints it.
+
 ### Gabriel came and went in the dining room, and the newspaper hung in mid-air — fixed 2026-08-22
 
 Reported: the scene where Gabriel first meets Mosely. Gabriel keeps disappearing and
