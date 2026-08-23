@@ -390,7 +390,16 @@ public static class Application
                 return known;
             }
 
-            Formats.Animation.GasFile? read = archives.Read(name) is { } bytes
+            // With the extension when the name does not carry one, which none of them
+            // does: a scene file writes `idle=jeaIdle.gas` and a script writes
+            // `SetIdleGAS("Emilio", "Eml110aBenchIdle")`, and all 168 names the scripts
+            // pass are the second kind. Without the retry every one of them read nothing
+            // and the character it belonged to stood perfectly still — Emilio walked to
+            // his bench in the square and then never moved again.
+            byte[]? bytes = archives.Read(name) ??
+                (Path.HasExtension(name) ? null : archives.Read(name + ".GAS"));
+
+            Formats.Animation.GasFile? read = bytes is not null
                 ? Formats.Animation.GasFile.Parse(bytes)
                 : null;
 

@@ -170,6 +170,55 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ## Closed
 
+### Emilio came out of the hotel and stood there, with nothing to click — fixed 2026-08-23
+
+Reported after the fix below put him in the square at all. Four separate things, each of
+which would on its own have left him standing in the doorway.
+
+**A hotspot was tested against the pose the artist modelled, not the pose being drawn.**
+`ScenePicker` baked each mesh group's own transform into its triangles and then moved the
+ray by the model's placement. That is right for walking, which moves the placement, and
+wrong for everything a clip does: a clip *replaces* each group's transform and the placement
+is applied on top. So Emilio sat in the lobby's loveseat with his hotspot still standing in
+the middle of the room, and nothing an animation had moved could be clicked where it was.
+The triangles are kept per mesh group now, untransformed, and the ray is taken into each
+group's own space — the same trick already used for the placement, one level down.
+
+**`WalkToAnimation` was reading its second argument as a place.** It is an animation: walk
+to where that animation *begins*. The engine already had `WalkToAnimationStart` for
+`approach=ANIM` and this was not wired to it, so all **165** calls in the corpus quietly did
+nothing.
+
+**`CHARACTERS.TXT` was looked up by whatever name the script used.** It is keyed by the
+three-letter model code, and the fallback of taking a name's first three letters works only
+where the two agree. `GABRIEL` gives `GAB` and does; `EMILIO` gives `EMI` and his section is
+`[EML]`. Every question about him — his hips, how tall he is — answered "no such character".
+The model name behind the noun is resolved first now.
+
+**An absolute animation was giving back the ground it covered.** The original writes it as
+one line — `allowMove = allowMove || absolute` — and it follows from what absolute means:
+the clip says where in the room it happens, so putting the actor back where they were undoes
+the only thing the clip was for. Emilio was returned to the spot he stood on before he
+opened the door.
+
+And where an absolute clip *has* carried somebody is a **place**, not a distance. It is read
+off the triad under their hips, as `AnimationStart` already does for `approach=ANIM`. The
+average of a character's mesh-group origins moves with the same rigid motion, so a
+difference of two averages is exact and cheap — but one average on its own is that answer
+plus the constant between a torso's middle and the floor, which is why the walk to the bench
+set off from a couple of feet behind him.
+
+### Nobody a script gave an idle to ever moved — fixed 2026-08-23
+
+Found while chasing the above. **A behaviour script named without an extension read
+nothing.** A scene file writes `idle=jeaIdle.gas` and a script writes
+`SetIdleGAS("Emilio", "Eml110aBenchIdle")`, and **all 168** names the scripts pass are the
+second kind — so `SetIdleGAS`, `SetTalkGAS`, `SetListenGAS` and `NEWIDLE` between them
+handed out nothing at all, and the character stood still.
+
+The same shape as the soundtrack that names `R25Theme1` and means `R25THEME1.WAV`. An
+extensionless name is retried with `.GAS`.
+
 ### Emilio was not in the lobby, and the hotel door opened by itself — fixed 2026-08-23
 
 Reported: no NPC in the hotel lobby; and on stepping out of the hotel, a door animation

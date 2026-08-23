@@ -110,6 +110,49 @@ public sealed record PlacedModel(
     /// </remarks>
     public string? InitialAnimation { get; init; }
 
+    /// <summary>
+    /// Where each mesh group has been posed to, or null where nothing has moved it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A clip does not move a model — it replaces each mesh group's own transform, and the
+    /// model's placement is applied on top. So <see cref="Standing"/> says nothing about
+    /// where a character an animation has put somewhere actually is: Emilio sits in the
+    /// lobby's loveseat with a placement of identity, and the whole of the displacement is
+    /// in here.
+    /// </para>
+    /// <para>
+    /// Kept because anything asking a question about an object after it has been posed —
+    /// what did this click land on, above all — has to ask about where it is now. The
+    /// renderer owns the copy that is drawn; this is the same value, on the way past.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<Matrix4x4?> Posed => _posed ?? [];
+
+    private Matrix4x4?[]? _posed;
+
+    /// <summary>Notes where a clip has put one of the mesh groups.</summary>
+    /// <param name="mesh">Which group.</param>
+    /// <param name="meshToLocal">Its transform, replacing the one the model was built with.</param>
+    public void Pose(int mesh, Matrix4x4 meshToLocal)
+    {
+        if (mesh < 0 || mesh >= Model.Meshes.Count)
+        {
+            return;
+        }
+
+        _posed ??= new Matrix4x4?[Model.Meshes.Count];
+        _posed[mesh] = meshToLocal;
+    }
+
+    /// <summary>Where a mesh group is now, which is where it was built unless a clip moved it.</summary>
+    /// <param name="mesh">Which group.</param>
+    /// <returns>Its transform.</returns>
+    public Matrix4x4 PoseOf(int mesh) =>
+        _posed is { } posed && mesh >= 0 && mesh < posed.Length && posed[mesh] is { } moved
+            ? moved
+            : Model.Meshes[mesh].MeshToLocal;
+
     /// <summary>The head as the clips address it, when the head being drawn is refined.</summary>
     /// <remarks>
     /// Null for a prop, and null for a character whose head is drawn as authored. When it is

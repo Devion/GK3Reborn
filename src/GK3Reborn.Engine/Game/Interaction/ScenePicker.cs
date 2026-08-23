@@ -144,27 +144,34 @@ public sealed class ScenePicker
                 continue;
             }
 
-            // A model's triangles are kept in its own space, so the ray goes to where it
-            // is standing now rather than the triangles being moved to meet the ray.
-            if (Into(ray, target) is not { } local)
+            // A model's triangles are kept in the space they were built in, so the ray
+            // goes to where each part of it is now rather than the triangles being moved
+            // to meet the ray. A part is a mesh group, because that is what an animation
+            // moves: a clip replaces each group's own transform and the model's placement
+            // is applied on top, so a character an animation has put somewhere is nowhere
+            // near the placement the scene gave them.
+            foreach (Part part in target.Parts)
             {
-                continue;
+                if (Into(ray, target, part) is not { } local)
+                {
+                    continue;
+                }
+
+                if (!MeetsBox(local, part.Minimum, part.Maximum, best))
+                {
+                    continue;
+                }
+
+                if (Nearest(local, part, target.FrontFacingOnly, best) is not { } distance)
+                {
+                    continue;
+                }
+
+                best = distance;
+
+                nearest = new ScenePick(
+                    target.Name, target.Noun, target.Verb, distance, ray.At(distance), target.Kind);
             }
-
-            if (!MeetsBox(local, target.Minimum, target.Maximum, best))
-            {
-                continue;
-            }
-
-            if (Nearest(local, target, best) is not { } distance)
-            {
-                continue;
-            }
-
-            best = distance;
-
-            nearest = new ScenePick(
-                target.Name, target.Noun, target.Verb, distance, ray.At(distance), target.Kind);
         }
 
         return nearest;
@@ -257,24 +264,32 @@ public sealed class ScenePicker
     /// </remarks>
     private void AddModel(PlacedModel placed)
     {
-        List<Vector3> triangles = [];
+        List<Part> parts = [];
 
-        foreach (ModMesh mesh in placed.Model.Meshes)
+        for (int group = 0; group < placed.Model.Meshes.Count; group++)
         {
-            Matrix4x4 toModel = mesh.MeshToLocal;
+            List<Vector3> triangles = [];
 
-            foreach (ModSubmesh submesh in mesh.Submeshes)
+            // Untransformed, because the group's own transform is what a clip replaces.
+            // Baking it in here is what left an animated character's hotspot standing in
+            // the pose the artist modelled them in.
+            foreach (ModSubmesh submesh in placed.Model.Meshes[group].Submeshes)
             {
                 for (int i = 0; i + 2 < submesh.Indices.Length; i += 3)
                 {
-                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i]], toModel));
-                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 1]], toModel));
-                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 2]], toModel));
+                    triangles.Add(submesh.Positions[submesh.Indices[i]]);
+                    triangles.Add(submesh.Positions[submesh.Indices[i + 1]]);
+                    triangles.Add(submesh.Positions[submesh.Indices[i + 2]]);
                 }
+            }
+
+            if (triangles.Count > 0)
+            {
+                parts.Add(new Part(group, [.. triangles]));
             }
         }
 
-        if (triangles.Count == 0)
+        if (parts.Count == 0)
         {
             return;
         }
@@ -288,7 +303,7 @@ public sealed class ScenePicker
             placed.Noun,
             placed.Verb,
             placed.Kind == PlacedModelKind.Actor ? PickKind.Actor : PickKind.Prop,
-            [.. triangles],
+            [.. parts],
             FrontFacingOnly: false)
         {
             Of = placed,
@@ -330,14 +345,19 @@ public sealed class ScenePicker
     /// lets the hit point be read off the original ray.
     /// </para>
     /// </remarks>
-    private static Ray? Into(Ray ray, Target target)
+    private static Ray? Into(Ray ray, Target target, Part part)
     {
         if (target.Of is not { } placed)
         {
             return ray;
         }
 
-        Matrix4x4 standing = placed.Standing;
+        // Where the group is now, then where the model is now. The first is what a clip
+        // changes and the second is what walking changes, and a character can be moved by
+        // either — Emilio is put in the loveseat by one and crosses the square by the other.
+        Matrix4x4 standing = part.Mesh >= 0
+            ? placed.PoseOf(part.Mesh) * placed.Standing
+            : placed.Standing;
 
         if (standing.IsIdentity)
         {
@@ -358,9 +378,9 @@ public sealed class ScenePicker
     }
 
     /// <summary>The nearest hit on one target, if the ray reaches it at all.</summary>
-    private static float? Nearest(Ray ray, Target target, float limit)
+    private static float? Nearest(Ray ray, Part part, bool frontFacingOnly, float limit)
     {
-        Vector3[] triangles = target.Triangles;
+        Vector3[] triangles = part.Triangles;
         float? best = null;
 
         for (int i = 0; i + 2 < triangles.Length; i += 3)
@@ -369,7 +389,7 @@ public sealed class ScenePicker
             Vector3 b = triangles[i + 1];
             Vector3 c = triangles[i + 2];
 
-            if (target.FrontFacingOnly &&
+            if (frontFacingOnly &&
                 Vector3.Dot(ray.Direction, Vector3.Cross(b - a, c - a)) >= 0f)
             {
                 continue;
@@ -468,28 +488,21 @@ public sealed class ScenePicker
     private static float Component(Vector3 vector, int axis) =>
         axis switch { 0 => vector.X, 1 => vector.Y, _ => vector.Z };
 
-    /// <summary>One nameable thing, with its triangles and its box in one space.</summary>
+    /// <summary>
+    /// One piece of a target that moves as a unit, and its triangles.
+    /// </summary>
     /// <remarks>
-    /// Which space depends on what it is. The room's own geometry is in the room's, where
-    /// it cannot go anywhere. A model's is its own, and <see cref="Of"/> is what says
-    /// where that space currently sits in the room.
+    /// The triangles are in the space the mesh group was built in rather than in the
+    /// room's. A clip replaces a group's own transform and the model's placement is applied
+    /// on top, so the only way a hotspot can follow an animated character is to leave the
+    /// triangles where they are and move the ray instead.
     /// </remarks>
-    private sealed record Target
+    private sealed record Part
     {
-        public Target(
-            string name,
-            string? noun,
-            string? verb,
-            PickKind kind,
-            Vector3[] triangles,
-            bool FrontFacingOnly)
+        public Part(int mesh, Vector3[] triangles)
         {
-            Name = name;
-            Noun = noun;
-            Verb = verb;
-            Kind = kind;
+            Mesh = mesh;
             Triangles = triangles;
-            this.FrontFacingOnly = FrontFacingOnly;
 
             Vector3 minimum = new(float.MaxValue);
             Vector3 maximum = new(float.MinValue);
@@ -504,6 +517,50 @@ public sealed class ScenePicker
             // for the slab test to work with.
             Minimum = minimum - new Vector3(0.01f);
             Maximum = maximum + new Vector3(0.01f);
+        }
+
+        public int Mesh { get; }
+
+        public Vector3[] Triangles { get; }
+
+        public Vector3 Minimum { get; }
+
+        public Vector3 Maximum { get; }
+    }
+
+    /// <summary>One nameable thing, in as many pieces as can move independently.</summary>
+    /// <remarks>
+    /// Which space each piece is in depends on what it is. The room's own geometry is in
+    /// the room's, where it cannot go anywhere. A model's is the mesh group's own, and
+    /// <see cref="Target.Of"/> is what says where that space currently sits in the room.
+    /// </remarks>
+    private sealed record Target
+    {
+        public Target(
+            string name,
+            string? noun,
+            string? verb,
+            PickKind kind,
+            Vector3[] triangles,
+            bool FrontFacingOnly)
+            : this(name, noun, verb, kind, [new Part(-1, triangles)], FrontFacingOnly)
+        {
+        }
+
+        public Target(
+            string name,
+            string? noun,
+            string? verb,
+            PickKind kind,
+            Part[] parts,
+            bool FrontFacingOnly)
+        {
+            Name = name;
+            Noun = noun;
+            Verb = verb;
+            Kind = kind;
+            Parts = parts;
+            this.FrontFacingOnly = FrontFacingOnly;
         }
 
         public string Name { get; }
@@ -522,12 +579,9 @@ public sealed class ScenePicker
 
         public PickKind Kind { get; }
 
-        public Vector3[] Triangles { get; }
+        /// <summary>The pieces it is made of, each of which can be moved on its own.</summary>
+        public Part[] Parts { get; }
 
         public bool FrontFacingOnly { get; }
-
-        public Vector3 Minimum { get; }
-
-        public Vector3 Maximum { get; }
     }
 }

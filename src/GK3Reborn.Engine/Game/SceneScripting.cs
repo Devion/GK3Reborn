@@ -746,8 +746,13 @@ public static class SceneScripting
         api.Register("WalkTo", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
 
+        // The second argument is an <b>animation</b>, not a place: walk to where that
+        // animation begins, so the clip plays where it was authored to. Reading it as a
+        // spot or a model finds neither, which is what 165 calls across the corpus were
+        // quietly doing — Emilio came out of the hotel and then stood in the doorway for
+        // the rest of the morning instead of walking to his bench.
         api.Register("WalkToAnimation", a => SheepValue.FromInt(
-            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
+            (int)ToAnimationStart(scene, world, Actor(api, a, 0), Name(a, 1), hurry: false)));
 
         api.Register("WalkToSeeModel", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true)));
@@ -886,20 +891,17 @@ public static class SceneScripting
             return 0;
         }
 
-        if (world.Characters?.Of(actor) is not { } character || character.Hips is null)
+        // The model, not the actor. An actor answers to two names — gab and GABRIEL — and
+        // both a clip and a character's own settings are filed under the model's, so
+        // everything below asks about what the scene actually placed rather than about what
+        // the script called it.
+        string model = Modelled(scene, actor);
+
+        if (world.Characters?.Of(model) is not { } character || character.Hips is null)
         {
-            Cannot("hip axes in CHARACTERS.TXT for " + actor, "none");
+            Cannot("hip axes in CHARACTERS.TXT for " + model, "none");
             return 0;
         }
-
-        // The model, not the actor. An actor answers to two names — gab and GABRIEL — and a
-        // clip is filed under the model's, so the animation has to be searched for what the
-        // scene actually placed rather than for what the action file called it.
-        string model = scene.Models
-            .FirstOrDefault(m =>
-                string.Equals(m.Name, actor, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(m.Noun, actor, StringComparison.OrdinalIgnoreCase))
-            ?.Name ?? actor;
 
         if (AnimationStart.Of(read, clips, model, character) is not { } start)
         {
@@ -925,12 +927,37 @@ public static class SceneScripting
             return aim.Destination;
         }
 
-        float stand = world.Characters?.Of(actor)?.WalkerHeight is { } height && height > 0
-            ? height
-            : Navigation.Walker.StandOff;
+        float stand = world.Characters?.Of(Modelled(world, actor))?.WalkerHeight is
+            { } height && height > 0
+                ? height
+                : Navigation.Walker.StandOff;
 
         return Navigation.Walker.StandingOff(thing, from, stand);
     }
+
+    /// <summary>
+    /// The model name behind whichever of an actor's two names a script used.
+    /// </summary>
+    /// <param name="scene">The room, which is what knows the pairing.</param>
+    /// <param name="actor">The name the script used.</param>
+    /// <returns>The model's own name, or the name given when the room has nobody by it.</returns>
+    /// <remarks>
+    /// <c>CHARACTERS.TXT</c> is keyed by the three-letter model code, and the fallback of
+    /// taking a name's first three letters only works where the two agree. They usually do —
+    /// <c>GABRIEL</c> to <c>GAB</c> — and where they do not, nothing is found: Emilio's noun
+    /// gives <c>EMI</c> and his section is <c>[EML]</c>, so every question about him
+    /// answered "there is no such character" and he stood where he was.
+    /// </remarks>
+    private static string Modelled(LoadedScene scene, string actor) =>
+        scene.Models
+            .FirstOrDefault(m =>
+                string.Equals(m.Name, actor, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(m.Noun, actor, StringComparison.OrdinalIgnoreCase))
+            ?.Name ?? actor;
+
+    /// <summary>The same, for a caller that has the world rather than the scene.</summary>
+    private static string Modelled(SceneUpdate world, string actor) =>
+        world.ModelNamed(actor)?.Name ?? actor;
 
     /// <summary>Standing somebody at a named spot, without walking them there.</summary>
     /// <remarks>

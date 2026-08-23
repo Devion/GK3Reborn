@@ -466,7 +466,8 @@ public sealed class SceneUpdate
 
             _playing.Add(new Playing(
                 clip, target, action, repeat, moves, Where(target.Name),
-                _geometry.TransformOf(target.Placement), fromBehaviour, animation.Rate));
+                _geometry.TransformOf(target.Placement), fromBehaviour, animation.Rate,
+                Characters?.Of(target.Name)));
             longest = Math.Max(
                 longest,
                 ((double)clip.FrameCount + action.Frame) / Math.Max(1, animation.Rate));
@@ -598,7 +599,8 @@ public sealed class SceneUpdate
                     repeat: false,
                     moves: true,
                     Where(target.Name),
-                    _geometry.TransformOf(target.Placement));
+                    _geometry.TransformOf(target.Placement),
+                    character: Characters?.Of(target.Name));
 
                 pose.Open(_geometry);
 
@@ -2002,8 +2004,10 @@ public sealed class SceneUpdate
 
     private sealed class Playing
     {
+        private readonly Actors.CharacterConfig? _character;
         private readonly bool _repeat;
         private readonly bool _moves;
+        private readonly bool _absolute;
         private readonly int _rate;
         private readonly double _delay;
         private readonly Matrix4x4 _correction;
@@ -2020,8 +2024,10 @@ public sealed class SceneUpdate
             Vector3? began,
             Matrix4x4 standing,
             bool fromBehaviour = false,
-            int rate = AnimationFile.FramesPerSecond)
+            int rate = AnimationFile.FramesPerSecond,
+            Actors.CharacterConfig? character = null)
         {
+            _character = character;
             Clip = clip;
             Target = target;
             FromBehaviour = fromBehaviour;
@@ -2029,6 +2035,7 @@ public sealed class SceneUpdate
             _moves = moves;
             _rate = Math.Max(1, rate);
             _delay = action.Frame / (double)_rate;
+            _absolute = action.Placement is not null;
             _correction = Correction(clip, target, action.Placement, standing);
             _opened = Opens(clip);
             Began = began;
@@ -2041,8 +2048,18 @@ public sealed class SceneUpdate
         /// <summary>Where the clip has carried the actor to.</summary>
         public Vector3? Carried { get; private set; }
 
-        /// <summary>Whether the actor gives back the ground the clip covered.</summary>
-        public bool Reverts => !_moves;
+        /// <summary>
+        /// Whether the actor gives back the ground the clip covered.
+        /// </summary>
+        /// <remarks>
+        /// <b>An absolute clip never does.</b> The original writes it as one line —
+        /// <c>allowMove = allowMove || absolute</c> in <c>AnimationNodes</c> — and it
+        /// follows from what absolute means: the clip says where in the room it happens, so
+        /// putting the actor back where they were is undoing the only thing the clip was
+        /// for. Emilio walks out of the hotel through an absolute clip, and without this he
+        /// was returned to the spot he was standing on before he opened the door.
+        /// </remarks>
+        public bool Reverts => !_moves && !_absolute;
 
         public ActFile Clip { get; }
 
@@ -2199,8 +2216,35 @@ public sealed class SceneUpdate
         /// is has to ask the pose rather than the placement. It is the same measure
         /// <see cref="Correction"/> works from, so the two cannot disagree.
         /// </remarks>
-        public Vector3 Settled(Matrix4x4 standing) =>
-            Vector3.Transform(_opened, _correction * standing);
+        public Vector3 Settled(Matrix4x4 standing)
+        {
+            Matrix4x4 world = _correction * standing;
+
+            // The hips, for the same reason the running pose uses them: this is a place
+            // read out of a clip rather than a distance measured across one.
+            return (_character is null
+                ? null
+                : Actors.AnimationStart.Standing(Clip, 0, false, _character, world))
+                ?? Vector3.Transform(_opened, world);
+        }
+
+        /// <summary>Whether the clip says where in the room it happens.</summary>
+        public bool Absolute => _absolute;
+
+        /// <summary>
+        /// Puts one mesh group where the clip says, in the picture and on the model.
+        /// </summary>
+        /// <remarks>
+        /// Both, because they answer different questions and both are asked. The sink draws
+        /// it; the model is what the picker reads to know where the thing the player is
+        /// pointing at has got to. Writing only the first left Emilio sitting in the
+        /// loveseat with his hotspot still standing where his model file put him.
+        /// </remarks>
+        private void Put(ISceneSink geometry, int mesh, Matrix4x4 meshToLocal)
+        {
+            geometry.PoseMesh(Target.Placement, mesh, meshToLocal);
+            Target.Pose(mesh, meshToLocal);
+        }
 
         /// <summary>Where the clip's mesh groups sit on its opening frame.</summary>
         private static Vector3 Opens(ActFile clip) => Average(Enumerable
@@ -2220,17 +2264,34 @@ public sealed class SceneUpdate
         {
             float at = (float)frame;
 
-            // How far the clip has carried the model since it opened, in the world's terms
-            // rather than the model's. This is what the actor's position follows.
+            // Where the clip has carried the model to, in the world's terms rather than the
+            // model's. This is what the actor's position follows.
             if (Began is { } from)
             {
-                Vector3 moved = Average(Enumerable
+                Vector3 here = Average(Enumerable
                     .Range(0, Clip.MeshCount)
                     .Select(m => Clip.PoseAt(m, at, _repeat))
                     .Where(p => p is not null)
-                    .Select(p => p!.Value.Translation)) - _opened;
+                    .Select(p => p!.Value.Translation));
 
-                Carried = from + Vector3.TransformNormal(moved, Target.Transform);
+                // An absolute clip says where in the room it happens, so where it has got
+                // to is a place rather than a distance from wherever the actor happened to
+                // be standing. Measuring it as a distance is what left Emilio's position at
+                // the spot he was hidden at while his model walked out of the hotel — and
+                // the walk to his bench then set off from there and found no route.
+                Matrix4x4 world = _correction * geometry.TransformOf(Target.Placement);
+
+                // The hips where the character has them, and the average of the mesh
+                // origins only where nothing says. The two move together, so a difference
+                // of averages is exact and free — but a single average is that answer plus
+                // the constant between a torso's middle and the floor, and an absolute clip
+                // is read as a place rather than differenced.
+                Carried = _absolute
+                    ? (_character is null
+                        ? null
+                        : Actors.AnimationStart.Standing(Clip, at, _repeat, _character, world))
+                      ?? Vector3.Transform(here, world)
+                    : from + Vector3.TransformNormal(here - _opened, Target.Transform);
             }
 
             for (int mesh = 0; mesh < Clip.MeshCount; mesh++)
@@ -2249,9 +2310,9 @@ public sealed class SceneUpdate
                     // long way from here and silent when it happens.
                     if (Turn(rig, at) is { } turn)
                     {
-                        if (pose is { } placed)
+                            if (pose is { } placed)
                         {
-                            geometry.PoseMesh(Target.Placement, mesh, turn * placed * _correction);
+                            Put(geometry, mesh, turn * placed * _correction);
                         }
                         else
                         {
@@ -2262,7 +2323,7 @@ public sealed class SceneUpdate
                     }
                     else if (pose is { } carried)
                     {
-                        geometry.PoseMesh(Target.Placement, mesh, carried * _correction);
+                        Put(geometry, mesh, carried * _correction);
                     }
 
                     continue;
@@ -2270,7 +2331,7 @@ public sealed class SceneUpdate
 
                 if (pose is { } value)
                 {
-                    geometry.PoseMesh(Target.Placement, mesh, value * _correction);
+                    Put(geometry, mesh, value * _correction);
                 }
 
                 // The shapes, where the clip has them. Without these a character is mesh

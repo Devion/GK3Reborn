@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
 using GK3Reborn.Game.Navigation;
@@ -93,6 +93,49 @@ public static class AnimationStart
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Where a clip stands somebody at a moment part-way through it.
+    /// </summary>
+    /// <param name="clip">The clip posing them.</param>
+    /// <param name="frame">Which frame, with the fraction of the way to the next.</param>
+    /// <param name="repeat">Whether the clip loops, which decides how it reads past its end.</param>
+    /// <param name="character">Their entry in <c>CHARACTERS.TXT</c>, for the hip triad.</param>
+    /// <param name="toWorld">Where in the room the clip is being played.</param>
+    /// <returns>The spot, or null when the clip says nothing about where their hips are.</returns>
+    /// <remarks>
+    /// <para>
+    /// The same measure <see cref="Of"/> takes, at any frame rather than the first: an
+    /// actor stands where the triad under their hips is.
+    /// </para>
+    /// <para>
+    /// It matters wherever a position is read out of a clip rather than differenced across
+    /// one. The average of a character's mesh-group origins moves with exactly the same
+    /// rigid motion, so a <em>difference</em> of two averages is the same answer and much
+    /// cheaper — but one average on its own is that answer plus a constant, and the
+    /// constant is most of a torso. Emilio walked out of the hotel and then set off for his
+    /// bench from a couple of feet behind where he was standing.
+    /// </para>
+    /// </remarks>
+    public static Vector3? Standing(
+        Formats.Animation.ActFile clip,
+        float frame,
+        bool repeat,
+        CharacterConfig character,
+        Matrix4x4 toWorld)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(character);
+
+        if (character.Hips is not { } hips ||
+            clip.PoseAt(hips.Mesh, frame, repeat) is not { } pose ||
+            Point(clip, hips) is not { } local)
+        {
+            return null;
+        }
+
+        return Vector3.Transform(local, pose * toWorld);
     }
 
     /// <summary>The triad's point on the opening frame, if the clip records vertices.</summary>
