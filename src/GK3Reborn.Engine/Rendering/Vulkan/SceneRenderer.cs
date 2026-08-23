@@ -85,6 +85,15 @@ public sealed unsafe class SceneRenderer : IDisposable
     /// and it does so to avoid the ray-tracing shader's cost entirely rather than because
     /// it would give a different picture.
     /// </remarks>
+    /// <summary>How the room's lights are divided up, once a scene has been given some.</summary>
+    /// <remarks>
+    /// Reported rather than drawn. The whole point of the grid is that nothing looks
+    /// different — a fragment gets the same lights, reached more cheaply — so the only way
+    /// to know it is working is the numbers: how many cells, and how many lights the
+    /// average one holds against how many the room declares.
+    /// </remarks>
+    public SceneLightGrid? LightGrid { get; private set; }
+
     public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
 
     /// <summary>Creates a renderer.</summary>
@@ -141,6 +150,8 @@ public sealed unsafe class SceneRenderer : IDisposable
     {
         _frames.SetLights(lights, scene);
         _rayTracedFrames?.SetLights(lights, scene);
+
+        LightGrid = _frames.Grid;
     }
 
     /// <summary>Renders geometry and returns the image.</summary>

@@ -211,8 +211,23 @@ public sealed class HeadlessSceneSink : ISceneSink
         _standing.TryGetValue(placement.Id, out Matrix4x4 where) ? where : Matrix4x4.Identity;
 
     /// <inheritdoc/>
+    /// <remarks>Nothing to keep: this counts a scene rather than displacing one.</remarks>
+    public void KeepRelief(IReadOnlySet<string> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+
+        ReliefTextureCount = textures.Count;
+    }
+
+    /// <summary>How many textures the loader asked to keep a readable height map for.</summary>
+    public int ReliefTextureCount { get; private set; }
+
+    /// <inheritdoc/>
     public void AddScene(
-        BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null)
+        BspFile scene,
+        MulFile? lightmaps = null,
+        IReadOnlySet<string>? hiddenObjects = null,
+        string? floorObject = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
 

@@ -32,7 +32,16 @@ namespace GK3Reborn.Rendering.Materials;
 public sealed class SurfaceFinishes
 {
     /// <summary>What a surface nobody has measured is assumed to be.</summary>
-    public static readonly SurfaceFinish Matte = new(1f, 0.5f, 0f, 1f, 0f, false, false);
+    public static readonly SurfaceFinish Matte = new(1f, 0.5f, 0f, 1f, 0f, false, false, false);
+
+    /// <summary>The deepest relief a height field may claim, in world units.</summary>
+    /// <remarks>
+    /// Eight units is twenty centimetres, which is a kerb rather than a texture. Everything
+    /// in a generated height field is invented, and both things that read one degrade the
+    /// same way when it is pushed: the march starts to reveal that the surface has no
+    /// silhouette, and displaced geometry starts to lift off whatever it abuts.
+    /// </remarks>
+    public const float MaximumRelief = 8f;
 
     private readonly Dictionary<string, SurfaceFinish> _finishes;
 
@@ -204,9 +213,10 @@ public sealed class SurfaceFinishes
                 Math.Clamp(material.SpecularReflectance, 0f, 1f),
                 Math.Clamp(material.Metallic, 0f, 1f),
                 Math.Clamp(material.NormalStrength, 0f, 4f),
-                Math.Clamp(material.HeightScale, 0f, 0.25f),
+                Math.Clamp(material.HeightDepth, 0f, MaximumRelief),
                 material.Emissive != System.Numerics.Vector3.Zero,
-                material.Provenance != AuthoringProvenance.Derived);
+                material.Provenance != AuthoringProvenance.Derived,
+                material.Displaced);
         }
 
         return new SurfaceFinishes(finishes);
@@ -239,9 +249,10 @@ public sealed class SurfaceFinishes
 /// How much of the normal map to believe. One is as generated; everything in a generated
 /// map is invented, so this is a per-material decision rather than a constant.
 /// </param>
-/// <param name="HeightScale">
-/// How deep the height map goes, in texture-coordinate units at grazing incidence. Clamped
-/// to a quarter, well past where parallax starts to swim under a moving camera.
+/// <param name="HeightDepth">
+/// How deep the height map goes, in world units from its floor to its ceiling. Clamped to
+/// <see cref="SurfaceFinishes.MaximumRelief"/>, which is well past anything a generated
+/// field has any business claiming about a surface.
 /// </param>
 /// <param name="Emits">
 /// Whether the surface is its own light source — a lit bulb, a lamp shade with a bulb
@@ -249,6 +260,11 @@ public sealed class SurfaceFinishes
 /// </param>
 /// <param name="Authored">
 /// Whether a person had a hand in these numbers, rather than a classifier alone.
+/// </param>
+/// <param name="Displaced">
+/// Whether the height map is cut into the geometry as well as marched by the shader. Only a
+/// paved, tiled or boarded surface wants this; see
+/// <see cref="MaterialDefinition.Displaced"/>.
 /// </param>
 /// <remarks>
 /// <b>An authored finish beats a generated map.</b> Where a surface has an ORM map, the map
@@ -263,9 +279,10 @@ public readonly record struct SurfaceFinish(
     float Specular,
     float Metallic = 0f,
     float NormalStrength = 1f,
-    float HeightScale = 0f,
+    float HeightDepth = 0f,
     bool Emits = false,
-    bool Authored = false)
+    bool Authored = false,
+    bool Displaced = false)
 {
     /// <summary>Whether this surface should stop a ray.</summary>
     /// <remarks>

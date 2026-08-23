@@ -135,11 +135,14 @@ public sealed class HeadPlaybackTests
         public Matrix4x4 TransformOf(ModelPlacement placement) =>
             _inner.TransformOf(placement);
 
+        public void KeepRelief(IReadOnlySet<string> textures) => _inner.KeepRelief(textures);
+
         public void AddScene(
             BspFile scene,
             MulFile? lightmaps = null,
-            IReadOnlySet<string>? hiddenObjects = null) =>
-            _inner.AddScene(scene, lightmaps, hiddenObjects);
+            IReadOnlySet<string>? hiddenObjects = null,
+            string? floorObject = null) =>
+            _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject);
     }
 
     /// <summary>A head: eight corners, enough to fix a rotation and to subdivide.</summary>

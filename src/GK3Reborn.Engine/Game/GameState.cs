@@ -32,6 +32,16 @@ public sealed class GameState
     private readonly Dictionary<string, int> _locationCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _chatCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _sidneyFiles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Which inventory items have been through the scanner.</summary>
+    /// <remarks>
+    /// Beside the file names rather than derived from them. The story asks about the
+    /// <em>file</em> — <c>DoesSidneyFileExist("fileParchment1")</c> — and Sidney's own store
+    /// has to show the <em>item</em> it came from, with its name and what may be done to it.
+    /// Reversing a file name back to an item would mean the naming rule had to stay
+    /// invertible for ever, which is a promise not worth making for one set of strings.
+    /// </remarks>
+    private readonly HashSet<string> _sidneyScans = new(StringComparer.OrdinalIgnoreCase);
     private readonly DeterministicRandom _random = new(DefaultRandomSeed);
 
     /// <summary>
@@ -363,6 +373,39 @@ public sealed class GameState
     public void SetLocationCount(string actor, string location, int value) =>
         _locationCounts[LocationKey(actor, location, Timeblock.ToString())] = value;
 
+    /// <summary>Everywhere an actor has ever been, in any timeblock.</summary>
+    /// <param name="actor">The actor.</param>
+    /// <returns>The location codes, without repeats.</returns>
+    /// <remarks>
+    /// Read out of the visit counts rather than kept separately, so there is one answer to
+    /// "has this actor been here" and the driving map cannot offer somewhere the story does
+    /// not think they have been.
+    /// </remarks>
+    public IReadOnlyList<string> VisitedLocations(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        string prefix = Key(actor) + "|";
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach ((string key, int count) in _locationCounts)
+        {
+            if (count <= 0 || !key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string[] parts = key.Split('|');
+
+            if (parts.Length > 1 && parts[1].Length > 0)
+            {
+                found.Add(parts[1]);
+            }
+        }
+
+        return [.. found];
+    }
+
     /// <summary>Whether an actor has ever been somewhere, in any timeblock.</summary>
     /// <param name="actor">The actor.</param>
     /// <param name="location">Three-letter location code.</param>
@@ -426,6 +469,191 @@ public sealed class GameState
     /// <param name="file">The file's name.</param>
     public void AddSidneyFile(string file) => _sidneyFiles.Add(Key(file));
 
+    /// <summary>The inventory items that have been scanned into Sidney.</summary>
+    public IReadOnlyList<string> SidneyScans =>
+        [.. _sidneyScans.OrderBy(s => s, StringComparer.Ordinal)];
+
+    /// <summary>Records that an item has been through Sidney's scanner.</summary>
+    /// <param name="item">The item's noun.</param>
+    public void RecordSidneyScan(string item) => _sidneyScans.Add(Key(item));
+
+    /// <summary>
+    /// Writes everything observable down, so that it can be put back.
+    /// </summary>
+    /// <param name="title">What to call it.</param>
+    /// <returns>The save.</returns>
+    /// <remarks>
+    /// <para>
+    /// The composite keys go across whole rather than being taken apart and rebuilt. They
+    /// are this class's own private encoding — an actor, a noun and a verb joined by a
+    /// separator no name contains — and a save that decomposed them would have to agree
+    /// with that encoding for ever. Copying them keeps the round trip exact by
+    /// construction, which is what makes the hash test meaningful rather than circular.
+    /// </para>
+    /// <para>
+    /// Compare with <see cref="ComputeHash"/>: the two enumerate the same things, and they
+    /// have to. Anything the hash counts as part of the game and this leaves out is
+    /// something a loaded game would have lost.
+    /// </para>
+    /// </remarks>
+    public SaveGame Capture(string title = "")
+    {
+        (ulong s0, ulong s1, ulong s2, ulong s3) = _random.CaptureState();
+
+        return new SaveGame
+        {
+            SchemaVersion = SaveGame.CurrentSchema,
+            Written = DateTimeOffset.UtcNow,
+            Title = title,
+            Day = Timeblock.Day,
+            Hour = Timeblock.Hour,
+            Afternoon = Timeblock.IsAfternoon,
+            Location = Location,
+            LastLocation = LastLocation,
+            CameraAngle = CameraAngle,
+            Ego = Ego,
+            Score = Score,
+            RandomDraws = RandomDraws,
+            RandomState = [s0, s1, s2, s3],
+            Flags = [.. _flags.OrderBy(f => f, StringComparer.Ordinal)],
+            Variables = new Dictionary<string, int>(_variables),
+            NounVerbCounts = new Dictionary<string, int>(_nounVerbCounts),
+            TopicCounts = new Dictionary<string, int>(_topicCounts),
+            SaidTopics = [.. _saidTopics.OrderBy(t => t, StringComparer.Ordinal)],
+            ChatCounts = new Dictionary<string, int>(_chatCounts),
+            LocationCounts = new Dictionary<string, int>(_locationCounts),
+            ActorLocations = new Dictionary<string, string>(_actorLocations),
+            SidneyFiles = [.. _sidneyFiles.OrderBy(f => f, StringComparer.Ordinal)],
+            SidneyScans = [.. _sidneyScans.OrderBy(s => s, StringComparer.Ordinal)],
+            BlockedHitTests = [.. BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)],
+            Inventories =
+            [
+                .. Inventory.Owners.Select(owner => new SavedInventory(
+                    owner,
+                    [.. Inventory.ItemsOf(owner)],
+                    Inventory.ActiveItemOf(owner))),
+            ],
+            Timers =
+            [
+                .. Timers.Pending.Select(t => new SavedTimer(t.Noun, t.Verb, t.SecondsRemaining)),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// Puts a saved game back, throwing away whatever was here.
+    /// </summary>
+    /// <param name="save">The save.</param>
+    /// <remarks>
+    /// <b>Everything is cleared first.</b> Loading into a state that still holds the
+    /// previous game's flags is the classic save bug: the story reads a flag nobody set in
+    /// this run and takes a branch the player never earned, and it only shows up hours
+    /// later. Setting is not enough; unsetting has to happen too, and a save records only
+    /// what is set.
+    /// </remarks>
+    public void Restore(SaveGame save)
+    {
+        ArgumentNullException.ThrowIfNull(save);
+
+        _variables.Clear();
+        _flags.Clear();
+        _nounVerbCounts.Clear();
+        _topicCounts.Clear();
+        _saidTopics.Clear();
+        _actorLocations.Clear();
+        _locationCounts.Clear();
+        _chatCounts.Clear();
+        _sidneyFiles.Clear();
+        _sidneyScans.Clear();
+        BlockedHitTests.Clear();
+        Timers.Clear();
+        Inventory.Clear();
+        Screens.CloseAll();
+
+        Timeblock = new Timeblock(save.Day, save.Hour, save.Afternoon);
+        Ego = save.Ego;
+        CameraAngle = save.CameraAngle;
+        Conversation = null;
+        Inspecting = string.Empty;
+        MustChooseAnAction = false;
+        DefaultDialogueCamera = null;
+        CameraFieldOfView = null;
+
+        // Straight to the fields: the Location setter keeps a history and counts a visit,
+        // and a load is neither. Where the player was is what the save says, and so is
+        // where they were before that.
+        _location = save.Location;
+        LastLocation = save.LastLocation;
+        Score = save.Score;
+        RandomDraws = save.RandomDraws;
+
+        if (save.RandomState.Count == 4)
+        {
+            _random.RestoreState(
+                (save.RandomState[0], save.RandomState[1], save.RandomState[2], save.RandomState[3]));
+        }
+
+        foreach (string flag in save.Flags)
+        {
+            _flags.Add(Key(flag));
+        }
+
+        Fill(_variables, save.Variables);
+        Fill(_nounVerbCounts, save.NounVerbCounts);
+        Fill(_topicCounts, save.TopicCounts);
+        Fill(_chatCounts, save.ChatCounts);
+        Fill(_locationCounts, save.LocationCounts);
+
+        foreach (string said in save.SaidTopics)
+        {
+            _saidTopics.Add(said);
+        }
+
+        foreach ((string actor, string where) in save.ActorLocations)
+        {
+            _actorLocations[actor] = where;
+        }
+
+        foreach (string file in save.SidneyFiles)
+        {
+            _sidneyFiles.Add(Key(file));
+        }
+
+        foreach (string scan in save.SidneyScans)
+        {
+            _sidneyScans.Add(Key(scan));
+        }
+
+        foreach (string hit in save.BlockedHitTests)
+        {
+            BlockedHitTests.Add(hit);
+        }
+
+        foreach (SavedInventory pockets in save.Inventories)
+        {
+            foreach (string item in pockets.Items)
+            {
+                Inventory.Add(pockets.Owner, item);
+            }
+
+            Inventory.SetActive(pockets.Owner, pockets.Active);
+        }
+
+        foreach (SavedTimer timer in save.Timers)
+        {
+            Timers.Set(timer.Noun, timer.Verb, timer.Seconds);
+        }
+    }
+
+    /// <summary>Copies a saved map in, as it was written.</summary>
+    private static void Fill(Dictionary<string, int> into, IReadOnlyDictionary<string, int> from)
+    {
+        foreach ((string key, int value) in from)
+        {
+            into[key] = value;
+        }
+    }
+
     /// <summary>Draws a random number, both ends included.</summary>
     /// <param name="lower">Smallest value it may take.</param>
     /// <param name="upper">Largest value it may take.</param>
@@ -483,6 +711,7 @@ public sealed class GameState
             .Select(kv => (kv.Key, kv.Value)));
 
         Append(builder, "sidney", SidneyFiles.Select(f => (f, "1")));
+        Append(builder, "scanned", SidneyScans.Select(s => (s, "1")));
 
         // Inventory is part of the comparable state: which character holds what decides
         // whether puzzles can be solved, and which of it is in hand decides what using it

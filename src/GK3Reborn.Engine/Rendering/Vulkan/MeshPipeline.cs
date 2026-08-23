@@ -30,6 +30,13 @@ public readonly record struct MeshVertex(
 /// counter that seeded the sampling noise; it made the grain change every frame, which
 /// with no temporal filter to average it is a pattern crawling across the picture.
 /// </param>
+/// <param name="GridOrigin">
+/// The corner the light grid starts at, and how wide one of its cells is. See
+/// <see cref="SceneLightGrid"/>.
+/// </param>
+/// <param name="GridCounts">
+/// How many cells the grid has along each axis, and how many lights the rig holds in all.
+/// </param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
     Matrix4x4 ViewProjection,
@@ -37,7 +44,9 @@ public readonly record struct FrameUniforms(
     Vector4 LightDirection,
     Vector4 CameraPosition,
     Vector4 Rays,
-    Vector4 Tuning);
+    Vector4 Tuning,
+    Vector4 GridOrigin,
+    Vector4 GridCounts);
 
 /// <summary>Constants that change per draw, delivered as push constants.</summary>
 /// <param name="Model">Model to world space.</param>
@@ -235,7 +244,7 @@ public sealed unsafe class MeshPipeline : IDisposable
 
     private void CreateDescriptorLayouts()
     {
-        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[3];
+        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[5];
         frameBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
@@ -243,16 +252,38 @@ public sealed unsafe class MeshPipeline : IDisposable
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
         };
+        // The rig, and the grid that says which of it reaches where. Storage buffers
+        // rather than uniform ones: a uniform block has to be sized at compile time and
+        // the standard only guarantees 16 KB of it, which is what put a limit of sixty-four
+        // lights on a scene. A storage buffer is unsized on both sides and the loop is
+        // bounded by the cell rather than by the array. See SceneLightGrid.
         frameBindings[1] = new DescriptorSetLayoutBinding
         {
             Binding = 1,
-            DescriptorType = DescriptorType.UniformBuffer,
+            DescriptorType = DescriptorType.StorageBuffer,
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.FragmentBit,
         };
         frameBindings[2] = new DescriptorSetLayoutBinding
         {
             Binding = 2,
+            DescriptorType = DescriptorType.StorageBuffer,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+        frameBindings[3] = new DescriptorSetLayoutBinding
+        {
+            Binding = 3,
+            DescriptorType = DescriptorType.StorageBuffer,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        // Last, so that the count can leave it off on a device that cannot trace. A
+        // binding is not added by writing to it — the count is what the driver reads.
+        frameBindings[4] = new DescriptorSetLayoutBinding
+        {
+            Binding = 4,
             DescriptorType = DescriptorType.AccelerationStructureKhr,
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.FragmentBit,
@@ -261,7 +292,7 @@ public sealed unsafe class MeshPipeline : IDisposable
         var frameInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = RayTracing ? 3u : 2u,
+            BindingCount = RayTracing ? 5u : 4u,
             PBindings = frameBindings,
         };
 

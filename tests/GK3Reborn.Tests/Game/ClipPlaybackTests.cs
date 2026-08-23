@@ -124,11 +124,14 @@ public sealed class ClipPlaybackTests
         public Matrix4x4 TransformOf(ModelPlacement placement) =>
             _inner.TransformOf(placement);
 
+        public void KeepRelief(IReadOnlySet<string> textures) => _inner.KeepRelief(textures);
+
         public void AddScene(
             BspFile scene,
             MulFile? lightmaps = null,
-            IReadOnlySet<string>? hiddenObjects = null) =>
-            _inner.AddScene(scene, lightmaps, hiddenObjects);
+            IReadOnlySet<string>? hiddenObjects = null,
+            string? floorObject = null) =>
+            _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject);
     }
 
     /// <summary>A one-mesh clip whose mesh moves along X, a unit a frame.</summary>

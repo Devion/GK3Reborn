@@ -73,6 +73,28 @@ public readonly record struct AnimationMouth(int Frame, string Actor, string Mou
 public readonly record struct AnimationFace(
     int Frame, string Actor, FacePart Part, string? Texture);
 
+/// <summary>A model an animation shows or hides part-way through.</summary>
+/// <param name="Frame">Which frame it changes on.</param>
+/// <param name="Model">The model's own name, as the scene placed it.</param>
+/// <param name="Visible">Whether it is drawn from this frame on.</param>
+/// <param name="Mesh">Which mesh group, or -1 for the whole model.</param>
+/// <param name="Submesh">Which submesh within it, or -1 for all of them.</param>
+/// <remarks>
+/// <para>
+/// 208 of the corpus's animations carry an <c>[MVISIBILITY]</c> section, and it is how a
+/// character who is not in the room walks into it. <c>EmlRc1ExitLobby</c> is the plain
+/// case: Emilio is hidden until the moment he opens the hotel door, and frame 0 of the
+/// animation that swings the door is what turns him on.
+/// </para>
+/// <para>
+/// Without it the door still swings and the door still makes its noise, because those are
+/// an <c>[ACTIONS]</c> clip and a <c>[SOUNDS]</c> cue — so the failure looks like a door
+/// opening by itself rather than like a missing person.
+/// </para>
+/// </remarks>
+public readonly record struct AnimationVisibility(
+    int Frame, string Model, bool Visible, int Mesh = -1, int Submesh = -1);
+
 /// <summary>Where an absolute animation puts the thing it moves.</summary>
 /// <param name="Position">The spot, in world space.</param>
 /// <param name="Heading">Which way it faces there, in radians about the vertical.</param>
@@ -117,7 +139,7 @@ public readonly record struct AnimationPlacement(Vector3 Position, float Heading
 /// </remarks>
 public sealed class AnimationFile
 {
-    /// <summary>How many frames a second an animation runs at.</summary>
+    /// <summary>How many frames a second an animation runs at, unless it says otherwise.</summary>
     /// <remarks>
     /// Fifteen, from G-Engine's <c>Animation::mFramesPerSecond</c>. Nothing in the files
     /// says so, which is worth knowing: a reader that assumed thirty would make every
@@ -132,7 +154,9 @@ public sealed class AnimationFile
         IReadOnlyList<AnimationSound> sounds,
         IReadOnlyList<AnimationCaption> captions,
         IReadOnlyList<AnimationMouth> mouths,
-        IReadOnlyList<AnimationFace> faces)
+        IReadOnlyList<AnimationFace> faces,
+        IReadOnlyList<AnimationVisibility> visibility,
+        int rate)
     {
         Name = name;
         FrameCount = frames;
@@ -141,7 +165,29 @@ public sealed class AnimationFile
         Captions = captions;
         Mouths = mouths;
         Faces = faces;
+        Visibility = visibility;
+        Rate = rate;
     }
+
+    /// <summary>
+    /// How many frames a second <em>this</em> animation runs at.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="FramesPerSecond"/> unless an <c>[OPTIONS]</c> line says otherwise, which
+    /// thirty of the corpus's animations do — anywhere from 5 to 580. They are the ones
+    /// whose timing is nothing like the rest: a fan, a flicker, a clock.
+    /// </para>
+    /// <para>
+    /// The option carries a frame number, so in principle the rate may change part-way
+    /// through. One animation in the game does that and nothing appears to play it, so the
+    /// last rate named wins for the whole clip, as the reference implementation also does.
+    /// </para>
+    /// </remarks>
+    public int Rate { get; }
+
+    /// <summary>What it shows and hides as it runs, in file order.</summary>
+    public IReadOnlyList<AnimationVisibility> Visibility { get; }
 
     /// <summary>Name this animation was read under.</summary>
     public string Name { get; }
@@ -150,7 +196,7 @@ public sealed class AnimationFile
     public int FrameCount { get; }
 
     /// <summary>How long it lasts, in seconds.</summary>
-    public double Duration => (double)FrameCount / FramesPerSecond;
+    public double Duration => (double)FrameCount / Math.Max(1, Rate);
 
     /// <summary>The vertex animations it starts, in file order.</summary>
     public IReadOnlyList<AnimationAction> Actions { get; }
@@ -200,6 +246,8 @@ public sealed class AnimationFile
         List<AnimationCaption> captions = [];
         List<AnimationMouth> mouths = [];
         List<AnimationFace> faces = [];
+        List<AnimationVisibility> visibility = [];
+        int rate = FramesPerSecond;
 
         foreach (IniSection section in document.Sections)
         {
@@ -229,6 +277,35 @@ public sealed class AnimationFile
                         line.Entries.Count > 3 ? line.Entries[3].Key : string.Empty)));
                     break;
 
+                case "MVISIBILITY":
+                    // Two shapes of line, told apart by how many fields there are:
+                    // <frame>,<model>,<on/off> for the whole model, and
+                    // <frame>,<model>,<mesh>,<submesh>,<on/off> for one part of it.
+                    Read(section, line => visibility.Add(line.Entries.Count > 3
+                        ? new AnimationVisibility(
+                            (int)(line.Entries[0].AsNumber() ?? 0),
+                            line.Entries[1].Key,
+                            Switched(line.Entries[4].Key),
+                            (int)(line.Entries[2].AsNumber() ?? -1),
+                            (int)(line.Entries[3].AsNumber() ?? -1))
+                        : new AnimationVisibility(
+                            (int)(line.Entries[0].AsNumber() ?? 0),
+                            line.Entries[1].Key,
+                            Switched(line.Entries[2].Key))));
+                    break;
+
+                case "OPTIONS":
+                    Read(section, line =>
+                    {
+                        if (line.Entries.Count > 2 &&
+                            line.Entries[1].Key.Equals("FRAMERATE", StringComparison.OrdinalIgnoreCase) &&
+                            line.Entries[2].AsNumber() is > 0 and { } named)
+                        {
+                            rate = (int)named;
+                        }
+                    });
+                    break;
+
                 case "GK3":
                     Spoken(section, captions, mouths, faces);
                     break;
@@ -249,8 +326,24 @@ public sealed class AnimationFile
         }
 
         return new AnimationFile(
-            name, Math.Max(0, frames), actions, sounds, captions, mouths, faces);
+            name, Math.Max(0, frames), actions, sounds, captions, mouths, faces,
+            visibility, rate);
     }
+
+    /// <summary>Reads an on/off field.</summary>
+    /// <remarks>
+    /// The corpus writes it eight ways between them — <c>on</c>, <c>ON</c>, <c>ON</c> with a
+    /// leading space — so this is a case-insensitive comparison on the trimmed text rather
+    /// than anything cleverer. Anything that is not recognisably "on" is off, which is the
+    /// safe way round: a model wrongly hidden is a missing person, and a model wrongly shown
+    /// is a person standing in a wall.
+    /// </remarks>
+    private static bool Switched(string value) =>
+        value.Trim() is { Length: > 0 } text &&
+        (text.Equals("ON", StringComparison.OrdinalIgnoreCase) ||
+         text.Equals("1", StringComparison.Ordinal) ||
+         text.Equals("TRUE", StringComparison.OrdinalIgnoreCase) ||
+         text.Equals("YES", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Reads an action line's absolute placement, if it has one.

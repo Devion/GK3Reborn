@@ -86,11 +86,11 @@ frame built from screen-space derivatives, and every batch binds all four maps.
 | Normal | yes | perturbs the shading normal, scaled by `NormalStrength` |
 | Roughness | yes | the specular lobe's width; also decides what is worth reflecting |
 | Metalness | yes | switches the surface between two shading models |
-| Height | yes | single-step parallax, scaled by `HeightScale` |
+| Height | yes | a parallax occlusion march, and geometry on a floor; see `HeightDepth` |
 | Occlusion | yes | multiplies the ambient term, and only that |
 
 **Which does not make the last four urgent to generate.** A surface with no map binds a
-neutral one — flat normal, `(1, 1, 0)` ORM, level height, zero height scale — and comes out
+neutral one — flat normal, `(1, 1, 0)` ORM, level height, zero depth — and comes out
 byte for byte as it did before the lobe existed. The renderer being ready is what makes the
 generated maps reviewable; it is not an argument for generating them blind.
 
@@ -374,6 +374,21 @@ referenced by nothing**, verified against rooms, models, scripts and scene files
 no material, because inventing a roughness for something nothing draws is inventing an
 answer to a question nobody asked.
 
+**The class decides two more things than it used to.** `heightDepth` is how deep that
+surface's height field is taken to go, in world units — four for rubble stone and a made
+road, two and a half for brick, one and a half for tile, six tenths for polished marble,
+nothing for a painted backdrop, because the relief in a painting of a hillside is the
+hillside's and not the canvas's. `displaced` is whether the relief is real enough to cut
+into a floor's geometry rather than only march in the shader: the solid classes, plus the
+surfaces the `ground` class calls a road, minus anything whose name says loose ground or
+soft furnishing whatever the picture persuaded CLIP of. 615 materials carry it.
+
+Both rules are in `classify_materials.py` and both are a guess about a class rather than a
+measurement of a surface, which is what the edit layer is for. Five are corrected by hand
+there and named in the source: the classifier returns `DRIVEWAY` as carpet at confidence
+0.05, `PLOASPH` as rough metal and `RC1RGHSTN` as carpet, and all three are floors somebody
+walks along.
+
 **Texel density, which should have decided the tiers.** Reading all 110 rooms: 651 million
 square units across 1,786 textures, median 3.58 texels per world unit. **The twenty
 textures covering the most world are all tier 1** — grass, pine, rock, stone brick. The
@@ -413,7 +428,8 @@ renderer: **BC5 keeps two channels**, so `PerturbedNormal` must reconstruct Z as
 4. ~~Roughness and metalness once the shading model has a specular term, and not
    before.~~ The specular term exists. Generating the maps is what is left.
 5. ~~Height and occlusion last, or never — occlusion overlaps what the RT tier already
-   computes, and parallax is not planned.~~ Both are bound and consumed; parallax is
-   single-step, and occlusion multiplies the ambient term only, which is the part the RT
-   tier does *not* already compute. Still last in generation order, and still the two most
-   likely to be judged not worth their disk.
+   computes, and parallax is not planned.~~ Both are bound and consumed. Occlusion
+   multiplies the ambient term only, which is the part the RT tier does *not* already
+   compute; height is marched by the shader and, on a floor, cut into the geometry. Of the
+   two it is height that turned out to earn its disk — see
+   [rendering.md](rendering.md#displaced-floors).

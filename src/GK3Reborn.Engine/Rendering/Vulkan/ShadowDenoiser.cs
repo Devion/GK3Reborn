@@ -305,7 +305,10 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
                 DescriptorCount = 1,
                 DescriptorType = DescriptorType.AccelerationStructureKhr,
             },
-            Buffered(_traceSet, 5, DescriptorType.UniformBuffer, &rigInfo),
+            // A storage buffer, like the shading pass reads it. The rig outgrew a uniform
+            // block when the light limit went: a uniform block is sized at compile time and
+            // guaranteed only 16 KB, which is 255 lights and no more.
+            Buffered(_traceSet, 5, DescriptorType.StorageBuffer, &rigInfo),
         };
 
         for (int c = 0; c < _channels.Length; c++)
@@ -689,7 +692,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         Binding(2, DescriptorType.AccelerationStructureKhr),
         Binding(3, DescriptorType.StorageBuffer),
         Binding(4, DescriptorType.StorageBuffer),
-        Binding(5, DescriptorType.UniformBuffer),
+        Binding(5, DescriptorType.StorageBuffer),
         Binding(6, DescriptorType.StorageImage),
         Binding(7, DescriptorType.StorageImage),
 

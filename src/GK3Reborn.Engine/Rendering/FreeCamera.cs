@@ -32,6 +32,27 @@ public sealed class FreeCamera
     /// <summary>How fast it moves, in scene units per second.</summary>
     public float Speed { get; set; } = 200f;
 
+    /// <summary>
+    /// Where the camera is looking, in degrees: heading across, pitch up and down.
+    /// </summary>
+    /// <remarks>
+    /// Degrees rather than the radians it keeps inside, because the two things that read
+    /// this are the game's own data — the binoculars' rectangles of sky and the scene
+    /// files' camera angles — and both are written in degrees.
+    /// </remarks>
+    public Vector2 Aim
+    {
+        get => new(
+            ((_yaw * 180f / MathF.PI) % 360f + 360f) % 360f,
+            _pitch * 180f / MathF.PI);
+
+        set
+        {
+            _yaw = value.X * MathF.PI / 180f;
+            _pitch = Math.Clamp(value.Y * MathF.PI / 180f, -PitchLimit, PitchLimit);
+        }
+    }
+
     /// <summary>How far the near plane sits.</summary>
     public float NearPlane { get; set; } = 1f;
 

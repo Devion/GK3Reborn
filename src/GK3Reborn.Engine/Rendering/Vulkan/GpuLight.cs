@@ -37,14 +37,21 @@ public readonly record struct GpuLight(
     /// </remarks>
     public const float Unlimited = 1e6f;
 
-    /// <summary>How many lights the shader can hold.</summary>
+    /// <summary>How many lights a scene may upload.</summary>
     /// <remarks>
-    /// Sized to the corpus rather than to a round number: the median lit scene declares
-    /// six lights and only a handful exceed sixty-four, so this covers all but a few
-    /// scenes outright without needing per-object culling yet. <c>TE2B</c>, with 148, is
-    /// the case that will eventually force it.
+    /// <para>
+    /// A thousand, which is an allocation rather than a limit anything reaches: the whole
+    /// corpus's busiest scene declares 148, and the three rooms of the hotel together want
+    /// 195. It was sixty-four, because the rig lived in a uniform block and the standard
+    /// guarantees only 16 KB of one; it is now a storage buffer, and what used to make the
+    /// number matter — a shading loop that ran over every light in the room — is gone.
+    /// A fragment loops the cell it stands in. See <see cref="SceneLightGrid"/>.
+    /// </para>
+    /// <para>
+    /// Sixty-four kilobytes at this size, uploaded once a room.
+    /// </para>
     /// </remarks>
-    public const int Capacity = 64;
+    public const int Capacity = 1024;
 
     /// <summary>Converts an authored light.</summary>
     /// <param name="light">The light as the scene asset declares it.</param>
@@ -142,20 +149,22 @@ public readonly record struct GpuLight(
         return light.UsesAttenuation ? 500f : Unlimited;
     }
 
-    /// <summary>Chooses which lights to upload when a scene declares more than fit.</summary>
+    /// <summary>Puts a scene's lights in the order the passes want them.</summary>
     /// <param name="lights">Every light the scene declares.</param>
     /// <param name="scene">What the geometry occupies; default decides nothing.</param>
-    /// <returns>At most <see cref="Capacity"/> of them.</returns>
+    /// <returns>At most <see cref="Capacity"/> of them, brightest first.</returns>
     /// <remarks>
     /// <para>
-    /// Brightest and longest-reaching first, which is the least bad order without knowing
-    /// where the lit object is. Proper per-object culling replaces this once anything
-    /// moves through a scene large enough to need it.
+    /// Brightest and longest-reaching first. This used to be a *choice* — the rig held
+    /// sixty-four and a scene declaring more had the rest dropped — and it is now only an
+    /// order, because the buffer holds a thousand and the shading loop walks a grid cell
+    /// rather than the array.
     /// </para>
     /// <para>
-    /// Sorted even when everything fits, because the shader shadows the first few lights
-    /// of the array rather than all of them. Leaving a short rig in file order would mean
-    /// the shadowed ones were whichever the artist happened to place first.
+    /// The order still matters and is not decoration. The denoiser spends its ray budget on
+    /// the front of the rig, and each cell of the light grid keeps its own heaviest first
+    /// for the same reason. Leaving a rig in file order would mean the shadowed lights were
+    /// whichever the artist happened to place first.
     /// </para>
     /// </remarks>
     public static IReadOnlyList<AuthoredLight> Choose(

@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Platform;
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
@@ -69,6 +70,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private ShaderCompiler? _shaderCompiler;
     private TrianglePipeline? _triangle;
     private OverlayPipeline? _overlay;
+
+    /// <summary>The screens' own pictures, by the name they were given.</summary>
+    private readonly Dictionary<string, int> _pictures = new(StringComparer.OrdinalIgnoreCase);
     private SkyboxPipeline? _skybox;
 
     /// <summary>The movie over everything, when one is playing.</summary>
@@ -175,6 +179,15 @@ public sealed unsafe class VulkanRenderer : IDisposable
     public bool SupportsRayTracing => _rayTracedPipeline is not null;
 
     /// <summary>How much ray tracing to do.</summary>
+    /// <summary>How the room's lights are divided up, once a scene has been given some.</summary>
+    /// <remarks>
+    /// Reported rather than drawn. The whole point of the grid is that nothing looks
+    /// different — a fragment gets the same lights, reached more cheaply — so the only way
+    /// to know it is working is the numbers: how many cells, and how many lights the
+    /// average one holds against how many the room declares.
+    /// </remarks>
+    public SceneLightGrid? LightGrid { get; private set; }
+
     public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
@@ -185,6 +198,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
     {
         _frames?.SetLights(lights, scene);
         _rayTracedFrames?.SetLights(lights, scene);
+
+        LightGrid = _frames?.Grid ?? _rayTracedFrames?.Grid;
     }
 
     /// <summary>Sets what to draw, and from where.</summary>
@@ -558,6 +573,56 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler, atlas);
 
         _overlayAtlas = atlas;
+
+        // The sheet of letters is gone and with it every picture that hung off the old
+        // pipeline's descriptor pool. Whoever loaded them loads them again; saying so is
+        // better than handing out numbers that point at nothing.
+        _pictures.Clear();
+    }
+
+    /// <summary>
+    /// Gives the interface one of the screens' own pictures, and says what to call it.
+    /// </summary>
+    /// <param name="name">What to look it up by.</param>
+    /// <param name="image">The decoded picture.</param>
+    /// <returns>Its number for <see cref="Overlay.Picture"/>, or zero if it could not be held.</returns>
+    /// <remarks>
+    /// The interface is drawn rather than blitted and stays that way. This is for the
+    /// places where the game's own art <em>is</em> the content — the driving map is a
+    /// painting of the countryside and no arrangement of rectangles is that.
+    /// </remarks>
+    public int AddOverlayPicture(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_overlay is null)
+        {
+            return 0;
+        }
+
+        if (_pictures.TryGetValue(name, out int already))
+        {
+            return already;
+        }
+
+        int number = _overlay.AddPicture(image);
+
+        if (number > 0)
+        {
+            _pictures[name] = number;
+        }
+
+        return number;
+    }
+
+    /// <summary>The number of a picture already given, or zero.</summary>
+    /// <param name="name">What it was called.</param>
+    /// <returns>Its number.</returns>
+    public int OverlayPicture(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _pictures.GetValueOrDefault(name);
     }
 
     /// <summary>

@@ -346,8 +346,23 @@ public sealed class SceneLoader
                 "or shortfall is unlit."));
         }
 
+        // Which textures are the floor's, before the textures themselves go past. A height
+        // map is uploaded and forgotten unless something says it will be wanted as numbers,
+        // and only the floor's ever is: that is the one surface displacement touches.
+        string? floorObject = init.FloorObject();
+        HashSet<string> floorTextures = FloorTextures(bsp, floorObject);
+
+        geometry.KeepRelief(floorTextures);
+
+        if (floorTextures.Count > 0)
+        {
+            _log?.Invoke(
+                $"floor: {floorObject}, {floorTextures.Count} " +
+                $"texture{(floorTextures.Count == 1 ? string.Empty : "s")} that can carry relief");
+        }
+
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
-        geometry.AddScene(bsp, lightmaps, HiddenObjects(init));
+        geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject);
 
         // 177 of the game's 229 scene assets name a sky, and which one is already decided
         // by the time of day the timeblock chose.
@@ -479,6 +494,51 @@ public sealed class SceneLoader
             .Where(m => IsHitTest(m) || (IsBakedIn(m) && m.Hidden))
             .Select(m => m.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The textures on the object the scene calls its floor.</summary>
+    /// <remarks>
+    /// Not a guess and not a matter of what a texture is called. Every scene's general
+    /// <c>.SIF</c> names one <c>floor=</c> object, the BSP knows which surfaces belong to
+    /// it, and each surface names its texture — the same chain the walk height query
+    /// follows. Sixty-nine scenes name a floor and a hundred and twenty-six distinct
+    /// textures are on one; <c>TE3FLOORCRS</c> is a floor and <c>27FLOOR</c> is not.
+    /// </remarks>
+    private static HashSet<string> FloorTextures(BspFile scene, string? floorObject)
+    {
+        var textures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(floorObject))
+        {
+            return textures;
+        }
+
+        int wanted = -1;
+
+        for (int i = 0; i < scene.ObjectNames.Count; i++)
+        {
+            if (string.Equals(
+                    scene.ObjectNames[i], floorObject, StringComparison.OrdinalIgnoreCase))
+            {
+                wanted = i;
+                break;
+            }
+        }
+
+        if (wanted < 0)
+        {
+            return textures;
+        }
+
+        foreach (BspSurface surface in scene.Surfaces)
+        {
+            if (surface.ObjectIndex == wanted)
+            {
+                textures.Add(surface.TextureName);
+            }
+        }
+
+        return textures;
     }
 
     /// <summary>Notes the models drawn only because their condition could not be decided.</summary>
@@ -834,6 +894,7 @@ public sealed class SceneLoader
                 Gas = model.Gas,
                 Idle = ReadBehaviour(model.Gas, model.Name, diagnostics),
                 Visible = !model.Hidden,
+                InitialAnimation = model.InitialAnimation,
             });
         }
 
@@ -848,9 +909,22 @@ public sealed class SceneLoader
     /// is standing exactly as the artist modelled them rather than idling.
     /// </para>
     /// <para>
-    /// Only the ego is placed. The rest are positioned by script when the story puts them
-    /// somewhere, and guessing a spot for them would put characters in rooms they are not
-    /// supposed to be in.
+    /// <b>Everyone the section names is loaded</b>, whatever else the line says, and the
+    /// two exceptions this used to make were the same mistake twice — the one already
+    /// recorded above about RC1's moped, made again about people.
+    /// </para>
+    /// <para>
+    /// An actor with no <c>pos=</c> was being skipped outright. 206 actor/timeblock pairs
+    /// in the corpus have none, and they are not absent: <c>GKActor::Init</c> only declines
+    /// to <em>set</em> a position, and what places them is their <c>initanim=</c> or the
+    /// script that walks them in. Emilio is one of them in the lobby at 110A, so the room's
+    /// only other person was never there — and when the story sent him out through the
+    /// front door, all that arrived in the square was a door swinging by itself.
+    /// </para>
+    /// <para>
+    /// An actor declared <c>hidden</c> was being skipped too, and hidden is where several
+    /// of them start: RC1 hides Emilio while he is still indoors and the animation that
+    /// walks him out turns him back on. A model that was never read cannot be shown.
     /// </para>
     /// </remarks>
     private List<PlacedModel> PlaceActors(
@@ -858,7 +932,7 @@ public sealed class SceneLoader
     {
         List<PlacedModel> placed = [];
 
-        foreach (SceneActor actor in init.Actors().Where(a => !a.Hidden))
+        foreach (SceneActor actor in init.Actors())
         {
             // Ego arrives at the scene's entry point; everyone else stands where their own
             // line says.
@@ -883,13 +957,6 @@ public sealed class SceneLoader
                     DiagnosticSeverity.Warning,
                     $"{actor.Name} is placed at '{actor.Position}', which the scene does " +
                     "not define; they stand at the origin until something moves them."));
-            }
-
-            if (spot is null && actor.Position is not { Length: > 0 } && !actor.IsEgo)
-            {
-                // No spot of their own, which is ordinary and silent: 206 actor/timeblock
-                // pairs in the corpus are like that, and a script puts them somewhere.
-                continue;
             }
 
             if (spot is null && actor.IsEgo)
@@ -937,9 +1004,15 @@ public sealed class SceneLoader
             ModelPlacement standing =
                 geometry.Add(model, placement, TurnedHead(actor.Name, model, spot));
 
+            if (actor.Hidden)
+            {
+                geometry.SetVisible(standing, false);
+            }
+
             _log?.Invoke(
                 $"actor: {actor.Name} ({actor.Noun}) at {spot?.Name ?? "no spot of their own"}" +
-                (actor.IsEgo ? ", ego" : string.Empty));
+                (actor.IsEgo ? ", ego" : string.Empty) +
+                (actor.Hidden ? ", hidden" : string.Empty));
 
             placed.Add(new PlacedModel(
                 actor.Name, actor.Noun, null, model, placement, PlacedModelKind.Actor, standing)
@@ -958,6 +1031,13 @@ public sealed class SceneLoader
                 Idle = ReadBehaviour(actor.Idle, actor.Name, diagnostics),
                 Talk = ReadBehaviour(actor.Talk, actor.Name, diagnostics),
                 Listen = ReadBehaviour(actor.Listen, actor.Name, diagnostics),
+
+                // The pose the scene opens them in, applied once the animation libraries
+                // exist. It is a statement about where they are rather than something that
+                // happens, so it is sampled and not played; see SceneUpdate.Open.
+                InitialAnimation = actor.InitialAnimation,
+
+                Visible = !actor.Hidden,
             });
         }
 

@@ -31,8 +31,11 @@ public sealed record MaterialPatch
     /// <summary>A different height map, or empty to go back to having none.</summary>
     public string? HeightTexture { get; init; }
 
-    /// <summary>New height-map depth, or null to keep.</summary>
-    public float? HeightScale { get; init; }
+    /// <summary>New height-map depth in world units, or null to keep.</summary>
+    public float? HeightDepth { get; init; }
+
+    /// <summary>Whether the height map becomes geometry, or null to keep.</summary>
+    public bool? Displaced { get; init; }
 
     /// <summary>New emissive color, or null to keep.</summary>
     public Vector3? Emissive { get; init; }
@@ -116,27 +119,65 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
     public string? OrmTexture { get; init; }
 
     /// <summary>
-    /// The surface's height field, for parallax.
+    /// The surface's height field, for parallax and for displacement.
     /// </summary>
     /// <remarks>
     /// Read from <c>enhanced/height</c>, named for the colour texture it belongs to. Mid
-    /// grey is the modelled surface and the channel runs either side of it. What consumes
-    /// it is a texture-coordinate offset rather than displacement, so it deepens mortar
-    /// courses and floorboards and does nothing at all to a silhouette.
+    /// grey is the modelled surface and the channel runs either side of it. Two things
+    /// consume it: a marched texture-coordinate offset, which deepens mortar courses and
+    /// cobbles and does nothing at all to a silhouette, and — on a floor, where the
+    /// silhouette is what gives a street away — real geometry. See
+    /// <see cref="ReliefPlan"/>.
     /// </remarks>
     public string? HeightTexture { get; init; }
 
     /// <summary>
-    /// How deep the height map goes, in texture-coordinate units at grazing incidence.
+    /// How deep the height map goes, in <em>world</em> units from its floor to its ceiling.
     /// </summary>
     /// <remarks>
-    /// Small. Everything in a generated height field is invented, and parallax's failure
-    /// mode is not subtlety but swimming: past about a twentieth the surface visibly slides
-    /// under the camera. Like <see cref="NormalStrength"/> this is a decision recorded per
-    /// material rather than a constant in the shader, because how much of the invention to
-    /// believe differs by surface.
+    /// <para>
+    /// A GK3 unit is roughly two and a half centimetres, so the default is a relief of
+    /// about four: a cobble's crown over its gutter, a floorboard's chamfer, the depth of a
+    /// mortar course. Like <see cref="NormalStrength"/> this is a decision recorded per
+    /// material rather than a constant in the shader, because how much of a generated
+    /// field to believe differs by surface.
+    /// </para>
+    /// <para>
+    /// <b>World units, not texture coordinates.</b> It was the latter until the corpus was
+    /// measured: the game tiles one road texture over 232 units of street and one lobby
+    /// floor over 32, so a single number in texture coordinates was seven times as deep on
+    /// the second as on the first, and nobody had chosen that. The shader converts through
+    /// the surface's own tiling, which it can read off the tangent frame it already builds.
+    /// </para>
     /// </remarks>
-    public float HeightScale { get; init; } = 0.03f;
+    public float HeightDepth { get; init; } = 1.5f;
+
+    /// <summary>
+    /// Whether this surface's relief is cut into the geometry as well as marched by the
+    /// shader.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default, and it has to be. Every texture in the game has a generated height
+    /// field, and for most of them the field is not relief at all: a grass texture's is
+    /// blades, a rug's is pile, a painted backdrop's is whatever the model made of a
+    /// picture of a hillside. Marching those does no harm — the offset is a few texels and
+    /// it reads as texture. Moving vertices by them makes a lawn out of corrugated iron.
+    /// </para>
+    /// <para>
+    /// <b>And it is what the triangle budget is spent on.</b> CSE's floor object is
+    /// nineteen million square units of village, of which the road is one; displacing all
+    /// of it buys a cell so coarse that the high-passed field averages to nothing inside
+    /// one, which is the worst of both — every triangle paid for and no relief to show for
+    /// them. Turned on for the paved fifth of it, the same budget buys four units a cell.
+    /// </para>
+    /// <para>
+    /// The set that has it on is derived from the material classifier and then reviewed:
+    /// stone, brick, tile, concrete, marble and wood, plus the surfaces it calls ground
+    /// whose names say road, cobble, path or pavement rather than soil or sand.
+    /// </para>
+    /// </remarks>
+    public bool Displaced { get; init; }
 
     /// <summary>Linear emissive color. Zero for non-emissive surfaces.</summary>
     public Vector3 Emissive { get; init; }
@@ -179,7 +220,8 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
             HeightTexture = patch.HeightTexture is null
                 ? HeightTexture
                 : patch.HeightTexture.Length > 0 ? patch.HeightTexture : null,
-            HeightScale = patch.HeightScale ?? HeightScale,
+            HeightDepth = patch.HeightDepth ?? HeightDepth,
+            Displaced = patch.Displaced ?? Displaced,
             Emissive = patch.Emissive ?? Emissive,
             AlphaCutoff = patch.AlphaCutoff ?? AlphaCutoff,
             DoubleSided = patch.DoubleSided ?? DoubleSided,

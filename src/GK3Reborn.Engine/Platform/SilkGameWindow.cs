@@ -53,6 +53,14 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         [CameraAction.Reset] = [Key.R],
         [CameraAction.NextCamera] = [Key.Tab],
         [CameraAction.CycleRayTracing] = [Key.F2],
+
+        // The original made the inventory a small target to click at the edge of the
+        // screen. A key is what a player reaches for.
+        [CameraAction.Inventory] = [Key.I],
+
+        // Where every adventure game has put them for thirty years.
+        [CameraAction.QuickSave] = [Key.F5],
+        [CameraAction.QuickLoad] = [Key.F9],
         [CameraAction.Quit] = [Key.Escape],
     };
 

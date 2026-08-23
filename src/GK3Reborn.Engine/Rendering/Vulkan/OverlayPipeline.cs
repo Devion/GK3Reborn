@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using GK3Reborn.Formats.Bitmaps;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -68,6 +69,14 @@ public sealed unsafe class OverlayPipeline : IDisposable
 
         layout(binding = 0) uniform sampler2D atlas;
 
+        // Zero for the sheet of letters, one for one of the screens' own pictures. A
+        // picture is content rather than a stencil, so it is drawn as it is; a glyph is a
+        // shape cut out of a colour.
+        layout(push_constant) uniform Draw
+        {
+            int picture;
+        } draw;
+
         layout(location = 0) in vec2 fragTexCoord;
         layout(location = 1) in vec4 fragColor;
 
@@ -76,6 +85,16 @@ public sealed unsafe class OverlayPipeline : IDisposable
         void main()
         {
             vec4 texel = texture(atlas, fragTexCoord);
+
+            if (draw.picture != 0)
+            {
+                // The game's own art: its colour, tinted, and nothing inferred from its
+                // brightness. Running a photograph of the Rennes-le-Château countryside
+                // through the glyph rule below turns it into a silhouette.
+                outColor = vec4(texel.rgb * fragColor.rgb, fragColor.a * texel.a);
+
+                return;
+            }
 
             // Two font conventions, one rule. White-on-magenta sheets arrive with the
             // magenta already transparent, so brightness leaves them alone but erases the
@@ -102,6 +121,18 @@ public sealed unsafe class OverlayPipeline : IDisposable
     private VulkanBuffer? _vertices;
     private int _count;
 
+    /// <summary>The screens' own pictures, and a descriptor set for each.</summary>
+    /// <remarks>
+    /// Indexed from one: zero is the sheet of letters, which every other quad uses. Loaded
+    /// once when a screen that needs art first opens, and kept — the driving map is a
+    /// 640-by-480 painting and reloading it every time somebody opens the map would be a
+    /// stall the player can feel.
+    /// </remarks>
+    private readonly List<(VulkanTexture Texture, DescriptorSet Set)> _pictures = [];
+
+    /// <summary>Which picture each run of six vertices belongs to.</summary>
+    private readonly List<(int Picture, int First, int Count)> _runs = [];
+
     private OverlayPipeline(VulkanContext context, int capacity)
     {
         _context = context;
@@ -109,8 +140,78 @@ public sealed unsafe class OverlayPipeline : IDisposable
         _capacity = capacity;
     }
 
+    /// <summary>How many of the screens' own pictures may be held at once.</summary>
+    /// <remarks>
+    /// The driving map's background and its sixteen markers, twice over for their lit and
+    /// unlit states, and room for whatever a later screen wants. Each is a texture and a
+    /// descriptor set, both cheap; what is not cheap is reloading a 640-by-480 painting
+    /// every time somebody opens the map, which is why they are kept.
+    /// </remarks>
+    public const int MostPictures = 64;
+
     /// <summary>How many rectangles have been prepared for this frame.</summary>
     public int Rectangles => _count / 6;
+
+    /// <summary>How many pictures are loaded.</summary>
+    public int Pictures => _pictures.Count;
+
+    /// <summary>
+    /// Gives the pipeline one of the screens' own pictures.
+    /// </summary>
+    /// <param name="image">The decoded picture.</param>
+    /// <returns>Its number, for <c>Overlay.Picture</c>, or zero when there is no room.</returns>
+    public int AddPicture(DecodedImage image)
+    {
+        if (_pictures.Count >= MostPictures)
+        {
+            return 0;
+        }
+
+        // Clamped rather than repeated, and no mips: a map drawn at close to its own size
+        // wants neither, and repeating one would wrap the edge of the picture around the
+        // opposite side of the panel.
+        VulkanTexture texture = VulkanTexture.Create(
+            _context, image, mipmaps: false, SamplerAddressMode.ClampToEdge);
+
+        DescriptorSetLayout setLayout = _setLayout;
+        var allocate = new DescriptorSetAllocateInfo
+        {
+            SType = StructureType.DescriptorSetAllocateInfo,
+            DescriptorPool = _pool,
+            DescriptorSetCount = 1,
+            PSetLayouts = &setLayout,
+        };
+
+        if (_vk.AllocateDescriptorSets(_context.Device, in allocate, out DescriptorSet set)
+            != Result.Success)
+        {
+            texture.Dispose();
+
+            return 0;
+        }
+
+        var info = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = texture.View,
+            Sampler = texture.Sampler,
+        };
+
+        var write = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = set,
+            DstBinding = 0,
+            DescriptorCount = 1,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            PImageInfo = &info,
+        };
+
+        _vk.UpdateDescriptorSets(_context.Device, 1, in write, 0, null);
+        _pictures.Add((texture, set));
+
+        return _pictures.Count;
+    }
 
     /// <summary>Creates the pipeline.</summary>
     /// <param name="context">Device context.</param>
@@ -186,6 +287,8 @@ public sealed unsafe class OverlayPipeline : IDisposable
         int rectangles = Math.Min(overlay.Quads.Count, _capacity);
         OverlayVertex[] vertices = new OverlayVertex[rectangles * 6];
 
+        _runs.Clear();
+
         float sx = 2f / Math.Max(1, overlay.Width);
         float sy = 2f / Math.Max(1, overlay.Height);
 
@@ -219,6 +322,20 @@ public sealed unsafe class OverlayPipeline : IDisposable
             vertices[at + 3] = topRight;
             vertices[at + 4] = bottomLeft;
             vertices[at + 5] = bottomRight;
+
+            // A run is a stretch of quads drawn from the same picture. The interface is
+            // nearly all letters, so a screen showing a map costs three runs rather than
+            // one and everything else still costs exactly one.
+            int picture = quad.Picture >= 0 && quad.Picture <= _pictures.Count ? quad.Picture : 0;
+
+            if (_runs.Count > 0 && _runs[^1].Picture == picture)
+            {
+                _runs[^1] = (picture, _runs[^1].First, _runs[^1].Count + 6);
+            }
+            else
+            {
+                _runs.Add((picture, at, 6));
+            }
         }
 
         _vertices.Write<OverlayVertex>(vertices);
@@ -263,14 +380,25 @@ public sealed unsafe class OverlayPipeline : IDisposable
         _vk.CmdSetScissor(command, 0, 1, in scissor);
         _vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, _pipeline);
 
-        DescriptorSet set = _set;
-        _vk.CmdBindDescriptorSets(
-            command, PipelineBindPoint.Graphics, _layout, 0, 1, in set, 0, null);
-
         Buffer handle = _vertices.Handle;
         ulong offset = 0;
         _vk.CmdBindVertexBuffers(command, 0, 1, in handle, in offset);
-        _vk.CmdDraw(command, (uint)_count, 1, 0, 0);
+
+        foreach ((int picture, int first, int count) in _runs)
+        {
+            DescriptorSet set = picture > 0 && picture <= _pictures.Count
+                ? _pictures[picture - 1].Set
+                : _set;
+
+            _vk.CmdBindDescriptorSets(
+                command, PipelineBindPoint.Graphics, _layout, 0, 1, in set, 0, null);
+
+            int kind = picture > 0 ? 1 : 0;
+            _vk.CmdPushConstants(
+                command, _layout, ShaderStageFlags.FragmentBit, 0, sizeof(int), &kind);
+
+            _vk.CmdDraw(command, (uint)count, 1, (uint)first, 0);
+        }
     }
 
     /// <inheritdoc/>
@@ -363,16 +491,18 @@ public sealed unsafe class OverlayPipeline : IDisposable
             throw new VulkanException("Could not create the overlay descriptor layout.");
         }
 
+        // One for the sheet of letters and the rest for the screens' own pictures. Sized
+        // for the driving map and its sixteen markers, with room to spare.
         var size = new DescriptorPoolSize
         {
             Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
+            DescriptorCount = MostPictures + 1,
         };
 
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            MaxSets = 1,
+            MaxSets = MostPictures + 1,
             PoolSizeCount = 1,
             PPoolSizes = &size,
         };
@@ -420,11 +550,21 @@ public sealed unsafe class OverlayPipeline : IDisposable
     {
         DescriptorSetLayout setLayout = _setLayout;
 
+        // One integer: whether this run is a picture or a glyph.
+        var pushed = new PushConstantRange
+        {
+            StageFlags = ShaderStageFlags.FragmentBit,
+            Offset = 0,
+            Size = sizeof(int),
+        };
+
         var layoutInfo = new PipelineLayoutCreateInfo
         {
             SType = StructureType.PipelineLayoutCreateInfo,
             SetLayoutCount = 1,
             PSetLayouts = &setLayout,
+            PushConstantRangeCount = 1,
+            PPushConstantRanges = &pushed,
         };
 
         if (_vk.CreatePipelineLayout(_context.Device, in layoutInfo, null, out _layout)

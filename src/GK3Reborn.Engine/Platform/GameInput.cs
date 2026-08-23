@@ -39,6 +39,15 @@ public enum CameraAction
     /// <summary>Step through the ray-tracing quality levels.</summary>
     CycleRayTracing,
 
+    /// <summary>Look in your own pockets.</summary>
+    Inventory,
+
+    /// <summary>Write the game to the quick-save slot.</summary>
+    QuickSave,
+
+    /// <summary>Put the quick-save slot back.</summary>
+    QuickLoad,
+
     /// <summary>Leave.</summary>
     Quit,
 }

@@ -75,6 +75,42 @@ public sealed class Gk3SheepApi : ISheepApi
         RegisterRecordedFunctions();
     }
 
+    /// <summary>
+    /// Grace's computer, when there is one.
+    /// </summary>
+    /// <remarks>
+    /// Held here so that the switches which set a scene up for a screenshot can reach it;
+    /// the game itself reaches it through the screen it draws.
+    /// </remarks>
+    public Sidney.SidneyMachine? Sidney { get; set; }
+
+    /// <summary>Where saved games are kept, or null when nothing may be saved.</summary>
+    /// <remarks>
+    /// Null for a headless run. A corpus sweep loads five hundred rooms and has neither a
+    /// profile directory to write to nor a reason to want one.
+    /// </remarks>
+    public SaveStore? Saves { get; set; }
+
+    /// <summary>
+    /// Where the camera stands in the room a request is moving to, or null for its own.
+    /// </summary>
+    /// <remarks>
+    /// The binoculars set this. Leaning in on somewhere across the valley cuts to a camera
+    /// the binoculars data names, and that camera is inside a room which has not been
+    /// loaded yet — so it travels with the request rather than being applied here.
+    /// </remarks>
+    public (System.Numerics.Vector3 Position, System.Numerics.Vector2 Angle)? WantedCamera { get; set; }
+
+    /// <summary>
+    /// A room the game has to move to, put here by loading a save.
+    /// </summary>
+    /// <remarks>
+    /// Read and cleared by whatever owns the loop. A script function cannot load a scene —
+    /// that needs archives, a device and a renderer — so it says where the game now is and
+    /// something with those things takes it there.
+    /// </remarks>
+    public string? Wanted { get; set; }
+
     /// <summary>The state these functions operate on.</summary>
     public GameState State { get; }
 
@@ -511,6 +547,46 @@ public sealed class Gk3SheepApi : ISheepApi
             State.Said(Arg(a, 0), Arg(a, 1), Arg(a, 2));
             return SheepValue.FromInt(0);
         });
+
+        // Saving and loading, from the console and from the interface. Not the game's own
+        // functions — the original saves through its shell and no script asks it to — so
+        // they carry the Engine prefix that says nobody may mistake them for the API.
+        //
+        // The store is optional. A headless corpus sweep has nowhere to write and no reason
+        // to, and a missing store answers "no" rather than throwing.
+        Register("EngineSaveGame", a =>
+        {
+            string slot = Arg(a, 0) is { Length: > 0 } named ? named : SaveStore.QuickSlot;
+
+            return SheepValue.FromInt(
+                Saves is not null && Saves.Write(slot, State.Capture(Arg(a, 1))) ? 1 : 0);
+        });
+
+        Register("EngineLoadGame", a =>
+        {
+            string slot = Arg(a, 0) is { Length: > 0 } named ? named : SaveStore.QuickSlot;
+
+            if (Saves?.Read(slot, out SaveFault fault) is not { } save || fault != SaveFault.None)
+            {
+                return SheepValue.FromInt(0);
+            }
+
+            State.Restore(save);
+
+            // The room the save names is not this one, and putting the player in it is the
+            // caller's job rather than the state's: loading a scene needs archives, a
+            // device and a renderer, none of which belong to a script function. This
+            // records that the room has to change and the loop acts on it.
+            Wanted = save.Location;
+
+            return SheepValue.FromInt(1);
+        });
+
+        // Puts a place on the driving map. The original keeps a flag per marker and sets
+        // it from hooks compiled into its own executable; this is the same idea reached
+        // through the story's flags, so it survives a save and a script can say it.
+        Register("EngineOpenOnMap", a =>
+            SheepValue.FromInt(DrivingMap.Reveal(State, Arg(a, 0)) ? 1 : 0));
 
         Register("SetConversation", a =>
         {

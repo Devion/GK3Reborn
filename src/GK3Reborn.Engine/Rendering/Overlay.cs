@@ -26,11 +26,18 @@ namespace GK3Reborn.Rendering;
 public readonly record struct AtlasGlyph(
     Vector4 Uv, float Width, float Height, float Left, float Top, float Advance);
 
-/// <summary>One rectangle of the overlay.</summary>
-/// <param name="Destination">Where it goes on screen: x, y, width, height in pixels.</param>
-/// <param name="Source">Where it comes from in the atlas, in texture coordinates.</param>
+/// <summary>One rectangle of the interface.</summary>
+/// <param name="Destination">Where it goes, in pixels from the top left.</param>
+/// <param name="Source">Which part of its picture to take, in texture coordinates.</param>
 /// <param name="Color">What to tint it, straight alpha.</param>
-public readonly record struct OverlayQuad(Vector4 Destination, Vector4 Source, Vector4 Color);
+/// <param name="Picture">
+/// Which picture it is drawn from: zero for the sheet of letters, and otherwise one of the
+/// screens' own images. The interface is nearly all letters and flat colour, so keeping
+/// this on the quad rather than splitting the display list means a screen that shows a map
+/// costs one extra draw call and nothing else.
+/// </param>
+public readonly record struct OverlayQuad(
+    Vector4 Destination, Vector4 Source, Vector4 Color, int Picture = 0);
 
 /// <summary>
 /// Everything the interface draws, as one sheet and one list of rectangles.
@@ -479,6 +486,42 @@ public sealed class Overlay
     public void Rect(float x, float y, float width, float height, Vector4 color) =>
         _quads.Add(new OverlayQuad(
             new Vector4(x, y, width, height), Atlas.White, color));
+
+    /// <summary>
+    /// Draws part of one of the screens' own pictures.
+    /// </summary>
+    /// <param name="picture">Which picture, as <c>OverlayImages</c> numbers them.</param>
+    /// <param name="x">Pixels from the left.</param>
+    /// <param name="y">Pixels from the top.</param>
+    /// <param name="width">How wide to draw it.</param>
+    /// <param name="height">How tall.</param>
+    /// <param name="tint">What to multiply it by; white leaves it alone.</param>
+    /// <param name="source">
+    /// Which part of the picture to take, in texture coordinates, or null for all of it.
+    /// </param>
+    /// <remarks>
+    /// The interface is drawn rather than blitted and stays that way; this is for the
+    /// places where the game's own art <em>is</em> the content — the driving map is a
+    /// painting of the Rennes-le-Château countryside and no arrangement of rectangles is
+    /// that.
+    /// </remarks>
+    public void Picture(
+        int picture,
+        float x,
+        float y,
+        float width,
+        float height,
+        Vector4 tint,
+        Vector4? source = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(picture);
+
+        _quads.Add(new OverlayQuad(
+            new Vector4(x, y, width, height),
+            source ?? new Vector4(0, 0, 1, 1),
+            tint,
+            picture));
+    }
 
     /// <summary>Draws a line of text.</summary>
     /// <param name="text">What to write.</param>

@@ -304,6 +304,11 @@ public static class Application
         // game is over in the frame it starts.
         api.Animations = new AnimationLibrary(archives);
 
+        // Where saved games go. In the player's own profile beside the settings, and given
+        // to the API rather than kept here because the console and the story reach saving
+        // through the same door the interface does.
+        api.Saves = new Game.SaveStore();
+
         if (request.State is not null)
         {
             Console.WriteLine($"Story: {request.State.Timeblock} in {request.State.Location}");
@@ -418,6 +423,28 @@ public static class Application
         var clips = new ClipLibrary(archives) { KeepVertices = true };
         var fonts = new FontLibrary(archives);
         GameHud? hud = null;
+        ScreenPainter? screens = null;
+
+        // Grace's computer, which the story runs through: parchments are scanned into it,
+        // analysed and translated, and DoesSidneyFileExist is a real condition in the
+        // game's own action files. One for the whole run, like the console — what has been
+        // scanned is part of the game rather than part of a room.
+        var sidney = new Game.Sidney.SidneyMachine(
+            Game.Sidney.SidneyLibrary.Open(archives), api.State)
+        {
+            // 391 pages of encyclopedia and the 393 spellings that reach them. Grace looks
+            // things up, and what she can find is a real puzzle rather than a menu.
+            Search = Game.Sidney.SidneySearch.Open(archives),
+        };
+
+        api.Sidney = sidney;
+
+        // The map the moped is ridden around, and its road network.
+        DrivingMap map = DrivingMap.Open(archives);
+
+        // What can be seen from where, through the binoculars. Twenty-one vantage points
+        // between the Armchair of the Devil and the tower at Blanchefort.
+        Binoculars binoculars = Binoculars.Open(archives);
 
         // One console for the whole run, not one per room. Its history and its scrollback
         // are the player's working notes, and losing them at every door would make it
@@ -473,6 +500,38 @@ public static class Application
 
             renderer.SetOverlayAtlas(atlas);
             hud = new GameHud(new Overlay(atlas) { Magnify = magnify });
+            screens = new ScreenPainter(new Overlay(atlas) { Magnify = magnify });
+
+            // Sidney's map, the survey the whole puzzle is played on. Beside the driving
+            // map's art because both hang off the pipeline the atlas just rebuilt.
+            if (archives.Read(Game.Sidney.SidneyMap.Picture + ".BMP") is { } survey)
+            {
+                try
+                {
+                    renderer.AddOverlayPicture(
+                        Game.Sidney.SidneyMap.Picture,
+                        Formats.Bitmaps.BitmapDecoder.Decode(survey, Game.Sidney.SidneyMap.Picture));
+                }
+                catch (Formats.FormatParseException)
+                {
+                    // Without it the analyze screen draws a blank square and the marks
+                    // still go where they are put.
+                }
+            }
+
+            // The driving map's own art. After the atlas, because setting an atlas rebuilds
+            // the pipeline the pictures hang off and would throw them away.
+            //
+            // The enhanced set is preferred where it has one: the markers are upscaled
+            // there and the map is drawn at whatever size the window affords, so the
+            // 55-pixel original is exactly the case an upscale is for.
+            LoadMapArt(
+                archives,
+                renderer,
+                screens,
+                settings.EnhancedTextures && !packsOnly && enhancedDirectory is { Length: > 0 }
+                    ? EnhancedTextures.Open(enhancedDirectory)
+                    : null);
 
             Console.WriteLine(
                 $"Interface: {atlas.Name}, {atlas.Count} glyphs at {atlas.Height}px" +
@@ -828,6 +887,16 @@ public static class Application
                     : string.Empty)
                 + $", {scene.Lights.Count} authored lights");
 
+            // What the floor cost, when it was displaced. Worth its own line because the
+            // triangle count above jumps by an order of magnitude when this fires, and
+            // without saying so it reads as something having gone wrong.
+            if (geometry.DisplacedTriangles > 0)
+            {
+                Console.WriteLine(
+                    $"Relief: floor cut into {geometry.DisplacedTriangles} triangles at " +
+                    $"{geometry.ReliefCell:0.#} units a cell");
+            }
+
             // The floor, which is how an actor knows what height to walk at. Reported
             // because its absence is silent: a room that names no floor object, or names
             // one the geometry does not have, walks everybody at the height they set off
@@ -924,6 +993,14 @@ public static class Application
                 room.Speaking = moving.Say;
             }
 
+            // The pose everything opens in, before anything runs. A door that starts open,
+            // a character sitting down, a bag on the ground beside somebody: the scene
+            // states each of those as an animation and means its first frame.
+            if (update.Open() is > 0 and { } posed)
+            {
+                Console.WriteLine($"Opening pose: {posed} clip(s) sampled");
+            }
+
             // What a room does when nobody is asking it to: the lobby's ceiling fans turn
             // because the scene gave them a script of their own. Started after the
             // animation libraries are attached, since that is what the scripts drive.
@@ -1005,6 +1082,18 @@ public static class Application
                 Console.WriteLine($"Then {n.Trim()}:{v.Trim()} [{follow.Case}]");
             }
 
+            // Arriving somewhere is the moment the story is at rest: the room is built,
+            // its opening script has run, and nothing is half-done. Saving here rather
+            // than on leaving means the autosave is a place the player can be put back,
+            // not a doorway they were passing through.
+            //
+            // Never on the first room of a run, which is the one the menu just started and
+            // is nothing worth keeping, and never over a save the player made.
+            if (!first)
+            {
+                api.Saves?.Write(Game.SaveStore.AutoSlot, api.State.Capture($"Arrived at {scene.Name}"));
+            }
+
             // The console outlives the room. Its history and its scrollback are the
             // player's working notes, and losing them at every door would make it useless
             // for exactly the thing it is for: watching one thing across a transition.
@@ -1013,7 +1102,8 @@ public static class Application
 
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api), room, movies, hud, Cut, api.State, console,
+                new SceneInteraction(scene, api), room, movies, hud, Cut, api, screens, sidney,
+                map, binoculars, api.State, console,
                 front, pages, Apply, args);
 
             result = exit.Code;
@@ -1428,6 +1518,40 @@ public static class Application
             Console.WriteLine($"Playing {clip}");
         }
 
+        // Open a screen on the way in, for looking at one on purpose. The story opens all
+        // of them itself; this is how a screenshot of one gets taken.
+        if (Option(args, "--screen") is { Length: > 0 } wanted &&
+            Enum.TryParse(wanted, ignoreCase: true, out ScreenKind kind))
+        {
+            api.State.Screens.Show(new Screen(kind));
+            Console.WriteLine($"Screen: {kind}");
+        }
+
+        // And put something into Sidney on the way in, for the same reason: its screens are
+        // about files, and a screenshot of one with nothing in it shows nothing.
+        if (Option(args, "--scan") is { Length: > 0 } scanning && api.Sidney is { } machine)
+        {
+            foreach (string item in scanning.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (machine.Scan(item.Trim()) is { } scanned)
+                {
+                    Console.WriteLine($"Scanned: {scanned.Text}");
+                }
+            }
+
+            if (machine.Files.Count > 0)
+            {
+                machine.OpenFile(machine.Files[0]);
+            }
+        }
+
+        if (Option(args, "--sidney") is { Length: > 0 } page && api.Sidney is { } opened &&
+            Enum.TryParse(page, ignoreCase: true, out Game.Sidney.SidneyScreen which))
+        {
+            opened.Screen = which;
+            Console.WriteLine($"Sidney: {which}");
+        }
+
         if (Option(args, "--glide") is { Length: > 0 } destination)
         {
             Sheep.SheepExpression.Evaluate(
@@ -1511,6 +1635,13 @@ public static class Application
     /// Cuts a sheet of letters for the window's current size, so one that changes size is
     /// drawn at the new one rather than at the old one stretched.
     /// </param>
+    /// <param name="api">
+    /// The script API, for the save store and for the room a load asks the game to move to.
+    /// </param>
+    /// <param name="screens">What draws the screens in front of the room, if anything can.</param>
+    /// <param name="sidney">Grace's computer, which one of those screens is.</param>
+    /// <param name="map">The driving map's art and roads.</param>
+    /// <param name="binoculars">What can be seen from here, if anything.</param>
     /// <param name="story">Where the story stands, for the inventory strip.</param>
     /// <param name="console">The developer console, which outlives the room.</param>
     /// <param name="front">The menu, which Escape opens.</param>
@@ -1536,6 +1667,11 @@ public static class Application
         Game.MoviePlayer movies,
         GameHud? hud,
         Func<bool, OverlayAtlas?> cut,
+        Gk3SheepApi api,
+        ScreenPainter? screens,
+        Game.Sidney.SidneyMachine? sidney,
+        DrivingMap map,
+        Binoculars binoculars,
         GameState story,
         GameConsole console,
         FrontEnd front,
@@ -1589,6 +1725,21 @@ public static class Application
         }
 
         camera.CopyFrom(template);
+
+        // A room reached by leaning in through the binoculars starts at the camera the
+        // binoculars named rather than at the room's own. Taken once, because it describes
+        // an arrival rather than a place.
+        if (api.WantedCamera is { } leaned)
+        {
+            api.WantedCamera = null;
+
+            camera.Position = leaned.Position;
+            camera.Aim = leaned.Angle;
+
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Arrived through the binoculars, at {leaned.Position:F0} looking {leaned.Angle.X:F0}"));
+        }
 
         Console.WriteLine();
         Console.WriteLine("WASD to move, E and Q for up and down, drag to look,");
@@ -1784,6 +1935,64 @@ public static class Application
                 camera.CopyFrom(template);
             }
 
+            // Pockets, from a key rather than from a small target at the edge of the
+            // screen. Not while driving: the player is somewhere else entirely.
+            if (!typing &&
+                window.WasPressed(Platform.CameraAction.Inventory) &&
+                story.Screens.InventoryReachable)
+            {
+                if (story.Screens.IsOnTop(ScreenKind.Inventory))
+                {
+                    story.Screens.Back();
+                }
+                else
+                {
+                    story.Screens.Show(new Screen(ScreenKind.Inventory));
+                }
+            }
+
+            if (!typing && window.WasPressed(Platform.CameraAction.QuickSave))
+            {
+                bool wrote = api.Saves?.Write(
+                    Game.SaveStore.QuickSlot, story.Capture("Quick save")) ?? false;
+
+                Console.WriteLine(wrote ? "Saved." : "Could not save.");
+                console.Print(wrote ? "Saved." : "Could not save.");
+            }
+
+            if (!typing && window.WasPressed(Platform.CameraAction.QuickLoad))
+            {
+                Game.SaveGame? loaded =
+                    api.Saves?.Read(Game.SaveStore.QuickSlot, out Game.SaveFault fault) is { } read &&
+                    fault == Game.SaveFault.None
+                        ? read
+                        : null;
+
+                if (loaded is null)
+                {
+                    Console.WriteLine("No quick save to load.");
+                    console.Print("No quick save to load.");
+                }
+                else
+                {
+                    story.Restore(loaded);
+                    api.Wanted = loaded.Location;
+
+                    Console.WriteLine($"Loaded: {loaded.Summary}");
+                }
+            }
+
+            // A load names the room the save was taken in, and it may be this one — in
+            // which case the ordinary "the story moved us" test below would not fire and
+            // the room would keep the props and people of the game just thrown away.
+            if (api.Wanted is { Length: > 0 } restored)
+            {
+                api.Wanted = null;
+                update.Cancel();
+
+                return new RoomExit(0, restored);
+            }
+
             if (!typing &&
                 window.WasPressed(Platform.CameraAction.CycleRayTracing) &&
                 renderer.SupportsRayTracing)
@@ -1911,6 +2120,127 @@ public static class Application
                 {
                     menuIndex = row;
                 }
+            }
+
+            // A screen in front of the room takes the frame: it draws instead of the room's
+            // interface and it takes the click. Nothing behind it is hovered, walked to or
+            // acted on, which is what modal means and what stops a click on Sidney's menu
+            // also being a click on the floor behind it.
+            if (screens is not null && story.Screens.Top is { } panel)
+            {
+                Panorama seen = binoculars.For(scene.Name, story.Timeblock.ToString());
+
+                if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) &&
+                    screens.HitAt(pointer) is { Length: > 0 } chose)
+                {
+                    // Leaning in is a camera and, often, another room, so it is handled
+                    // here where both are in reach rather than in OnScreen.
+                    if (chose.StartsWith("sidney:shape:", StringComparison.Ordinal) &&
+                        sidney is not null &&
+                        Enum.TryParse(chose[13..], ignoreCase: true, out Game.Sidney.MapShape picked))
+                    {
+                        console.Print(sidney.LayShape(picked).Text);
+                    }
+                    else if (chose == "sidney:mark" && sidney is not null &&
+                        screens.MapBounds is { Z: > 0 } drawn)
+                    {
+                        // Back into the map's own 1,368 pixels, so a mark means the same
+                        // place whatever size the window is.
+                        float across = Game.Sidney.SidneyMap.Extent / drawn.Z;
+
+                        console.Print(sidney.Mark(new System.Numerics.Vector2(
+                            (pointer.X - drawn.X) * across,
+                            (pointer.Y - drawn.Y) * across)).Text);
+                    }
+                    else if (chose.StartsWith("zoom:", StringComparison.Ordinal) &&
+                        seen.Sights.FirstOrDefault(s => s.Location == chose[5..]) is { } sight)
+                    {
+                        story.Screens.Back();
+
+                        Console.WriteLine($"Binoculars: {sight.Location}");
+
+                        if (!string.Equals(sight.Scene, scene.Name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Another room. Where the camera stands there travels with the
+                            // request, because the room has not been built yet.
+                            api.Wanted = sight.Scene;
+                            api.WantedCamera = (sight.Position, sight.Angle);
+                        }
+                        else
+                        {
+                            camera.Position = sight.Position;
+                            camera.Aim = sight.Angle;
+                        }
+                    }
+                    else
+                    {
+                        OnScreen(chose, story, sidney, update, console);
+                    }
+                }
+
+                // Sidney's search box is the one place in the game the player types into
+                // that is not the console, so the keys go there while it is showing.
+                if (!console.Open &&
+                    sidney is { Screen: Game.Sidney.SidneyScreen.Search } typing2 &&
+                    panel.Kind == ScreenKind.Sidney)
+                {
+                    if (window.Typed is { Length: > 0 } letters)
+                    {
+                        typing2.Typed += letters;
+                    }
+
+                    if (window.WasPressed(Platform.EditKey.Backspace) && typing2.Typed.Length > 0)
+                    {
+                        typing2.Typed = typing2.Typed[..^1];
+                    }
+
+                    if (window.WasPressed(Platform.EditKey.Enter))
+                    {
+                        typing2.Look();
+                    }
+                }
+
+                if (!console.Open && window.WasPressed(Platform.CameraAction.Quit))
+                {
+                    story.Screens.Back();
+                }
+
+                // The binoculars are the one screen the player still looks *through*, so
+                // the camera keeps taking their input while it is raised.
+                if (panel.Kind == ScreenKind.Binoculars && !console.Open && !typing)
+                {
+                    camera.Update(window, (float)delta);
+                }
+
+                screens.Build(
+                    new ScreenView(
+                        panel,
+                        story.Inventory.ItemsOf(story.Ego),
+                        story.Inventory.ActiveItemOf(story.Ego),
+                        sidney,
+                        Reachable(panel, scene, story),
+                        panel.Subject,
+                        map,
+                        DrivingMap.Open(story, scene.Name),
+                        renderer.OverlayPicture,
+                        seen,
+                        camera.Aim),
+                    window.FramebufferWidth,
+                    window.FramebufferHeight);
+
+                renderer.SetOverlay(screens.Overlay);
+
+                window.EndFrame();
+                renderer.SetScene(geometry, view);
+
+                // Counted like any other frame, so a run with a frame limit still ends and
+                // its screenshot is of the screen rather than of the room behind it.
+                if (renderer.DrawFrame(0f, 0f, 0f))
+                {
+                    presented++;
+                }
+
+                continue;
             }
 
             if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
@@ -2063,9 +2393,9 @@ public static class Application
 
                         // The last pair, as a picture. A number says how much moved; only
                         // this says what.
-                        var map = new byte[frame.Length / 4];
+                        var picture = new byte[frame.Length / 4];
 
-                        for (int i = 0; i < map.Length; i++)
+                        for (int i = 0; i < picture.Length; i++)
                         {
                             int at = i * 4;
                             int most = Math.Max(
@@ -2074,10 +2404,10 @@ public static class Application
                                     Math.Abs(frame[at + 1] - previousFrame[at + 1]),
                                     Math.Abs(frame[at + 2] - previousFrame[at + 2])));
 
-                            map[i] = (byte)Math.Min(255, most * 12);
+                            picture[i] = (byte)Math.Min(255, most * 12);
                         }
 
-                        File.WriteAllBytes("flicker.raw", map);
+                        File.WriteAllBytes("flicker.raw", picture);
                     }
 
                     previousFrame = frame;
@@ -2581,6 +2911,266 @@ public static class Application
                 Console.WriteLine($"Intro: {name} skipped");
             }
         }
+    }
+
+    /// <summary>
+    /// Hands the driving map's own pictures to the interface.
+    /// </summary>
+    /// <param name="archives">The game's data, which is where the art is.</param>
+    /// <param name="renderer">What holds the pictures.</param>
+    /// <param name="screens">What draws them, and needs to know how big each one is.</param>
+    /// <param name="enhanced">Upscaled textures to prefer, or null to use the archives'.</param>
+    /// <remarks>
+    /// <para>
+    /// Seventeen pictures — the map and its sixteen markers — read once at startup and
+    /// kept. A 640-by-480 painting reloaded every time somebody opens the map would be a
+    /// stall the player can feel, and together they are under a megabyte.
+    /// </para>
+    /// <para>
+    /// <b>The size recorded is always the archive's, whatever is drawn.</b> The map is laid
+    /// out in the 640-by-480 pixels the original was built in, and every marker's position
+    /// is a coordinate in that space; an upscaled marker is the same marker at more
+    /// samples, not a bigger one. Recording the enhanced size would put the markers in the
+    /// wrong places by a factor of thirty-two.
+    /// </para>
+    /// </remarks>
+    private static void LoadMapArt(
+        GameArchives archives,
+        VulkanRenderer renderer,
+        ScreenPainter screens,
+        EnhancedTextures? enhanced)
+    {
+        int loaded = 0;
+        int upscaled = 0;
+
+        foreach (string key in new[] { DrivingMap.Background }
+                     .Concat(DrivingMap.All.Select(s => s.Sprite.ToUpperInvariant())))
+        {
+            if (archives.Read(key + ".BMP") is not { } bytes)
+            {
+                continue;
+            }
+
+            try
+            {
+                Formats.Bitmaps.DecodedImage original =
+                    Formats.Bitmaps.BitmapDecoder.Decode(bytes, key);
+
+                Formats.Bitmaps.DecodedImage? better = enhanced?.Read(key);
+
+                if (better is not null)
+                {
+                    upscaled++;
+                }
+
+                if (renderer.AddOverlayPicture(key, better ?? original) > 0)
+                {
+                    screens.Sizes[key] = (original.Width, original.Height);
+                    loaded++;
+                }
+            }
+            catch (Formats.FormatParseException)
+            {
+                // A picture the archives do not have or cannot decode is a place that will
+                // not be on the map. Worth nothing more than the count below.
+            }
+        }
+
+        if (loaded > 0)
+        {
+            Console.WriteLine(
+                $"Driving map: {loaded} of {DrivingMap.All.Count + 1} pictures" +
+                (upscaled > 0 ? $", {upscaled} enhanced" : string.Empty));
+        }
+    }
+
+    /// <summary>
+    /// What a click on one of the screens in front of the room means.
+    /// </summary>
+    /// <param name="chose">The painter's identifier for what was clicked.</param>
+    /// <param name="story">The game.</param>
+    /// <param name="sidney">Grace's computer.</param>
+    /// <param name="update">The room, for anything that has to happen in it.</param>
+    /// <param name="console">Where a screen says what it did.</param>
+    /// <remarks>
+    /// The painter knows where things are and this knows what they do. Keeping the two
+    /// apart is what lets the screens be laid out fresh every frame without any rule about
+    /// the game living in the drawing.
+    /// </remarks>
+    private static void OnScreen(
+        string chose,
+        GameState story,
+        Game.Sidney.SidneyMachine? sidney,
+        SceneUpdate update,
+        GameConsole console)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
+        string[] parts = chose.Split(':');
+
+        switch (parts[0])
+        {
+            case "close":
+                story.Screens.Back();
+                break;
+
+            // Click to hold, click again to look at it closely — which is the whole of the
+            // inventory's interaction and the reason it does not need a verb menu of its
+            // own.
+            // Sidney is a thing in Grace's bag, so opening it is picking it up. The story
+            // opens it too — ShowSidney — and both arrive at the same screen.
+            case "item" when parts.Length > 1 &&
+                             parts[1].StartsWith("SIDNEY", StringComparison.OrdinalIgnoreCase):
+                story.Screens.Show(new Screen(ScreenKind.Sidney));
+                break;
+
+            case "item" when parts.Length > 1:
+                if (string.Equals(
+                        story.Inventory.ActiveItemOf(story.Ego), parts[1], StringComparison.OrdinalIgnoreCase))
+                {
+                    story.Screens.Show(new Screen(ScreenKind.InventoryInspect, parts[1]));
+                }
+                else
+                {
+                    story.Inventory.SetActive(story.Ego, parts[1]);
+                }
+
+                break;
+
+            case "drive" when parts.Length > 1:
+                story.Screens.CloseAll();
+                story.Location = parts[1];
+                break;
+
+            case "sidney" when sidney is not null && parts.Length > 2:
+                OnSidney(parts[1], parts[2], story, sidney, console);
+                break;
+
+            case "sidney" when sidney is not null && parts.Length > 1 && parts[1] == "home":
+                sidney.Home();
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>What a click inside Sidney means.</summary>
+    private static void OnSidney(
+        string what,
+        string which,
+        GameState story,
+        Game.Sidney.SidneyMachine sidney,
+        GameConsole console)
+    {
+        switch (what)
+        {
+            case "screen" when Enum.TryParse(which, out Game.Sidney.SidneyScreen screen):
+                sidney.Screen = screen;
+                sidney.OpenFile(null);
+                break;
+
+            case "home":
+                sidney.Home();
+                break;
+
+            case "mail":
+                sidney.Reading = sidney.Library.Mail().FirstOrDefault(m => m.Id == which);
+                break;
+
+            // Scanning runs the game's own action as well as making the file. The action is
+            // what marks the item used and sets SidScanner; the file is what
+            // DoesSidneyFileExist reads, and nothing made one before this existed.
+            case "scan":
+                if (sidney.Scan(which) is { } scanned)
+                {
+                    console.Print(scanned.Text);
+                    story.IncrementNounVerbCount(which, "SCANNER");
+                }
+
+                break;
+
+            case "file":
+                sidney.OpenFile(sidney.Files.FirstOrDefault(f => f.Id == which));
+                break;
+
+            case "look":
+                sidney.Look();
+                break;
+
+            case "page":
+                sidney.Follow(which);
+                break;
+
+            case "suspect" when int.TryParse(which, out int index):
+                sidney.OpenSuspect(
+                    sidney.Library.Suspects().FirstOrDefault(s => s.Index == index));
+
+                break;
+
+            case "link" when sidney.Files.FirstOrDefault(f => f.Id == which) is { } linking:
+                console.Print(sidney.LinkToSuspect(linking).Text);
+                break;
+
+            case "unlink" when sidney.Files.FirstOrDefault(f => f.Id == which) is { } unlinking:
+                console.Print(sidney.UnlinkFromSuspect(unlinking).Text);
+                break;
+
+            case "match":
+                console.Print(sidney.MatchPrint().Text);
+                break;
+
+            case "id" when sidney.Library.Identities()
+                    .FirstOrDefault(i => i.Title == which) is { } identity:
+                console.Print(sidney.PrintIdentity(identity).Text);
+                break;
+
+            case "do" when Enum.TryParse(which, out Game.Sidney.SidneyAction action):
+                sidney.Perform(action);
+                break;
+
+            case "answer":
+                sidney.Answer(which);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Where a screen may take the player from here.
+    /// </summary>
+    /// <param name="screen">Which screen is asking.</param>
+    /// <param name="scene">The room.</param>
+    /// <param name="story">The game.</param>
+    /// <returns>The places, which is empty where the screen is not about going anywhere.</returns>
+    /// <remarks>
+    /// The driving map offers the rooms the player has already been to, which is the
+    /// honest answer this engine can give: the original's map is a bitmap with its hotspots
+    /// compiled into the executable, and inventing a list would be inventing where the
+    /// story allows somebody to go.
+    /// </remarks>
+    private static List<string> Reachable(Screen screen, LoadedScene scene, GameState story)
+    {
+        if (screen.Kind is not (ScreenKind.Driving or ScreenKind.Binoculars))
+        {
+            return [];
+        }
+
+        List<string> places = [];
+
+        foreach (string location in story.VisitedLocations(story.Ego))
+        {
+            if (!string.Equals(location, scene.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                places.Add(location.ToUpperInvariant());
+            }
+        }
+
+        places.Sort(StringComparer.Ordinal);
+
+        return places;
     }
 
     /// <summary>Why a room was left.</summary>

@@ -91,6 +91,18 @@ public sealed class Inventory
         }
     }
 
+    /// <summary>Empties every pocket.</summary>
+    /// <remarks>
+    /// For loading a game. Adding what a save holds is not enough on its own: whatever the
+    /// player was carrying before has to go, or a load hands them both games' inventories
+    /// and every puzzle either side of it stops meaning anything.
+    /// </remarks>
+    public void Clear()
+    {
+        _byOwner.Clear();
+        _active.Clear();
+    }
+
     /// <summary>Whether someone is carrying an item.</summary>
     /// <param name="owner">Who to check.</param>
     /// <param name="item">The item.</param>

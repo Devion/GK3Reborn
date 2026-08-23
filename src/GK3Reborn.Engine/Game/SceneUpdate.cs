@@ -107,6 +107,8 @@ public sealed class SceneUpdate
     private float _hurryFactor = DefaultHurryFactor;
 
     private readonly List<Cue> _cues = [];
+
+    private readonly List<Showing> _showings = [];
     private readonly List<Turning> _actors = [];
     private readonly Dictionary<string, Walking> _walking =
         new(StringComparer.OrdinalIgnoreCase);
@@ -341,8 +343,24 @@ public sealed class SceneUpdate
         // yawn — and the branches below let those go without playing a thing.
         foreach (AnimationSound cue in animation.Sounds)
         {
-            _cues.Add(new Cue(cue, repeat ? animation.Duration : 0));
+            _cues.Add(new Cue(cue, repeat ? animation.Duration : 0, animation.Rate));
         }
+
+        // Then what it shows and hides, for the same reason and one of its own: an
+        // animation that brings somebody into the room does it here, and the clip that
+        // opens the door in front of them is a separate line of the same file. Emilio
+        // walking out of the hotel is exactly that, and without this the door swings and
+        // makes its noise with nobody behind it.
+        foreach (AnimationVisibility change in animation.Visibility)
+        {
+            _showings.Add(new Showing(change, repeat ? animation.Duration : 0, animation.Rate));
+        }
+
+        // Frame zero is now rather than in a frame's time. A visibility change on the
+        // opening frame states what is true while the animation runs, so waiting a tick
+        // for it shows one frame of the old state — which for a character being brought
+        // into the room is one frame of them standing at the origin.
+        Reveal(animation.Visibility.Where(v => v.Frame <= 0));
 
         // Faces next, because an animation that only moves a face moves no geometry at
         // all: ABEANGRY is two frames of eyebrow and nothing else. Asking about the clips
@@ -355,7 +373,7 @@ public sealed class SceneUpdate
         {
             // A face or a sound is still something happening, and a script that waits on
             // one is waiting for it to finish rather than for nothing.
-            if (onAFace || animation.Sounds.Count > 0)
+            if (onAFace || animation.Sounds.Count > 0 || animation.Visibility.Count > 0)
             {
                 return animation.Duration;
             }
@@ -437,8 +455,10 @@ public sealed class SceneUpdate
 
             _playing.Add(new Playing(
                 clip, target, action, repeat, moves, Where(target.Name),
-                _geometry.TransformOf(target.Placement), fromBehaviour));
-            longest = Math.Max(longest, clip.Duration + (action.Frame / 15.0));
+                _geometry.TransformOf(target.Placement), fromBehaviour, animation.Rate));
+            longest = Math.Max(
+                longest,
+                ((double)clip.FrameCount + action.Frame) / Math.Max(1, animation.Rate));
         }
 
         return longest;
@@ -489,6 +509,83 @@ public sealed class SceneUpdate
                 _scenery.Add(new Behaviour(script, model));
             }
         }
+    }
+
+    /// <summary>
+    /// Puts everything the scene declared an opening pose for into it.
+    /// </summary>
+    /// <returns>How many were posed.</returns>
+    /// <remarks>
+    /// <para>
+    /// A SIF line may carry <c>initanim=</c>, and 316 of them across the corpus do. It is
+    /// not something that happens — it says where the thing <em>rests</em>. RC1's copy of
+    /// the hotel door is placed by <c>Rc1PlaceLbyDoor</c>; Madeline is stood by the van by
+    /// <c>MadRc1FigM</c>; Emilio is sat in the lobby by <c>EmlLbyBreathe</c>. So the
+    /// opening frame is sampled and the animation is not played, which is what
+    /// <c>Animator::Sample(anim, 0)</c> does in the reference implementation.
+    /// </para>
+    /// <para>
+    /// The difference matters most for the ones that carry an absolute placement: playing
+    /// them would take seven seconds to arrive at a pose that is meant to be true from the
+    /// first frame, with the sounds and the footsteps of a door being opened by nobody.
+    /// </para>
+    /// <para>
+    /// Called once the clip and animation libraries are attached and before the room's
+    /// <c>SCENE:ENTER</c> script runs, because that script asks where people are.
+    /// </para>
+    /// </remarks>
+    public int Open()
+    {
+        if (Clips is null || Animations is null)
+        {
+            return 0;
+        }
+
+        int posed = 0;
+
+        foreach (PlacedModel model in _scene.Models)
+        {
+            if (model.InitialAnimation is not { Length: > 0 } name ||
+                !model.Placement.Exists ||
+                Animations.Read(name) is not { } animation)
+            {
+                continue;
+            }
+
+            // Whatever the pose says about what is drawn, before the pose itself. An
+            // opening animation may carry an [MVISIBILITY] line, and it means the same
+            // thing here as it does while one plays.
+            Reveal(animation.Visibility.Where(v => v.Frame <= 0));
+
+            foreach (AnimationAction action in animation.Actions)
+            {
+                if (Clips.Read(action.Name) is not { } clip ||
+                    !_models.TryGetValue(clip.ModelName, out PlacedModel? target))
+                {
+                    continue;
+                }
+
+                var pose = new Playing(
+                    clip,
+                    target,
+                    action with { Frame = 0 },
+                    repeat: false,
+                    moves: true,
+                    Where(target.Name),
+                    _geometry.TransformOf(target.Placement));
+
+                pose.Open(_geometry);
+
+                // Where the pose leaves them is where they now are. An absolute opening
+                // animation is the only thing that says where several of the game's
+                // characters stand, and a walk that starts from the spot the scene never
+                // set would set off from the origin.
+                Follow(target.Name, pose.Carried);
+                posed++;
+            }
+        }
+
+        return posed;
     }
 
     /// <summary>Gives a character a different script for one of the three things they do.</summary>
@@ -883,6 +980,34 @@ public sealed class SceneUpdate
         _geometry.SetVisible(model.Placement, visible);
     }
 
+    /// <summary>
+    /// Applies an animation's visibility changes.
+    /// </summary>
+    /// <param name="changes">The changes due now.</param>
+    /// <remarks>
+    /// <para>
+    /// A model the room does not have is skipped in silence. Animations are shared between
+    /// rooms and an <c>[MVISIBILITY]</c> line naming something that is not here is as
+    /// ordinary as an <c>[ACTIONS]</c> line doing the same.
+    /// </para>
+    /// <para>
+    /// The per-part form — <c>&lt;frame&gt;,&lt;model&gt;,&lt;mesh&gt;,&lt;submesh&gt;,on</c> —
+    /// is not distinguished from the whole-model form here: the sink draws a placement, not
+    /// a submesh of one, and hiding the whole thing is the closer of the two answers. Only
+    /// a handful of the corpus's lines use it.
+    /// </para>
+    /// </remarks>
+    private void Reveal(IEnumerable<AnimationVisibility> changes)
+    {
+        foreach (AnimationVisibility change in changes)
+        {
+            if (ModelNamed(change.Model) is { } model)
+            {
+                Show(model, change.Visible);
+            }
+        }
+    }
+
     /// <summary>Whether a clip that is playing is the one animating a model.</summary>
     private static bool Drives(Playing playing, PlacedModel model) =>
         ReferenceEquals(playing.Target, model) ||
@@ -896,12 +1021,17 @@ public sealed class SceneUpdate
         {
             _playing.Clear();
             _held.Clear();
+            _showings.Clear();
             return;
         }
 
         _playing.RemoveAll(p =>
             p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
             p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
+
+        // And whatever it was about to be shown or hidden by. A clip that is stopped
+        // half-way should not still turn its model off four seconds later.
+        _showings.RemoveAll(v => v.Concerns(model));
 
         // Whatever it does on its own is its own again. A hold outliving the clip that
         // asked for it leaves a character standing perfectly still for the rest of the
@@ -1432,6 +1562,23 @@ public sealed class SceneUpdate
             }
         }
 
+        // What an animation shows and hides as it runs, on the frames it names. Same
+        // clock as the sounds and for the same reason: a character is brought into the
+        // room by one of these and the door in front of them by a sound cue, and the two
+        // have to land together.
+        for (int i = _showings.Count - 1; i >= 0; i--)
+        {
+            if (_showings[i].Step(seconds) is { } change)
+            {
+                Reveal([change]);
+            }
+
+            if (_showings[i].Finished)
+            {
+                _showings.RemoveAt(i);
+            }
+        }
+
         // Animation before walking: a clip poses a model's meshes in the model's own space
         // and walking moves the model, so doing it the other way round would apply this
         // frame's poses to last frame's position.
@@ -1661,10 +1808,10 @@ public sealed class SceneUpdate
 
         private double _elapsed;
 
-        public Cue(AnimationSound sound, double period)
+        public Cue(AnimationSound sound, double period, int rate)
         {
             _sound = sound;
-            _at = Math.Max(0, sound.Frame) / (double)AnimationFile.FramesPerSecond;
+            _at = Math.Max(0, sound.Frame) / (double)Math.Max(1, rate);
             _period = period;
         }
 
@@ -1704,10 +1851,74 @@ public sealed class SceneUpdate
         }
     }
 
+    /// <summary>
+    /// A model an animation shows or hides, waiting for its frame.
+    /// </summary>
+    /// <remarks>
+    /// The same shape as <see cref="Cue"/> and for the same reason: it belongs to the
+    /// animation rather than to any one clip, and an animation whose whole content is an
+    /// <c>[MVISIBILITY]</c> line still has something to do.
+    /// </remarks>
+    private sealed class Showing
+    {
+        private readonly AnimationVisibility _change;
+        private readonly double _at;
+        private readonly double _period;
+
+        private double _elapsed;
+
+        public Showing(AnimationVisibility change, double period, int rate)
+        {
+            _change = change;
+            _at = Math.Max(0, change.Frame) / (double)Math.Max(1, rate);
+            _period = period;
+
+            // Frame zero is applied by the caller the moment the animation starts, so
+            // this one is already spent and exists only to come round again on a loop.
+            Finished = _period <= 0 && change.Frame <= 0;
+        }
+
+        /// <summary>Whether it has happened and will not come round again.</summary>
+        public bool Finished { get; private set; }
+
+        /// <summary>Whether this is about a named model.</summary>
+        public bool Concerns(string model) =>
+            _change.Model.Equals(model, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Advances the clock and says whether the change is now due.</summary>
+        public AnimationVisibility? Step(double seconds)
+        {
+            if (Finished)
+            {
+                return null;
+            }
+
+            double before = _elapsed;
+            _elapsed += seconds;
+
+            if (before > _at || _elapsed < _at)
+            {
+                return null;
+            }
+
+            if (_period > 0)
+            {
+                _elapsed -= _period;
+            }
+            else
+            {
+                Finished = true;
+            }
+
+            return _change;
+        }
+    }
+
     private sealed class Playing
     {
         private readonly bool _repeat;
         private readonly bool _moves;
+        private readonly int _rate;
         private readonly double _delay;
         private readonly Matrix4x4 _correction;
         private readonly Vector3 _opened;
@@ -1722,14 +1933,16 @@ public sealed class SceneUpdate
             bool moves,
             Vector3? began,
             Matrix4x4 standing,
-            bool fromBehaviour = false)
+            bool fromBehaviour = false,
+            int rate = AnimationFile.FramesPerSecond)
         {
             Clip = clip;
             Target = target;
             FromBehaviour = fromBehaviour;
             _repeat = repeat;
             _moves = moves;
-            _delay = action.Frame / (double)AnimationFile.FramesPerSecond;
+            _rate = Math.Max(1, rate);
+            _delay = action.Frame / (double)_rate;
             _correction = Correction(clip, target, action.Placement, standing);
             _opened = Opens(clip);
             Began = began;
@@ -1856,7 +2069,7 @@ public sealed class SceneUpdate
             }
 
             double running = _elapsed - _delay;
-            double frame = running * AnimationFile.FramesPerSecond;
+            double frame = running * _rate;
 
             if (frame >= Clip.FrameCount)
             {
@@ -1875,12 +2088,20 @@ public sealed class SceneUpdate
                 // time round, which on a loop as short as a fan's is a hitch every four
                 // seconds — exactly what this is here to get rid of.
                 frame %= Clip.FrameCount;
-                _elapsed = _delay + (frame / AnimationFile.FramesPerSecond);
+                _elapsed = _delay + (frame / _rate);
             }
 
             Pose(geometry, frame);
             return true;
         }
+
+        /// <summary>Poses the model on the clip's opening frame, without running it.</summary>
+        /// <param name="geometry">Where the model stands.</param>
+        /// <remarks>
+        /// What an <c>initanim=</c> means. The pose is applied and the clock is never
+        /// started, so nothing is scheduled, nothing sounds and nothing finishes.
+        /// </remarks>
+        public void Open(ISceneSink geometry) => Pose(geometry, 0);
 
         /// <summary>Where the clip's mesh groups sit on its opening frame.</summary>
         private static Vector3 Opens(ActFile clip) => Average(Enumerable

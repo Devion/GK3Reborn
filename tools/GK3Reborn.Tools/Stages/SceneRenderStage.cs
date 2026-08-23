@@ -64,6 +64,7 @@ public sealed class SceneRenderStage
     /// <param name="glance">An actor to point at something, as <c>actor:target</c>.</param>
     /// <param name="enhanced">Higher-resolution textures to prefer, or null for none.</param>
     /// <param name="heads">How far to subdivide a character's head; zero draws it as authored.</param>
+    /// <param name="relief">Whether the floor's height map is cut into the geometry.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -84,6 +85,7 @@ public sealed class SceneRenderStage
         string? glance,
         string? enhanced,
         int heads,
+        bool relief,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -121,6 +123,10 @@ public sealed class SceneRenderStage
         }
 
         using SceneGeometry geometry = renderer.CreateGeometry();
+
+        // Off is what the room looked like before a floor could be displaced, which is the
+        // only way to compare the two: everything else about the frame is identical.
+        geometry.Relief = relief ? ReliefSettings.Default : ReliefSettings.Off;
 
         SceneRequest request = SceneRequest.For(sceneName, timeblock);
 
@@ -195,7 +201,21 @@ public sealed class SceneRenderStage
 
         ReportNounCoverage(scene);
 
-        renderer.SetLights(scene.Lights);
+        // With the room's bounds, not without them. They decide two things: which lights
+        // are distant keys whose stored range cannot reach the scene, and how the light
+        // grid is divided — and a grid over no bounds is one cell holding the whole rig,
+        // which is the behaviour it exists to replace.
+        renderer.SetLights(
+            scene.Lights, new GK3Reborn.Rendering.Vulkan.SceneExtent(geometry.Minimum, geometry.Maximum));
+
+        if (renderer.LightGrid is { } grid)
+        {
+            _log(
+                $"light grid: {grid.Counts.X}x{grid.Counts.Y}x{grid.Counts.Z} cells of " +
+                $"{grid.Cell:0} units, {grid.Average:0.0} lights a cell on average and " +
+                $"{grid.Busiest} at most" +
+                (grid.Overfull > 0 ? $", {grid.Overfull} cells over the limit" : string.Empty));
+        }
 
         _log($"lights: {scene.Lights.Count} authored " +
              $"({scene.Lights.Count(l => l.CastsShadows)} casting shadows in the bake)");
@@ -214,7 +234,11 @@ public sealed class SceneRenderStage
             $"camera: {scene.CameraNamed(angle)?.Name ?? "framed"} at " +
             $"({camera.Position.X:F1}, {camera.Position.Y:F1}, {camera.Position.Z:F1})"));
 
-        _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches");
+        _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches" +
+             (geometry.DisplacedTriangles > 0
+                 ? $", the floor cut into {geometry.DisplacedTriangles} of them at " +
+                   $"{geometry.ReliefCell:0.#} units a cell"
+                 : string.Empty));
 
         if (renderer.Quality != RayTracingQuality.None)
         {

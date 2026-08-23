@@ -99,6 +99,17 @@ public sealed record PlacedModel(
     /// </remarks>
     public bool Visible { get; set; } = true;
 
+    /// <summary>
+    /// The animation that states the pose it opens in, or null.
+    /// </summary>
+    /// <remarks>
+    /// <c>initanim=Rc1PlaceLbyDoor</c> on a model line, <c>initAnim=MadRc1FigM</c> on an
+    /// actor's. It is a statement rather than an event — where the thing rests, how the
+    /// person is standing — so its opening frame is sampled once and it is never played.
+    /// See <c>SceneUpdate.Open</c>.
+    /// </remarks>
+    public string? InitialAnimation { get; init; }
+
     /// <summary>The head as the clips address it, when the head being drawn is refined.</summary>
     /// <remarks>
     /// Null for a prop, and null for a character whose head is drawn as authored. When it is

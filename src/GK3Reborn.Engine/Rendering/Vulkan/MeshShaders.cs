@@ -50,6 +50,12 @@ internal static class MeshShaders
 
             // occlusion radius, unused, and the viewport in pixels
             vec4 tuning;
+
+            // xyz where the light grid starts, w how wide one of its cells is
+            vec4 gridOrigin;
+
+            // xyz how many cells along each axis, w how many lights the rig holds
+            vec4 gridCounts;
         } frame;
 
         layout(push_constant) uniform Draw
@@ -60,7 +66,11 @@ internal static class MeshShaders
             // x selects the lightmap over the rig, y scales the lightmap,
             // z is two flags added together — 1 for a surface that carries its own
             // brightness, 2 for a model standing in the room rather than the room itself —
-            // and w is how deep its height map goes, zero where it has none
+            // and w is how deep its height map goes in *world* units, zero where it has
+            // none. World rather than texture coordinates because the same texture is
+            // tiled at wildly different densities across the game — one road texture
+            // covers 232 units of street and one lobby floor 32 — and a depth in texture
+            // coordinates is seven times deeper on the second for no reason anybody chose.
             vec4 shading;
 
             // The surface's finish where no map says otherwise: x roughness, y metalness,
@@ -132,15 +142,38 @@ internal static class MeshShaders
         layout(location = 3) out vec4 outDirect;
         #endif
 
-        layout(set = 0, binding = 1) uniform Rig
+        // The rig, and which of it reaches where.
+        //
+        // Storage buffers rather than uniform blocks, and that is the whole of why there is
+        // no longer a limit of sixty-four lights on a scene: a uniform block has to be
+        // sized at compile time and the standard guarantees only 16 KB of one. A storage
+        // buffer is unsized on both sides.
+        //
+        // What made the limit bearable before was truncating the rig to its brightest few,
+        // which is the wrong failure — it drops the lamp beside the player because a
+        // streetlight three rooms away is brighter. Now nothing iterates the whole rig: a
+        // fragment reads the cell it stands in and loops the handful of lights that
+        // actually reach it. See SceneLightGrid.
+        layout(std430, set = 0, binding = 1) readonly buffer Rig
         {
             // x is how many of the array are in use
             vec4 counts;
-            Light lights[64];
+            Light lights[];
         } rig;
 
+        layout(std430, set = 0, binding = 2) readonly buffer Cells
+        {
+            // Where each cell's list starts, with one more on the end for the last cell.
+            int at[];
+        } cells;
+
+        layout(std430, set = 0, binding = 3) readonly buffer Reaching
+        {
+            int lights[];
+        } reaching;
+
         #ifdef RAY_TRACING
-        layout(set = 0, binding = 2) uniform accelerationStructureEXT scene;
+        layout(set = 0, binding = 4) uniform accelerationStructureEXT scene;
         #endif
 
         layout(set = 1, binding = 0) uniform sampler2D baseColor;
@@ -456,6 +489,24 @@ internal static class MeshShaders
             return (diffuse + specular) * nDotL;
         }
 
+        // Which lights reach a point, as a range into the grid's index list.
+        //
+        // Clamped rather than refused at the edges. A character standing a hair outside the
+        // room's own bounding box — which happens, because the box is the geometry's and a
+        // walk cycle swings an arm past it — is lit by the cell next to them rather than by
+        // nothing at all, which is the difference between a seam and a black silhouette.
+        void CellAt(vec3 position, out int first, out int last)
+        {
+            vec3 local = (position - frame.gridOrigin.xyz) / max(frame.gridOrigin.w, 1e-4);
+            ivec3 counts = ivec3(frame.gridCounts.xyz);
+
+            ivec3 at = clamp(ivec3(floor(local)), ivec3(0), max(counts - 1, ivec3(0)));
+            int index = ((at.z * counts.y) + at.y) * counts.x + at.x;
+
+            first = cells.at[index];
+            last = cells.at[index + 1];
+        }
+
         // The rig the artists authored, evaluated directly. Falloff is linear between the
         // light's start and end distances: that is what 3ds Max's linear decay did and what
         // these numbers were tuned against, and inverse-square would darken every room.
@@ -464,12 +515,19 @@ internal static class MeshShaders
             int shadowed, int shadowSamples)
         {
             vec3 total = vec3(0.0);
-            int count = int(rig.counts.x);
             int traced = 0;
 
-            for (int i = 0; i < count; i++)
+            // The lights that reach where this fragment is, rather than every light in the
+            // room. The cell is a lookup on the position, the list inside it is ordered
+            // brightest first, and both of those matter: the loop is short, and the few
+            // lights that can afford a shadow ray are the ones worth tracing.
+            int first = 0;
+            int last = 0;
+            CellAt(position, first, last);
+
+            for (int slot = first; slot < last; slot++)
             {
-                Light light = rig.lights[i];
+                Light light = rig.lights[reaching.lights[slot]];
 
                 vec3 toLight = light.positionAndStart.xyz - position;
                 float distance = max(length(toLight), 0.0001);
@@ -550,7 +608,79 @@ internal static class MeshShaders
         // skeleton, so an .ACT clip rewrites their vertex positions on every frame of every
         // animation, and a tangent computed at load would be stale the moment anybody moved.
         // A derivative frame is correct for free, on deforming and rigid geometry alike.
-        vec3 PerturbedNormal(vec3 geometric, vec2 uv, float strength)
+        //
+        // Built once per fragment and handed to both the normal and the parallax. It used
+        // to be built twice per fragment, identically, from six derivatives each.
+        struct SurfaceFrame
+        {
+            // Normalised, along +U and +V, with the interpolated normal completing them.
+            vec3 tangent;
+            vec3 bitangent;
+            vec3 normal;
+
+            // How much world one unit of texture coordinate is worth, along U and along V.
+            // This is the length the Gram-Schmidt step throws away, and keeping it is what
+            // lets a depth authored in world units mean the same thing on every surface.
+            vec2 world;
+
+            // False where the surface is edge-on or its coordinates do not vary, which
+            // happens at silhouettes and on the flat-shaded helpers. Dividing by zero
+            // there is a NaN across a whole triangle; the geometric normal is invisible.
+            bool valid;
+        };
+
+        SurfaceFrame FrameAt(vec3 geometric)
+        {
+            SurfaceFrame surface;
+            surface.tangent = vec3(0.0);
+            surface.bitangent = vec3(0.0);
+            surface.normal = geometric;
+            surface.world = vec2(0.0);
+            surface.valid = false;
+
+            vec3 dpx = dFdx(inWorld);
+            vec3 dpy = dFdy(inWorld);
+            vec2 dtx = dFdx(inTexCoord);
+            vec2 dty = dFdy(inTexCoord);
+
+            float area = (dtx.x * dty.y) - (dty.x * dtx.y);
+
+            if (abs(area) < 1e-12)
+            {
+                return surface;
+            }
+
+            vec3 alongU = ((dpx * dty.y) - (dpy * dtx.y)) / area;
+            vec3 alongV = ((dpy * dtx.x) - (dpx * dty.x)) / area;
+
+            if (any(isnan(alongU)) || any(isnan(alongV)))
+            {
+                return surface;
+            }
+
+            surface.world = vec2(length(alongU), length(alongV));
+
+            if (min(surface.world.x, surface.world.y) < 1e-6)
+            {
+                return surface;
+            }
+
+            // Gram-Schmidt against the interpolated normal, so the frame stays square even
+            // where the derivatives are noisy.
+            surface.tangent = normalize(alongU - (geometric * dot(geometric, alongU)));
+
+            if (any(isnan(surface.tangent)))
+            {
+                return surface;
+            }
+
+            surface.bitangent = cross(geometric, surface.tangent);
+            surface.valid = true;
+
+            return surface;
+        }
+
+        vec3 PerturbedNormal(SurfaceFrame surface, vec2 uv, float strength)
         {
             // Two channels, not three. BC5 keeps only X and Y — it has no third channel to
             // keep — and Z is recovered from them, which is exact for a unit vector in
@@ -575,92 +705,114 @@ internal static class MeshShaders
             // textures that have no map at all.
             if (max(abs(tangentNormal.x), abs(tangentNormal.y)) <= (1.0 / 255.0))
             {
-                return geometric;
+                return surface.normal;
             }
 
-            vec3 dpx = dFdx(inWorld);
-            vec3 dpy = dFdy(inWorld);
-
-            // The interpolated coordinate, not the parallax-offset one. A derivative taken
-            // across an offset that itself varies per pixel measures the offset as well as
-            // the surface, and the frame comes out skewed wherever the relief is steepest.
-            vec2 dtx = dFdx(inTexCoord);
-            vec2 dty = dFdy(inTexCoord);
-
-            // Degenerate where a surface is edge-on or its coordinates do not vary, which
-            // happens at silhouettes and on the flat-shaded helpers. Falling back to the
-            // geometric normal there is invisible; dividing by zero is not.
-            float area = (dtx.x * dty.y) - (dty.x * dtx.y);
-
-            if (abs(area) < 1e-12)
+            if (!surface.valid)
             {
-                return geometric;
+                return surface.normal;
             }
 
-            vec3 tangent = ((dpx * dty.y) - (dpy * dtx.y)) / area;
-
-            // Gram-Schmidt against the interpolated normal, so the frame stays square even
-            // where the derivatives are noisy.
-            tangent = normalize(tangent - (geometric * dot(geometric, tangent)));
-
-            if (any(isnan(tangent)))
-            {
-                return geometric;
-            }
-
-            vec3 bitangent = cross(geometric, tangent);
-
-            return normalize(mat3(tangent, bitangent, geometric) * tangentNormal);
+            // The frame is built from the *interpolated* coordinate, not the parallax-offset
+            // one. A derivative taken across an offset that itself varies per pixel measures
+            // the offset as well as the surface, and the frame comes out skewed wherever the
+            // relief is steepest — which after a march is everywhere the relief is.
+            return normalize(
+                mat3(surface.tangent, surface.bitangent, surface.normal) * tangentNormal);
         }
+
+        // How many steps the march takes looking straight at a surface, and how many at
+        // grazing incidence.
+        //
+        // The ray crosses more of the field per unit of depth the further from head-on it
+        // arrives, so a fixed count that is generous looking down at a floor stairsteps
+        // visibly looking along one — and looking along a floor is how a street is seen.
+        // The cost is a BC4 tap per step, which is the cheapest tap there is.
+        const int kParallaxNear = 8;
+        const int kParallaxFar = 24;
 
         // Where to sample a surface so that its relief looks like relief.
         //
-        // The cheap kind: one step, offsetting the coordinate along the view direction in
-        // tangent space by however far above or below the modelled surface the height field
-        // says this texel is. It deepens mortar courses, floorboards and panelling
-        // convincingly from most angles, does nothing whatever to a silhouette, and starts
-        // to swim if the scale is pushed — which is why the scale is per material and
-        // clamped well short of where that happens.
+        // Parallax occlusion mapping: march along the view ray through the height field and
+        // sample where the ray first meets it. The cheaper single step — offset once by the
+        // height at the coordinate the ray entered on — is exact only where the field is
+        // flat, and wrong by more the further from head-on the surface is looked at. That is
+        // precisely the case a floor is: a cobbled street seen along its length is where the
+        // single step failed hardest, and it is what this is for.
         //
-        // Zero scale returns the coordinate untouched, which is every surface with no map.
-        vec2 ParallaxCoord(vec3 geometric, vec3 toEye, float scale)
+        // The march is in the field's own parameter. <c>s</c> is the sampled value, a half
+        // is the modelled surface, and the view ray crosses the polygon at s = 0.5 by
+        // construction, so the coordinate at any s is the entry coordinate offset by
+        // (0.5 - s) spans. Walking s down from one — above everything the field can be —
+        // the hit is the first step at which the field has risen to meet the ray.
+        //
+        // Zero depth returns the coordinate untouched, which is every surface with no map.
+        vec2 ParallaxCoord(SurfaceFrame surface, vec3 toEye, float depth)
         {
-            if (scale <= 0.0)
+            if (depth <= 0.0 || !surface.valid)
             {
                 return inTexCoord;
             }
-
-            vec3 dpx = dFdx(inWorld);
-            vec3 dpy = dFdy(inWorld);
-            vec2 dtx = dFdx(inTexCoord);
-            vec2 dty = dFdy(inTexCoord);
-
-            float area = (dtx.x * dty.y) - (dty.x * dtx.y);
-
-            if (abs(area) < 1e-12)
-            {
-                return inTexCoord;
-            }
-
-            vec3 tangent = ((dpx * dty.y) - (dpy * dtx.y)) / area;
-            tangent = normalize(tangent - (geometric * dot(geometric, tangent)));
-
-            if (any(isnan(tangent)))
-            {
-                return inTexCoord;
-            }
-
-            vec3 bitangent = cross(geometric, tangent);
 
             // The eye in tangent space. Its Z is how head-on the surface is being looked at,
             // and dividing by it is what makes the offset grow towards grazing incidence —
             // clamped, because at the horizon it grows without bound and the surface tears.
-            vec3 eye = vec3(dot(toEye, tangent), dot(toEye, bitangent), dot(toEye, geometric));
+            vec3 eye = vec3(
+                dot(toEye, surface.tangent),
+                dot(toEye, surface.bitangent),
+                dot(toEye, surface.normal));
+
             float facing = max(abs(eye.z), 0.35);
 
-            float height = texture(heightTexture, inTexCoord).r - 0.5;
+            // How far the coordinate travels for one whole unit of the field: a depth in
+            // world units, converted through this surface's own tiling into the texture
+            // coordinates the march steps in.
+            vec2 span = (eye.xy / facing) * (depth / surface.world);
 
-            return inTexCoord - (eye.xy / facing * height * scale);
+            if (dot(span, span) < 1e-14)
+            {
+                return inTexCoord;
+            }
+
+            int count = int(mix(float(kParallaxFar), float(kParallaxNear), abs(eye.z)));
+
+            // Not "step": GLSL has a function by that name and shadowing it here would
+            // compile and read as the function everywhere else.
+            float stride = 1.0 / float(count);
+
+            // Explicit derivatives, because the march samples at coordinates that vary per
+            // pixel inside a loop and an implicit level of detail is undefined in control
+            // flow that is not uniform across the quad. The entered coordinate's
+            // derivatives are the right ones in any case: the footprint being filtered is
+            // the surface's, not the march's.
+            vec2 ddx = dFdx(inTexCoord);
+            vec2 ddy = dFdy(inTexCoord);
+
+            float s = 1.0;
+            vec2 uv = inTexCoord - (span * 0.5);
+            float sampled = textureGrad(heightTexture, uv, ddx, ddy).r;
+
+            float previous = sampled;
+            vec2 wasAt = uv;
+
+            for (int i = 0; i < count && sampled < s; i++)
+            {
+                previous = sampled;
+                wasAt = uv;
+
+                s -= stride;
+                uv += span * stride;
+                sampled = textureGrad(heightTexture, uv, ddx, ddy).r;
+            }
+
+            // Refine between the last two steps. The field is above the ray at one and
+            // below it at the other, so the crossing is a linear solve — which is what
+            // takes the march from visibly stepped to smooth without more taps.
+            float after = sampled - s;
+            float before = previous - (s + stride);
+            float weight = clamp(after / max(after - before, 1e-6), 0.0, 1.0);
+
+            return mix(uv, wasAt, weight);
         }
 
         void main()
@@ -673,7 +825,11 @@ internal static class MeshShaders
             // same for both, deliberately.
             bool isModel = draw.shading.z >= 1.5;
 
-            vec2 uv = ParallaxCoord(geometric, toEye, draw.shading.w);
+            // One frame for both the march and the normal, built from the coordinate the
+            // fragment arrived with.
+            SurfaceFrame basis = FrameAt(geometric);
+
+            vec2 uv = ParallaxCoord(basis, toEye, draw.shading.w);
 
             vec4 sampled = texture(baseColor, uv);
             vec3 albedo = sampled.rgb;
@@ -691,7 +847,7 @@ internal static class MeshShaders
             // and the self-lit return below used to hand a filter whatever was in the
             // register: every lamp, and the painted street through the hotel window,
             // claiming to have crossed the screen since the last frame.
-            vec3 normal = PerturbedNormal(geometric, uv, draw.material.w);
+            vec3 normal = PerturbedNormal(basis, uv, draw.material.w);
 
             // The ORM map, and the material's own numbers under it. The map multiplies
             // rather than replaces, which is what keeps a roughness corrected in the edit

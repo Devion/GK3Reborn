@@ -290,6 +290,18 @@ public interface ISceneSink
     /// </remarks>
     void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth);
 
+    /// <summary>
+    /// Says which surfaces' height maps will be wanted as numbers rather than as pictures.
+    /// </summary>
+    /// <param name="textures">The colour texture names.</param>
+    /// <remarks>
+    /// Called before the textures themselves, because whether to keep a decoded copy of a
+    /// height map has to be decided as it goes past. It is the floor's textures and no
+    /// others: only a floor is displaced, and a decoded field costs a quarter of a megabyte
+    /// against the game's 2,905 maps.
+    /// </remarks>
+    void KeepRelief(IReadOnlySet<string> textures);
+
     /// <summary>Adds a scene's geometry and its baked lighting.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">Its lightmaps, in surface order, if any.</param>
@@ -297,5 +309,13 @@ public interface ISceneSink
     /// Names of objects inside the geometry that must not be drawn, such as hit-test
     /// volumes.
     /// </param>
-    void AddScene(BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null);
+    /// <param name="floorObject">
+    /// The object the scene calls its floor, whose surfaces may have their relief cut into
+    /// the geometry rather than only sampled by the shader, or null to displace nothing.
+    /// </param>
+    void AddScene(
+        BspFile scene,
+        MulFile? lightmaps = null,
+        IReadOnlySet<string>? hiddenObjects = null,
+        string? floorObject = null);
 }

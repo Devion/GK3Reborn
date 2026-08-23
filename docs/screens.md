@@ -216,13 +216,98 @@ sets — the original's own resolver answers false for it and says so in a comme
 the console is what turns that content on. It is the shortest demonstration of why the
 console is worth having.
 
+## The screens in front of the room
+
+`ScreenLayers` says which screens are open; `ScreenPainter` draws them. Five kinds — the
+inventory, an item close up, the binoculars, the driving map and Sidney — and they share
+their chrome, their way out and their scaling, because `Plan/03` section 3 asks that the
+player learn the way out once rather than once per screen.
+
+**Drawn, not blitted.** Rectangles and text, like the rest of the interface since it
+stopped using GK3's bitmap sheets. `OverlayPipeline` is one texture and one draw, so a
+screen made of the original's art would need a second one; and a screen made of text is
+legible at any resolution and scales with the font. Sidney gains most from this — it is a
+computer terminal, which is exactly what this style draws well.
+
+**Nothing is retained.** Same arrangement as `GameHud`: a function from what the game is
+doing to a list of rectangles, laid out fresh every frame, with hit testing reading back
+the same pass that drew it. There is no widget tree to keep in step with the world.
+
+**A click is a string.** The painter records `item:PARCHMENT_1`, `sidney:do:Analyse`,
+`close`; `Application.OnScreen` decides what each one means. The painter knows where things
+are and the caller knows what they do, so no rule about the game lives in the drawing.
+
+**A screen takes the frame.** While one is open nothing behind it is hovered, walked to or
+acted on. Without that, a click on Sidney's menu is also a click on the floor behind it.
+
+The inventory opens on **I** as well as when a script asks, because the original made it a
+small target at the edge of the screen and there is nothing to be gained by reproducing
+that. Sidney opens by clicking Sidney, which is a thing Grace carries.
+
 ## What is not here
 
 An actor crosses a room rather than walking across it: position and facing move, and the
 walk cycle needs the `.ACT` vertex animation format that nothing reads yet.
 
-The retained UI tree of `Plan/03` section 4, and the screens themselves. `ScreenLayers`
-still only says which screens are open; the binoculars, Sidney, the driving map and the
-inventory *screen* draw nothing of their own. Text is laid out rather than shaped — no
+The retained UI tree of `Plan/03` section 4. Text is laid out rather than shaped — no
 kerning, no bidirectional text — which GK3's own bitmap fonts do not need and a
 retranslation would.
+
+Of Sidney's seven screens, six work — see [sidney.md](sidney.md). What is left is the
+analyze screen's map geometry: entering points, drawing grids, locking shapes.
+
+## The binoculars
+
+Two places have them — the Armchair of the Devil and the tower at Blanchefort — and
+`BINOCS.TXT` describes twenty-one vantage points between them, forty-seven things worth
+looking at, and four spots that have a line of dialogue rather than a destination.
+
+**The panorama is the room, not a picture.** The binoculars do not show a painted backdrop;
+they narrow the view and let the player pan the camera they already have. Each thing worth
+seeing is a rectangle in *degrees* — heading across, pitch up and down — and the file's own
+numbers say so: they run 1 to 189 across and −7 to 11 up, which is an arc of hillside and a
+few degrees either side of the horizon rather than any kind of image coordinate.
+
+So this is the one screen that is not a panel over the room. It draws a mask — two circles
+cut out of the dark in four-pixel bands, because the overlay draws rectangles and a
+row-per-pixel mask on a 4K display is nine thousand of them against a budget of four — plus
+crosshairs and a readout, and the camera keeps taking the player's input underneath it.
+
+**Leaning in is a camera and usually a room.** Each sight names where the camera stands and
+looks once the player zooms, and that is generally inside a different room, which is why it
+also names that room's floor. Where the room changes, the camera travels with the request
+in `Gk3SheepApi.WantedCamera` — the room has not been built yet when the choice is made.
+
+**The file's case is inconsistent** between a heading and the sections under it: `CD1102P`
+names `CD1102pPL3`. A case-sensitive lookup loses four of the forty-seven sights, and one
+of them is the only way to look at Blanchefort. There is a test for it.
+
+## The driving map
+
+The game's own painting of the Rennes-le-Château valley — `DM_BASE.BMP`, 640 by 480 — with
+sixteen places on it. Each place's marker is a **lit copy of that patch of the map** rather
+than a pin over it, which is why the markers look like part of the picture: `DM_RLC.BMP` is
+the village, painted brighter.
+
+**Where the positions came from.** The retail engine builds the list in the constructor of
+its driving layer, sixteen calls with the coordinates as immediates, each naming a marker
+and the room arriving there loads. They are recovered from there and written down in
+`DrivingMap` — nothing this engine ships may depend on the original executable, and sixteen
+pairs of integers about where a village sits on a painting are a fact about the map rather
+than something that can be derived. The pictures themselves come from the player's own
+`.BRN` archives, and from `enhanced/textures` where an upscale exists: 14 of the 17 do.
+
+**The size used for layout is always the archive's**, whatever is drawn. The map is laid
+out in the 640-by-480 pixels the original was built in and every marker's position is a
+coordinate in that space; an upscaled marker is the same marker at more samples, not a
+bigger one. Recording the enhanced size would put the markers in the wrong places by a
+factor of thirty-two.
+
+**What is open.** Five places from the first ride — Rennes-le-Château, Larry Chester's
+house, Blanchefort, Rennes-les-Bains and the Couiza train station — plus anywhere the
+player has been, plus anywhere a script has named with `EngineOpenOnMap`. All three are read
+out of the game's own state, so the map after a load is the map before the save.
+
+`PATHDATA.TXT` is in the archives and describes twenty road junctions with their map
+positions and the roads between them. It is parsed and held; riding the moped along it
+rather than cutting straight there is the next step.

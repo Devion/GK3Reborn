@@ -86,8 +86,15 @@ public sealed class SceneUpdateTests
             Matrix4x4? transform = null,
             IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null) => new(_next++);
 
+        public void KeepRelief(IReadOnlySet<string> textures)
+        {
+        }
+
         public void AddScene(
-            BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null)
+            BspFile scene,
+            MulFile? lightmaps = null,
+            IReadOnlySet<string>? hiddenObjects = null,
+            string? floorObject = null)
         {
         }
 

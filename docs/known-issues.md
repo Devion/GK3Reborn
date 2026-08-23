@@ -4,11 +4,23 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. Several rooms of the hotel loaded and standing at once (feature)
+## 1. Several rooms of the hotel loaded and standing at once (feature) — dropped 2026-08-23
 
-**Requested:** 2026-08-22. **Investigated; not attempted.** The question was how well
-Gabriel's room, the hallway and the lobby would interconnect if all three were resident
-together.
+**Requested:** 2026-08-22. **Investigated, not attempted, and now dropped** on the
+grounds the investigation itself argued: it buys very little the painted backgrounds do
+not already buy, and it costs a room-keyed rewrite of navigation, interaction, audio and
+the lightmap atlas, plus a hand-authored adjacency table and a suppression list for nine
+thousand triangles of stand-in geometry. The 400 ms it would save at a door is not worth
+that surface area of new failure.
+
+**One of its prerequisites was built anyway**, because it was worth having on its own:
+per-region light culling. `GpuLight.Capacity` is no longer 64 and no longer a cap on
+anything — see [rendering.md](rendering.md#the-light-grid). What follows is kept as the
+record of what was measured, since anybody reopening this should start from it rather
+than from rediscovery.
+
+The question was how well Gabriel's room, the hallway and the lobby would interconnect if
+all three were resident together.
 
 **They do not share a coordinate space.** Each location's `.BSP` is authored around its own
 origin. The doorway between R25 and the hallway is at x 220.9-254.9, z 292.8-295.5 in R25
@@ -48,11 +60,14 @@ nothing marks which objects are stand-ins.
 2. `WalkBoundary` covers one room — R25's is 369x386 units — and so do `WalkFloor`,
    `ScenePicker`, `ActionResolver`, `SceneAudio` and `GameState.Location`. Each would become
    a set keyed by which room a point is in.
-3. **The light rig is the hard cap.** `GpuLight.Capacity` is 64 and `Choose` keeps the
+3. ~~**The light rig is the hard cap.** `GpuLight.Capacity` is 64 and `Choose` keeps the
    brightest by intensity across the whole scene. R25, HAL and LBY declare 62, 92 and 41
    authored lights: 195 between them, so two thirds would be dropped and the room the player
-   is standing in could lose its lamps to a brighter fixture two rooms away. Per-region or
-   per-object light culling is a prerequisite, not a polish item.
+   is standing in could lose its lamps to a brighter fixture two rooms away.~~ **Fixed
+   2026-08-23.** The rig is a storage buffer holding a thousand, and a fragment loops the
+   lights that reach the cell it stands in rather than the whole rig: the lobby's 41 come
+   out at 4.8 to a cell and the hallway's 92 at 20.1. Nothing is dropped and nothing is
+   ordered by a fixture two rooms away.
 
 **The cost is affordable; the work is not small.** Measured at 110A without `--enhanced`:
 

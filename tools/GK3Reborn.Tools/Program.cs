@@ -148,6 +148,7 @@ public static class Program
                 options.Glance,
                 EnhancedDirectory(options),
                 options.Heads,
+                options.Relief,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height,
@@ -697,6 +698,9 @@ public static class Program
                                    textures, not only what a scene is made of.
               --variant SUFFIX     Which of each candidate's files import-textures
                                    takes (default _imagegen_2048w).
+              --no-relief          render-scene leaves the floor flat, drawing its
+                                   height map with the shader alone. What the room
+                                   looked like before displacement, for comparison.
               --heads N            How far render-model subdivides a character's
                                    head, 0 to 3. The same refinement the game
                                    applies, so a before and after can be
@@ -784,6 +788,9 @@ public static class Program
         /// <summary>How far render-model subdivides a character's head.</summary>
         public int Heads { get; init; }
 
+        /// <summary>Whether render-scene cuts the floor's height map into its geometry.</summary>
+        public bool Relief { get; init; } = true;
+
         public string? Tool { get; init; }
 
         public string? Enhanced { get; init; }
@@ -815,6 +822,7 @@ public static class Program
             string? glance = null;
             string? variant = null;
             int heads = 0;
+            bool relief = true;
             string? tool = null;
             string? enhanced = null;
             bool force = false;
@@ -839,6 +847,10 @@ public static class Program
                     case "--ffmpeg-dir" when i + 1 < args.Length:
                         ffmpeg = args[++i];
                         break;
+                    case "--no-relief":
+                        relief = false;
+                        break;
+
                     case "--force":
                         force = true;
                         break;
@@ -947,6 +959,7 @@ public static class Program
                 Glance = glance,
                 Variant = variant,
                 Heads = heads,
+                Relief = relief,
                 Tool = tool,
                 Enhanced = enhanced,
             };

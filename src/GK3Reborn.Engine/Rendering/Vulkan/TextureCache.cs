@@ -43,6 +43,17 @@ public sealed class TextureCache : IDisposable
     private readonly Dictionary<string, VulkanTexture> _heights =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Height maps kept as numbers as well as as pictures.</summary>
+    /// <remarks>
+    /// Only for the surfaces something intends to displace, which is a room's floor and
+    /// nothing else. A field is a quarter of a megabyte and the game has 2,905 height maps;
+    /// keeping one for every map a session ever loads would cost most of a gigabyte to
+    /// answer a question about a hundred and twenty-six of them. See
+    /// <see cref="Rendering.ReliefPlan"/>.
+    /// </remarks>
+    private readonly Dictionary<string, HeightField> _fields =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Creates a cache over a device.</summary>
     /// <param name="context">Device context.</param>
     /// <param name="fallback">Drawn wherever a texture is asked for and missing.</param>
@@ -108,6 +119,15 @@ public sealed class TextureCache : IDisposable
 
     /// <summary>A height map at mid grey, bound where a surface has none.</summary>
     public VulkanTexture Level { get; }
+
+    /// <summary>How large a height field is kept for the CPU, in texels.</summary>
+    /// <remarks>
+    /// Displacement samples at whatever spacing its triangle budget affords, which on a
+    /// village street is about seven units — a thirtieth of the 232 units the road texture
+    /// tiles over, so 256 texels leaves eight to a cell to average over. Finer would be
+    /// carrying detail no vertex can express.
+    /// </remarks>
+    private const int FieldExtent = 256;
 
     /// <summary>How many normal maps the device is holding.</summary>
     public int NormalCount => _normals.Count;
@@ -335,12 +355,42 @@ public sealed class TextureCache : IDisposable
         return _heights.ContainsKey(name);
     }
 
+    /// <summary>Whether a surface's height map is here as numbers the CPU can read.</summary>
+    /// <param name="name">The <em>colour</em> texture's name.</param>
+    /// <returns>True when <see cref="FieldFor"/> will answer.</returns>
+    /// <remarks>
+    /// Apart from <see cref="HasHeight"/> on purpose. A room that displaces its floor wants
+    /// a map the room before it uploaded and did not keep, and the only way to get one is
+    /// to read the file again — so the loader has to be able to tell the two states apart.
+    /// </remarks>
+    public bool HasField(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _fields.ContainsKey(name);
+    }
+
+    /// <summary>A surface's height map as numbers, if one was kept.</summary>
+    /// <param name="name">The colour texture's name.</param>
+    /// <returns>The field, or null.</returns>
+    public HeightField? FieldFor(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _fields.TryGetValue(name, out HeightField? field) ? field : null;
+    }
+
     /// <summary>Uploads a block-compressed height map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The compressed levels.</param>
-    public void AddHeight(string name, CompressedImage image)
+    /// <param name="keepField">Whether to keep a decoded copy for the CPU to read.</param>
+    public void AddHeight(string name, CompressedImage image, bool keepField = false)
     {
         ArgumentNullException.ThrowIfNull(name);
+
+        if (keepField && !_fields.ContainsKey(name) && HeightField.From(image, FieldExtent) is { } field)
+        {
+            _fields[name] = field;
+        }
 
         if (_heights.ContainsKey(name))
         {
@@ -355,12 +405,18 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a height map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The decoded map.</param>
+    /// <param name="keepField">Whether to keep a copy for the CPU to read.</param>
     /// <remarks>
     /// Linear, like the other two. A height field is a distance.
     /// </remarks>
-    public void AddHeight(string name, DecodedImage image)
+    public void AddHeight(string name, DecodedImage image, bool keepField = false)
     {
         ArgumentNullException.ThrowIfNull(name);
+
+        if (keepField && !_fields.ContainsKey(name))
+        {
+            _fields[name] = HeightField.From(image, FieldExtent);
+        }
 
         if (_heights.ContainsKey(name))
         {

@@ -35,6 +35,18 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     private const float LightmapMultiplier = 4.59f;
 
+    /// <summary>How much of a displaced surface's depth is left for the shader to march.</summary>
+    /// <remarks>
+    /// A quarter. The geometry is cut at whatever spacing the triangle budget affords — six
+    /// or seven units on a street — and the field is averaged over a cell before a vertex is
+    /// moved, so what the vertices carry is the part of the relief coarser than that and
+    /// what remains is the part finer. The remainder is nearly all of the field's detail and
+    /// a small share of its amplitude, and this is an estimate of that share rather than a
+    /// measurement: splitting a single map into two bands exactly would mean handing the
+    /// shader the complement of what the geometry took, and there is nowhere to put it.
+    /// </remarks>
+    private const float ResidualRelief = 0.25f;
+
     private readonly VulkanContext _context;
     private readonly MeshPipeline _pipeline;
     private readonly List<Batch> _batches = [];
@@ -69,6 +81,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
 
     private readonly List<RayTracingMesh> _traceable = [];
+
+    /// <summary>The textures of this room's floor, whose height maps are kept readable.</summary>
+    private readonly HashSet<string> _relief = new(StringComparer.OrdinalIgnoreCase);
 
     private RayTracingScene? _rayTracing;
     private VulkanTexture? _lightmap;
@@ -129,6 +144,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>The scene as rays see it, once <see cref="Finish"/> has built it.</summary>
     public RayTracingScene? RayTracing => _rayTracing;
+
+    /// <summary>Whether and how finely a floor's relief becomes geometry.</summary>
+    /// <remarks>
+    /// Set by whoever loads the scene, from the player's own settings. Off, every surface
+    /// takes the path it took before displacement existed.
+    /// </remarks>
+    public ReliefSettings Relief { get; set; } = ReliefSettings.Default;
+
+    /// <summary>How many triangles this room's floor was cut into, or zero.</summary>
+    public int DisplacedTriangles { get; private set; }
+
+    /// <summary>How long an edge of that subdivision is, in world units, or zero.</summary>
+    public float ReliefCell { get; private set; }
 
     /// <summary>What each texture's surface is like, for the passes that care.</summary>
     /// <remarks>
@@ -261,7 +289,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddHeight(name, image);
+        _textures.AddHeight(name, image, _relief.Contains(name));
     }
 
     /// <inheritdoc/>
@@ -269,15 +297,34 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddHeight(name, image);
+        _textures.AddHeight(name, image, _relief.Contains(name));
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A map that is here as a picture but not as numbers is not here, for a floor that
+    /// wants to be displaced: the room before this one uploaded it and had no reason to
+    /// keep a readable copy, and the only way to get one is to read the file again.
+    /// </remarks>
     public bool HasHeightMap(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return _textures.HasHeight(name);
+        return _textures.HasHeight(name) &&
+               (!_relief.Contains(name) || _textures.HasField(name));
+    }
+
+    /// <inheritdoc/>
+    public void KeepRelief(IReadOnlySet<string> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+
+        _relief.Clear();
+
+        foreach (string texture in textures)
+        {
+            _relief.Add(texture);
+        }
     }
 
     /// <summary>The material constants for one batch's texture.</summary>
@@ -797,14 +844,29 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">The scene's baked lightmaps, in surface order, if any.</param>
     /// <param name="hiddenObjects">Names of objects inside it that must not be drawn.</param>
+    /// <param name="floorObject">
+    /// The object the scene calls its floor, whose surfaces may have their relief cut into
+    /// the geometry rather than only sampled by the shader, or null to displace nothing.
+    /// </param>
     /// <remarks>
+    /// <para>
     /// BSP files carry no normals, so each triangle gets the normal of its own plane. Flat
     /// shading is wrong for the few curved surfaces a scene contains and right for the
     /// walls, floors and doorways that make up nearly all of them, and it invents no
     /// smoothing groups the data never had.
+    /// </para>
+    /// <para>
+    /// The floor is the exception, and has to be: a displaced surface is subdivided, and
+    /// giving every piece of it the plane's normal would make the relief invisible. Those
+    /// pieces carry a normal smoothed across the floor instead. See
+    /// <see cref="ReliefPlan"/>.
+    /// </para>
     /// </remarks>
     public void AddScene(
-        BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null)
+        BspFile scene,
+        MulFile? lightmaps = null,
+        IReadOnlySet<string>? hiddenObjects = null,
+        string? floorObject = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
@@ -820,17 +882,37 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _lightmapRegions = atlas.Regions;
         }
 
+        // Which of the room's surfaces can have their relief cut into the geometry, and how
+        // finely this room can afford to cut it. Null when the scene names no floor, when
+        // none of the floor's textures has a height map, or when the setting is off — and
+        // then everything below takes exactly the path it took before any of this existed.
+        ReliefPlan? relief = Relief.Displace
+            ? ReliefPlan.For(scene, floorObject, Deep, Relief.TriangleBudget)
+            : null;
+
+        ReliefCell = relief?.Cell ?? 0f;
+        DisplacedTriangles = 0;
+
         // Keyed by whether the surface lights itself as well as by texture, because one
         // texture serves both states: LAMPSHADE is on a shade that the bake lit and on
         // one that glows on its own.
-        Dictionary<(string Texture, bool SelfLit), (List<MeshVertex> Vertices, List<uint> Indices)>
-            groups = [];
+        //
+        // And by whether it was displaced, because that is a different draw of the same
+        // texture: geometry that already carries the relief must not also march for it.
+        // CONCRETE is on CSE's forecourt and on its walls, and only the forecourt moved.
+        Dictionary<(string Texture, bool SelfLit, bool Displaced),
+                   (List<MeshVertex> Vertices, List<uint> Indices)> groups = [];
 
         // What a ray can hit, gathered here rather than per batch: the split between
         // surfaces that block light and surfaces that do not cuts across the texture the
         // batches are grouped by.
         List<Vector3> occluders = [];
         List<uint> occluderIndices = [];
+
+        // Reused across every triangle of the floor rather than allocated per triangle;
+        // there are a quarter of a million of them by the time this is done.
+        List<ReliefVertex> pieces = [];
+        List<int> pieceIndices = [];
 
         foreach (BspPolygon polygon in scene.Polygons)
         {
@@ -853,7 +935,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 ? _lightmapRegions[polygon.SurfaceIndex]
                 : Vector4.Zero;
 
-            (string, bool) key = (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit);
+            bool displace = relief is not null && relief.Covers(surface, Deep(surface.TextureName));
+
+            (string, bool, bool) key =
+                (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, displace);
 
             if (!groups.TryGetValue(key, out (List<MeshVertex>, List<uint>) group))
             {
@@ -878,6 +963,65 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 Vector2 ub = scene.TexCoordFor(b);
                 Vector2 uc = scene.TexCoordFor(c);
 
+                if (displace)
+                {
+                    relief!.Tessellate(
+                        pa, pb, pc, ua, ub, uc,
+                        surface.TextureName,
+                        _textures.FieldFor(surface.TextureName),
+                        Materials.Of(surface.TextureName).HeightDepth,
+                        pieces,
+                        pieceIndices);
+
+                    uint first = (uint)group.Item1.Count;
+
+                    foreach (ReliefVertex piece in pieces)
+                    {
+                        group.Item1.Add(new MeshVertex(
+                            piece.Position,
+                            piece.Normal,
+                            piece.TexCoord,
+                            Lightmap(piece.TexCoord, surface, region)));
+
+                        Grow(piece.Position);
+                    }
+
+                    foreach (int index in pieceIndices)
+                    {
+                        group.Item2.Add(first + (uint)index);
+                    }
+
+                    DisplacedTriangles += pieceIndices.Count / 3;
+
+                    if (occludes)
+                    {
+                        // The cut-up floor, so that a cobble shadows the gutter beside it
+                        // — which is the whole reason to have moved the vertices rather
+                        // than only the texels. Off, it is the flat triangle that goes in,
+                        // and the acceleration structure stays the size it always was.
+                        if (Relief.Trace)
+                        {
+                            int origin = occluders.Count;
+
+                            foreach (ReliefVertex piece in pieces)
+                            {
+                                occluders.Add(piece.Position);
+                            }
+
+                            foreach (int index in pieceIndices)
+                            {
+                                occluderIndices.Add((uint)(origin + index));
+                            }
+                        }
+                        else
+                        {
+                            Occlude(occluders, occluderIndices, pa, pb, pc);
+                        }
+                    }
+
+                    continue;
+                }
+
                 uint at = (uint)group.Item1.Count;
                 group.Item1.Add(new MeshVertex(pa, normal, ua, Lightmap(ua, surface, region)));
                 group.Item1.Add(new MeshVertex(pb, normal, ub, Lightmap(ub, surface, region)));
@@ -888,13 +1032,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
                 if (occludes)
                 {
-                    occluderIndices.Add((uint)occluders.Count);
-                    occluderIndices.Add((uint)occluders.Count + 1);
-                    occluderIndices.Add((uint)occluders.Count + 2);
-
-                    occluders.Add(pa);
-                    occluders.Add(pb);
-                    occluders.Add(pc);
+                    Occlude(occluders, occluderIndices, pa, pb, pc);
                 }
 
                 Grow(pa);
@@ -908,8 +1046,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _traceable.Add(new RayTracingMesh([.. occluders], [.. occluderIndices]));
         }
 
-        foreach (((string texture, bool selfLit), (List<MeshVertex> vertices, List<uint> indices))
-                 in groups)
+        foreach (((string texture, bool selfLit, bool displaced),
+                  (List<MeshVertex> vertices, List<uint> indices)) in groups)
         {
             if (indices.Count > 0)
             {
@@ -924,9 +1062,34 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     Matrix4x4.Identity,
                     texture,
                     useLightmap: true,
-                    selfLit: selfLit);
+                    selfLit: selfLit,
+                    displaced: displaced);
             }
         }
+
+        // Whether this texture's relief is to become geometry: the material says so, it
+        // has depth to give, and its map is here as numbers rather than only as a picture.
+        // All three are required — a floor whose map never arrived cannot be displaced,
+        // and one nothing asked to displace must not be.
+        bool Deep(string texture)
+        {
+            SurfaceFinish finish = Materials.Of(texture);
+
+            return finish.Displaced && finish.HeightDepth > 0f && _textures.HasField(texture);
+        }
+    }
+
+    /// <summary>Records one triangle as something a ray can hit.</summary>
+    private static void Occlude(
+        List<Vector3> occluders, List<uint> indices, Vector3 a, Vector3 b, Vector3 c)
+    {
+        indices.Add((uint)occluders.Count);
+        indices.Add((uint)occluders.Count + 1);
+        indices.Add((uint)occluders.Count + 2);
+
+        occluders.Add(a);
+        occluders.Add(b);
+        occluders.Add(c);
     }
 
     /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
@@ -1104,8 +1267,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     // How deep this surface's height map goes, and zero where it has none —
                     // which is what keeps the level map bound in its place from shifting
                     // every texture in the game by a constant offset.
+                    //
+                    // Reduced where the geometry already carries the relief. The march and
+                    // the vertices read the same field, so a batch that was displaced at
+                    // full depth and marched at full depth has its cobbles twice: once
+                    // where they are and once painted over them. What is left is the part
+                    // of the field finer than a cell, which is most of the field and none
+                    // of its amplitude.
                     _textures.HasHeight(batch.TextureName)
-                        ? Materials.Of(batch.TextureName).HeightScale
+                        ? Materials.Of(batch.TextureName).HeightDepth *
+                          (batch.Displaced ? ResidualRelief : 1f)
                         : 0f),
 
                 // The finish the material library measured for this texture, which is what
@@ -1238,7 +1409,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         bool useLightmap,
         bool selfLit = false,
         Matrix4x4? local = null,
-        bool isModel = false) =>
+        bool isModel = false,
+        bool displaced = false) =>
         _batches.Add(new Batch
         {
             // Identity for the room's own geometry, which is already where it belongs.
@@ -1258,6 +1430,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             UseLightmap = useLightmap,
             SelfLit = selfLit,
             IsModel = isModel,
+            Displaced = displaced,
         });
 
     private VulkanTexture TextureFor(string name) =>
@@ -1481,6 +1654,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         public required string TextureName { get; init; }
 
         public required bool UseLightmap { get; init; }
+
+        /// <summary>Whether this batch's relief was cut into its geometry.</summary>
+        public bool Displaced { get; init; }
 
         /// <summary>The surface carries its own brightness and the bake does not touch it.</summary>
         public bool SelfLit { get; init; }

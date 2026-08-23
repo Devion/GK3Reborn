@@ -119,10 +119,15 @@ internal static class DenoiserShaders
         layout(set = 0, binding = 6, r16f) writeonly uniform image2D shadowFraction;
         layout(set = 0, binding = 7, r16f) writeonly uniform image2D occlusionFraction;
 
-        layout(set = 0, binding = 5) uniform Rig
+        // Unsized, and a storage buffer, because the rig outgrew a uniform block when the
+        // limit of sixty-four lights went. This pass still walks the whole rig rather than
+        // a grid cell: it runs once a pixel to decide *which* light is worth a shadow ray,
+        // and that is a question about the brightest few of the room rather than about the
+        // handful reaching one point. The rig is ordered brightest first for it.
+        layout(std430, set = 0, binding = 5) readonly buffer Rig
         {
             vec4 counts;
-            Light lights[64];
+            Light lights[];
         } rig;
 
         // The third channel: how much of the rig's light a *moving* thing takes away.
