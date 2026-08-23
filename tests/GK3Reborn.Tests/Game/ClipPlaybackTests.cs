@@ -104,6 +104,15 @@ public sealed class ClipPlaybackTests
         /// <summary>Which models have been hidden, and which shown again.</summary>
         public Dictionary<int, bool> Visible { get; } = [];
 
+        /// <summary>Which of the room's own objects a script has shown or hidden.</summary>
+        public List<(string Object, bool Visible)> SceneObjects { get; } = [];
+
+        public bool SetSceneObjectVisible(string objectName, bool visible)
+        {
+            SceneObjects.Add((objectName, visible));
+            return true;
+        }
+
         public void SetVisible(ModelPlacement placement, bool visible) =>
             Visible[placement.Id] = visible;
 

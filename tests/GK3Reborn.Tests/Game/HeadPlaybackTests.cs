@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Text;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
@@ -114,6 +114,8 @@ public sealed class HeadPlaybackTests
 
         /// <summary>Which models have been hidden, and which shown again.</summary>
         public Dictionary<int, bool> Visible { get; } = [];
+
+        public bool SetSceneObjectVisible(string objectName, bool visible) => true;
 
         public void SetVisible(ModelPlacement placement, bool visible) =>
             Visible[placement.Id] = visible;

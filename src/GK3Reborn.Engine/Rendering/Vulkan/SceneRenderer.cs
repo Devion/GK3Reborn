@@ -96,6 +96,18 @@ public sealed unsafe class SceneRenderer : IDisposable
 
     public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
 
+    /// <summary>The tier's settings, with anything set here in place of them.</summary>
+    /// <remarks>
+    /// The four levels are what a player chooses between, and setting this is how anything
+    /// else asks for a combination they do not offer — one knob moved and the rest of the
+    /// tier left alone, which is what it takes to attribute a change in the picture to that
+    /// knob rather than to the four differences between two levels.
+    /// </remarks>
+    public RayTracingSettings? Overriding { get; set; }
+
+    /// <summary>What this frame is actually being traced with.</summary>
+    private RayTracingSettings Tracing => Overriding ?? RayTracingSettings.For(Quality);
+
     /// <summary>Creates a renderer.</summary>
     /// <param name="context">Device context.</param>
     /// <returns>The renderer.</returns>
@@ -195,7 +207,7 @@ public sealed unsafe class SceneRenderer : IDisposable
         if (tracing)
         {
             frames.SetScene(geometry.RayTracing!);
-            frames.Settings = RayTracingSettings.For(Quality);
+            frames.Settings = Tracing;
         }
 
         // Everything the frame writes besides its picture. The plain pipeline declares the
@@ -452,7 +464,7 @@ public sealed unsafe class SceneRenderer : IDisposable
             denoiser.DynamicShadow,
             reflections.Buffers);
 
-        RayTracingSettings settings = RayTracingSettings.For(Quality);
+        RayTracingSettings settings = Tracing;
 
         denoiser.Record(
             command, camera, depth.Image, settings.AmbientOcclusionRadius, settings.OcclusionSamples);
@@ -480,7 +492,8 @@ public sealed unsafe class SceneRenderer : IDisposable
         };
 
         _context.Api.CmdBeginRendering(command, in rendering);
-        composite.Record(command, width, height, reflections.Parity);
+        composite.Record(
+            command, width, height, reflections.Parity, settings.OcclusionStrength);
         _context.Api.CmdEndRendering(command);
     }
 

@@ -168,7 +168,323 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ---
 
+## 4. An exterior has no sun, so nothing standing in one casts a contact shadow
+
+**Reported:** 2026-08-23, out of the fix below. **Not fixed.** Reproduce with
+
+    GK3Reborn.Tools render-scene --model RC1 --timeblock 110A --rt high --output rc1.png
+
+and look at the ground under the woman by the van: she meets it with no shadow at all,
+while the same build gives a character in `LBY` a shadow on the wall behind him.
+
+**It is the rig, not the tracing.** `rc1_a_m.SCN` ships **seven** authored lights for the
+whole town, against `LBY`'s forty-one, and four of them cast. Outdoors the artists left
+nearly everything to the bake, so once Medium and High stopped using it there was no key
+light overhead left to throw a shadow down. `RC1`'s mean frame luminance is 55.7 at High
+against 75.8 at None, and that gap is the same missing light.
+
+Ambient occlusion is doing what it can — believing 0.85 of it rather than 0.55 is worth 7
+points of that mean — but occlusion attenuates the ambient term only, which is correct and
+is not a shadow.
+
+**What would fix it:** a sun and sky light synthesised for exterior scenes, from the
+timeblock's hour and the scene's own skybox, added to the rig rather than to the shader.
+That is a scene-loading change and wants its own decision record, because it is the first
+light in the game no artist authored.
+
+## 5. A walk to something far away could be run rather than walked (done 2026-08-23)
+
+Kept here only to record where the threshold is. A walk the **player** asked for — a click on
+the floor, or the approach in front of an action — picks up the pace by itself past 250 scene
+units, a little over six metres, using the same `HurryFactor` a double-click uses. A player
+who has turned that down to one has turned this off with it.
+
+A walk a **script** asked for never does. Their timings were written against the pace the game
+walks at, and a cutscene that arrives early is a cutscene with a gap in it.
+
 ## Closed
+
+### The camera could get stuck in the geometry — fixed 2026-08-23
+
+The collision was already a swept sphere against the scene's own camera-bounds shells, and
+it already slid along a surface rather than stopping dead. What it had no answer for was a
+sphere that was **already** overlapping when a step began.
+
+Once overlapping, the rule that makes the shell work turns against it: a step towards a
+surface's front is refused and a step along it is allowed, so the camera slid along inside
+the wall indefinitely with its near plane through it. Reproduced with a camera one unit from
+a wall that wants sixteen — it stayed at that one unit for every step thereafter.
+
+Cameras arrive there routinely. A scene cuts to a viewpoint the artists placed against the
+room's own walls rather than against a shell sixteen units thick, `CameraBoundaryBlockModel`
+parks a van where the camera is standing, and a step can settle a fraction inside.
+
+`CameraBounds.Free` now pushes it back out, at both ends of a step. Out of the deepest
+overlap and then look again, rather than summing every push — summing overshoots in a
+corner, sending the camera out through the third wall. Bounded at four passes, because a gap
+narrower than the camera cannot satisfy both its sides and best effort beats hanging. A
+camera on the far side of a surface is left alone: it is outside, and the way back in is
+what the sweep keeps open.
+
+### Inspect was offered for everything and did nothing — fixed 2026-08-23
+
+Reported as "Inspect / Inspect Undo, and inspect didn't even inspect".
+
+Only 111 close-ups are authored across the corpus, against the thousands of nouns a player
+can point at. `[INSPECT_CAMERAS]` had nothing to say about most of them, so the view stayed
+exactly where it was — and because inspecting still counted as having happened, the menu then
+offered a way out of something that had never started.
+
+Two changes. A close-up is now worked out from the object's own bounds where none is
+authored, which is what the original does and what the code's own diagnostic said it did not:
+the box the thing occupies is measured in the room's space and the camera is put in front of
+it, along the line the view was already on, at a distance that fits it in a forty-degree
+frame. An authored close-up still wins — the artists chose an angle, and this only chooses a
+distance. And neither verb is offered at all for a noun with no geometry to frame.
+
+### Clicking during dialogue sent Gabriel walking — fixed 2026-08-23
+
+A click on the floor while somebody was speaking started a walk across the room behind the
+conversation. It now cuts the line short and starts the next one instead, which is what a
+click during dialogue means in every game of this kind — the original has no way to skip a
+line, which is a limitation of 1999 rather than a design anybody would choose. The rest of
+the run is kept, because skipping a line is not abandoning the exchange. Clicks on the
+interface and clicks in an open menu still mean what they meant.
+
+### An action's script ran before the actor finished turning — fixed 2026-08-23
+
+Reported as the coffee pot: it began pouring in the air before Gabriel reached the table.
+
+`ActionRunner` holds a script back by exactly the number `Walker.Seconds` returns, and that
+number was the ground to cover divided by the pace — the turn at the end of the walk was not
+in it. So the script started the moment his feet stopped, with him still coming round to face
+what he had walked to. Half a turn at six radians a second is a little over half a second,
+which is long enough to watch. `Seconds` now includes the arrival turn, worked out for where
+the walk ends rather than where the actor is standing.
+
+### Nobody started with anything in their pockets — fixed 2026-08-23
+
+Prince James's card is where the number Gabriel dials comes from, so a player without it could
+not use the pay phone and Day 1 10am could not be finished at all.
+
+Nothing in the shipped data hands these out. No barn holds a list of starting items and no
+scene script gives one over: the table was compiled into the original executable, the same way
+the score table was, and G-Engine hardcodes it too with a comment saying it ought to be
+data-driven and that its author could not find where. The engine now carries it as
+`Assets/Story/Pockets.txt` — eight items for Gabriel, four for Grace. Given once when a game
+starts; loading a save empties the bag first, so a restored game is unaffected.
+
+### Models cast no shadow on the room — fixed 2026-08-23
+
+Reported: the newspaper and the armchair cast nothing, and a character in the loveseat had
+no contact shadow.
+
+Nothing was excluded from the traced world and the instance masks were right. **The cause
+was that the ray-traced path used the baked lightmaps at full strength.** A bake is light
+computed once for a room with nobody in it; a dynamic shadow can only take away the share of
+a surface the rig accounts for, and the bake was holding the rest — so in an interior the
+share left to darken was small.
+
+The note this issue used to end on said the lever could not be pulled because applying the
+per-tier `bakedWeight` cost 22% of the frame's brightness. It was the wrong lever. Scaling a
+bake down throws away the light the rig has not got along with the light it has. What
+Medium and High do now is drop the bake outright and light the room from the artists' rig —
+`Plan/04` P10 and ADR 0006, which had specified this from the start — with an ambient floor
+raised to 0.26/0.28/0.30 to stand in for bounce, and traced occlusion believed at 0.85
+rather than 0.55 now that there is no bake to count it twice against.
+
+Measured on `LBY` at `GabEmlWide`: mean 52.7 at High against 54.4 at None, a 3% difference,
+with the share of the frame below an eighth of full brightness at 17.9% against 16.6%. The
+room is not darker; it is shadowed. Exteriors are a separate matter — see item 4.
+
+The armchair was the separable question it looked like: it is `type=scene`, part of the BSP,
+so its shadow lived in the 1999 bake and is now cast like anything else.
+
+### Emilio's newspaper hung in the air while he shook hands — fixed 2026-08-23
+
+A GAS file may declare what to do if it is interrupted:
+`USES CLEANUP EmlLbyOpnPaper emllbyclspaper` means "if you stop me while I am reading the
+paper, close it first". 328 of the corpus's 341 `USE` lines are these. **The port parsed
+them, had a `CleanupFor` and a test for it, and never called it.**
+
+So `StopFidget("Emilio")` before the handshake stopped the script mid-read and the paper
+stayed where his hands had been. A behaviour now remembers which animation it last started —
+a stopped script cannot be asked afterwards what it was in the middle of — and playing the
+cleanup is what stopping it means. Cleanups chain, since one may have a cleanup of its own,
+bounded in case a file cleans up in a circle.
+
+### A conversation happened off camera — fixed 2026-08-23
+
+Reported: talking to Emilio left the view pointing across an empty room.
+
+**There was no faithful answer available.** `SetDefaultDialogueCamera` is a no-op in the
+reference; the lobby's introduction to Emilio calls it and then starts talking without ever
+naming a conversation, so the reference's own hook — cut on `SetConversation` — never fires
+for this exchange either. The port had the state and read it nowhere.
+
+Three answers now, in order: the conversation's own `initial` camera where the scene names
+one; the camera a script asked for; and otherwise **whichever of the scene's cameras best
+holds both speakers**. The third is the port deciding for itself, and it decides between
+shots the artists framed — a camera is scored by its worst-placed speaker rather than the
+average, because a shot that frames one person beautifully and leaves the other out is not a
+shot of a conversation. Where no authored camera can see both, the view is left alone: a bad
+cut is worse than no cut. Nothing is invented, which is what `Plan/03` §5 asks.
+
+Chosen once per exchange rather than per line, or the camera would jump every time somebody
+drew breath, and never while cinematics are switched off.
+
+`[DIALOGUE_CAMERAS]` lines now keep their `dialogue=`, `initial`, `final` and `fov=`, none of
+which was read before — `initial` in particular is a different flag from the `default` that
+says where a scene starts, and reading them as one would open every conversation wherever the
+room does.
+
+### The story could not get past Day 1, 10am — fixed 2026-08-23
+
+The clock never moved. **No script in the game's own archives calls `SetTime` or
+`SetLocationTime` at all**, so reading the corpus alone gives no way to find the mechanism;
+it looked as though timeblocks simply were not scripted.
+
+Traced through the C++ reference, the arrangement is this. `LocationManager::ChangeLocationInternal`
+runs `Timeblocks.shp:CheckTimeblockComplete$` on **every change of location**, after the new
+location is current and before the new scene loads. If that script moved the clock,
+`IsChangingTimeblock()` is true and the location change stands aside — the timeblock change
+does the loading. So a timeblock ends as the player walks through a door, not the moment they
+finish the last thing in it, and 110A's first line is "must be at RC1".
+
+`Timeblocks.shp` is **not in the game's data** either: the original kept these rules in its
+executable. What they are is written down in the design document the game shipped with,
+`TIMEBLOCKBIBLE.TXT`, one "Completion Rules" list per timeblock. The engine now carries the
+script — as source, since it is a set of rules somebody may want to read, and the engine has
+a Sheep compiler — adapted from G-Engine under GPL-3; see NOTICE. It compiles to 18
+functions and 995 instructions, and **every function it calls is one the game's own scripts
+call too**, so the rules are checkable against the corpus rather than being a private
+language.
+
+Measured end to end: with 110A's eight requirements met, walking out of the hotel ends the
+morning and opens `RC1112P.SIF` — a different cast, different light, "Day 1, 12pm - 2pm" in
+the corner. Where a timeblock has a closing film, it plays: four of the sixteen do.
+
+`--did` marks a timeblock's requirements as met, for looking at what happens next without
+playing the two hours in front of it.
+
+### Nine more calls the scripts made into nothing — fixed 2026-08-23
+
+Working down the recorded list by how often the game actually calls each:
+
+- **`ActionWaitClearRegion`** (112) — get out of the way. The walk boundary is a
+  palette-indexed bitmap and a region is one of its indices, so the test is a lookup: in the
+  region, walk to the spot named; not in it, nothing to do.
+- **`CameraBoundaryBlockModel`** and its three relatives (102) — the shell the camera may not
+  leave. The artists draw one per room and a script adds to it, or turns it off for a shot
+  that has to be outside it. Turning it off lasts until the next room, which is the
+  original's behaviour and what the scripts that never turn it back on rely on.
+- **`SetWalkAnim`** (42) — somebody walking differently for a while. The two turn animations
+  it also carries are read past: turning on the spot is the walker's job here, not a clip's.
+- **`StartMom`** (37) — a momentary animation, a shrug or a glance up. The asset is localised,
+  so the name is `E` and what the script said.
+- **`StartVerbCancel`/`StopVerbCancel`** (14) — whether the player may walk away from the
+  action bar. `MustChooseAnAction` was state nothing read; a modal menu now stays up.
+- **`StartPropFidget`/`StopPropFidget`**, **`GlideToCameraAngleX`**.
+
+**Six that stay recorded, on purpose.** `Glance` and `GlanceX` are eye offsets and nothing
+here has eyes — they are commented out in the reference too. `SetCameraAngleType` logs its
+arguments and returns. `StartMorphAnimation` and `StopMorphAnimation` are commented out.
+`UploadSceneLightmaps` has nothing to do because lightmaps are uploaded with the scene.
+Reproducing a no-op faithfully means leaving it a no-op, and the list says which are which
+now so a reader can tell them from the gaps.
+
+Recorded calls the game makes are down from **82 functions and about 3,600 calls to 23 and
+501** — and 317 of those 501 are `SetTimerSeconds`, which is a script sleeping and correctly
+has nothing to do but take the time.
+
+**Still genuinely missing**, in order of how often they are called: model shadows
+(`EnableModelShadow`/`DisableModelShadow`, 54) and `SetModelLighting` (23), both of which
+want renderer work; construction mode (`AddModel`, `AddActor`, `AddPosition`, `SetScene`, 28
+between them), which builds a scene from a script rather than a file; and the two end-of-game
+screens, `ShowDeathLayer` and `FinishedScreen` (6).
+
+### The score was always nought — fixed 2026-08-23
+
+`ChangeScore` takes the **name** of a score event — `ChangeScore("e_110a_lby_read_register")`
+— and the engine read it as a number, so all **321** calls in the corpus awarded zero.
+
+What each event is worth is not in the game's data at all: there is no such file in any of
+the eight barns, because the table was compiled into the original executable. The engine
+carries it now, in `Assets/Story/Scores.txt`, adapted from G-Engine's reconstruction under
+GPL-3 (see NOTICE). An event scores once; the set earned is part of the state, which is what
+makes the score survive a reload and what a timeblock's completion rules will read.
+
+Checked against the corpus: of **281** score names the scripts pass, **278** are in the
+table. The three that are not are listed in the file, and score nothing rather than a guess —
+the table sums to 948 against the game's documented 965.
+
+The score is drawn in the corner of the screen, in the game's own words: `ScoreText = Score:
+%03d of %03d` out of `ESTRINGS.TXT`.
+
+### Nobody ever changed expression — fixed 2026-08-23
+
+`SetMood` and `ClearMood` were recorded and dropped, and between them they are **2,442**
+calls, the largest single thing the scripts asked for and did not get.
+
+A mood turns out to be small: it is two animations rather than a state. `gabangryon` puts it
+on and `gabangryoff` takes it off, and the names are the character's own three letters plus
+the mood. **Those are the face's letters and not the model's** — the lobby places Simone as
+`sim_` and her animations are `simsleepon` and `simsleepoff`, so building the name from the
+model gives `sim_sleepon`, which is nothing at all.
+
+Setting one clears the last, because they are worn rather than stacked, and which one is worn
+is part of the state.
+
+### A script could not show or hide part of a room — fixed 2026-08-23
+
+`ShowSceneModel` and `HideSceneModel` were recorded and dropped: **287** calls. They are not
+the same as `ShowModel`/`HideModel`, which are about a model the scene loaded from a file of
+its own. These are about the room — a curtain, a van, a door — which is one mesh with names
+over runs of its surfaces.
+
+The original renders surface by surface and carries a visible flag on each. This port batches
+by texture, so the batches are now cut along the object names as well and a batch carries the
+flag. That costs some batching: RC1 goes from 308 draw calls to 566, LBY from 207 to 247.
+
+**A hidden object's geometry is loaded now rather than dropped at build time** — the same
+mistake this file has recorded twice before, and there is no showing something that was never
+read. Two things follow from having it in the buffers and not in the picture: it must not
+block a ray, or a hit-test slab stands a wall of shadow across a doorway; and it must not
+grow the room's bounds, which the light grid is divided over. `TriangleCount` is what is
+drawn; `LoadedTriangleCount` is everything.
+
+### Everybody walked in silence — fixed 2026-08-23
+
+Three files decide what a step sounds like and none of them was read. `FLOORMAP.TXT` sorts
+283 floor textures into carpet, tile, wood, concrete, dirt and grass; `FOOTSTEPS.TXT` and
+`FOOTSCUFFS.TXT` give three sounds for each pairing of that with a shoe type, 72 pairings
+between them; `CHARACTERS.TXT` says which shoes each character wears.
+
+The animations already said **when**: a walk clip carries three or four `FOOTSTEP` nodes to a
+stride in its `[GK3]` section, 3,704 across the corpus, all read past.
+
+**Walking was the case that needed the most work**, because a stride is not played through
+`Play` — it is looped by frame in `WalkCycle`, which carries no schedule — so nothing could
+notice its footstep nodes. The cycle reports which feet went down between the frame it last
+drew and this one, which is a range rather than an equality: a stride is twenty frames, a
+frame of the game is a sixtieth of a second, and at any pace above walking an equality misses
+steps.
+
+Gabriel crossing the lobby now makes fourteen `MCarpBoot*` noises, which is male boots on
+carpet.
+
+### Things that change what they show — fixed 2026-08-23
+
+`[MTEXTURES]` was parsed into nothing, in 168 animations: Larry's alarm clock counting, a
+monitor changing what it shows, a sign that lights. The node names a mesh group and a submesh
+rather than a texture to replace, so the original is looked up from the model and used as the
+handle the sink repaints by.
+
+The replacement is read and uploaded on first use, because the scene loaded only what its
+models were painted with — and kept, since a clock swaps through ten digits.
+
+An animation whose whole content is a texture swap or a footstep is doing something, and no
+longer reports itself as an animation that moves nothing.
 
 ### Emilio came out of the hotel and stood there, with nothing to click — fixed 2026-08-23
 

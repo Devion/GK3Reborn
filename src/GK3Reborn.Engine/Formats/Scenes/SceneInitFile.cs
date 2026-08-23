@@ -11,6 +11,28 @@ namespace GK3Reborn.Formats.Scenes;
 /// <param name="IsDefault">Whether the scene starts here.</param>
 public sealed record SceneCamera(string Name, Vector3 Position, float Yaw, float Pitch, bool IsDefault)
 {
+    /// <summary>Which conversation it belongs to, for a camera in the dialogue section.</summary>
+    /// <remarks>
+    /// <c>dialogue=GABEEML</c>. Null for every other kind of camera, and for the handful of
+    /// dialogue cameras that name no conversation at all.
+    /// </remarks>
+    public string? Conversation { get; init; }
+
+    /// <summary>Whether it is the shot a conversation opens on.</summary>
+    /// <remarks>
+    /// <c>initial</c> on the line, which is a different word from the <c>default</c> that
+    /// marks where a scene starts — a scene has one of the second and a conversation has
+    /// one of the first, and reading them as the same flag makes every conversation open
+    /// wherever the room does.
+    /// </remarks>
+    public bool IsInitial { get; init; }
+
+    /// <summary>Whether it is the shot a conversation ends on.</summary>
+    public bool IsFinal { get; init; }
+
+    /// <summary>The field of view it asks for, in radians, or null for the game's own.</summary>
+    public float? FieldOfView { get; init; }
+
     /// <summary>
     /// The direction the camera looks.
     /// </summary>
@@ -528,7 +550,15 @@ public sealed class SceneInitFile
                 position,
                 float.DegreesToRadians(angle[0]),
                 float.DegreesToRadians(angle[1]),
-                line.HasFlag("Default")));
+                line.HasFlag("Default"))
+            {
+                Conversation = line.Value("dialogue"),
+                IsInitial = line.HasFlag("initial"),
+                IsFinal = line.HasFlag("final"),
+                FieldOfView = line.Find("fov")?.AsNumber() is { } wide && wide > 0
+                    ? float.DegreesToRadians(wide)
+                    : null,
+            });
         }
 
         return cameras;

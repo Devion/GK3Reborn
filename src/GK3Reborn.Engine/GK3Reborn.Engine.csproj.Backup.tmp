@@ -11,6 +11,9 @@
          confined to Rendering/Vulkan, which the layering tests enforce. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <None Remove="Assets\Story\Walkthrough.txt" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- The interface's typeface, carried inside the assembly so that a shipped game has
@@ -21,13 +24,13 @@
     <!-- What each of the game's score events is worth. The original compiled the table
          into its executable and no barn holds it, so the engine carries it; adapted from
          G-Engine, GPL-3, see NOTICE. -->
-    <EmbeddedResource Include="Assets/Story/Pockets.txt" />
     <EmbeddedResource Include="Assets/Story/Scores.txt" />
 
     <!-- When a point in the story is over. One function per timeblock, a run of conditions
          each; the original kept these rules in its executable and no shipped script holds
          them. Adapted from G-Engine, GPL-3, see NOTICE. Compiled at startup. -->
     <EmbeddedResource Include="Assets/Story/Timeblocks.shp" />
+    <EmbeddedResource Include="Assets\Story\Walkthrough.txt" />
   </ItemGroup>
 
   <ItemGroup>

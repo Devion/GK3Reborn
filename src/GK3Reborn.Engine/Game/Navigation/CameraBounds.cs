@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 
 namespace GK3Reborn.Game.Navigation;
@@ -50,10 +50,29 @@ public sealed class CameraBounds
     /// <summary>How many times a blocked move is redirected before what is left is dropped.</summary>
     private const int Passes = 2;
 
+    /// <summary>How far clear of a surface a freed sphere is left, in scene units.</summary>
+    /// <remarks>
+    /// Settling it exactly touching leaves the next frame's arithmetic to decide whether it
+    /// is a hair inside or a hair outside, and a hair inside is a step refused outright. A
+    /// fortieth of a unit is under a millimetre of game world and puts the question beyond
+    /// the reach of a float.
+    /// </remarks>
+    private const float Skin = 0.025f;
+
+    /// <summary>How many times a trapped sphere is pushed before best effort is accepted.</summary>
+    /// <remarks>
+    /// Out of one surface and into another is the ordinary case in a corner, so once is not
+    /// enough; four clears a corner of three walls with a pass to spare. It stops rather
+    /// than looping because somewhere in the game a gap is narrower than the camera and no
+    /// number of pushes will satisfy both of its sides — there, moving it as far as one pass
+    /// gets is better than hanging.
+    /// </remarks>
+    private const int Nudges = 4;
+
     /// <summary>Below this a move is not worth resolving.</summary>
     private const float Still = 1e-6f;
 
-    private readonly Vector3[] _triangles;
+    private Vector3[] _triangles;
 
     /// <summary>Builds bounds from the shells a scene names.</summary>
     /// <param name="models">The bounds models, already loaded.</param>
@@ -88,6 +107,97 @@ public sealed class CameraBounds
         }
 
         _triangles = [.. triangles];
+        _shell = _triangles.Length;
+    }
+
+    /// <summary>How many triangles the scene's own shell contributed.</summary>
+    /// <remarks>
+    /// Everything past this came from a script, and unblocking one takes it back off. The
+    /// shell itself cannot be removed: it is the room.
+    /// </remarks>
+    private readonly int _shell;
+
+    private readonly Dictionary<string, List<Vector3>> _blocked =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Fences the camera out of a model as well.
+    /// </summary>
+    /// <param name="name">What to file it under, so it can be taken back off.</param>
+    /// <param name="model">The model, in the space the room places it.</param>
+    /// <param name="placement">Where the room places it.</param>
+    /// <returns>True when it added anything.</returns>
+    /// <remarks>
+    /// <c>CameraBoundaryBlockModel</c>, 48 calls. The artists draw one shell per room and
+    /// then a script adds a van, a lorry, a door that has swung open — anything that
+    /// arrives after the room was authored and that the camera should not be able to see
+    /// through.
+    /// </remarks>
+    public bool Block(string name, ModFile model, Matrix4x4 placement)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(model);
+
+        if (_blocked.ContainsKey(name))
+        {
+            return false;
+        }
+
+        List<Vector3> added = [];
+
+        foreach (ModMesh mesh in model.Meshes)
+        {
+            Matrix4x4 toWorld = mesh.MeshToLocal * placement;
+
+            foreach (ModSubmesh submesh in mesh.Submeshes)
+            {
+                for (int i = 0; i + 2 < submesh.Indices.Length; i += 3)
+                {
+                    added.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i]], toWorld));
+                    added.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 1]], toWorld));
+                    added.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 2]], toWorld));
+                }
+            }
+        }
+
+        if (added.Count == 0)
+        {
+            return false;
+        }
+
+        _blocked[name] = added;
+        Rebuild();
+
+        return true;
+    }
+
+    /// <summary>Takes a model back out of the shell.</summary>
+    /// <param name="name">What it was filed under.</param>
+    /// <returns>True when there was one to take out.</returns>
+    public bool Unblock(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (!_blocked.Remove(name))
+        {
+            return false;
+        }
+
+        Rebuild();
+        return true;
+    }
+
+    /// <summary>Puts the shell back together after something was added or removed.</summary>
+    private void Rebuild()
+    {
+        List<Vector3> all = [.. _triangles[.._shell]];
+
+        foreach (List<Vector3> added in _blocked.Values)
+        {
+            all.AddRange(added);
+        }
+
+        _triangles = [.. all];
     }
 
     /// <summary>How many triangles the camera is fenced in by.</summary>
@@ -109,12 +219,22 @@ public sealed class CameraBounds
     /// </remarks>
     public Vector3 Resolve(Vector3 from, Vector3 movement)
     {
-        if (_triangles.Length == 0 || movement.LengthSquared() <= Still)
+        if (_triangles.Length == 0)
         {
             return from + movement;
         }
 
-        Vector3 at = from;
+        // Out of anything it is already inside, before deciding where it may go next. A
+        // sphere that overlaps a wall is refused every step towards that wall for as long as
+        // it overlaps, so without this it slides along inside the wall for ever and the
+        // player sees straight through it.
+        Vector3 at = Free(from);
+
+        if (movement.LengthSquared() <= Still)
+        {
+            return at;
+        }
+
         Vector3 left = movement;
 
         for (int pass = 0; pass < Passes && left.LengthSquared() > Still; pass++)
@@ -136,7 +256,145 @@ public sealed class CameraBounds
             left = wanted - (hit.Normal * beyond) - at;
         }
 
+        return Free(at);
+    }
+
+    /// <summary>
+    /// Pushes the camera out of any surface it has ended up inside.
+    /// </summary>
+    /// <param name="centre">Where it is.</param>
+    /// <returns>Where it should be, clear of the shell.</returns>
+    /// <remarks>
+    /// <para>
+    /// Sweeping a sphere along a step decides what a move is allowed to do. It says nothing
+    /// about a sphere that is already overlapping something when the step begins, and one
+    /// arrives there often enough: a scene cuts to a viewpoint the artists placed against
+    /// the room's own walls rather than against a shell sixteen units thick,
+    /// <c>CameraBoundaryBlockModel</c> parks a van where the camera is standing, or a step
+    /// settles a fraction inside and the fractions accumulate.
+    /// </para>
+    /// <para>
+    /// Once it overlaps, every step towards that wall is refused and every step along it is
+    /// allowed, so the camera slides along inside the wall indefinitely — which is what
+    /// being stuck in the geometry looks like from the player's chair. Pushing it back out
+    /// is the whole of the fix, and it belongs at both ends of a step: at the start because
+    /// that is where a bad position arrives from elsewhere, and at the end because that is
+    /// where the sweep's own arithmetic leaves one.
+    /// </para>
+    /// <para>
+    /// Out of the deepest overlap first, then look again, rather than adding up every push
+    /// at once. Summing them overshoots in a corner — two walls each asking for their own
+    /// full clearance send the camera out through the third — where taking the worst one at
+    /// a time converges on the point that satisfies both.
+    /// </para>
+    /// <para>
+    /// A camera on the far side of the shell is left where it is. It is outside and is meant
+    /// to be able to come back in, which is the rule the sweep follows too, and pushing it
+    /// "clear" of a surface it is already behind would only push it further away.
+    /// </para>
+    /// </remarks>
+    public Vector3 Free(Vector3 centre)
+    {
+        Vector3 at = centre;
+
+        for (int nudge = 0; nudge < Nudges; nudge++)
+        {
+            if (Deepest(at) is not { } push)
+            {
+                break;
+            }
+
+            at += push;
+        }
+
         return at;
+    }
+
+    /// <summary>The push out of whichever surface the sphere is furthest inside.</summary>
+    /// <returns>The offset that clears it, or null when nothing is overlapping.</returns>
+    private Vector3? Deepest(Vector3 centre)
+    {
+        Vector3 push = Vector3.Zero;
+        float worst = 0f;
+
+        for (int i = 0; i + 2 < _triangles.Length; i += 3)
+        {
+            Vector3 a = _triangles[i];
+            Vector3 b = _triangles[i + 1];
+            Vector3 c = _triangles[i + 2];
+
+            Vector3 normal = Normal(a, b, c);
+
+            if (normal == Vector3.Zero || Vector3.Dot(centre - a, normal) < 0f)
+            {
+                // No area, or the camera is behind this surface — outside it, where it is
+                // allowed to be and from where it is allowed to come back.
+                continue;
+            }
+
+            Vector3 away = centre - Closest(centre, a, b, c, normal);
+            float distance = away.Length();
+            float depth = Radius - distance;
+
+            if (depth <= worst)
+            {
+                continue;
+            }
+
+            // Along the line out of the surface where there is one, and along the normal
+            // where the centre sits exactly on it and there is no line to take.
+            worst = depth;
+            push = (distance > Still ? away / distance : normal) * (depth + Skin);
+        }
+
+        return worst > 0f ? push : null;
+    }
+
+    /// <summary>The point of a triangle nearest to somewhere else.</summary>
+    /// <remarks>
+    /// Dropped onto the plane first. If it lands inside the triangle that is the answer;
+    /// otherwise the nearest point is on one of the three edges, and the ends of those are
+    /// the corners, so testing the three segments covers every remaining case.
+    /// </remarks>
+    private static Vector3 Closest(Vector3 point, Vector3 a, Vector3 b, Vector3 c, Vector3 normal)
+    {
+        Vector3 on = point - (normal * Vector3.Dot(point - a, normal));
+
+        if (Inside(on, a, b, c, normal))
+        {
+            return on;
+        }
+
+        Vector3 nearest = OnSegment(point, a, b);
+        float best = (point - nearest).LengthSquared();
+
+        foreach ((Vector3 from, Vector3 to) in new[] { (b, c), (c, a) })
+        {
+            Vector3 candidate = OnSegment(point, from, to);
+            float distance = (point - candidate).LengthSquared();
+
+            if (distance < best)
+            {
+                best = distance;
+                nearest = candidate;
+            }
+        }
+
+        return nearest;
+    }
+
+    /// <summary>The point of a segment nearest to somewhere else.</summary>
+    private static Vector3 OnSegment(Vector3 point, Vector3 from, Vector3 to)
+    {
+        Vector3 edge = to - from;
+        float length = Vector3.Dot(edge, edge);
+
+        if (length <= Still)
+        {
+            return from;
+        }
+
+        return from + (edge * Math.Clamp(Vector3.Dot(point - from, edge) / length, 0f, 1f));
     }
 
     /// <summary>Whether a point is inside the shell.</summary>

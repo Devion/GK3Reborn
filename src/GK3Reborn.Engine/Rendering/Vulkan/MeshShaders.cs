@@ -56,6 +56,9 @@ internal static class MeshShaders
 
             // xyz how many cells along each axis, w how many lights the rig holds
             vec4 gridCounts;
+
+            // xyz the ambient floor, w unused
+            vec4 ambientFloor;
         } frame;
 
         layout(push_constant) uniform Draw
@@ -188,9 +191,6 @@ internal static class MeshShaders
         // Mid grey is the modelled surface. Only read where the height scale is non-zero,
         // which it is only for a surface that actually has a map.
         layout(set = 1, binding = 4) uniform sampler2D heightTexture;
-
-        // The original's ambient floor, so a surface no light reaches is dim, not black.
-        const vec3 kAmbient = vec3(0.06, 0.08, 0.06);
 
         // A GK3 unit is roughly two and a half centimetres — a character stands about
         // seventy tall — so this offsets a ray start by under two centimetres. Enough to
@@ -957,7 +957,7 @@ internal static class MeshShaders
             // Ambient occlusion applies to the ambient term and to nothing else. It is a
             // statement about light arriving from everywhere at once, and multiplying a
             // direct light by it darkens a surface the lamp can plainly see.
-            vec3 ambient = kAmbient * surface.occlusion;
+            vec3 ambient = frame.ambientFloor.rgb * surface.occlusion;
 
             int shadowed = int(frame.rays.x);
             int occlusionRays = int(frame.rays.y);
@@ -986,33 +986,27 @@ internal static class MeshShaders
             }
 
             #ifdef RAY_TRACING
-            // The bake at full strength, and the rig beside it. It is the compositing
-            // pass that reconciles them, by subtracting from the bake the light the rig
-            // has just accounted for rather than scaling the whole thing down — see
-            // there for why the difference matters at a window.
-            //
             // Neither term is occluded here. Both occlusions are traced once a pixel and
             // filtered over many frames, and neither is available until this pass has
             // finished.
-            // Alpha says what this indirect term *is*, in three states, because the
-            // compositing pass has to treat them differently: zero for a surface that
-            // carries its own brightness, a half for the ambient floor, one for a bake.
             //
-            // Only a bake is a second copy of the light the rig is computing afresh, so
-            // only a bake may be subtracted against. The ambient floor is not double
-            // counting anything — subtracting the rig from it drove it to nothing wherever
-            // a lamp reached, which took the ambient occlusion with it, since occlusion
-            // multiplies the residual and there was no residual left. A character, who has
-            // no lightmap and is therefore all ambient, lost it everywhere.
-            // The bake at full strength, not scaled by the tier's bakedWeight the way the
-            // rasterised path scales it. Measured, on RC1: scaling it deepens a cast
-            // shadow from 19% to 28% and costs the whole frame 22% of its brightness,
-            // because the rig does not deliver what the bake was carrying. Turning the
-            // lightmap down is the right lever for "ray trace it properly" and it is one
-            // line — but the rig's 1999 intensities have to be calibrated against it first,
-            // across 111 scenes, or it just makes the game darker.
+            // Whether the bake is here at all is the tier's decision. Medium and High
+            // light the room outright — Plan/04 P10, "the RT and enhanced tiers light
+            // scenes from the rig, the compatibility tier keeps baked lightmaps" — and at
+            // those tiers this is the ambient floor and nothing else. Low keeps the bake,
+            // for hardware that can trace a few shadow rays and no more.
+            //
+            // A bake is light computed once for a room with nobody in it. Keeping it is
+            // what made a character's shadow so faint: a shadow can only take away the
+            // share of a surface the rig accounts for, and the bake was holding the rest.
+            float lit = useLightmap * step(0.001, bakedWeight);
+
+            // Alpha says what this term is, because the compositing pass treats the three
+            // differently: zero for a surface that carries its own brightness, a half for
+            // the ambient floor, one for a bake. Only a bake is a second copy of what the
+            // rig is computing, and only a bake may be subtracted against.
             outColor = vec4(
-                albedo * mix(ambient, baked, useLightmap), useLightmap > 0.5 ? 1.0 : 0.5);
+                albedo * mix(ambient, baked, lit), lit > 0.5 ? 1.0 : 0.5);
             outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1), 1.0);
             #else
             // Indirect light. There is no gathered bounce, so the bake stands in for it,

@@ -1624,7 +1624,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _vk.CmdBeginRendering(buffer, in rendering);
 
         _composite!.Record(
-            buffer, (int)_extent.Width, (int)_extent.Height, _reflections.Parity);
+            buffer,
+            (int)_extent.Width,
+            (int)_extent.Height,
+            _reflections.Parity,
+            RayTracingSettings.For(Quality).OcclusionStrength);
 
         if (_camera is not null)
         {

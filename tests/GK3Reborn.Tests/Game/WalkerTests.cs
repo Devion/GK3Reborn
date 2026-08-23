@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game.Navigation;
 using Xunit;
 
@@ -259,6 +259,15 @@ public sealed class WalkerTests
 
         Assert.True(walker.Walking, "the turn should still be running");
         Assert.Equal(0f, walker.Remaining);
+
+        // No ground left, but time left: the turn is part of the walk, and what an action
+        // is held back by is this number. Reporting nought here is what let a script start
+        // while the actor was still coming round to face what he had walked to.
+        Assert.True(walker.Seconds > 0, $"the turn takes no time: {walker.Seconds}");
+
+        walker.Advance(10f);
+
+        Assert.False(walker.Walking);
         Assert.Equal(0.0, walker.Seconds, 6);
     }
 
@@ -295,5 +304,33 @@ public sealed class WalkerTests
         // The scale survives: rebuilding the transform without it resizes the actor the
         // moment they take a step.
         Assert.Equal(2f, new Vector3(transform.M11, transform.M12, transform.M13).Length(), 3);
+    }
+
+    /// <summary>
+    /// The turn at the end of a walk is counted whichever way the actor has to come round.
+    /// </summary>
+    /// <remarks>
+    /// Half a turn at six radians a second is a little over half a second, which is the
+    /// difference between a coffee pot poured at the table and one poured in the air beside
+    /// a man still facing the door.
+    /// </remarks>
+    [Theory]
+    [InlineData(0f, 0f)]
+    [InlineData(MathF.PI / 2, MathF.PI / 2 / Walker.TurnRate)]
+    [InlineData(MathF.PI, MathF.PI / Walker.TurnRate)]
+    public void The_arrival_turn_is_part_of_how_long_a_walk_takes(float facing, double turning)
+    {
+        // Straight down positive z, so the actor arrives facing that way and the heading
+        // asked for is the whole of the turn.
+        var walker = new Walker(
+            "GABRIEL",
+            Route(new Vector3(0, 0, 120)),
+            Vector3.Zero,
+            facing: 0f,
+            arriveFacing: facing);
+
+        double ground = 120.0 / walker.Pace;
+
+        Assert.Equal(ground + turning, walker.Seconds, 3);
     }
 }

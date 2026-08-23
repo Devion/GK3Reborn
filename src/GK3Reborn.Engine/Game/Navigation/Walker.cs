@@ -220,7 +220,53 @@ public sealed class Walker
     }
 
     /// <summary>How long the whole walk will take, in seconds.</summary>
-    public double Seconds => Remaining / Pace;
+    /// <remarks>
+    /// <para>
+    /// The ground and then the turn at the end of it. The turn was missing, and it is what
+    /// an action is held back by: <see cref="ActionRunner"/> defers a script by exactly this
+    /// number, so a walk that reported only its distance let the script start while the
+    /// actor was still rotating to face what he had walked to.
+    /// </para>
+    /// <para>
+    /// Reported as the coffee pot: Gabriel is sent to the table, the pot's clip begins the
+    /// moment his feet stop, and it plays out in the air beside a man still turning towards
+    /// it. Anything an actor walks up to and then handles has the same shape.
+    /// </para>
+    /// </remarks>
+    public double Seconds => (Remaining / Pace) + (Swing / TurnRate);
+
+    /// <summary>How far there is still to turn at the end of the walk, in radians.</summary>
+    /// <remarks>
+    /// Worked out for where the walk ends rather than for where the actor is standing now.
+    /// Arriving along the last leg of the route is what they will be facing, and the last
+    /// leg is known from the start — so this is an estimate only in that the route may be
+    /// replaced, which replaces the walk and this along with it.
+    /// </remarks>
+    private float Swing
+    {
+        get
+        {
+            if (Arrival is not { } wanted)
+            {
+                return 0;
+            }
+
+            if (_at >= _route.Count)
+            {
+                return MathF.Abs(Wrap(wanted - Facing));
+            }
+
+            // Which way they will be travelling as they arrive. A route of one point is
+            // walked from where they stand; any more and it is the last leg that decides.
+            Vector3 last = _route.Count > 1
+                ? Flat(_route[^1] - _route[^2])
+                : Flat(_route[^1] - Position);
+
+            float arriving = last.LengthSquared() > 1e-4f ? Heading(last) : Facing;
+
+            return MathF.Abs(Wrap(wanted - arriving));
+        }
+    }
 
     /// <summary>Moves along the route.</summary>
     /// <param name="seconds">How much time has passed.</param>

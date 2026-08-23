@@ -58,7 +58,7 @@ public sealed class GameHudTests
         IReadOnlyList<string>? carrying = null) =>
         new(noun, verbs ?? ["LOOK", "OPEN"], "LOOK", at, menu, index, menuAt ?? at,
             caption is null ? null : "GABRIEL", caption, carrying ?? [], null,
-            InventoryOpen: true, "R25 - 110A", null, items);
+            InventoryOpen: true, "R25 - 110A", null, null, items);
 
     [Fact]
     public void An_empty_room_still_draws_the_bars_that_are_always_there()

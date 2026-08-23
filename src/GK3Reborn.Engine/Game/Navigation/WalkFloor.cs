@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Scenes;
 
 namespace GK3Reborn.Game.Navigation;
@@ -65,6 +65,44 @@ public sealed class WalkFloor
     /// <summary>How many triangles the floor is made of.</summary>
     public int Triangles => _triangles.Count / 3;
 
+    /// <summary>What each triangle of the floor is painted with, in triangle order.</summary>
+    private List<string> Textures { get; init; } = [];
+
+    /// <summary>
+    /// What the floor is made of under a point.
+    /// </summary>
+    /// <param name="at">Where the actor is standing.</param>
+    /// <returns>The texture's name, or null when the point is off the floor.</returns>
+    /// <remarks>
+    /// The same search <see cref="Height"/> makes, answering with the surface rather than
+    /// with its height. A room's floor is one object painted with a dozen textures — the
+    /// lobby's is eight — and which one is underfoot is the whole of what decides whether a
+    /// step sounds like carpet or like tile.
+    /// </remarks>
+    public string? Surface(Vector3 at)
+    {
+        if (!_grid.TryGetValue((Bucket(at.X), Bucket(at.Z)), out List<int>? cell))
+        {
+            return null;
+        }
+
+        string? nearest = null;
+        float best = float.MaxValue;
+
+        foreach (int i in cell)
+        {
+            if (Under(at, i) is not { } height || MathF.Abs(height - at.Y) >= best)
+            {
+                continue;
+            }
+
+            best = MathF.Abs(height - at.Y);
+            nearest = i / 3 < Textures.Count ? Textures[i / 3] : null;
+        }
+
+        return nearest;
+    }
+
     /// <summary>
     /// Builds the height lookup for a room's floor.
     /// </summary>
@@ -104,6 +142,7 @@ public sealed class WalkFloor
         }
 
         List<Vector3> triangles = [];
+        List<string> textures = [];
 
         foreach (BspPolygon polygon in geometry.Polygons)
         {
@@ -114,11 +153,18 @@ public sealed class WalkFloor
                 continue;
             }
 
+            string texture = geometry.Surfaces[polygon.SurfaceIndex].TextureName;
+
             foreach ((ushort a, ushort b, ushort c) in geometry.Triangulate(polygon))
             {
                 triangles.Add(geometry.Vertices[a]);
                 triangles.Add(geometry.Vertices[b]);
                 triangles.Add(geometry.Vertices[c]);
+
+                // What the floor is made of, kept per triangle. It is what a footstep
+                // sounds like: FLOORMAP.TXT maps a texture to carpet, tile, wood, concrete,
+                // dirt or grass, and FOOTSTEPS.TXT maps that and a shoe to a sound.
+                textures.Add(texture);
             }
         }
 
@@ -155,7 +201,7 @@ public sealed class WalkFloor
             }
         }
 
-        return new WalkFloor(triangles, grid);
+        return new WalkFloor(triangles, grid) { Textures = textures };
     }
 
     /// <summary>

@@ -51,6 +51,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private readonly MeshPipeline _pipeline;
     private readonly List<Batch> _batches = [];
 
+    /// <summary>
+    /// Which batches belong to each of the room's own named objects.
+    /// </summary>
+    /// <remarks>
+    /// The room is one mesh as far as the file is concerned, and a name over a run of its
+    /// surfaces is all that separates the front desk from the wall behind it. Scripts show
+    /// and hide those names 287 times across the corpus — a curtain drawn back, a door that
+    /// becomes a prop for a cutscene — so the batches are cut along the same lines and this
+    /// says which is which.
+    /// </remarks>
+    private readonly Dictionary<string, List<int>> _sceneObjects =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Which batches belong to which mesh of which placed model.</summary>
     /// <remarks>
     /// A mesh becomes one batch per submesh, so moving a head means moving all of them
@@ -131,7 +144,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>Total triangles loaded.</summary>
-    public int TriangleCount => _batches.Sum(b => (int)b.IndexCount / 3);
+    public int TriangleCount => _batches.Where(b => !b.Hidden).Sum(b => (int)b.IndexCount / 3);
+
+    /// <summary>How many triangles are loaded, drawn or not.</summary>
+    /// <remarks>
+    /// The room's hit-test volumes and whatever the story is holding back are in the
+    /// buffers and not in the picture, so the two numbers differ — by 7,000 triangles in
+    /// the lobby. <see cref="TriangleCount"/> is what is drawn, because that is what every
+    /// caller means by it.
+    /// </remarks>
+    public int LoadedTriangleCount => _batches.Sum(b => (int)b.IndexCount / 3);
 
     /// <summary>How many draws a frame costs.</summary>
     public int BatchCount => _batches.Count;
@@ -840,6 +862,24 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             selfLit: true);
     }
 
+    /// <inheritdoc/>
+    public bool SetSceneObjectVisible(string objectName, bool visible)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        if (!_sceneObjects.TryGetValue(objectName, out List<int>? belonging))
+        {
+            return false;
+        }
+
+        foreach (int index in belonging)
+        {
+            _batches[index] = _batches[index] with { Hidden = !visible };
+        }
+
+        return true;
+    }
+
     /// <summary>Loads a scene's geometry.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">The scene's baked lightmaps, in surface order, if any.</param>
@@ -900,7 +940,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // And by whether it was displaced, because that is a different draw of the same
         // texture: geometry that already carries the relief must not also march for it.
         // CONCRETE is on CSE's forecourt and on its walls, and only the forecourt moved.
-        Dictionary<(string Texture, bool SelfLit, bool Displaced),
+        Dictionary<(string Texture, bool SelfLit, bool Displaced, string Object, bool Hidden),
                    (List<MeshVertex> Vertices, List<uint> Indices)> groups = [];
 
         // What a ray can hit, gathered here rather than per batch: the split between
@@ -923,13 +963,21 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             BspSurface surface = scene.Surfaces[polygon.SurfaceIndex];
 
-            if (hiddenObjects is { Count: > 0 } &&
-                surface.ObjectIndex >= 0 &&
-                surface.ObjectIndex < scene.ObjectNames.Count &&
-                hiddenObjects.Contains(scene.ObjectNames[surface.ObjectIndex]))
-            {
-                continue;
-            }
+            // Which of the room's named objects this surface belongs to. It goes in the
+            // batch key so that a script can show and hide one of them: the original
+            // renders surface by surface and carries a flag on each, and the closest thing
+            // to that here is a batch nothing else shares.
+            string owner = surface.ObjectIndex >= 0 && surface.ObjectIndex < scene.ObjectNames.Count
+                ? scene.ObjectNames[surface.ObjectIndex]
+                : string.Empty;
+
+            // A hidden object's geometry is still loaded — it is only not drawn. The scene
+            // declares hit-test volumes and things the story brings out later that way, and
+            // dropping their triangles is the mistake this file has made twice before:
+            // there is no showing something that was never read.
+            bool hidden = hiddenObjects is { Count: > 0 } &&
+                          owner.Length > 0 &&
+                          hiddenObjects.Contains(owner);
 
             Vector4 region = _lightmapRegions is not null && polygon.SurfaceIndex < _lightmapRegions.Count
                 ? _lightmapRegions[polygon.SurfaceIndex]
@@ -937,8 +985,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             bool displace = relief is not null && relief.Covers(surface, Deep(surface.TextureName));
 
-            (string, bool, bool) key =
-                (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, displace);
+            (string, bool, bool, string, bool) key =
+                (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, displace, owner, hidden);
 
             if (!groups.TryGetValue(key, out (List<MeshVertex>, List<uint>) group))
             {
@@ -946,7 +994,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 groups[key] = group;
             }
 
-            bool occludes = surface.CastsShadows &&
+            // Nothing that is not drawn may block a ray either. A hit-test volume is a
+            // slab across a doorway with its visibility switched off, and tracing one
+            // stands a wall of shadow in the middle of the room.
+            bool occludes = !hidden &&
+                            surface.CastsShadows &&
                             !_textures.Keyed.Contains(surface.TextureName) &&
                             Materials.Of(surface.TextureName).Occludes;
 
@@ -983,7 +1035,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                             piece.TexCoord,
                             Lightmap(piece.TexCoord, surface, region)));
 
-                        Grow(piece.Position);
+                        if (!hidden)
+                        {
+                            Grow(piece.Position);
+                        }
                     }
 
                     foreach (int index in pieceIndices)
@@ -1046,11 +1101,22 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _traceable.Add(new RayTracingMesh([.. occluders], [.. occluderIndices]));
         }
 
-        foreach (((string texture, bool selfLit, bool displaced),
+        foreach (((string texture, bool selfLit, bool displaced, string owner, bool hidden),
                   (List<MeshVertex> vertices, List<uint> indices)) in groups)
         {
             if (indices.Count > 0)
             {
+                if (owner.Length > 0)
+                {
+                    if (!_sceneObjects.TryGetValue(owner, out List<int>? belonging))
+                    {
+                        belonging = [];
+                        _sceneObjects[owner] = belonging;
+                    }
+
+                    belonging.Add(_batches.Count);
+                }
+
                 // Scene batches routinely pass 65,535 vertices: a single wall texture in
                 // the larger scenes covers more geometry than a 16-bit index can address.
                 AddBatch(
@@ -1063,7 +1129,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     texture,
                     useLightmap: true,
                     selfLit: selfLit,
-                    displaced: displaced);
+                    displaced: displaced,
+                    hidden: hidden);
             }
         }
 
@@ -1410,9 +1477,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         bool selfLit = false,
         Matrix4x4? local = null,
         bool isModel = false,
-        bool displaced = false) =>
+        bool displaced = false,
+        bool hidden = false) =>
         _batches.Add(new Batch
         {
+            Hidden = hidden,
             // Identity for the room's own geometry, which is already where it belongs.
             Local = local ?? Matrix4x4.Identity,
             Vertices = VulkanBuffer.CreateDeviceLocal<MeshVertex>(

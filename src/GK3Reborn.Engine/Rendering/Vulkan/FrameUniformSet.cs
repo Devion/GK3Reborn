@@ -428,7 +428,8 @@ public sealed unsafe class FrameUniformSet : IDisposable
             // Where the light grid starts and how it is divided, so a fragment can work
             // out which cell it stands in. Constant for as long as a room is loaded.
             _gridOrigin,
-            _gridCounts);
+            _gridCounts,
+            new Vector4(settings.Ambient, 0));
 
         _buffers[index].Write<FrameUniforms>([uniforms]);
 

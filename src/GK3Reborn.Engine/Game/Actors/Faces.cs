@@ -36,6 +36,17 @@ namespace GK3Reborn.Game.Actors;
 public sealed class Faces
 {
     private readonly FaceLibrary _library;
+
+    /// <summary>The three letters a character's own bitmaps and animations are named after.</summary>
+    /// <param name="model">Their model name, which may carry a clothing variant with it.</param>
+    /// <returns>The code, or null when nothing in FACES.TXT is about them.</returns>
+    /// <remarks>
+    /// Not always the model name. The lobby places Simone as <c>sim_</c> and her face is
+    /// listed under <c>SIM</c>, so an animation built from the model name — <c>sim_sleepon</c>
+    /// — names nothing at all. It is the same code the mouth and eyelid bitmaps use.
+    /// </remarks>
+    public string? CodeFor(string model) =>
+        _library.Of(model)?.Identifier;
     private readonly GameArchives _archives;
     private readonly AnimationLibrary _animations;
     private readonly ISceneSink _geometry;

@@ -48,16 +48,24 @@ internal sealed unsafe class CompositePipeline : IDisposable
         // to the room itself. One where nobody is in the way.
         layout(set = 0, binding = 5) uniform sampler2D dynamicTarget;
 
-        // How much of the traced occlusion to believe. Not all of it: the lightmaps these
-        // rooms ship with were baked with occlusion already in them, so a hemisphere of
-        // rays is measuring something the bake has largely accounted for, and applying it
-        // whole counts it twice. Whole, it also drives a surface to black outright —
-        // enough of the hemisphere above a shoulder is that person's own head that the
-        // shoulder disappears, which is not a shadow anybody would draw.
+        // How much of the traced occlusion to believe, which is a decision the tier makes.
         //
-        // What is worth having is the near contact the bake is too coarse to hold: the
-        // seam where an arm meets a body, the line under a table.
-        const float kOcclusionStrength = 0.55;
+        // Never all of it. Whole, it drives a surface to black outright — enough of the
+        // hemisphere above a shoulder is that person's own head that the shoulder
+        // disappears, which is not a shadow anybody would draw. What is worth having is the
+        // near contact nothing else holds: the seam where an arm meets a body, the line
+        // under a table, the ground a chair leg stands on.
+        //
+        // Where a bake is still in play there is a second reason to hold it back, which is
+        // that these rooms' lightmaps were baked with occlusion already in them, so a
+        // hemisphere of rays is measuring something the bake has largely accounted for.
+        // Medium and High have no bake to count twice against and believe a good deal more
+        // of it — which is the whole of why a chair leg meets the floor there and floated on
+        // it before.
+        layout(push_constant) uniform Tier
+        {
+            float occlusionStrength;
+        } tier;
 
         // Reflections arrive already weighted: by how much of the ray the marcher could
         // follow, by how much the surface reflects at the angle it is seen from, and by
@@ -81,7 +89,7 @@ internal sealed unsafe class CompositePipeline : IDisposable
             float lightmapped = step(0.75, indirect.a);
             float shaded = step(0.25, indirect.a);
 
-            float occlusion = mix(1.0, open, kOcclusionStrength * shaded);
+            float occlusion = mix(1.0, open, tier.occlusionStrength * shaded);
 
             // How much of the rig's light a moving thing takes away, kept apart from the
             // room's own shadowing above because the two are subtracted at different
@@ -220,11 +228,21 @@ internal sealed unsafe class CompositePipeline : IDisposable
 
         DescriptorSetLayout local = setLayout;
 
+        // One float: how much of the traced occlusion this tier believes.
+        var range = new PushConstantRange
+        {
+            StageFlags = ShaderStageFlags.FragmentBit,
+            Offset = 0,
+            Size = sizeof(float),
+        };
+
         var pipelineLayoutInfo = new PipelineLayoutCreateInfo
         {
             SType = StructureType.PipelineLayoutCreateInfo,
             SetLayoutCount = 1,
             PSetLayouts = &local,
+            PushConstantRangeCount = 1,
+            PPushConstantRanges = &range,
         };
 
         vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out PipelineLayout layout);
@@ -470,7 +488,12 @@ internal sealed unsafe class CompositePipeline : IDisposable
     /// <param name="width">Viewport width.</param>
     /// <param name="height">Viewport height.</param>
     /// <param name="parity">Which of the two reflection buffers holds this frame's.</param>
-    public void Record(CommandBuffer command, int width, int height, int parity)
+    /// <param name="occlusionStrength">
+    /// How much of the traced occlusion the tier believes. See
+    /// <see cref="RayTracingSettings.OcclusionStrength"/>.
+    /// </param>
+    public unsafe void Record(
+        CommandBuffer command, int width, int height, int parity, float occlusionStrength)
     {
         var viewport = new Viewport { Width = width, Height = height, MaxDepth = 1f };
         var scissor = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) };
@@ -482,6 +505,11 @@ internal sealed unsafe class CompositePipeline : IDisposable
 
         _vk.CmdBindDescriptorSets(
             command, PipelineBindPoint.Graphics, Layout, 0, 1, in set, 0, null);
+
+        float strength = occlusionStrength;
+
+        _vk.CmdPushConstants(
+            command, Layout, ShaderStageFlags.FragmentBit, 0, sizeof(float), &strength);
 
         _vk.CmdDraw(command, 3, 1, 0, 0);
     }

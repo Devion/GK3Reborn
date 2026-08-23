@@ -73,6 +73,32 @@ public readonly record struct AnimationMouth(int Frame, string Actor, string Mou
 public readonly record struct AnimationFace(
     int Frame, string Actor, FacePart Part, string? Texture);
 
+/// <summary>A foot an animation puts down.</summary>
+/// <param name="Frame">Which frame it lands on.</param>
+/// <param name="Actor">The noun of whoever is walking.</param>
+/// <param name="Scuff">Whether the foot is dragged rather than planted.</param>
+/// <remarks>
+/// A walk clip carries three or four of these to a stride, and what one sounds like is not
+/// in the animation: the floor underfoot and the character's shoes decide, through
+/// <c>FLOORMAP.TXT</c> and <c>FOOTSTEPS.TXT</c>. See <c>Game.Actors.Footsteps</c>.
+/// </remarks>
+public readonly record struct AnimationStep(int Frame, string Actor, bool Scuff);
+
+/// <summary>A texture an animation swaps part-way through.</summary>
+/// <param name="Frame">Which frame it changes on.</param>
+/// <param name="Model">The model whose surface it is.</param>
+/// <param name="Mesh">Which mesh group.</param>
+/// <param name="Submesh">Which submesh within it.</param>
+/// <param name="Texture">What to paint it with.</param>
+/// <remarks>
+/// 168 of the corpus's animations carry an <c>[MTEXTURES]</c> section, and they are the
+/// things in the game that change what they show rather than where they are: Larry's alarm
+/// clock counting, a face on a monitor, a sign that lights. The node names a mesh group and
+/// a submesh rather than a texture to replace, because that is what a modeller knows.
+/// </remarks>
+public readonly record struct AnimationTexture(
+    int Frame, string Model, int Mesh, int Submesh, string Texture);
+
 /// <summary>A model an animation shows or hides part-way through.</summary>
 /// <param name="Frame">Which frame it changes on.</param>
 /// <param name="Model">The model's own name, as the scene placed it.</param>
@@ -156,8 +182,12 @@ public sealed class AnimationFile
         IReadOnlyList<AnimationMouth> mouths,
         IReadOnlyList<AnimationFace> faces,
         IReadOnlyList<AnimationVisibility> visibility,
+        IReadOnlyList<AnimationStep> steps,
+        IReadOnlyList<AnimationTexture> textures,
         int rate)
     {
+        Steps = steps;
+        Textures = textures;
         Name = name;
         FrameCount = frames;
         Actions = actions;
@@ -188,6 +218,12 @@ public sealed class AnimationFile
 
     /// <summary>What it shows and hides as it runs, in file order.</summary>
     public IReadOnlyList<AnimationVisibility> Visibility { get; }
+
+    /// <summary>The feet it puts down, in file order.</summary>
+    public IReadOnlyList<AnimationStep> Steps { get; }
+
+    /// <summary>The textures it swaps, in file order.</summary>
+    public IReadOnlyList<AnimationTexture> Textures { get; }
 
     /// <summary>Name this animation was read under.</summary>
     public string Name { get; }
@@ -247,6 +283,8 @@ public sealed class AnimationFile
         List<AnimationMouth> mouths = [];
         List<AnimationFace> faces = [];
         List<AnimationVisibility> visibility = [];
+        List<AnimationStep> steps = [];
+        List<AnimationTexture> textures = [];
         int rate = FramesPerSecond;
 
         foreach (IniSection section in document.Sections)
@@ -275,6 +313,23 @@ public sealed class AnimationFile
                         line.Entries[1].Key,
                         line.Entries.Count > 2 ? (int)(line.Entries[2].AsNumber() ?? 100) : 100,
                         line.Entries.Count > 3 ? line.Entries[3].Key : string.Empty)));
+                    break;
+
+                case "MTEXTURES":
+                    // <frame>,<model>,<mesh>,<submesh>,<texture>
+                    Read(section, line =>
+                    {
+                        if (line.Entries.Count > 4)
+                        {
+                            textures.Add(new AnimationTexture(
+                                (int)(line.Entries[0].AsNumber() ?? 0),
+                                line.Entries[1].Key,
+                                (int)(line.Entries[2].AsNumber() ?? 0),
+                                (int)(line.Entries[3].AsNumber() ?? 0),
+                                line.Entries[4].Key));
+                        }
+                    });
+
                     break;
 
                 case "MVISIBILITY":
@@ -307,7 +362,7 @@ public sealed class AnimationFile
                     break;
 
                 case "GK3":
-                    Spoken(section, captions, mouths, faces);
+                    Spoken(section, captions, mouths, faces, steps);
                     break;
 
                 default:
@@ -327,7 +382,7 @@ public sealed class AnimationFile
 
         return new AnimationFile(
             name, Math.Max(0, frames), actions, sounds, captions, mouths, faces,
-            visibility, rate);
+            visibility, steps, textures, rate);
     }
 
     /// <summary>Reads an on/off field.</summary>
@@ -443,7 +498,8 @@ public sealed class AnimationFile
         IniSection section,
         List<AnimationCaption> captions,
         List<AnimationMouth> mouths,
-        List<AnimationFace> faces)
+        List<AnimationFace> faces,
+        List<AnimationStep> steps)
     {
         string speaker = string.Empty;
 
@@ -487,6 +543,22 @@ public sealed class AnimationFile
                 // <frame>,LIPSYNCH,<noun>,MOUTH03. The shape is a suffix rather than a
                 // texture: the character's own three-letter code goes in front of it, and
                 // which code that is depends on which model is standing in the room.
+                // A foot landing. The node says only when and whose; what it sounds like
+                // is decided from the floor underfoot and the character's shoes, neither of
+                // which the animation knows. 3,704 of these across the corpus, all of them
+                // read past until there was something that could make a noise with one.
+                case "FOOTSTEP":
+                case "FOOTSCUFF":
+                    if (line.Entries.Count > 2)
+                    {
+                        steps.Add(new AnimationStep(
+                            frame,
+                            line.Entries[2].Key,
+                            line.Entries[1].Key.Equals("FOOTSCUFF", StringComparison.OrdinalIgnoreCase)));
+                    }
+
+                    break;
+
                 case "LIPSYNCH":
                     if (line.Entries.Count > 3)
                     {

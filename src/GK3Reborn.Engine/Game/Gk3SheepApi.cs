@@ -120,6 +120,13 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>Functions that were called but are not registered.</summary>
     public IReadOnlyCollection<string> UnknownFunctions => _reportedUnknown;
 
+    /// <summary>What each score event is worth.</summary>
+    /// <remarks>
+    /// The engine's own table rather than the game's: the original compiled it in, and no
+    /// barn holds it. See <see cref="ScoreEvents"/>.
+    /// </remarks>
+    public ScoreEvents Scores { get; set; } = ScoreEvents.Open();
+
     /// <summary>Diagnostics raised while running.</summary>
     public DiagnosticBag Diagnostics { get; } = new();
 
@@ -164,7 +171,7 @@ public sealed class Gk3SheepApi : ISheepApi
     /// false, because a script's timings are written against the pace the game walks at and
     /// hurrying one leg of a scripted sequence would arrive an actor before their line.
     /// </remarks>
-    public Func<string, string, Approaching, bool, double>? Walks { get; set; }
+    public Func<string, string, Approaching, bool, bool, double>? Walks { get; set; }
 
     /// <summary>
     /// The noun of the action being carried out, or empty.
@@ -305,7 +312,10 @@ public sealed class Gk3SheepApi : ISheepApi
 
         string place = arguments.Count > 1 ? arguments[1].AsString() : arguments[0].AsString();
 
-        return Walks(actor, place, how, false);
+        // A script's walk never runs of its own accord. Its timings were written against
+        // the pace the game walks at, and a cutscene that arrives early is a cutscene with
+        // a gap in it.
+        return Walks(actor, place, how, false, false);
     }
 
     /// <summary>Whether a function does something rather than being recorded.</summary>
@@ -436,12 +446,60 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // <b>The argument is a name, not a number.</b> ChangeScore("e_110a_lby_read_register")
+        // is what the scripts write, 321 times, and reading it as an integer awards zero
+        // every time — so the score was permanently nought. What each event is worth is the
+        // engine's own table; see ScoreEvents.
         Register("ChangeScore", a =>
+        {
+            string named = Arg(a, 0);
+
+            if (Scores.Worth(named) is null && named.Length > 0)
+            {
+                Diagnostics.Add(new Diagnostic(
+                    "GK3R3350", DiagnosticSeverity.Info,
+                    "A script scored an event the engine's table does not list.",
+                    named, null, "an event in Assets/Story/Scores.txt", named,
+                    "It scores nothing. Add it to the table if the game does award it."));
+            }
+
+            State.AwardScore(named, Scores.Worth(named));
+
+            return SheepValue.FromInt(0);
+        });
+
+        Register("IncreaseScore", a =>
         {
             State.ChangeScore(Int(a, 0));
             return SheepValue.FromInt(0);
         });
+
         Register("GetScore", _ => SheepValue.FromInt(State.Score));
+        Register("GetMaxScore", _ => SheepValue.FromInt(Scores.Maximum));
+
+        // Moving the clock on. Nothing in the shipped data calls either of these — the
+        // rules that do live in the engine's own Timeblocks.shp, because the original kept
+        // them in its executable — so until that script existed there was no way out of the
+        // first two hours of the game.
+        Register("SetTime", a =>
+        {
+            if (Timeblock.TryParse(Arg(a, 0), out Timeblock wanted))
+            {
+                State.ChangeTimeblock(wanted);
+            }
+
+            return SheepValue.FromInt(0);
+        }, waitable: true);
+
+        Register("SetLocationTime", a =>
+        {
+            if (Timeblock.TryParse(Arg(a, 1), out Timeblock wanted))
+            {
+                State.ChangeTimeblock(wanted, Arg(a, 0));
+            }
+
+            return SheepValue.FromInt(0);
+        }, waitable: true);
 
         Register("IsCurrentTime", a =>
             SheepValue.FromInt(string.Equals(Arg(a, 0), State.Timeblock.ToString(), StringComparison.OrdinalIgnoreCase) ? 1 : 0));
@@ -597,6 +655,7 @@ public sealed class Gk3SheepApi : ISheepApi
         Register("EndConversation", _ =>
         {
             State.Conversation = null;
+            State.Talking = false;
             return SheepValue.FromInt(0);
         });
 
@@ -800,6 +859,21 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // The other half of the same switch, from the other direction: StartVerbCancel
+        // puts the way out back on the action bar and StopVerbCancel takes it away. 14
+        // calls, and they are the moments a script insists the player choose something.
+        Register("StartVerbCancel", _ =>
+        {
+            State.MustChooseAnAction = false;
+            return SheepValue.FromInt(0);
+        });
+
+        Register("StopVerbCancel", _ =>
+        {
+            State.MustChooseAnAction = true;
+            return SheepValue.FromInt(0);
+        });
+
         Register("IsTopLayerInventory", _ => SheepValue.FromInt(
             State.Screens.IsOnTop(ScreenKind.Inventory) ||
             State.Screens.IsOnTop(ScreenKind.InventoryInspect) ? 1 : 0));
@@ -827,15 +901,11 @@ public sealed class Gk3SheepApi : ISheepApi
             ("StartMoveAnimation", true),
             ("StartMorphAnimation", true),
             ("StopAnimation", false),
-            ("SetMood", false),
-            ("ClearMood", false),
             ("StartDialogue", true),
             ("StartDialogueNoFidgets", true),
             ("ContinueDialogue", true),
             ("ContinueDialogueNoFidgets", true),
             ("StartVoiceOver", true),
-            ("ShowSceneModel", false),
-            ("HideSceneModel", false),
             ("WalkTo", true),
             ("WalkToSeeModel", true),
             ("WalkerBoundaryBlockRegion", false),
@@ -874,27 +944,37 @@ public sealed class Gk3SheepApi : ISheepApi
             //
             // Camera work: boundaries the camera may not cross, and the angle types the
             // room cameras are classified by.
+            ("SetCameraAngleType", false),
+            ("SetCameraGlide", false),
+
+            // Registered over by SceneScripting once there is a scene, the same way the
+            // sound calls above are: what they do needs a room, and a console or a tool
+            // calling one without a room still has to be answered rather than reported as
+            // an unimplemented call.
             ("CameraBoundaryBlockModel", false),
             ("CameraBoundaryUnblockModel", false),
             ("EnableCameraBoundaries", false),
             ("DisableCameraBoundaries", false),
-            ("SetCameraAngleType", false),
             ("GlideToCameraAngleX", true),
-            ("SetCameraGlide", false),
+            ("ShowSceneModel", false),
+            ("HideSceneModel", false),
+            ("SetMood", false),
+            ("ClearMood", false),
+            ("SetWalkAnim", false),
+            ("StartMom", true),
+            ("ActionWaitClearRegion", true),
+            ("StartPropFidget", false),
+            ("StopPropFidget", false),
 
             // Fidgets: the idle, talking and listening loops a character runs between
             // instructions. They are GAS scripts using the branching half of the language,
             // which is not run; see docs/formats/behaviour-scripts.md.
             ("StartListenFidget", true),
             ("StartTalkFidget", true),
-            ("StartPropFidget", false),
-            ("StopPropFidget", false),
             ("ClearPropGas", false),
-            ("SetWalkAnim", false),
 
             // Momentary animations and glances, which need the face and the walker to
             // agree about who is driving a character.
-            ("StartMom", true),
             ("Glance", true),
             ("GlanceX", true),
             ("LookitPoint", false),
@@ -939,22 +1019,26 @@ public sealed class Gk3SheepApi : ISheepApi
             ("ResetCaseLogic", false),
 
             // Verb cancelling, which takes the action bar away while something plays.
-            ("StartVerbCancel", false),
-            ("StopVerbCancel", false),
 
+            // Recorded on purpose, because the original does nothing with them either.
+            // Reproducing a no-op faithfully means leaving it a no-op, and a reader of
+            // this list should be able to tell those apart from the gaps.
+            //
+            //   Glance, GlanceX     eye offsets, and nothing here has eyes to offset;
+            //                       commented out in the reference too
+            //   SetCameraAngleType  logs its arguments and returns
+            //   StartMorphAnimation, StopMorphAnimation   commented out in the reference
+            //   UploadSceneLightmaps  lightmaps are uploaded with the scene already
+            //
             // The rest.
-            ("ActionWaitClearRegion", true),
             ("AddCaptionVoiceOver", false),
             ("StartDialogueX", true),
             ("SetActorOffstage", false),
-            ("SetLocationTime", true),
-            ("SetTime", true),
             ("Warp", true),
             ("WalkNear", true),
             ("WalkNearModel", true),
             ("DefaultInspect", true),
             ("StopMorphAnimation", false),
-            ("IncreaseScore", false),
             ("ScreenShot", false),
             ("SetTopSheep", false),
             ("CallDefaultSheep", true),

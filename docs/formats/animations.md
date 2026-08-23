@@ -37,7 +37,8 @@ that happen on a frame, opening with how many of them there are.
 | `[GK3]` | `<frame>,UNFACETEX,<noun>,<part>` | Take it off again |
 | `[MVISIBILITY]` | `<frame>,<model>,<on\|off>` | Draw a model from this frame on, or stop |
 | `[MVISIBILITY]` | `<frame>,<model>,<mesh>,<submesh>,<on\|off>` | The same for one part of it |
-| `[MTEXTURES]` | `<frame>,<model>,<mesh>,<submesh>,<texture>` | Swap a model's texture; read, not applied |
+| `[GK3]` | `<frame>,FOOTSTEP,<noun>` / `FOOTSCUFF` | Put a foot down |
+| `[MTEXTURES]` | `<frame>,<model>,<mesh>,<submesh>,<texture>` | Repaint one submesh of a model |
 | `[OPTIONS]` | `<frame>,FRAMERATE,<n>` | Run at this rate rather than fifteen |
 | `[OPTIONS]` | `<frame>,SIMPLE,<n>` / `<frame>,NOINTERPOLATE` | Read past; neither changes what happens |
 | `[STEXTURES]` | | 78 files; scene textures, not read |
@@ -62,6 +63,12 @@ Frame zero is applied the moment the animation starts rather than a tick later, 
 change on the opening frame states what is true while the animation runs; waiting shows one
 frame of the old state, and for a character being brought into the room that is one frame of
 them standing at the origin.
+
+**A footstep node says only when and whose.** What it sounds like is three other files'
+business: the floor texture underfoot through `FLOORMAP.TXT`, the character's shoes through
+`CHARACTERS.TXT`, and the pairing of the two through `FOOTSTEPS.TXT` and `FOOTSCUFFS.TXT`.
+3,704 of them across the corpus. The commonest case is the hardest to wire, because a walk
+cycle is looped by frame rather than played as an animation — see `docs/walking.md`.
 
 **A frame rate is per animation.** Fifteen unless an `[OPTIONS]` line says otherwise, which
 thirty of them do — from 5 to 580. The option carries a frame number, so in principle the

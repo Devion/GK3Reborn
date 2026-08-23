@@ -108,8 +108,24 @@ public sealed class Gk3SheepApiTests
         api.Invoke("SetFlag", [Str("metJean")]);
         Assert.Equal(1, api.Invoke("GetFlag", [Str("metjean")]).AsInt());
 
-        api.Invoke("ChangeScore", [Num(25)]);
+        // ChangeScore takes the *name* of a score event, not a number: reading it as one
+        // awards nothing, which is what it did for every one of the corpus's 321 calls.
+        api.Scores = ScoreEvents.Parse("[SCORES]" + Environment.NewLine + "e_test_event = 25");
+
+        api.Invoke("ChangeScore", [Str("e_test_event")]);
         Assert.Equal(25, state.Score);
+
+        // And once. The same call is made every time the player does the thing.
+        api.Invoke("ChangeScore", [Str("e_test_event")]);
+        Assert.Equal(25, state.Score);
+
+        // A name the table does not have scores nothing rather than guessing.
+        api.Invoke("ChangeScore", [Str("e_no_such_event")]);
+        Assert.Equal(25, state.Score);
+
+        // IncreaseScore is the one that takes a number.
+        api.Invoke("IncreaseScore", [Num(5)]);
+        Assert.Equal(30, state.Score);
     }
 
     [Theory]

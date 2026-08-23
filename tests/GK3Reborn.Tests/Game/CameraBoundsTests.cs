@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Game.Navigation;
 using Xunit;
@@ -235,5 +235,101 @@ public sealed class CameraBoundsTests
         Face(Corner(-1, 1, -1), Corner(1, 1, -1), Corner(1, 1, 1), Corner(-1, 1, 1));
 
         return [.. positions];
+    }
+
+
+    /// <summary>
+    /// A camera that begins inside a wall is put back outside it rather than left to slide
+    /// along in there.
+    /// </summary>
+    /// <remarks>
+    /// Reported as the camera getting stuck in the geometry. The sweep decides what a move
+    /// may do and says nothing about a sphere that was already overlapping when the move
+    /// began — and once overlapping, every step towards that wall is refused and every step
+    /// along it allowed, so it slid along inside the wall indefinitely with the near plane
+    /// through it. One unit from a wall that wants sixteen is what a scene cuts to when the
+    /// artists placed the viewpoint against the room rather than against the shell.
+    /// </remarks>
+    [Fact]
+    public void A_camera_that_starts_inside_a_wall_is_pushed_out_of_it()
+    {
+        Vector3 where = Box().Resolve(new Vector3(99, 0, 0), new Vector3(0, 0, 10));
+
+        Assert.True(
+            where.X <= Half - CameraBounds.Radius,
+            $"still inside the wall at {where}");
+
+        Assert.Equal(10f, where.Z, 0.01f);
+    }
+
+    /// <summary>And it keeps sliding afterwards rather than being pinned by the push.</summary>
+    [Fact]
+    public void A_camera_freed_from_a_wall_goes_on_moving_along_it()
+    {
+        CameraBounds box = Box();
+        Vector3 at = new(99, 0, -80);
+
+        for (int step = 0; step < 8; step++)
+        {
+            at = box.Resolve(at, new Vector3(0, 0, 10));
+        }
+
+        Assert.True(at.X <= Half - CameraBounds.Radius, $"still inside the wall at {at}");
+        Assert.True(at.Z >= 0f, $"made no progress along the wall: {at}");
+    }
+
+    /// <summary>Freeing it does not send it out through the wall opposite.</summary>
+    /// <remarks>
+    /// The push is out of the deepest overlap and then the sphere is looked at again, rather
+    /// than every overlap being added up at once. In a corner, summing sends it out through
+    /// the third wall; taking the worst one at a time converges.
+    /// </remarks>
+    [Fact]
+    public void A_camera_wedged_into_a_corner_ends_up_inside_the_room()
+    {
+        Vector3 where = Box().Resolve(new Vector3(98, 98, 98), Vector3.Zero);
+
+        Assert.True(Box().Contains(where), $"pushed clean out of the room to {where}");
+
+        Assert.True(
+            where.X <= Half - CameraBounds.Radius &&
+            where.Y <= Half - CameraBounds.Radius &&
+            where.Z <= Half - CameraBounds.Radius,
+            $"still inside a wall at {where}");
+    }
+
+    /// <summary>
+    /// A space narrower than the camera settles somewhere rather than hanging or jittering.
+    /// </summary>
+    /// <remarks>
+    /// Two opposing walls twenty units apart cannot both be satisfied by a sphere thirty-two
+    /// across, and the game has places that tight. What matters is that it stops asking: the
+    /// push is bounded, so it does its best and the frame ends.
+    /// </remarks>
+    [Fact]
+    public void A_gap_narrower_than_the_camera_settles_instead_of_hanging()
+    {
+        CameraBounds slot = Box(10f);
+
+        Vector3 first = slot.Resolve(Vector3.Zero, new Vector3(0, 0, 10));
+        Vector3 second = slot.Resolve(first, new Vector3(0, 0, 10));
+
+        Assert.Equal(first.X, second.X, 0.1f);
+        Assert.Equal(first.Y, second.Y, 0.1f);
+        Assert.Equal(first.Z, second.Z, 0.1f);
+    }
+
+    /// <summary>A camera outside the shell is left alone rather than pushed further out.</summary>
+    /// <remarks>
+    /// Being outside is a state it is meant to be able to leave, and the way back in is what
+    /// the sweep keeps open. Treating the far side of a surface as an overlap to be cleared
+    /// would push it away from the room instead of towards it.
+    /// </remarks>
+    [Fact]
+    public void A_camera_outside_the_shell_is_not_pushed_further_out()
+    {
+        Vector3 where = Box().Free(new Vector3(108, 0, 0));
+
+        Assert.Equal(108f, where.X, 0.01f);
     }
 }

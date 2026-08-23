@@ -155,6 +155,45 @@ public sealed partial class GameStrings
         System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex Destination();
 
+    /// <summary>
+    /// The score, as the game writes it.
+    /// </summary>
+    /// <param name="score">What the player has.</param>
+    /// <param name="most">What there is to get.</param>
+    /// <returns>Something to draw, or null when the file gives no format for it.</returns>
+    /// <remarks>
+    /// <c>ScoreText = Score: %03d of %03d</c>, which is a C format string and the reason
+    /// the numbers are padded to three digits in the original's toolbar. The placeholders
+    /// are filled here rather than by a formatter, because there are exactly two of them
+    /// and running arbitrary format strings from a data file is a larger thing to own.
+    /// </remarks>
+    public string? Score(int score, int most)
+    {
+        if (Named("ScoreText") is not { Length: > 0 } format)
+        {
+            return null;
+        }
+
+        int first = format.IndexOf("%03d", StringComparison.Ordinal);
+
+        if (first < 0)
+        {
+            return format;
+        }
+
+        int second = format.IndexOf("%03d", first + 4, StringComparison.Ordinal);
+
+        string filled = format[..first] +
+            score.ToString("000", System.Globalization.CultureInfo.InvariantCulture) +
+            (second < 0
+                ? format[(first + 4)..]
+                : format[(first + 4)..second] +
+                  most.ToString("000", System.Globalization.CultureInfo.InvariantCulture) +
+                  format[(second + 4)..]);
+
+        return filled;
+    }
+
     /// <summary>One value, from whichever section holds it.</summary>
     /// <remarks>
     /// The location and timeblock names are in the file's unnamed opening section and the

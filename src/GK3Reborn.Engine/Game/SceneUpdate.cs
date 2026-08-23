@@ -92,6 +92,22 @@ public sealed class SceneUpdate
     /// authored at.
     /// </para>
     /// </remarks>
+    /// <summary>How far a walk has to be before it is run, in scene units.</summary>
+    /// <remarks>
+    /// <para>
+    /// A GK3 unit is roughly two and a half centimetres and a character stands about seventy
+    /// tall, so this is a little over six metres — far enough that crossing it at a stroll is
+    /// the player waiting rather than the player watching. Anything shorter is a step across
+    /// a room and reads as fussy if it is taken at a trot.
+    /// </para>
+    /// <para>
+    /// It uses the same <see cref="HurryFactor"/> a double-click does, so a player who has
+    /// turned that down to one has turned this off with it, which is the right thing for it
+    /// to mean.
+    /// </para>
+    /// </remarks>
+    public float RunBeyond { get; set; } = 250f;
+
     public float HurryFactor
     {
         get => _hurryFactor;
@@ -109,6 +125,10 @@ public sealed class SceneUpdate
     private readonly List<Cue> _cues = [];
 
     private readonly List<Showing> _showings = [];
+
+    private readonly List<Footfall> _steps = [];
+
+    private readonly List<Swap> _swaps = [];
     private readonly List<Turning> _actors = [];
     private readonly Dictionary<string, Walking> _walking =
         new(StringComparer.OrdinalIgnoreCase);
@@ -346,6 +366,22 @@ public sealed class SceneUpdate
             _cues.Add(new Cue(cue, repeat ? animation.Duration : 0, animation.Rate));
         }
 
+        // And the feet. A clip says when one lands and whose it is; what it sounds like is
+        // decided when it lands, from the floor the actor is standing on by then.
+        foreach (AnimationStep step in animation.Steps)
+        {
+            _steps.Add(new Footfall(step, repeat ? animation.Duration : 0, animation.Rate));
+        }
+
+        // And what it repaints as it runs. Like the visibility changes, frame zero is
+        // applied now rather than in a frame's time.
+        foreach (AnimationTexture swap in animation.Textures)
+        {
+            _swaps.Add(new Swap(swap, repeat ? animation.Duration : 0, animation.Rate));
+        }
+
+        Repaint(animation.Textures.Where(t => t.Frame <= 0));
+
         // Then what it shows and hides, for the same reason and one of its own: an
         // animation that brings somebody into the room does it here, and the clip that
         // opens the door in front of them is a separate line of the same file. Emilio
@@ -373,7 +409,11 @@ public sealed class SceneUpdate
         {
             // A face or a sound is still something happening, and a script that waits on
             // one is waiting for it to finish rather than for nothing.
-            if (onAFace || animation.Sounds.Count > 0 || animation.Visibility.Count > 0)
+            if (onAFace ||
+                animation.Sounds.Count > 0 ||
+                animation.Visibility.Count > 0 ||
+                animation.Textures.Count > 0 ||
+                animation.Steps.Count > 0)
             {
                 return animation.Duration;
             }
@@ -629,6 +669,69 @@ public sealed class SceneUpdate
 
     private readonly List<(string Who, Vector3 Where)> _posed = [];
 
+    /// <summary>
+    /// Gives a character a different stride.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <param name="start">The animation that gets them moving.</param>
+    /// <param name="loop">The stride itself, looped while they walk.</param>
+    /// <returns>True when the room has such a character.</returns>
+    /// <remarks>
+    /// <c>SetWalkAnim</c>, 42 calls: somebody walking differently for a while — carrying
+    /// something, hurt, sneaking. It replaces what <c>CHARACTERS.TXT</c> said, so a walk
+    /// begun after this uses the new one. The two turn animations the call also carries
+    /// are read past: turning on the spot is done by the walker rather than by a clip.
+    /// </remarks>
+    public bool SetStride(string actor, string start, string loop)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (ModelNamed(actor) is not { Kind: PlacedModelKind.Actor } model)
+        {
+            return false;
+        }
+
+        _strides[model.Name] = (start, loop);
+        return true;
+    }
+
+    /// <summary>What a character walks with now, when a script has changed it.</summary>
+    private readonly Dictionary<string, (string Start, string Loop)> _strides =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Starts a prop's own script again.</summary>
+    /// <param name="model">Its model name or noun.</param>
+    /// <returns>True when the room has such a prop with a script.</returns>
+    public bool StartScenery(string model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        if (ModelNamed(model) is not { Idle: { Steps.Count: > 0 } script } prop)
+        {
+            return false;
+        }
+
+        StopScenery(model);
+        _scenery.Add(new Behaviour(script, prop));
+
+        return true;
+    }
+
+    /// <summary>Stops a prop's own script.</summary>
+    /// <param name="model">Its model name or noun.</param>
+    /// <returns>True when one was running.</returns>
+    public bool StopScenery(string model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        if (ModelNamed(model) is not { } prop)
+        {
+            return false;
+        }
+
+        return _scenery.RemoveAll(b => ReferenceEquals(b.Owner, prop)) > 0;
+    }
+
     /// <summary>Gives a character a different script for one of the three things they do.</summary>
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="mode">Which of the three.</param>
@@ -673,6 +776,7 @@ public sealed class SceneUpdate
         {
             foreach (Fidget fidget in _fidgets.Values)
             {
+                Tidy(fidget);
                 fidget.Stopped = true;
             }
 
@@ -681,8 +785,53 @@ public sealed class SceneUpdate
 
         if (ModelNamed(actor) is { } model && _fidgets.TryGetValue(model.Name, out Fidget? one))
         {
+            Tidy(one);
             one.Stopped = true;
         }
+    }
+
+    /// <summary>
+    /// Puts right whatever a behaviour script was in the middle of.
+    /// </summary>
+    /// <param name="fidget">The character's scripts.</param>
+    /// <returns>True when there was something to put right.</returns>
+    /// <remarks>
+    /// <para>
+    /// A GAS file may declare a cleanup per animation — <c>USES CLEANUP EmlLbyOpnPaper
+    /// emllbyclspaper</c> — meaning "if you stop me while I am doing the first, do the
+    /// second". 328 of the corpus's 341 <c>USE</c> lines are these, and they exist because
+    /// an idle can leave a character holding something: Emilio reads a newspaper in the
+    /// lobby, and stopping him to shake Gabriel's hand without the cleanup leaves the paper
+    /// hanging in the air where his hands used to be.
+    /// </para>
+    /// <para>
+    /// A cleanup may have a cleanup of its own, which is why this loops rather than playing
+    /// one. Bounded, because a file that cleans up in a circle would otherwise not stop.
+    /// </para>
+    /// </remarks>
+    private bool Tidy(Fidget fidget)
+    {
+        if (fidget.Stopped || fidget.Running is not { } running)
+        {
+            return false;
+        }
+
+        bool did = false;
+
+        for (int guard = 0; guard < 8; guard++)
+        {
+            if (running.Playing is not { Length: > 0 } was ||
+                running.Script.CleanupFor(was) is not { Length: > 0 } tidied)
+            {
+                break;
+            }
+
+            Play(tidied, fromBehaviour: true);
+            running.Playing = tidied;
+            did = true;
+        }
+
+        return did;
     }
 
     /// <summary>Sets a character fidgeting again.</summary>
@@ -755,6 +904,8 @@ public sealed class SceneUpdate
 
             if (wanted != fidget.Mode)
             {
+                // Out of whatever the last one left them holding, before the next begins.
+                Tidy(fidget);
                 fidget.Enter(wanted, fidget.Model);
             }
 
@@ -765,10 +916,119 @@ public sealed class SceneUpdate
         }
     }
 
+    /// <summary>
+    /// Makes the noise a foot landing makes.
+    /// </summary>
+    /// <param name="fell">Whose foot, and whether it was dragged.</param>
+    /// <remarks>
+    /// <para>
+    /// Three things have to agree and none of them is in the animation: which shoes the
+    /// character is wearing (<c>CHARACTERS.TXT</c>), what the floor under them is made of
+    /// (the texture, through <c>FLOORMAP.TXT</c>) and which of the three sounds for that
+    /// pairing to use (<c>FOOTSTEPS.TXT</c>). The last is drawn from the room's own
+    /// generator, so the same walk sounds the same twice.
+    /// </para>
+    /// <para>
+    /// Silent rather than wrong where any of the three is missing. A floor texture nothing
+    /// classifies is most of the game's ceilings and walls, and a step on one should make
+    /// no noise rather than a guessed one.
+    /// </para>
+    /// </remarks>
+    private void Tread(AnimationStep fell)
+    {
+        if (Sound is null || Steps is null || ModelNamed(fell.Actor) is not { } who)
+        {
+            return;
+        }
+
+        if (Characters?.Of(who.Name)?.ShoeType is not { Length: > 0 } shoes)
+        {
+            return;
+        }
+
+        Vector3 at = Where(who.Name) ?? who.Standing.Translation;
+
+        if (Steps.Sounds(shoes, _scene.Ground?.Surface(at), fell.Scuff) is not { Count: > 0 } choices)
+        {
+            return;
+        }
+
+        string heard = choices[_chance.NextInt32(0, choices.Count)];
+
+        if (!Sound(new AnimationSound(0, heard, 100, who.Name), at))
+        {
+            Diagnostics.Add(new Diagnostic(
+                "GK3R3343", DiagnosticSeverity.Info,
+                "A footstep names a sound the archives do not have.",
+                heard, null, "a .WAV of that name", heard,
+                "The step is silent; the walk is unaffected."));
+        }
+    }
+
     /// <summary>Whether a name is one of a model's own.</summary>
     private static bool Names(PlacedModel model, string name) =>
         model.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
         (model.Noun is { Length: > 0 } noun && noun.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Applies an animation's texture swaps.
+    /// </summary>
+    /// <param name="swaps">The changes due now.</param>
+    /// <remarks>
+    /// <para>
+    /// The node names a mesh group and a submesh; the sink repaints by the <em>texture</em>
+    /// the model was built with, because that is the thing it can find without knowing how
+    /// a particular model is cut up. So the original is looked up from the model and used
+    /// as the handle. A model the room does not have, or an index it does not go up to, is
+    /// skipped in silence — animations are shared between rooms.
+    /// </para>
+    /// <para>
+    /// The replacement has to be resident before it can be drawn, and the scene loaded only
+    /// what its models were painted with. So it is read and uploaded on first use and kept:
+    /// Larry's alarm clock swaps through ten digits and would otherwise decode them again
+    /// every second.
+    /// </para>
+    /// </remarks>
+    private void Repaint(IEnumerable<AnimationTexture> swaps)
+    {
+        foreach (AnimationTexture swap in swaps)
+        {
+            if (ModelNamed(swap.Model) is not { } model ||
+                swap.Mesh < 0 || swap.Mesh >= model.Model.Meshes.Count)
+            {
+                continue;
+            }
+
+            IReadOnlyList<Formats.Models.ModSubmesh> parts = model.Model.Meshes[swap.Mesh].Submeshes;
+
+            if (swap.Submesh < 0 || swap.Submesh >= parts.Count)
+            {
+                continue;
+            }
+
+            if (Textures?.Invoke(swap.Texture) == false)
+            {
+                Diagnostics.Add(new Diagnostic(
+                    "GK3R3344", DiagnosticSeverity.Info,
+                    "An animation repaints a surface with a texture the archives do not have.",
+                    swap.Model, null, "a .BMP of that name", swap.Texture,
+                    "The surface keeps the picture it had."));
+
+                continue;
+            }
+
+            _geometry.Repaint(model.Placement, parts[swap.Submesh].TextureName, swap.Texture);
+        }
+    }
+
+    /// <summary>
+    /// Makes a texture resident, and says whether it could be.
+    /// </summary>
+    /// <remarks>
+    /// A function rather than the archives, the same shape as the clip and animation
+    /// libraries: without one nothing repaints, which is what a test with no device wants.
+    /// </remarks>
+    public Func<string, bool>? Textures { get; set; }
 
     /// <summary>Whether a model is walking somewhere, under either of its names.</summary>
     /// <remarks>
@@ -825,6 +1085,7 @@ public sealed class SceneUpdate
                 case GasAction.Animate when step.Name is { Length: > 0 } spun &&
                                             running.Script.Continuous:
                     Play(spun, repeat: true, fromBehaviour: true);
+                    running.Playing = spun;
                     running.Remaining = double.MaxValue;
                     break;
 
@@ -833,6 +1094,8 @@ public sealed class SceneUpdate
                     {
                         running.Remaining += Math.Max(
                             Play(clip, step.Repeats, fromBehaviour: true), 1.0 / 60);
+
+                        running.Playing = clip;
                     }
 
                     break;
@@ -979,7 +1242,7 @@ public sealed class SceneUpdate
 
     /// <summary>Sends somebody to a named spot, and says how long it takes.</summary>
     private double Send(string actor, string spot) =>
-        _api.Walks?.Invoke(actor, spot, Approaching.Walk, false) ?? 0;
+        _api.Walks?.Invoke(actor, spot, Approaching.Walk, false, false) ?? 0;
 
     /// <summary>Whether something with a percentage chance happens this time.</summary>
     private bool Draws(int chance) =>
@@ -1071,6 +1334,37 @@ public sealed class SceneUpdate
         }
     }
 
+    /// <summary>Draws one of the room's own named objects, or stops drawing it.</summary>
+    /// <param name="objectName">The object's name, as the geometry records it.</param>
+    /// <param name="visible">Whether it is drawn.</param>
+    /// <returns>True when the room has an object by that name.</returns>
+    /// <remarks>
+    /// The room rather than a model standing in it: see
+    /// <see cref="Rendering.ISceneSink.SetSceneObjectVisible"/>. The picker is told as
+    /// well, because a doorway a script has just closed off must stop answering to clicks
+    /// — otherwise the noun goes on being offered for something nobody can see.
+    /// </remarks>
+    public bool ShowObject(string objectName, bool visible)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        if (!_geometry.SetSceneObjectVisible(objectName, visible))
+        {
+            return false;
+        }
+
+        if (visible)
+        {
+            _api.State.BlockedHitTests.Remove(objectName);
+        }
+        else
+        {
+            _api.State.BlockedHitTests.Add(objectName);
+        }
+
+        return true;
+    }
+
     /// <summary>Whether a clip that is playing is the one animating a model.</summary>
     private static bool Drives(Playing playing, PlacedModel model) =>
         ReferenceEquals(playing.Target, model) ||
@@ -1085,6 +1379,8 @@ public sealed class SceneUpdate
             _playing.Clear();
             _held.Clear();
             _showings.Clear();
+            _steps.Clear();
+            _swaps.Clear();
             return;
         }
 
@@ -1153,6 +1449,13 @@ public sealed class SceneUpdate
     /// </remarks>
     public Actors.CharacterLibrary? Characters { get; set; }
 
+    /// <summary>What a step sounds like, when the three files that decide were read.</summary>
+    /// <remarks>
+    /// Optional, like the clips: without it nobody makes a noise walking, which is what the
+    /// game did before this and what a test with no audio wants.
+    /// </remarks>
+    public Actors.Footsteps? Steps { get; set; }
+
     /// <summary>How many actors are crossing the room.</summary>
     public int OnTheMove => _walking.Count;
 
@@ -1205,6 +1508,11 @@ public sealed class SceneUpdate
     /// impatience and nothing else: a script's timings are written against the pace the
     /// game walks at.
     /// </param>
+    /// <param name="mayRun">
+    /// Whether a long walk may pick up the pace by itself. True for a walk the player asked
+    /// for and false for one a script asked for, because a script's timings assume the pace
+    /// the game was authored at and this would run out from under them.
+    /// </param>
     /// <returns>How long the walk will take, or zero when there is no walking to do.</returns>
     /// <remarks>
     /// <para>
@@ -1223,7 +1531,8 @@ public sealed class SceneUpdate
         Vector3 destination,
         float? arriveFacing = null,
         Vector3? arriveLookingAt = null,
-        bool hurry = false)
+        bool hurry = false,
+        bool mayRun = false)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
@@ -1249,8 +1558,27 @@ public sealed class SceneUpdate
             // No boundary is no obstacles, so the straight line is the route.
             : new WalkRoute(true, [destination]);
 
+        // Far enough to be worth running. Measured along the route rather than straight at
+        // the destination, because a walk that goes round the bed is the walk being taken —
+        // and the first leg is added because the route begins at the nearest walkable texel
+        // rather than under the actor's feet.
+        if (mayRun && !hurry && route.Points.Count > 0)
+        {
+            Vector3 first = route.Points[0] - from;
+
+            hurry = MathF.Sqrt((first.X * first.X) + (first.Z * first.Z)) + route.Length()
+                    >= RunBeyond;
+        }
+
         // The stride first, because its pace is what the walk is measured at.
-        WalkCycle? stride = WalkCycle.For(placed, Characters, Animations, Clips);
+        WalkCycle? stride = WalkCycle.For(
+            placed,
+            Characters,
+            Animations,
+            Clips,
+            _strides.TryGetValue(placed.Name, out (string Start, string Loop) given)
+                ? given.Loop
+                : null);
         float rate = hurry ? HurryFactor : 1f;
 
         if (stride is not null)
@@ -1509,6 +1837,17 @@ public sealed class SceneUpdate
         /// </remarks>
         public bool Interrupted { get; set; }
 
+        /// <summary>
+        /// The animation it last asked for, which is what a cleanup is looked up by.
+        /// </summary>
+        /// <remarks>
+        /// A GAS file may declare <c>USES CLEANUP EmlLbyOpnPaper emllbyclspaper</c>: if the
+        /// script is stopped while the first is what it is doing, the second puts it right.
+        /// So which animation is in effect has to be remembered — a stopped script cannot
+        /// be asked what it was in the middle of afterwards.
+        /// </remarks>
+        public string? Playing { get; set; }
+
         /// <summary>The language's whole state: one integer per name.</summary>
         public Dictionary<string, int> Registers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1650,6 +1989,35 @@ public sealed class SceneUpdate
             }
         }
 
+        // The feet, which need where the actor is now rather than where the clip was
+        // authored: the sound is the floor under them at the moment the foot lands.
+        for (int i = _steps.Count - 1; i >= 0; i--)
+        {
+            if (_steps[i].Step(seconds) is { } fell)
+            {
+                Tread(fell);
+            }
+
+            if (_steps[i].Finished)
+            {
+                _steps.RemoveAt(i);
+            }
+        }
+
+        // And what it repaints.
+        for (int i = _swaps.Count - 1; i >= 0; i--)
+        {
+            if (_swaps[i].Step(seconds) is { } swap)
+            {
+                Repaint([swap]);
+            }
+
+            if (_swaps[i].Finished)
+            {
+                _swaps.RemoveAt(i);
+            }
+        }
+
         // What an animation shows and hides as it runs, on the frames it names. Same
         // clock as the sounds and for the same reason: a character is brought into the
         // room by one of these and the door in front of them by a sound cue, and the two
@@ -1715,6 +2083,11 @@ public sealed class SceneUpdate
 
             // The legs, in the model's own space, on top of wherever the model now is.
             walking.Stride?.Step(_geometry, (float)seconds);
+
+            foreach (AnimationStep fell in walking.Stride?.Landed ?? [])
+            {
+                Tread(fell);
+            }
 
             Follow(who, walking.Walker.Position);
 
@@ -1822,13 +2195,162 @@ public sealed class SceneUpdate
             return SceneLoader.CameraAt(close, _geometry);
         }
 
+        if (Framing(key) is { } derived)
+        {
+            return derived;
+        }
+
         Diagnostics.Add(new Diagnostic(
             "GK3R3204", DiagnosticSeverity.Info,
-            "Nothing declares a close-up of this, so the view stays where it was.",
+            "Nothing declares a close-up of this and it has no geometry to frame one from.",
             _scene.Name, null, "an [INSPECT_CAMERAS] entry", key,
-            "The original works one out from the object's bounds; this does not yet."));
+            "Inspect is not offered for it, so the player is not shown a verb that does nothing."));
 
         return null;
+    }
+
+    /// <summary>
+    /// A close-up worked out from what the thing actually occupies.
+    /// </summary>
+    /// <param name="noun">What is being looked at.</param>
+    /// <returns>A camera framing it, or null when the room has no such thing to frame.</returns>
+    /// <remarks>
+    /// <para>
+    /// Only 111 close-ups are authored across the corpus, against the thousands of nouns a
+    /// player can point at, so for most things <c>[INSPECT_CAMERAS]</c> has nothing to say.
+    /// The view used to stay exactly where it was — and because inspecting still counted as
+    /// having happened, the verb flipped to "Inspect Undo" and the player was offered a way
+    /// out of something that never started.
+    /// </para>
+    /// <para>
+    /// So one is worked out instead, which is what the original does too. The box the thing
+    /// occupies is measured in the room's own space, and the camera is put in front of it
+    /// far enough back that the box fits the frame with a little air around it. An authored
+    /// close-up still wins wherever there is one: the artists chose an angle, and this only
+    /// chooses a distance.
+    /// </para>
+    /// <para>
+    /// From where the view already is, rather than from a fixed side. Cutting to the far
+    /// side of a thing shows the player a face of it they were not looking at and reads as
+    /// the room having turned around; approaching along the line they were already on reads
+    /// as leaning in. Where the view is on top of the thing there is no line to keep, and
+    /// the room's own default camera decides instead.
+    /// </para>
+    /// </remarks>
+    private Camera? Framing(string noun)
+    {
+        if (Occupies(noun) is not var (minimum, maximum))
+        {
+            return null;
+        }
+
+        Vector3 centre = (minimum + maximum) * 0.5f;
+        float across = MathF.Max((maximum - minimum).Length(), 1f);
+
+        // Far enough that the whole of it sits inside the frame, with a quarter again for
+        // air. Half the box over the tangent of half the field of view is the distance at
+        // which it exactly fills the view.
+        float back = across * 0.5f / MathF.Tan(CloseUpFieldOfView * 0.5f) * 1.25f;
+
+        Vector3 from = View is { } standing ? standing.Position : centre + new Vector3(0, 0, back);
+        Vector3 line = from - centre;
+
+        if (line.LengthSquared() < 1f)
+        {
+            line = View is { } facing
+                ? Vector3.Normalize(facing.Position - facing.Target)
+                : Vector3.UnitZ;
+        }
+
+        Vector3 eye = centre + (Vector3.Normalize(line) * back);
+        float reach = MathF.Max(1f, (_geometry.Maximum - _geometry.Minimum).Length());
+
+        return new Camera
+        {
+            Position = eye,
+            Target = centre,
+            Up = Vector3.UnitY,
+            FieldOfView = CloseUpFieldOfView,
+            NearPlane = 1f,
+            FarPlane = reach * 4f,
+        };
+    }
+
+    /// <summary>How wide a derived close-up sees, in radians.</summary>
+    /// <remarks>
+    /// Narrower than the room's sixty degrees. A close-up is a lens change as much as a
+    /// move, and holding the room's own angle while standing this near flattens the thing
+    /// being looked at into the wall behind it.
+    /// </remarks>
+    private const float CloseUpFieldOfView = 40f * MathF.PI / 180f;
+
+    /// <summary>The box a noun's geometry fills, in the room's space.</summary>
+    /// <returns>The corners, or null when nothing in the room answers to that noun.</returns>
+    /// <remarks>
+    /// Every mesh of every model the noun names, at the transform it is standing at now
+    /// rather than the one the scene first gave it — a thing being carried, opened or
+    /// animated is somewhere else by the time anybody looks closely at it.
+    /// </remarks>
+    private (Vector3 Minimum, Vector3 Maximum)? Occupies(string noun)
+    {
+        Vector3 minimum = new(float.MaxValue);
+        Vector3 maximum = new(float.MinValue);
+        bool found = false;
+
+        foreach (PlacedModel placed in _scene.Models)
+        {
+            if (!string.Equals(placed.Noun, noun, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(placed.Name, noun, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            Matrix4x4 placement = placed.Standing;
+
+            foreach (ModMesh mesh in placed.Model.Meshes)
+            {
+                Matrix4x4 toWorld = mesh.MeshToLocal * placement;
+
+                // Every corner of the mesh's own box, because a rotated box's extremes are
+                // not the transforms of the two corners that described it.
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 at = Vector3.Transform(
+                        new Vector3(
+                            (corner & 1) == 0 ? mesh.BoundsMin.X : mesh.BoundsMax.X,
+                            (corner & 2) == 0 ? mesh.BoundsMin.Y : mesh.BoundsMax.Y,
+                            (corner & 4) == 0 ? mesh.BoundsMin.Z : mesh.BoundsMax.Z),
+                        toWorld);
+
+                    minimum = Vector3.Min(minimum, at);
+                    maximum = Vector3.Max(maximum, at);
+                    found = true;
+                }
+            }
+        }
+
+        return found ? (minimum, maximum) : null;
+    }
+
+    /// <summary>Whether anything in the room can be looked at closely.</summary>
+    /// <param name="noun">What the player is pointing at.</param>
+    /// <returns>True when inspecting it would move the view.</returns>
+    /// <remarks>
+    /// Asked before the verb is offered rather than after it is chosen, so that a thing with
+    /// no close-up simply has no Inspect on its menu — instead of one that does nothing and
+    /// then offers to undo itself.
+    /// </remarks>
+    public bool Inspectable(string noun)
+    {
+        ArgumentNullException.ThrowIfNull(noun);
+
+        string? model = _scene.Models
+            .FirstOrDefault(m => string.Equals(m.Noun, noun, StringComparison.OrdinalIgnoreCase))
+            ?.Name;
+
+        return _scene.Definition.AnyCameraNamed(noun) is not null ||
+               _scene.Definition.InspectCameraFor(noun, model) is not null ||
+               Occupies(noun) is not null;
     }
 
     /// <summary>Applies whatever field of view a script has asked for.</summary>
@@ -1947,6 +2469,111 @@ public sealed class SceneUpdate
     /// animation rather than to any one clip, and an animation whose whole content is an
     /// <c>[MVISIBILITY]</c> line still has something to do.
     /// </remarks>
+    /// <summary>
+    /// A foot an animation is about to put down.
+    /// </summary>
+    /// <remarks>
+    /// The same shape as <see cref="Cue"/>, and separate from it for the same reason plus
+    /// one of its own: a sound cue names the sound, and this one does not — what it sounds
+    /// like cannot be decided until the foot lands, because it depends on where the actor
+    /// has walked to by then.
+    /// </remarks>
+    private sealed class Footfall
+    {
+        private readonly AnimationStep _step;
+        private readonly double _at;
+        private readonly double _period;
+
+        private double _elapsed;
+
+        public Footfall(AnimationStep step, double period, int rate)
+        {
+            _step = step;
+            _at = Math.Max(0, step.Frame) / (double)Math.Max(1, rate);
+            _period = period;
+        }
+
+        /// <summary>Whether it has landed and will not come round again.</summary>
+        public bool Finished { get; private set; }
+
+        /// <summary>Advances the clock and says whether the foot is down this frame.</summary>
+        public AnimationStep? Step(double seconds)
+        {
+            if (Finished)
+            {
+                return null;
+            }
+
+            double before = _elapsed;
+            _elapsed += seconds;
+
+            if (before > _at || _elapsed < _at)
+            {
+                return null;
+            }
+
+            if (_period > 0)
+            {
+                _elapsed -= _period;
+            }
+            else
+            {
+                Finished = true;
+            }
+
+            return _step;
+        }
+    }
+
+    /// <summary>A surface an animation is about to repaint.</summary>
+    private sealed class Swap
+    {
+        private readonly AnimationTexture _swap;
+        private readonly double _at;
+        private readonly double _period;
+
+        private double _elapsed;
+
+        public Swap(AnimationTexture swap, double period, int rate)
+        {
+            _swap = swap;
+            _at = Math.Max(0, swap.Frame) / (double)Math.Max(1, rate);
+            _period = period;
+            Finished = _period <= 0 && swap.Frame <= 0;
+        }
+
+        /// <summary>Whether it has happened and will not come round again.</summary>
+        public bool Finished { get; private set; }
+
+        /// <summary>Advances the clock and says whether the swap is now due.</summary>
+        public AnimationTexture? Step(double seconds)
+        {
+            if (Finished)
+            {
+                return null;
+            }
+
+            double before = _elapsed;
+            _elapsed += seconds;
+
+            if (before > _at || _elapsed < _at)
+            {
+                return null;
+            }
+
+            if (_period > 0)
+            {
+                _elapsed -= _period;
+            }
+            else
+            {
+                Finished = true;
+            }
+
+            return _swap;
+        }
+    }
+
     private sealed class Showing
     {
         private readonly AnimationVisibility _change;
@@ -2523,12 +3150,32 @@ public sealed class SceneUpdate
 
         private readonly int _period;
 
-        private WalkCycle(ActFile clip, PlacedModel target, Matrix4x4 rest, float opens, float pace)
+        /// <summary>
+        /// The feet the stride puts down, and where it had got to when it was last asked.
+        /// </summary>
+        /// <remarks>
+        /// A walk is played here rather than through <see cref="Play"/> — the stride is
+        /// looped by frame and carries no schedule of its own — so nothing else can notice
+        /// the animation's footstep nodes. Which meant that of all the things in the game
+        /// that make a footstep noise, walking was the one that did not.
+        /// </remarks>
+        private readonly IReadOnlyList<AnimationStep> _steps;
+
+        private int _lastFrame = -1;
+
+        private WalkCycle(
+            ActFile clip,
+            PlacedModel target,
+            Matrix4x4 rest,
+            float opens,
+            float pace,
+            IReadOnlyList<AnimationStep> steps)
         {
             _clip = clip;
             _target = target;
             _rest = rest;
             _opens = opens;
+            _steps = steps;
             Pace = pace;
 
             // A stride is authored so that its last frame repeats its first — Gabriel's
@@ -2537,6 +3184,17 @@ public sealed class SceneUpdate
             // the walk hitches once a stride.
             _period = Closes(clip) ? clip.FrameCount - 1 : clip.FrameCount;
         }
+
+        /// <summary>
+        /// Which animation this character walks with.
+        /// </summary>
+        /// <remarks>
+        /// Whatever a script last handed them, and <c>CHARACTERS.TXT</c> otherwise. See
+        /// <see cref="SetStride"/>.
+        /// </remarks>
+        private static string? Named(
+            PlacedModel target, Actors.CharacterLibrary? characters, string? replaced) =>
+            replaced is { Length: > 0 } ? replaced : characters?.Of(target.Name)?.WalkAnimation;
 
         /// <summary>Whether the clip's last frame is its first again.</summary>
         private static bool Closes(ActFile clip)
@@ -2572,9 +3230,10 @@ public sealed class SceneUpdate
             PlacedModel target,
             Actors.CharacterLibrary? characters,
             Content.AnimationLibrary? animations,
-            Content.ClipLibrary? clips)
+            Content.ClipLibrary? clips,
+            string? replaced = null)
         {
-            if (characters?.Of(target.Name) is not { WalkAnimation: { Length: > 0 } named } ||
+            if (Named(target, characters, replaced) is not { Length: > 0 } named ||
                 animations is null ||
                 clips is null)
             {
@@ -2605,10 +3264,48 @@ public sealed class SceneUpdate
                     Mean(clip, 0));
 
                 return new WalkCycle(
-                    clip, target, rest, opens, (float)(travel / clip.Duration));
+                    clip, target, rest, opens, (float)(travel / clip.Duration), animation.Steps);
             }
 
             return null;
+        }
+
+        /// <summary>Which feet went down on the frame just stepped, if any.</summary>
+        public IReadOnlyList<AnimationStep> Landed { get; private set; } = Nothing;
+
+        private static readonly List<AnimationStep> Nothing = [];
+
+        /// <summary>
+        /// The footstep nodes between the last frame shown and this one.
+        /// </summary>
+        /// <remarks>
+        /// A range rather than an equality, because a stride is twenty frames and a frame
+        /// of the game is a sixtieth of a second: at any pace above walking the loop skips
+        /// frames, and a step tested for exactly would be missed. The wrap at the end of
+        /// the loop is the other half of the same problem.
+        /// </remarks>
+        private List<AnimationStep> Feet(int frame)
+        {
+            if (_steps.Count == 0 || frame == _lastFrame)
+            {
+                return Nothing;
+            }
+
+            List<AnimationStep> fell = [];
+
+            foreach (AnimationStep step in _steps)
+            {
+                bool inside = _lastFrame < frame
+                    ? step.Frame > _lastFrame && step.Frame <= frame
+                    : step.Frame > _lastFrame || step.Frame <= frame;
+
+                if (inside)
+                {
+                    fell.Add(step);
+                }
+            }
+
+            return fell;
         }
 
         /// <summary>Poses the model for however long the walk has been going.</summary>
@@ -2621,6 +3318,9 @@ public sealed class SceneUpdate
             // Looped, and seamlessly: with the forward travel removed, the last frame sits
             // exactly where the first does, so the join is invisible.
             int frame = (int)(_elapsed * AnimationFile.FramesPerSecond) % _period;
+
+            Landed = Feet(frame);
+            _lastFrame = frame;
 
             Matrix4x4 correction =
                 Matrix4x4.CreateTranslation(0, 0, _opens - Forward(_clip, frame)) * _rest;

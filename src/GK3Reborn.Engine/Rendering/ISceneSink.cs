@@ -302,6 +302,21 @@ public interface ISceneSink
     /// </remarks>
     void KeepRelief(IReadOnlySet<string> textures);
 
+    /// <summary>
+    /// Draws one of the room's own named objects, or stops drawing it.
+    /// </summary>
+    /// <param name="objectName">The object's name, as the geometry file records it.</param>
+    /// <param name="visible">Whether it is drawn.</param>
+    /// <returns>True when the room has an object by that name.</returns>
+    /// <remarks>
+    /// Not the same as <see cref="SetVisible"/>, which is about a model the scene loaded
+    /// from a file of its own. This is about the room: a curtain, a door, a van, all of
+    /// which are runs of surfaces inside one mesh with a name over them. Scripts show and
+    /// hide those 287 times across the corpus, and until this existed every one of those
+    /// calls was recorded and dropped.
+    /// </remarks>
+    bool SetSceneObjectVisible(string objectName, bool visible);
+
     /// <summary>Adds a scene's geometry and its baked lighting.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">Its lightmaps, in surface order, if any.</param>

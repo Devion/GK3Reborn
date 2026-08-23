@@ -140,6 +140,15 @@ public sealed class SceneInteraction
     /// clicking elsewhere, and not leaving the room, so the phone room and every room after
     /// it opened pointing at a register that was not in them.
     /// </para>
+    /// <para>
+    /// <b>And neither verb is offered for something that cannot be looked at.</b> Reported
+    /// as "Inspect / Inspect Undo, and inspect didn't even inspect": the close-up was
+    /// offered for every noun in the game, most of which no scene declares a camera for, so
+    /// choosing it moved nothing — and because it still counted as having happened, the menu
+    /// then offered to undo the thing that had not occurred. <see cref="Watcher"/> is asked
+    /// first, and it can now frame a close-up from the object's own bounds, so what is
+    /// refused here is only what has no geometry at all.
+    /// </para>
     /// </remarks>
     private List<AvailableAction> WithInspect(
         string noun, IReadOnlyList<AvailableAction> offered)
@@ -149,6 +158,14 @@ public sealed class SceneInteraction
         List<AvailableAction> all =
             [.. offered.Where(a =>
                 !a.LocalizedVerb.Equals(looking ? Inspect : Undo, StringComparison.OrdinalIgnoreCase))];
+
+        // Nothing to look at closely, so neither the way in nor the way out is offered. The
+        // way out is still reachable while it is being looked at, because a close-up the
+        // player is already inside has to be leaveable whatever the room says now.
+        if (!looking && Watcher is { } world && !world.Inspectable(noun))
+        {
+            return all;
+        }
 
         string verb = looking ? Undo : Inspect;
 
@@ -217,6 +234,15 @@ public sealed class SceneInteraction
     /// "Exit", which is still better than a number.
     /// </remarks>
     public GameStrings Strings { get; set; } = GameStrings.None;
+
+    /// <summary>The room as it stands, for questions only it can answer.</summary>
+    /// <remarks>
+    /// Whether a thing can be looked at closely depends on where it is and what it occupies,
+    /// which is the live room's business rather than the action files'. Optional: without
+    /// one the close-up verb is offered as it always was, which is what the tests that build
+    /// an interaction with no room expect.
+    /// </remarks>
+    public SceneUpdate? Watcher { get; set; }
 
     /// <summary>Does something to what is under the pointer.</summary>
     /// <param name="hover">What was under it, from <see cref="At"/>.</param>

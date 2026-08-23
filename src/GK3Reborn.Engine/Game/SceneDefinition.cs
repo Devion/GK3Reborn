@@ -110,6 +110,14 @@ public sealed class SceneDefinition
         Join(_general?.Soundtracks(), _specific?.Soundtracks());
 
     /// <summary>The cameras a conversation cuts between.</summary>
+    /// <summary>Every camera the scene names, whatever kind it is.</summary>
+    /// <remarks>
+    /// For anything choosing between them rather than looking one up: the artists framed
+    /// all three lists and a shot that holds a conversation may be in any of them.
+    /// </remarks>
+    public IReadOnlyList<SceneCamera> Cameras() =>
+        [.. RoomCameras(), .. CinematicCameras(), .. DialogueCameras()];
+
     public IReadOnlyList<SceneCamera> DialogueCameras() =>
         Join(_general?.DialogueCameras(), _specific?.DialogueCameras());
 

@@ -56,7 +56,7 @@ public sealed class ActionRunnerTests
 
         List<Action> held = [];
 
-        api.Walks = (_, _, _, _) => 4.0;
+        api.Walks = (_, _, _, _, _) => 4.0;
         api.Defers = (_, work) =>
         {
             held.Add(work);
@@ -81,7 +81,7 @@ public sealed class ActionRunnerTests
         // for a frame for nothing.
         (ActionRunner runner, Gk3SheepApi api, GameState state) = Host();
 
-        api.Walks = (_, _, _, _) => 0;
+        api.Walks = (_, _, _, _, _) => 0;
         api.Defers = (_, _) => throw new InvalidOperationException("nothing to wait for");
 
         ActionOutcome outcome = runner.Run(
@@ -97,7 +97,7 @@ public sealed class ActionRunnerTests
     {
         (ActionRunner runner, Gk3SheepApi api, GameState state) = Host();
 
-        api.Walks = (_, _, _, _) => 4.0;
+        api.Walks = (_, _, _, _, _) => 4.0;
 
         ActionOutcome outcome = runner.Run(
             Reached(@"SetFlag(""Talked"")", "WalkTo", "TALK_BUTHANE"));
@@ -116,7 +116,7 @@ public sealed class ActionRunnerTests
 
         Approaching? asked = null;
 
-        api.Walks = (_, _, how, _) =>
+        api.Walks = (_, _, how, _, _) =>
         {
             asked = how;
             return 1.5;

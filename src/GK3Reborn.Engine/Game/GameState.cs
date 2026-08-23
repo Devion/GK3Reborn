@@ -351,6 +351,17 @@ public sealed class GameState
     /// </remarks>
     public string? Conversation { get; set; }
 
+    /// <summary>
+    /// Whether an exchange is under way, so that its camera is chosen once.
+    /// </summary>
+    /// <remarks>
+    /// A conversation is many calls — a topic's script says several lines and each is its
+    /// own <c>StartDialogue</c> — and cutting on every one of them would make the camera
+    /// jump each time somebody drew breath. Cleared when the conversation ends and when the
+    /// player does anything else.
+    /// </remarks>
+    public bool Talking { get; set; }
+
     /// <summary>Where an actor currently is.</summary>
     public string GetActorLocation(string actor) =>
         _actorLocations.GetValueOrDefault(Key(actor), string.Empty);
@@ -459,6 +470,159 @@ public sealed class GameState
 
     /// <summary>Adds to the score.</summary>
     public void ChangeScore(int by) => Score += by;
+
+    /// <summary>
+    /// Awards a named score event, once.
+    /// </summary>
+    /// <param name="name">The event, as a script names it.</param>
+    /// <param name="worth">What it is worth, or null when nothing knows.</param>
+    /// <returns>True when it scored, false when it had already been earned or is unknown.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>ChangeScore</c> takes a name and not a number — <c>ChangeScore("e_110a_lby_read_register")</c>
+    /// — which is easy to misread, and reading it as a number awards zero every time.
+    /// </para>
+    /// <para>
+    /// The set of events earned is part of the state and part of a save. It is what makes
+    /// the score stable across a reload, and it is a record of what the player has actually
+    /// done rather than only of how many points they have.
+    /// </para>
+    /// </remarks>
+    public bool AwardScore(string name, int? worth)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (worth is not { } points || !_scored.Add(name))
+        {
+            return false;
+        }
+
+        Score += points;
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the clock is being moved on, and to when.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set by <c>SetTime</c> and cleared once the new timeblock has been started. It exists
+    /// because a timeblock change is not a room change with a different clock: the room
+    /// being left is unloaded, the timeblock's closing film plays, the player is shown where
+    /// they have got to, and only then is the next room built. Whatever asked to change
+    /// rooms has to stand aside for all of that, which is what the original's
+    /// <c>IsChangingTimeblock</c> is for.
+    /// </para>
+    /// <para>
+    /// Not in the state hash: it is true for the length of a transition and never while the
+    /// game is sitting still.
+    /// </para>
+    /// </remarks>
+    public Timeblock? ChangingTo { get; private set; }
+
+    /// <summary>Whether the clock is on its way somewhere.</summary>
+    public bool ChangingTimeblock => ChangingTo is not null;
+
+    /// <summary>
+    /// Moves the story on to another point in the day.
+    /// </summary>
+    /// <param name="timeblock">Where the clock is going.</param>
+    /// <param name="location">Where the player will be, or null to leave that to the caller.</param>
+    /// <returns>True when the clock actually moved.</returns>
+    /// <remarks>
+    /// Asking for the timeblock the game is already in does nothing, which is what the
+    /// original does and what keeps a completion rule that fires twice from playing the
+    /// closing film twice.
+    /// </remarks>
+    public bool ChangeTimeblock(Timeblock timeblock, string? location = null)
+    {
+        if (timeblock == Timeblock)
+        {
+            return false;
+        }
+
+        ChangingTo = timeblock;
+
+        if (location is { Length: > 0 } named)
+        {
+            Location = named.ToUpperInvariant();
+        }
+
+        return true;
+    }
+
+    /// <summary>Finishes a timeblock change, once the next room is being built.</summary>
+    public void StartedTimeblock()
+    {
+        if (ChangingTo is { } wanted)
+        {
+            Timeblock = wanted;
+            ChangingTo = null;
+        }
+    }
+
+    /// <summary>
+    /// Whether the camera is fenced in by the room's shell.
+    /// </summary>
+    /// <remarks>
+    /// On unless a script says otherwise, and a script saying otherwise means it only
+    /// until the next room: the original notes that turning them off does not survive a
+    /// scene load, and 35 calls rely on that rather than turning them back on.
+    /// </remarks>
+    public bool CameraBoundaries { get; set; } = true;
+
+    /// <summary>The expression somebody is wearing, or null.</summary>
+    /// <param name="actor">Their model name.</param>
+    /// <returns>The mood.</returns>
+    /// <remarks>
+    /// State rather than presentation: a mood is worn until something clears it, and what
+    /// clears it is an animation that has to know which one to play. It survives a save for
+    /// the same reason — a character reloaded mid-scene should still look how they looked.
+    /// </remarks>
+    public string? MoodOf(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        return _moods.GetValueOrDefault(actor);
+    }
+
+    /// <summary>Records the expression somebody is wearing.</summary>
+    /// <param name="actor">Their model name.</param>
+    /// <param name="mood">The mood, or null for none.</param>
+    public void SetMood(string actor, string? mood)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (mood is { Length: > 0 })
+        {
+            _moods[actor] = mood;
+        }
+        else
+        {
+            _moods.Remove(actor);
+        }
+    }
+
+    /// <summary>Everyone wearing an expression, and which, in a stable order.</summary>
+    public IReadOnlyList<(string Actor, string Mood)> Moods =>
+        [.. _moods.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kv => (kv.Key, kv.Value))];
+
+    private readonly Dictionary<string, string> _moods = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether a score event has been earned.</summary>
+    /// <param name="name">The event.</param>
+    /// <returns>True when it has.</returns>
+    public bool HasScored(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _scored.Contains(name);
+    }
+
+    /// <summary>Every score event earned, in a stable order.</summary>
+    public IReadOnlyList<string> Scored =>
+        [.. _scored.OrderBy(n => n, StringComparer.OrdinalIgnoreCase)];
+
+    private readonly HashSet<string> _scored = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Whether a file has been gathered in Sidney.</summary>
     /// <param name="file">The file's name.</param>

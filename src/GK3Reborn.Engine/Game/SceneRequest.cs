@@ -110,6 +110,11 @@ public sealed class SceneRequest
         // every room after it framed on a register.
         state.Inspecting = string.Empty;
 
+        // And the camera is fenced in again. Turning the shell off lasts until the next
+        // room in the original, which is what the scripts that turn it off and never back
+        // on are relying on.
+        state.CameraBoundaries = true;
+
         return new SceneRequest(name, null, state, api);
     }
 

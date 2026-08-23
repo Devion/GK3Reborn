@@ -1,4 +1,4 @@
-GK3Reborn
+﻿GK3Reborn
 Copyright (C) 2026 GK3Reborn contributors
 
 This program is free software: you can redistribute it and/or modify it under
@@ -15,6 +15,17 @@ by Clark Kromenaker (https://github.com/kromenak/gengine), licensed under the
 GNU General Public License version 3. G-Engine is used as the behavioral oracle
 and file-format reference for GK3Reborn. Files that adapt G-Engine code carry a
 per-file attribution notice.
+
+Three of G-Engine's own data files are adapted here, in src/GK3Reborn.Engine/Assets/Story:
+
+  Pockets.txt     what Gabriel and Grace are carrying when the game begins
+  Scores.txt      what each of the game's score events is worth
+  Timeblocks.shp  the rules that decide when a point in the story is over
+
+None is in the game's own data. The original compiled all three into its executable,
+so a reimplementation has to restore them; G-Engine reconstructed them, and these
+are adapted from that work under the same licence. Each carries the attribution in
+its own header.
 
 File-format understanding also draws on GK3 Tools
 (https://sourceforge.net/projects/gk3tools/).

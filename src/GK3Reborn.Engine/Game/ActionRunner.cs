@@ -139,6 +139,10 @@ public sealed class ActionRunner
         // What the script means when it says "this thing" — see Gk3SheepApi.ActingOn.
         _api.ActingOn = action.Noun;
 
+        // A new thing to do is a new exchange, so the camera gets to choose again. Without
+        // this, the second conversation of a scene is watched from the first one's shot.
+        _api.State.Talking = false;
+
         double approaching = Approach(action, hurry);
 
         // Get there first. The original runs an action's script only once the player has
@@ -275,16 +279,16 @@ public sealed class ActionRunner
         return approach.ToUpperInvariant() switch
         {
             "WALKTO" or "WALKTOANIMATION" =>
-                _api.Walks(_api.State.Ego, target, Approaching.Walk, hurry),
+                _api.Walks(_api.State.Ego, target, Approaching.Walk, hurry, true),
 
             "WALKTOSEE" or "WALKTOSEEMODEL" or "NEARMODEL" =>
-                _api.Walks(_api.State.Ego, target, Approaching.WalkToSee, hurry),
+                _api.Walks(_api.State.Ego, target, Approaching.WalkToSee, hurry, true),
 
             // A turn is not a walk. Walking to the thing instead puts the player on top of
             // whatever they meant to look at. Nor can a turn be hurried: it is over before
             // anybody could have wanted it to be quicker.
             "TURNTOMODEL" or "TURNTO" =>
-                _api.Walks(_api.State.Ego, target, Approaching.Turn, false),
+                _api.Walks(_api.State.Ego, target, Approaching.Turn, false, false),
 
             // The one approach whose target is not a place. It names an animation, and
             // means walk to where that animation begins before playing it — 398 of the

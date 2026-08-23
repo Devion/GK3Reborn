@@ -1,4 +1,6 @@
-﻿namespace GK3Reborn.Rendering;
+﻿using System.Numerics;
+
+namespace GK3Reborn.Rendering;
 
 /// <summary>How much ray tracing to do.</summary>
 /// <remarks>
@@ -56,6 +58,42 @@ public readonly record struct RayTracingSettings(
     float AmbientOcclusionRadius,
     int OcclusionSamples = 8)
 {
+    /// <summary>The light a surface receives from everywhere at once.</summary>
+    /// <remarks>
+    /// <para>
+    /// Green-leaning and very dim where the bake is still in play: there it only has to keep
+    /// a corner no lamp reaches from going to black, which is the job the original's own
+    /// ambient floor did.
+    /// </para>
+    /// <para>
+    /// Where the bake is gone it is doing a great deal more, because it is now the only
+    /// thing standing in for light that has bounced. Measured on <c>RC1</c> and <c>LBY</c>:
+    /// the rig alone lands about a third below the bake, and this is what closes it. It is
+    /// modulated by traced ambient occlusion at those tiers, which is what keeps it from
+    /// reading as the flat wash a constant would be — a corner still darkens, it just
+    /// darkens because a ray said so rather than because a lightmap was painted that way.
+    /// </para>
+    /// </remarks>
+    public Vector3 Ambient => UsesBake
+        ? new Vector3(0.06f, 0.08f, 0.06f)
+        : new Vector3(0.26f, 0.28f, 0.30f);
+
+    /// <summary>How much of the traced ambient occlusion to believe, from zero to one.</summary>
+    /// <remarks>
+    /// <para>
+    /// Never all of it: whole, it drives a surface to black outright, because enough of the
+    /// hemisphere above a shoulder is that person's own head that the shoulder disappears.
+    /// </para>
+    /// <para>
+    /// Where the bake is still in play there is a second reason to hold it back — those
+    /// lightmaps were baked with occlusion already in them, so a hemisphere of rays is
+    /// measuring something the bake has largely accounted for and applying it whole counts
+    /// it twice. Medium and High have no bake to count twice against, so they believe a good
+    /// deal more of it, and that is what puts a chair leg on the floor rather than above it.
+    /// </para>
+    /// </remarks>
+    public float OcclusionStrength => UsesBake ? 0.55f : 0.85f;
+
     /// <summary>Whether any rays are traced at all.</summary>
     public bool TracesRays => ShadowLights > 0 || AmbientOcclusionRays > 0;
 
@@ -66,6 +104,14 @@ public readonly record struct RayTracingSettings(
     /// the whole result.
     /// </remarks>
     public bool BakedOnly => Quality == RayTracingQuality.None;
+
+    /// <summary>Whether the bake contributes anything at all.</summary>
+    /// <remarks>
+    /// False at Medium and High, where the room is lit outright. It is a separate question
+    /// from <see cref="BakedOnly"/>: one asks whether the bake is the whole answer, this
+    /// asks whether it is any of it.
+    /// </remarks>
+    public bool UsesBake => LightmapIndirect > 0f;
 
     /// <summary>
     /// How far an occlusion ray reaches, in scene units.
@@ -92,13 +138,27 @@ public readonly record struct RayTracingSettings(
     /// distant ones contribute little.
     /// </para>
     /// <para>
-    /// Every level above None keeps some of the bake as its indirect term, because there
-    /// is no gathered bounce yet and a room lit by direct light alone reads as harsh and
-    /// far too dark — the bake is the artists' own answer for what the walls are
-    /// bouncing. It double counts the direct light it also contains, which is why it is
-    /// scaled down rather than used whole, and why the weight falls as quality rises.
-    /// Removing it entirely waits on real indirect light, which needs material data at
-    /// the hit point and so a good deal more than a ray query.
+    /// <b>Medium and High light the room outright and use no bake at all</b>, which is
+    /// what <c>Plan/04</c> P10 asks for — "the RT and enhanced tiers light scenes from the
+    /// rig, the compatibility tier keeps baked lightmaps" — and what ADR 0006 means by
+    /// re-lighting for modern range rather than matching 1999 output. A baked lightmap is
+    /// light that was computed once, for a room with nobody in it, and cannot know about
+    /// anything that has happened since; keeping it is what made a character's shadow so
+    /// faint, because a shadow can only take away the share of a surface the rig accounts
+    /// for and the bake was holding the rest.
+    /// </para>
+    /// <para>
+    /// What replaces it is not nothing. The artists' own rig is not only key lights: 125
+    /// <c>sky_bounce</c> and 169 <c>ground_bounce</c> entries across the corpus are their
+    /// answer to what the walls and floor are throwing back, and <c>ground_bounce</c> is
+    /// the most common light name in the game. Evaluating the rig in full is evaluating
+    /// their bounce approximation along with their key light — which is why dropping the
+    /// bake costs far less than the raw numbers suggest.
+    /// </para>
+    /// <para>
+    /// Low keeps most of the bake. It is the tier for hardware that can trace a few shadow
+    /// rays and nothing else, and a room lit by a handful of shadowed lights with no
+    /// occlusion is exactly the case the bake is still the better answer for.
     /// </para>
     /// </remarks>
     public static RayTracingSettings For(RayTracingQuality quality) => quality switch
@@ -109,8 +169,8 @@ public readonly record struct RayTracingSettings(
         // because Low has no ambient occlusion — so Low was estimating every shadow from
         // a single ray and looked far worse than the level above it.
         RayTracingQuality.Low => new(quality, 8, 0, 1, 0.6f, 0f, 4),
-        RayTracingQuality.Medium => new(quality, 16, 4, 1, 0.5f, OcclusionRadius, 6),
-        RayTracingQuality.High => new(quality, 32, 8, 2, 0.35f, OcclusionRadius, 8),
+        RayTracingQuality.Medium => new(quality, 16, 4, 1, 0f, OcclusionRadius, 6),
+        RayTracingQuality.High => new(quality, 32, 8, 2, 0f, OcclusionRadius, 8),
         _ => new(RayTracingQuality.None, 0, 0, 1, 1f, 0f, 0),
     };
 

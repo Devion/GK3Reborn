@@ -364,6 +364,49 @@ public sealed class SceneAudio
         return found;
     }
 
+    /// <summary>Whether anybody is speaking at this moment.</summary>
+    public bool Talking => Saying is { Length: > 0 };
+
+    /// <summary>
+    /// Cuts the line being spoken short and starts the next one.
+    /// </summary>
+    /// <returns>True when there was a line to cut short.</returns>
+    /// <remarks>
+    /// <para>
+    /// What a click during dialogue means. A player who has read the caption should not have
+    /// to sit through the rest of the recording, and every adventure game of this kind lets
+    /// them tap through — the original does not, which is a limitation of 1999 rather than a
+    /// design anybody would choose.
+    /// </para>
+    /// <para>
+    /// The rest of the run is kept, because a conversation is a queue and skipping a line is
+    /// not abandoning the exchange. Skipping the last line stops cleanly and lets whatever
+    /// was waiting on the dialogue carry on, which is the same path the line finishing on
+    /// its own takes.
+    /// </para>
+    /// </remarks>
+    public bool Skip()
+    {
+        if (Saying is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        if (_line.Exists)
+        {
+            _backend.Silence(_line);
+            _line = AudioVoice.None;
+        }
+
+        Saying = null;
+        Caption = null;
+        Speaker = null;
+        Speaking?.Invoke(null);
+
+        Next();
+        return true;
+    }
+
     /// <summary>Stops whatever is being said and forgets the rest of it.</summary>
     public void Hush()
     {

@@ -27,6 +27,7 @@ namespace GK3Reborn.UI;
 /// <param name="InventoryOpen">Whether the inventory is showing.</param>
 /// <param name="Place">Where this is, for the corner.</param>
 /// <param name="Console">The developer console, when it is showing.</param>
+/// <param name="Score">What the player has scored, already written out, or null.</param>
 /// <param name="Items">
 /// The things in the bag this noun answers to, which the menu offers behind one row rather
 /// than listing beside the verbs. An action file writes "use the wallet on Buthane" as a
@@ -48,6 +49,7 @@ public readonly record struct HudState(
     bool InventoryOpen,
     string Place,
     GameConsole? Console = null,
+    string? Score = null,
     IReadOnlyList<string>? Items = null);
 
 /// <summary>
@@ -398,7 +400,12 @@ public sealed class GameHud
         point.X >= bounds.X && point.X <= bounds.X + bounds.Z &&
         point.Y >= bounds.Y && point.Y <= bounds.Y + bounds.W;
 
-    /// <summary>The corner that says where you are.</summary>
+    /// <summary>The corner that says where you are, and what you have scored.</summary>
+    /// <remarks>
+    /// The score goes at the other end of the same bar rather than in a corner of its own.
+    /// It is the game's own line — <c>ScoreText = Score: %03d of %03d</c> out of the string
+    /// table — so it reads the way the original's toolbar read.
+    /// </remarks>
     private void Where(HudState state, int width)
     {
         float unit = Scale;
@@ -407,6 +414,11 @@ public sealed class GameHud
         Overlay.Rect(0, 0, width, height, Panel);
         Overlay.Rect(0, height - 1, width, 1, Rule);
         Overlay.Text(state.Place, 12 * unit, 5 * unit, Dim);
+
+        if (state.Score is { Length: > 0 } score)
+        {
+            Overlay.Text(score, width - Overlay.Measure(score) - (12 * unit), 5 * unit, Dim);
+        }
     }
 
     /// <summary>

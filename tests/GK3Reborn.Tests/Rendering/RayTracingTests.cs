@@ -170,7 +170,11 @@ public sealed class RayTracingTests
     };
 
     /// <summary>Renders the floor, with or without the wall that shadows it.</summary>
-    private static DecodedImage Picture(SceneRenderer renderer, RayTracingQuality quality, bool wall)
+    private static DecodedImage Picture(
+        SceneRenderer renderer,
+        RayTracingQuality quality,
+        bool wall,
+        RayTracingSettings? settings = null)
     {
         using SceneGeometry geometry = renderer.CreateGeometry();
 
@@ -184,6 +188,7 @@ public sealed class RayTracingTests
 
         renderer.SetLights([SideLight()]);
         renderer.Quality = quality;
+        renderer.Overriding = settings;
 
         return renderer.Render(geometry, 200, 200, Overlooking());
     }
@@ -311,20 +316,92 @@ public sealed class RayTracingTests
             $"the picture changed without any rays being traced: {open} to {blocked}");
     }
 
+    /// <summary>
+    /// The floor is darker where it meets the wall once occlusion is traced, and not
+    /// before.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Medium against Medium with its occlusion rays given no reach, so the two renders
+    /// differ in that and nothing else. The reach rather than the ray count, because it is
+    /// the reach the occlusion pass is handed — <c>AmbientOcclusionRays</c> only tells the
+    /// mesh shader that occlusion is being traced at all. Comparing two tiers, which is what this used to do, stopped
+    /// meaning anything once Medium gave up the baked lightmaps: the tiers now differ in
+    /// what lights the room as well as in how many rays they spend, and Medium came out the
+    /// brighter of the two for reasons that had nothing to do with occlusion.
+    /// </para>
+    /// <para>
+    /// Measured where the floor meets the wall on the lit side. The shadow the wall throws
+    /// lands on the other side and is not in the band at all, so what is left for occlusion
+    /// to explain is the near contact — the line under the wall that a shadow ray toward a
+    /// single lamp cannot produce.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void Occlusion_darkens_the_scene_further()
+    public void Occlusion_darkens_the_floor_where_it_meets_the_wall()
     {
         Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
 
         using VulkanContext context = VulkanContext.CreateHeadless();
         using SceneRenderer renderer = SceneRenderer.Create(context);
 
-        float shadowsOnly = Render(renderer, RayTracingQuality.Low, wall: true);
-        float withOcclusion = Render(renderer, RayTracingQuality.Medium, wall: true);
+        RayTracingSettings medium = RayTracingSettings.For(RayTracingQuality.Medium);
+
+        float without = Contact(Picture(
+            renderer, RayTracingQuality.Medium, wall: true,
+            settings: medium with { AmbientOcclusionRadius = 0f }));
+
+        float with = Contact(Picture(renderer, RayTracingQuality.Medium, wall: true));
 
         Assert.True(
-            withOcclusion < shadowsOnly,
-            $"occlusion did not darken anything: {shadowsOnly} to {withOcclusion}");
+            without > 0.5f,
+            $"the floor was already dark at the wall with no occlusion traced: {without}");
+
+        Assert.True(
+            with < without * 0.97f,
+            $"occlusion did not darken the floor at the wall: {without} to {with}");
+    }
+
+    /// <summary>
+    /// How bright the floor is where it meets the wall, against the floor in the open.
+    /// </summary>
+    /// <param name="picture">A render of the floor with the wall standing on it.</param>
+    /// <returns>The ratio. Below one because the far band is nearer the lamp.</returns>
+    /// <remarks>
+    /// The camera looks straight down with its up along positive z and the wall runs along
+    /// x through the origin, so the wall is a horizontal line across the middle of the
+    /// picture. The light is on the negative z side, which is the bottom half — so that half
+    /// is the lit one, and the shadow the wall throws lands in the other.
+    /// </remarks>
+    private static float Contact(DecodedImage picture)
+    {
+        float near = MeanRows(picture, picture.Height / 2, (picture.Height / 2) + 12);
+        float far = MeanRows(picture, picture.Height - 30, picture.Height);
+
+        return far > 0.01f ? near / far : 0f;
+    }
+
+    /// <summary>The mean luminance of a band of rows.</summary>
+    private static float MeanRows(DecodedImage picture, int first, int last)
+    {
+        double total = 0;
+        int counted = 0;
+
+        for (int y = Math.Max(first, 0); y < Math.Min(last, picture.Height); y++)
+        {
+            for (int x = 0; x < picture.Width; x++)
+            {
+                int at = ((y * picture.Width) + x) * 4;
+
+                total += (0.2126 * picture.Pixels[at]) +
+                         (0.7152 * picture.Pixels[at + 1]) +
+                         (0.0722 * picture.Pixels[at + 2]);
+
+                counted++;
+            }
+        }
+
+        return counted > 0 ? (float)(total / counted) : 0f;
     }
 
     [Fact]

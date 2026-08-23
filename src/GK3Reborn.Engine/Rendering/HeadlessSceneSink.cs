@@ -222,6 +222,26 @@ public sealed class HeadlessSceneSink : ISceneSink
     /// <summary>How many textures the loader asked to keep a readable height map for.</summary>
     public int ReliefTextureCount { get; private set; }
 
+    /// <summary>Names of the room's own objects a script has shown or hidden.</summary>
+    /// <remarks>
+    /// Counted rather than drawn, like everything else here. What it is for is the sweep:
+    /// a scene whose script hides an object the geometry does not contain is a name that
+    /// will silently do nothing in the game.
+    /// </remarks>
+    public List<string> SceneObjectsToggled { get; } = [];
+
+    /// <inheritdoc/>
+    public bool SetSceneObjectVisible(string objectName, bool visible)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        SceneObjectsToggled.Add(objectName);
+
+        return _sceneObjects.Contains(objectName);
+    }
+
+    private readonly HashSet<string> _sceneObjects = new(StringComparer.OrdinalIgnoreCase);
+
     /// <inheritdoc/>
     public void AddScene(
         BspFile scene,
@@ -230,6 +250,11 @@ public sealed class HeadlessSceneSink : ISceneSink
         string? floorObject = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
+
+        foreach (string name in scene.ObjectNames)
+        {
+            _sceneObjects.Add(name);
+        }
 
         TriangleCount += scene.TriangleCount;
 

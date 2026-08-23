@@ -1,4 +1,4 @@
-using GK3Reborn.Content;
+﻿using GK3Reborn.Content;
 using GK3Reborn.Formats.Ini;
 
 namespace GK3Reborn.Game.Actors;
@@ -25,6 +25,10 @@ public readonly record struct CharacterAxes(int Mesh, int Group, int Point);
 /// <param name="Hips">The triad at the hips, which is where the character stands.</param>
 /// <param name="LeftShoe">The triad under the left shoe.</param>
 /// <param name="RightShoe">The triad under the right shoe.</param>
+/// <param name="ShoeType">
+/// What they have on their feet — "Male Leather", "Female Heels" — which with the floor
+/// underfoot decides what a step sounds like. See <see cref="Footsteps"/>.
+/// </param>
 public sealed record CharacterConfig(
     string Identifier,
     float WalkerHeight,
@@ -33,7 +37,8 @@ public sealed record CharacterConfig(
     string? StopAnimation,
     CharacterAxes? Hips = null,
     CharacterAxes? LeftShoe = null,
-    CharacterAxes? RightShoe = null);
+    CharacterAxes? RightShoe = null,
+    string? ShoeType = null);
 
 /// <summary>
 /// <c>CHARACTERS.TXT</c> — who the game's people are and how they move.
@@ -115,7 +120,8 @@ public sealed class CharacterLibrary
                 Value("StopAnim"),
                 Axes("Hip"),
                 Axes("LShoe"),
-                Axes("RShoe"));
+                Axes("RShoe"),
+                Value("ShoeType"));
         }
 
         return library;

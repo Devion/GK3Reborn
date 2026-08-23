@@ -2,12 +2,20 @@
 
 Four quality levels, as the settings screen will expose them:
 
-| level | shadowed lights | rays per shadow | occlusion rays | occlusion radius | bake weight |
-| --- | --- | --- | --- | --- | --- |
-| None | – | – | – | – | 1.0 |
-| Low | 8 | 1 | – | – | 0.6 |
-| Medium | 16 | 1 | 4 | 45 | 0.5 |
-| High | 32 | 2 | 8 | 45 | 0.35 |
+| level | shadowed lights | rays per shadow | occlusion rays | occlusion radius | bake | occlusion believed |
+| --- | --- | --- | --- | --- | --- | --- |
+| None | – | – | – | – | yes | – |
+| Low | 8 | 1 | – | – | yes, 0.6 | – |
+| Medium | 16 | 1 | 4 | 45 | **no** | 0.85 |
+| High | 32 | 2 | 8 | 45 | **no** | 0.85 |
+
+**Medium and High use no baked lightmaps.** They light a room from the artists'
+own rig and nothing else, which is what `Plan/04` P10 asks for — "the RT and
+enhanced tiers light scenes from the rig, the compatibility tier keeps baked
+lightmaps" — and what ADR 0006 means by re-lighting for modern range rather than
+reproducing the 1999 output. None and Low keep the bake: None is the compatibility
+tier, and Low is for hardware that can trace a few shadow rays and no more, which
+is exactly the case a bake is still the better answer for.
 
 ```bash
 GK3Reborn --scene LBY --rt high --data <GK3>/Data     # F2 cycles the levels live
@@ -63,11 +71,17 @@ returns a hit, a distance and a primitive index, nothing else. Supplying the res
 means vertex and material buffers reachable by address and an index from primitive
 to material, which is a larger change than the shading itself.
 
-Until then the baked lightmaps stand in as the indirect term, scaled down and
-weighted less as quality rises. This double counts the direct light the bake also
-contains, which is exactly why it is scaled rather than used whole. It is also why
-the answer to "do the lightmaps become unnecessary" is *not yet*: they stop being
-the lighting at Low and above, but they are still supplying the bounce.
+At Low the baked lightmaps stand in as the indirect term, scaled down because they
+double count the direct light they also contain. At Medium and High there is no
+bake, and what stands in for bounce is two things: an ambient floor that traced
+occlusion eats into, and the rig's own bounce lights. Those are not a fiction — 125
+`sky_bounce` and 169 `ground_bounce` entries across the corpus are the artists'
+answer to what the walls and floor throw back, and `ground_bounce` is the most
+common light name in the game. Evaluating the rig in full evaluates their bounce
+approximation along with their key light.
+
+It is still an approximation and a gathered bounce would be better. What it is not
+is a regression: measured below, an interior lands within 3% of the bake.
 
 **Alpha-tested geometry.** Windows, railings and foliage are keyed on magenta and
 are left out of the acceleration structure entirely, so they cast no shadow.
@@ -359,12 +373,20 @@ them, and a part whose shape changed is rebuilt in the same submission as the to
 The room, which is most of the triangles and never changes shape, stays device-local and
 is built once.
 
-Occlusion is also applied at a little over half strength rather than whole. These rooms
-ship with lightmaps that were baked with occlusion already in them, so a hemisphere of
-rays measures something the bake has largely accounted for, and counting it twice drives
-surfaces to black: enough of the hemisphere above a shoulder is that person's own head
-that the shoulder disappears. What is worth keeping is the near contact the bake is too
-coarse to hold — the seam where an arm meets a body, the line under a table.
+Occlusion is also applied at less than full strength, and how much less is the tier's
+decision — `RayTracingSettings.OcclusionStrength`, pushed to the compositing pass.
+
+Never all of it, at any tier: whole, it drives surfaces to black, because enough of the
+hemisphere above a shoulder is that person's own head that the shoulder disappears. What
+is worth keeping is the near contact nothing else holds — the seam where an arm meets a
+body, the line under a table, the ground a chair leg stands on.
+
+Where a bake is in play there is a second reason to hold it back, which is that these
+lightmaps were baked with occlusion already in them, so a hemisphere of rays measures
+something the bake has largely accounted for. That is why Low believes 0.55 of it.
+Medium and High have no bake to count twice against and believe 0.85 — which is worth
+7 points of `RC1`'s mean on its own, and is what puts a chair leg on the floor rather
+than above it.
 
 ### Measuring a flicker
 
@@ -489,7 +511,31 @@ from inside one hotel room a great many of them are in the rooms next door. They
 contribute on paper and are stopped by a wall in fact, so subtracting the unshadowed term
 takes out light the bake never had — tried that way, the room fell to 32.
 
-`RayTracingSettings.LightmapIndirect` is no longer read while tracing.
+`RayTracingSettings.LightmapIndirect` is now the gate as well as the weight. At
+Medium and High it is zero, the mesh pass emits the ambient floor in place of a
+bake, and every pixel arrives at the compositing pass with the ambient alpha — so
+`lightmapped` is nought, `residual` is the ambient floor, and nothing is subtracted
+from it. The subtraction above is what Low does with the bake it still has.
+
+### Measured, once the bake was taken away
+
+Mean frame luminance, eight bits, from `render-scene`, which is byte-reproducible:
+
+| scene | None | Low | Medium | High |
+| --- | --- | --- | --- | --- |
+| `LBY` lobby, `GabEmlWide` | 54.4 | 53.4 | 52.7 | 52.7 |
+| `RC1` exterior | 75.8 | 67.9 | 55.7 | 55.7 |
+
+The lobby holds: 3% off the bake, and the share of the frame below an eighth of
+full brightness moves from 16.6% to 17.9%. What changes is not the level but the
+shape of it — a character now throws a shadow on the wall behind him, which he did
+not before, and the sconce's painted-on bloom is gone.
+
+`RC1` is 27% down and that is not tuning, it is the rig: the whole town ships with
+**seven** authored lights, against `LBY`'s forty-one, and outdoors the artists left
+nearly everything to the bake. The picture is legible and correctly overcast, but a
+figure standing in the open casts no contact shadow, because there is no sun in the
+rig to cast it. An exterior sun-and-sky light is the fix and is not written.
 
 ### What this does not reach
 

@@ -72,9 +72,9 @@ public static class SceneScripting
             }
         }
 
-        if (audio is not null)
+        if (audio is not null && world is not null)
         {
-            Speak(api, audio);
+            Speak(api, audio, scene, world);
         }
 
         api.Register("WalkerBoundaryBlockModel", arguments =>
@@ -146,6 +146,14 @@ public static class SceneScripting
             arguments => CutTo(api, scene, arguments, forced: false, gliding: true),
             waitable: true);
 
+        // The same glide with a duration the caller chooses. The duration is read past —
+        // GlideSeconds is what a glide takes here, and two calls in the whole corpus is
+        // not enough to justify a second answer to how long a camera move lasts.
+        api.Register(
+            "GlideToCameraAngleX",
+            arguments => CutTo(api, scene, arguments, forced: false, gliding: true),
+            waitable: true);
+
         // Inspecting is a camera, and only a standing scene has the cameras — which is why
         // these are registered over the recorded ones here rather than with the rest of the
         // API. The recorded ones set a screen state that nothing draws, so REGISTER,
@@ -214,6 +222,22 @@ public static class SceneScripting
             api.State.CameraFieldOfView =
                 degrees is > 0 and < 180 ? degrees * MathF.PI / 180f : null;
 
+            return SheepValue.FromInt(0);
+        });
+
+        // The shell the camera may not leave. The scene's artists draw one and a script
+        // adds to it — a van parked in the square, a door that has swung open — or turns
+        // the whole thing off for a shot that needs to be outside it. 102 calls between
+        // the four.
+        api.Register("EnableCameraBoundaries", _ =>
+        {
+            api.State.CameraBoundaries = true;
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("DisableCameraBoundaries", _ =>
+        {
+            api.State.CameraBoundaries = false;
             return SheepValue.FromInt(0);
         });
 
@@ -606,13 +630,16 @@ public static class SceneScripting
     /// </summary>
     /// <param name="api">The host.</param>
     /// <param name="audio">The room's audio.</param>
+    /// <param name="scene">The room, for the cameras a conversation may be watched from.</param>
+    /// <param name="world">Where the speakers are standing.</param>
     /// <remarks>
     /// These were all registered as recorded — the presentation surface named but not
     /// performed — because there was no device and no decoder. There is both now, so they
     /// are registered over. A call whose sound cannot be found still returns cleanly: a
     /// missing footstep should not stop the script that stepped.
     /// </remarks>
-    private static void Speak(Gk3SheepApi api, SceneAudio audio)
+    private static void Speak(
+        Gk3SheepApi api, SceneAudio audio, LoadedScene scene, SceneUpdate world)
     {
         api.Register("PlaySound", arguments =>
         {
@@ -647,6 +674,8 @@ public static class SceneScripting
         {
             api.Register(start, arguments =>
             {
+                Watching(api, scene, world);
+
                 if (arguments.Count > 0)
                 {
                     audio.Speak(
@@ -718,6 +747,87 @@ public static class SceneScripting
     }
 
     /// <summary>
+    /// Points the camera at whoever is about to talk.
+    /// </summary>
+    /// <param name="api">The game, for who is speaking to whom.</param>
+    /// <param name="scene">The room, for the cameras it names.</param>
+    /// <param name="world">Where the speakers are standing.</param>
+    /// <remarks>
+    /// <para>
+    /// Three answers, in order. The conversation's own <c>initial</c> camera where the
+    /// scene names one; the camera a script asked for with
+    /// <c>SetDefaultDialogueCamera</c>; and otherwise whichever of the scene's cameras
+    /// best holds both speakers — see <see cref="ConversationCamera"/>.
+    /// </para>
+    /// <para>
+    /// The third is the port's own decision rather than the original's. It has to be:
+    /// <c>SetDefaultDialogueCamera</c> does nothing in the reference and the lobby's
+    /// introduction to Emilio names no conversation at all, so there is no authored answer
+    /// for it — and the exchange was playing out with the camera pointed across an empty
+    /// room. Nothing is invented: the choice is between shots the artists framed.
+    /// </para>
+    /// <para>
+    /// Only once per exchange, and never while cinematics are off — that switch exists so
+    /// a player can stop the camera taking itself off them, and this is exactly the kind of
+    /// cut it means.
+    /// </para>
+    /// </remarks>
+    private static void Watching(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
+    {
+        if (!api.State.CinematicsEnabled || api.State.Talking)
+        {
+            return;
+        }
+
+        api.State.Talking = true;
+
+        string? wanted =
+            (api.State.Conversation is { Length: > 0 } about
+                ? scene.Definition.DialogueCameras()
+                    .FirstOrDefault(c => c.IsInitial && Named(c, about))?.Name
+                    ?? scene.Definition.DialogueCameras()
+                        .FirstOrDefault(c => Named(c, about))?.Name
+                : null)
+            ?? api.State.DefaultDialogueCamera
+            ?? ConversationCamera.Framing(scene.Definition.Cameras(), Speakers(api, world));
+
+        if (wanted is { Length: > 0 } named)
+        {
+            api.State.CameraGliding = false;
+            api.State.CameraAngle = named;
+        }
+    }
+
+    /// <summary>Whether a dialogue camera belongs to a conversation.</summary>
+    private static bool Named(SceneCamera camera, string conversation) =>
+        camera.Conversation is { Length: > 0 } about &&
+        about.Equals(conversation, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Where the people in a conversation are standing.
+    /// </summary>
+    /// <remarks>
+    /// The player and whatever they are talking to, which is what an action is about — a
+    /// topic is <c>EMILIO:T_INTRODUCE</c> and the two of them are the exchange. Anybody the
+    /// room does not have is left out rather than guessed at, and a conversation with only
+    /// one findable speaker still gets a shot that holds them.
+    /// </remarks>
+    private static List<Vector3> Speakers(Gk3SheepApi api, SceneUpdate world)
+    {
+        List<Vector3> where = [];
+
+        foreach (string who in new[] { api.State.Ego, api.ActingOn })
+        {
+            if (who is { Length: > 0 } named && world.Where(named) is { } standing)
+            {
+                where.Add(standing);
+            }
+        }
+
+        return where;
+    }
+
+    /// <summary>
     /// Makes the walking calls move somebody.
     /// </summary>
     /// <param name="api">The host.</param>
@@ -739,9 +849,10 @@ public static class SceneScripting
     /// </remarks>
     private static void Walking(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
-        api.Walks = (actor, place, how, hurry) => Send(
+        api.Walks = (actor, place, how, hurry, mayRun) => Send(
             scene, world, actor, place, how != Approaching.Walk, how == Approaching.Turn,
-            hurry);
+            hurry,
+            mayRun);
 
         api.Register("WalkTo", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
@@ -773,6 +884,49 @@ public static class SceneScripting
             world.StopWalking();
             return SheepValue.FromInt(0);
         });
+
+        // Getting out of the way. The walk boundary is a palette-indexed bitmap and a
+        // region is one of its indices, so "are you in region 5" is a lookup: if they are,
+        // walk them to the spot named; if they are not, there is nothing to do. 112 calls
+        // — a character standing where a cutscene is about to happen, asked to move.
+        SheepValue Clear(IReadOnlyList<SheepValue> a)
+        {
+            string actor = Actor(api, a, 0);
+            int region = a.Count > 1 ? a[1].AsInt() : -1;
+            string exit = Name(a, 3);
+
+            if (scene.Walkable is not { } boundary ||
+                world.Where(actor) is not { } standing ||
+                boundary.RegionAt(standing) != region)
+            {
+                return SheepValue.FromInt(0);
+            }
+
+            return SheepValue.FromInt((int)Send(scene, world, actor, exit, toModel: false));
+        }
+
+        api.Register("ActionWaitClearRegion", Clear);
+        api.Register("ClearRegion", Clear);
+
+        // A character's stride, replaced. 42 calls, and they are the ones where somebody
+        // walks differently for a while: carrying something, limping, in a hurry. The
+        // start and the loop are what the walker actually uses; the two turn animations
+        // are read and kept for when it turns on the spot.
+        api.Register("SetWalkAnim", a =>
+        {
+            if (a.Count > 2)
+            {
+                world.SetStride(Actor(api, a, 0), a[1].AsString(), a[2].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        // A momentary animation: a shrug, a glance up, a hand to the chin. The name is
+        // localised — the asset is "E" and the name, in the mom directory — and the game
+        // waits on it. 37 calls.
+        api.Register("StartMom", a => SheepValue.FromInt(
+            a.Count > 0 ? (int)(world.Play("E" + a[0].AsString()) * 1000) : 0), waitable: true);
 
         // How far somebody is from a named spot, which the background scripts poll
         // constantly and were being told "not near" about every time. The answer decides
@@ -841,7 +995,8 @@ public static class SceneScripting
         string place,
         bool toModel,
         bool turnOnly = false,
-        bool hurry = false)
+        bool hurry = false,
+        bool mayRun = false)
     {
         if (Aim(scene, place, toModel) is not { } aim)
         {
@@ -855,7 +1010,8 @@ public static class SceneScripting
 
         // A named spot says which way to stand. A thing says to look at it — from wherever
         // the walk actually ends, which the boundary decides, not from where it was aimed.
-        return world.Walk(actor, Approach(world, actor, aim), aim.Heading, aim.Look, hurry);
+        return world.Walk(
+            actor, Approach(world, actor, aim), aim.Heading, aim.Look, hurry, mayRun);
     }
 
     /// <summary>
@@ -1050,6 +1206,28 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         }, waitable: true);
 
+        // A prop's own script, which is the same machinery as a character's idle: the
+        // lobby's fans, a fountain, a clock. Started and stopped by name.
+        api.Register("StartPropFidget", a =>
+        {
+            if (a.Count > 0)
+            {
+                world.StartScenery(a[0].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("StopPropFidget", a =>
+        {
+            if (a.Count > 0)
+            {
+                world.StopScenery(a[0].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
         api.Register("StopFidget", a =>
         {
             world.StopFidget(a.Count > 0 ? a[0].AsString() : null);
@@ -1103,6 +1281,98 @@ public static class SceneScripting
             world.Show(model, visible);
         }
 
+        // The room's own named objects, which are a different thing from a model the
+        // scene loaded out of a file. A curtain, a van, a door: runs of surfaces inside
+        // one mesh with a name over them. 287 calls across the corpus, every one of them
+        // recorded and dropped until the geometry could be cut along those names.
+        void SetObject(IReadOnlyList<SheepValue> arguments, bool visible)
+        {
+            if (arguments.Count == 0)
+            {
+                return;
+            }
+
+            string named = arguments[0].AsString();
+
+            if (world.ShowObject(named, visible))
+            {
+                return;
+            }
+
+            // A model the scene loaded rather than part of the room. The corpus is not
+            // consistent about which call it uses for which, and the original looks in
+            // both places too.
+            if (world.ModelNamed(named) is { } model)
+            {
+                world.Show(model, visible);
+                return;
+            }
+
+            api.Diagnostics.Add(new Diagnostic(
+                "GK3R3341", DiagnosticSeverity.Info,
+                "A script showed or hid part of a room that has no such part.",
+                scene.Name, null, "an object in the geometry", named,
+                "Common and usually harmless: scripts are shared between rooms."));
+        }
+
+        // A mood is an expression held until something clears it, and it is two animations
+        // rather than a state: `gabangryon` puts it on and `gabangryoff` takes it off. 2,442
+        // calls across the corpus — the largest single thing the scripts asked for and did
+        // not get — and the whole of it is knowing the two names.
+        api.Register("SetMood", a =>
+        {
+            if (a.Count > 1)
+            {
+                Mood(api, scene, world, a[0].AsString(), a[1].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("ClearMood", a =>
+        {
+            if (a.Count > 0)
+            {
+                Mood(api, scene, world, a[0].AsString(), null);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("CameraBoundaryBlockModel", a =>
+        {
+            if (a.Count > 0 &&
+                scene.CameraShell is { } shell &&
+                world.ModelNamed(a[0].AsString()) is { } model)
+            {
+                shell.Block(model.Name, model.Model, model.Standing);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("CameraBoundaryUnblockModel", a =>
+        {
+            if (a.Count > 0 && scene.CameraShell is { } shell)
+            {
+                shell.Unblock(world.ModelNamed(a[0].AsString())?.Name ?? a[0].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("ShowSceneModel", a =>
+        {
+            SetObject(a, visible: true);
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("HideSceneModel", a =>
+        {
+            SetObject(a, visible: false);
+            return SheepValue.FromInt(0);
+        });
+
         api.Register("ShowModel", a =>
         {
             Set(a, visible: true);
@@ -1114,6 +1384,64 @@ public static class SceneScripting
             Set(a, visible: false);
             return SheepValue.FromInt(0);
         });
+    }
+
+    /// <summary>
+    /// Puts an expression on somebody, or takes the one they are wearing off.
+    /// </summary>
+    /// <param name="api">The host, for the mood the actor is currently wearing.</param>
+    /// <param name="scene">The room, for turning a noun into a model name.</param>
+    /// <param name="world">What plays the animations.</param>
+    /// <param name="actor">Whose face, by either of their names.</param>
+    /// <param name="mood">The mood, or null to clear whatever is on.</param>
+    /// <remarks>
+    /// <para>
+    /// The names are built from the model's three letters and the mood: <c>gab</c> plus
+    /// <c>angry</c> plus <c>on</c>. Six moods are used across the game — confused,
+    /// surprised, happy, angry, and half of the middle two — plus grief.
+    /// </para>
+    /// <para>
+    /// Setting one clears the last, because they are worn rather than stacked: the "off"
+    /// animation is what puts the face back, and skipping it leaves an expression on
+    /// somebody for the rest of the scene.
+    /// </para>
+    /// </remarks>
+    private static void Mood(
+        Gk3SheepApi api, LoadedScene scene, SceneUpdate world, string actor, string? mood)
+    {
+        // The face's own three letters, not the model's name: the lobby places Simone as
+        // `sim_` and her animations are `simsleepon` and `simsleepoff`.
+        string model = Modelled(scene, actor);
+        string code = world.Faces?.CodeFor(model) ?? model;
+
+        if (api.State.MoodOf(model) is { Length: > 0 } worn)
+        {
+            world.Play(code + worn + "off");
+            api.State.SetMood(model, null);
+        }
+
+        if (mood is not { Length: > 0 } wanted)
+        {
+            return;
+        }
+
+        // Only if the pair exists. A mood a character has no face for is left off rather
+        // than half applied, which is what the original does — it looks for both and
+        // returns without one.
+        if (world.Animations?.Read(code + wanted + "on") is null ||
+            world.Animations?.Read(code + wanted + "off") is null)
+        {
+            world.Diagnostics.Add(new Diagnostic(
+                "GK3R3342", DiagnosticSeverity.Info,
+                "A script put a mood on somebody who has no face for it.",
+                scene.Name, null, $"{code}{wanted}on and off", "neither",
+                "The expression is left off; the line still plays."));
+
+            return;
+        }
+
+        world.Play(code + wanted + "on");
+        api.State.SetMood(model, wanted);
     }
 
     private static void Stand(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)

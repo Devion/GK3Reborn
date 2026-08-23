@@ -300,6 +300,16 @@ public static class Application
         SceneRequest request = Playable(archives, sceneName, timeblock);
         Gk3SheepApi api = request.Api ?? new Gk3SheepApi(new GameState());
 
+        // What the two of them set out with. Nothing in the shipped data hands these over,
+        // so a player without them cannot use the pay phone — Prince James's card is where
+        // the number comes from — and Day 1 10am cannot be finished at all. Loading a save
+        // clears the bag first, so this is the start of a new game and nothing else.
+        int pockets = Game.StartingItems.Fill(api.State.Inventory);
+
+        Console.WriteLine(
+            $"Carrying: {pockets} items to begin with, " +
+            $"{string.Join(", ", api.State.Inventory.ItemsOf(api.State.Ego))}");
+
         // What makes a waited call take time. Without it every line of dialogue in the
         // game is over in the frame it starts.
         api.Animations = new AnimationLibrary(archives);
@@ -410,6 +420,16 @@ public static class Application
         // Which verbs are things to say rather than things to do. Without it a topic is
         // indistinguishable from a verb, every line of it is offered at once, and none of
         // them is ever used up.
+        // Which floor is which, which shoes make which noise on it.
+        Game.Actors.Footsteps footsteps = Game.Actors.Footsteps.Open(archives);
+
+        if (footsteps.SurfaceCount > 0)
+        {
+            Console.WriteLine(
+                $"Footsteps: {footsteps.SurfaceCount} floor textures classified, " +
+                $"{footsteps.SoundCount} shoe and ground pairings");
+        }
+
         Game.Actions.VerbLibrary verbs = Game.Actions.VerbLibrary.Open(archives);
 
         // What the game calls places and times, in the player's own language. Without it
@@ -432,6 +452,12 @@ public static class Application
         Console.WriteLine(
             $"Scripts: {LoadScripts(archives, host, catalogue)} loaded, " +
             $"{catalogue.Count} function signatures");
+
+        // The rules that decide when a point in the story is over, compiled after the
+        // game's own scripts so that the catalogue they build is available to it.
+        Console.WriteLine(LoadStoryRules(host, catalogue)
+            ? "Story rules: Timeblocks.shp compiled, 16 timeblocks"
+            : "Story rules: none, so the clock will not advance");
 
         // The interface. GK3's own bitmap fonts rather than anything imported: they are in
         // the archives, they are the right size for the game's own screens, and reading one
@@ -977,6 +1003,34 @@ public static class Application
             update.Clips = clips;
             update.Characters = characters;
 
+            // What a step sounds like. Three files decide it and none of them was read, so
+            // every character in the game walked in silence over carpet, tile and gravel
+            // alike — while the clips said, three or four times a stride, that a foot had
+            // just gone down.
+            update.Steps = footsteps;
+
+            // What makes a texture an animation asks for resident. The scene loaded only
+            // what its models were painted with, and 168 animations repaint one part-way
+            // through — an alarm clock counting, a monitor changing what it shows.
+            SceneGeometry paint = geometry;
+
+            update.Textures = name =>
+            {
+                if (paint.HasTexture(name))
+                {
+                    return true;
+                }
+
+                if (archives.Read(name + ".BMP") is not { } bytes ||
+                    !Formats.Bitmaps.BitmapDecoder.CanDecode(bytes))
+                {
+                    return false;
+                }
+
+                paint.AddTexture(name, Formats.Bitmaps.BitmapDecoder.Decode(bytes, name));
+                return true;
+            };
+
             // The faces in this room. Everybody the scene placed who has an entry in
             // FACES.TXT and is actually painted with their own face bitmap, which is what
             // tells a person from a portrait of one.
@@ -1126,7 +1180,7 @@ public static class Application
 
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api) { Strings = strings },
+                new SceneInteraction(scene, api) { Strings = strings, Watcher = update },
                 room, movies, hud, Cut, api, screens, sidney,
                 map, binoculars, api.State, console,
                 front, pages, Apply, args, strings);
@@ -1142,6 +1196,29 @@ public static class Application
             // and freeing those underneath the device is a crash somewhere else entirely.
             renderer.SetScene(null, null);
             renderer.Idle();
+
+            // Whether the point in the story is over. The check runs on every change of
+            // location and after the new one is current, because the rules ask where the
+            // player is — 110A's first line is "must be at RC1". If it moves the clock, it
+            // also decides where the player ends up, so the room asked for is read back
+            // rather than being the one the door named.
+            api.State.Location = next.ToUpperInvariant();
+
+            Timeblock was = api.State.Timeblock;
+
+            if (Complete(host, api) is { Length: > 0 } instead)
+            {
+                next = instead;
+
+                // The film the timeblock goes out on, where it has one. Four of the
+                // sixteen do — the ones that end on something the player is meant to have
+                // seen rather than on simply having finished the errands.
+                if (movies.Play(was + "end") is > 0 and { } showing)
+                {
+                    Console.WriteLine(
+                        string.Create(CultureInfo.InvariantCulture, $"Closing film: {was}end, {showing:F1}s"));
+                }
+            }
 
             request = SceneRequest.Continuing(api, next);
 
@@ -1434,6 +1511,89 @@ public static class Application
     private static int Magnification(Formats.Ui.FontFile font, int wanted) =>
         font.Height <= 0 ? 1 : Math.Clamp((int)MathF.Round((float)wanted / font.Height), 1, 4);
 
+    /// <summary>
+    /// Compiles the engine's own script and makes it callable.
+    /// </summary>
+    /// <param name="host">Where scripts live.</param>
+    /// <param name="catalogue">What the compiler knows about the game's own functions.</param>
+    /// <returns>True when it was there and compiled.</returns>
+    /// <remarks>
+    /// <c>Timeblocks.shp</c> holds the rules that decide when a point in the story is over,
+    /// and it is the one script the game does not ship: no compiled script in the eight
+    /// barns calls <c>SetTime</c> at all, because the original kept these rules in its
+    /// executable. It is carried as source rather than as bytecode — it is a set of rules
+    /// somebody may want to read or correct, and the engine has a compiler.
+    /// </remarks>
+    private static bool LoadStoryRules(ScriptHost host, Sheep.SheepSignatures? catalogue)
+    {
+        using Stream? carried = typeof(Application).Assembly
+            .GetManifestResourceStream("GK3Reborn.Assets.Story.Timeblocks.shp");
+
+        if (carried is null)
+        {
+            return false;
+        }
+
+        using var reader = new StreamReader(carried);
+
+        try
+        {
+            host.Add(Sheep.SheepCompiler.Compile(
+                reader.ReadToEnd(), "Timeblocks.shp", catalogue));
+
+            return true;
+        }
+        catch (Formats.FormatParseException)
+        {
+            // A rule set that will not compile is a story that cannot advance, which is
+            // worth saying rather than a game that will not start.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Asks whether this point in the story is over, and moves the clock on if it is.
+    /// </summary>
+    /// <param name="host">Where the rules live.</param>
+    /// <param name="api">The game.</param>
+    /// <returns>The room to open instead, or null to open the one that was asked for.</returns>
+    /// <remarks>
+    /// <para>
+    /// The rules are <c>Timeblocks.shp</c>, one function per timeblock, each a run of
+    /// conditions ending in <c>SetTime</c>. They are checked on every change of location
+    /// and nowhere else, which is the original's own arrangement
+    /// (<c>LocationManager::ChangeLocationInternal</c>) and the reason a timeblock ends as
+    /// you walk through a door rather than the moment you finish the last thing in it.
+    /// </para>
+    /// <para>
+    /// A timeblock change decides where the player goes, so it outranks the door they
+    /// walked through: 110A ends on the way into RC1 and starts 112P in RC1, but several
+    /// of the others put the player somewhere else entirely.
+    /// </para>
+    /// </remarks>
+    private static string? Complete(ScriptHost host, Gk3SheepApi api)
+    {
+        if (!host.LoadedScripts.Contains(AssetId.From("Timeblocks.shp")))
+        {
+            return null;
+        }
+
+        Timeblock was = api.State.Timeblock;
+
+        host.Run("Timeblocks.shp", "CheckTimeblockComplete$");
+
+        if (!api.State.ChangingTimeblock)
+        {
+            return null;
+        }
+
+        api.State.StartedTimeblock();
+
+        Console.WriteLine($"Timeblock: {was} is over, starting {api.State.Timeblock}");
+
+        return api.State.Location;
+    }
+
     /// <summary>Loads every compiled script in the game.</summary>
     /// <param name="archives">The game's archives.</param>
     /// <param name="host">Where they go.</param>
@@ -1567,6 +1727,39 @@ public static class Application
         {
             Sheep.SheepExpression.Evaluate($"StartAnimation(\"{clip}\")", api);
             Console.WriteLine($"Playing {clip}");
+        }
+
+        // Marks a timeblock's completion rules as met, for looking at what happens next
+        // without playing the two hours that lead up to it. Whatever the rules ask about —
+        // a noun and verb done, a topic raised, a flag set — is written straight into the
+        // story, which is what a save would have held.
+        if (Option(args, "--did") is { Length: > 0 } already)
+        {
+            foreach (string done in already.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                switch (done.Trim().Split(':'))
+                {
+                    case [string noun, string verb, string count]
+                        when int.TryParse(count, CultureInfo.InvariantCulture, out int times):
+                        api.State.SetNounVerbCount(noun, verb, times);
+                        api.State.SetTopicCount(noun, verb, times);
+                        break;
+
+                    case [string noun, string verb]:
+                        api.State.SetNounVerbCount(noun, verb, 1);
+                        api.State.SetTopicCount(noun, verb, 1);
+                        break;
+
+                    case [string flag]:
+                        api.State.SetFlag(flag);
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            Console.WriteLine($"Did: {already}");
         }
 
         // Things in the bag, for looking at what carrying them changes. Half of what the
@@ -1795,7 +1988,11 @@ public static class Application
         }
         else
         {
-            camera.Confine = shell.Resolve;
+            // A script may turn the shell off for a shot that has to be outside it, and
+            // the original only turns it off until the next room — so this asks the story
+            // every frame rather than being decided once here.
+            camera.Confine = (from, movement) =>
+                story.CameraBoundaries ? shell.Resolve(from, movement) : from + movement;
 
             // A viewpoint outside its own shell is not fatal — the way back in is always
             // open — but it is worth saying, because from out there the walls behave
@@ -2371,6 +2568,21 @@ public static class Application
 
                 menu = null;
             }
+            else if (!console.Open &&
+                     window.WasClicked(Platform.PointerButton.Primary) &&
+                     menu is null &&
+                     hud?.OverInterface(pointer) != true &&
+                     room?.Skip() == true)
+            {
+                // Somebody is speaking, so the click reads the line rather than the room:
+                // it cuts the recording short and the next one starts. Nothing else happens
+                // — the player is not sent walking across the floor behind the conversation,
+                // which was the complaint, and no verb is performed either, because a click
+                // during dialogue is about the dialogue.
+                //
+                // Not while a menu is open, and not on the interface: those clicks already
+                // mean something, and a conversation is not a reason to take them away.
+            }
             else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
             {
                 // A click inside the open menu takes whatever is selected; a click anywhere
@@ -2406,7 +2618,8 @@ public static class Application
                     hud?.OverInterface(pointer) != true &&
                     interaction.FloorTarget(hover) is { } ground)
                 {
-                    double crossing = update.Walk(story.Ego, ground, hurry: hurry);
+                    // A click across the room runs, a click at the player's feet does not.
+                    double crossing = update.Walk(story.Ego, ground, hurry: hurry, mayRun: true);
 
                     Console.WriteLine(crossing > 0
                         ? string.Create(
@@ -2415,7 +2628,10 @@ public static class Application
                         : $"{story.Ego}: nowhere to walk from here");
                 }
 
-                if (menu is not null && !openingBag)
+                // A menu the story has made modal stays up until something on it is
+                // chosen. StopVerbCancel is a script saying the player does not get to
+                // walk away from this one.
+                if (menu is not null && !openingBag && !(story.MustChooseAnAction && did is null))
                 {
                     menu = null;
                 }
@@ -2474,6 +2690,7 @@ public static class Application
                         InventoryOpen: true,
                         strings.Where(scene.Name, story.Timeblock.ToString()),
                         console,
+                        strings.Score(story.Score, api.Scores.Maximum),
                         [.. showing.Actions
                             .Where(a => IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs))
                             .Select(a => a.LocalizedVerb)]),

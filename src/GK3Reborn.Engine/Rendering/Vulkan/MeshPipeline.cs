@@ -37,6 +37,12 @@ public readonly record struct MeshVertex(
 /// <param name="GridCounts">
 /// How many cells the grid has along each axis, and how many lights the rig holds in all.
 /// </param>
+/// <param name="Ambient">
+/// The ambient floor, in rgb, with nothing in w. It is tier data rather than a constant
+/// because what it has to stand in for changes: where the baked lightmaps still light the
+/// room it only keeps an unreached corner off black, and where they are gone it is the
+/// whole of what the walls and floor bounce back.
+/// </param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
     Matrix4x4 ViewProjection,
@@ -46,7 +52,8 @@ public readonly record struct FrameUniforms(
     Vector4 Rays,
     Vector4 Tuning,
     Vector4 GridOrigin,
-    Vector4 GridCounts);
+    Vector4 GridCounts,
+    Vector4 Ambient);
 
 /// <summary>Constants that change per draw, delivered as push constants.</summary>
 /// <param name="Model">Model to world space.</param>
