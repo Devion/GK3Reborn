@@ -108,6 +108,22 @@ public sealed class SceneUpdate
     /// </remarks>
     public float RunBeyond { get; set; } = 250f;
 
+    /// <summary>Whether the next walk arrives at once instead of being walked.</summary>
+    /// <remarks>
+    /// <para>
+    /// Held with shift on a way out of the room. A player who knows where they are going has
+    /// already watched that walk, and a second-floor corridor crossed for the ninth time is
+    /// not the part of the game anybody came for.
+    /// </para>
+    /// <para>
+    /// One walk, and it clears itself. It is set immediately before an action is performed
+    /// and consumed by the approach that action puts in front of itself, so a script's own
+    /// walks are never affected — a cutscene that teleports its actor is a cutscene with a
+    /// hole in it.
+    /// </para>
+    /// </remarks>
+    public bool WarpNextWalk { get; set; }
+
     public float HurryFactor
     {
         get => _hurryFactor;
@@ -363,7 +379,7 @@ public sealed class SceneUpdate
         // yawn — and the branches below let those go without playing a thing.
         foreach (AnimationSound cue in animation.Sounds)
         {
-            _cues.Add(new Cue(cue, repeat ? animation.Duration : 0, animation.Rate));
+            _cues.Add(new Cue(cue, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
         // And the feet. A clip says when one lands and whose it is; what it sounds like is
@@ -632,6 +648,26 @@ public sealed class SceneUpdate
                     continue;
                 }
 
+                // Which way the clip says they are facing, before it is sampled. A scene
+                // records where a character ends up and states where they begin as an
+                // animation: the museum stands Lady Howard and Estelle at 314 and 315
+                // degrees, which is both of them turned towards Gabriel at the end of their
+                // conversation, and the clip that starts it wants 90 and 282 — the two of
+                // them whispering to each other. Left alone they stood shoulder to shoulder
+                // staring at a wall.
+                //
+                // Applied by moving the model rather than by composing with the pose, and
+                // before the pose is sampled: a non-absolute clip's coordinates are already
+                // the room's, so its heading replaces the scene file's rather than adding
+                // to it.
+                if (target.Kind == PlacedModelKind.Actor &&
+                    Clips is { } library &&
+                    Characters?.Of(target.Name) is { } known &&
+                    Actors.AnimationStart.Of(animation, library, target.Name, known) is { } begins)
+                {
+                    Place(target.Name, begins.Position, begins.Heading);
+                }
+
                 var pose = new Playing(
                     clip,
                     target,
@@ -654,7 +690,21 @@ public sealed class SceneUpdate
                     Vector3 settled = pose.Settled(_geometry.TransformOf(target.Placement));
 
                     Follow(target.Name, settled);
-                    _posed.Add((target.Noun ?? target.Name, settled));
+
+                    // What the clip says the character is facing, beside what the scene
+                    // file said. The two disagree wherever a scene records where somebody
+                    // ends up and states the beginning as an animation, which is most of
+                    // the game's opening poses.
+                    float? wanted =
+                        Clips is { } clips && Characters?.Of(target.Name) is { } who
+                            ? Actors.AnimationStart.Of(animation, clips, target.Name, who)?.Heading
+                            : null;
+
+                    _posed.Add((
+                        target.Noun ?? target.Name,
+                        settled,
+                        Navigation.Walker.HeadingOf(_geometry.TransformOf(target.Placement)),
+                        wanted));
                 }
 
                 posed++;
@@ -664,10 +714,17 @@ public sealed class SceneUpdate
         return posed;
     }
 
-    /// <summary>Who an opening pose moved, and where to, for whoever wants to say so.</summary>
-    public IReadOnlyList<(string Who, Vector3 Where)> Posed => _posed;
+    /// <summary>Who an opening pose moved, where to, and which way they ended up facing.</summary>
+    /// <remarks>
+    /// <c>Placed</c> is the heading the model is standing at, out of the scene file.
+    /// <c>Wanted</c> is the one the clip's opening frame implies, or null where the clip says
+    /// nothing about it. Where the two disagree, the scene file is recording where the
+    /// character ends up and the animation is stating where they begin.
+    /// </remarks>
+    public IReadOnlyList<(string Who, Vector3 Where, float Placed, float? Wanted)> Posed =>
+        _posed;
 
-    private readonly List<(string Who, Vector3 Where)> _posed = [];
+    private readonly List<(string Who, Vector3 Where, float Placed, float? Wanted)> _posed = [];
 
     /// <summary>
     /// Gives a character a different stride.
@@ -787,6 +844,42 @@ public sealed class SceneUpdate
         {
             Tidy(one);
             one.Stopped = true;
+        }
+    }
+
+    /// <summary>
+    /// Puts a prop back where it lives, when the idle that was moving it is cut short.
+    /// </summary>
+    /// <param name="running">The clip being stopped.</param>
+    /// <remarks>
+    /// <para>
+    /// Reported as Emilio's newspaper and then as Mosely's: stop a character mid-idle and the
+    /// paper stays in the air where his hands were. A GAS file may declare what to play if it
+    /// is interrupted — <c>USES CLEANUP</c>, and 328 lines of the corpus are those — but
+    /// <c>mosPaperIdle.gas</c> declares none, so there is nothing to play and no amount of
+    /// looking for one will find it.
+    /// </para>
+    /// <para>
+    /// <b>Only a prop, and only an idle.</b> A character keeps whatever pose they were cut
+    /// off in, which is right — a person stopped mid-gesture is a person standing oddly, not
+    /// a person snapping to attention. And only an animation a behaviour started: an idle is
+    /// decoration and may be interrupted at any moment, where a script's animation is the
+    /// story and a door it left open is meant to stay open.
+    /// </para>
+    /// </remarks>
+    private void Rest(Playing running)
+    {
+        if (!running.FromBehaviour || running.Target.Kind != PlacedModelKind.Prop)
+        {
+            return;
+        }
+
+        IReadOnlyList<Formats.Models.ModMesh> meshes = running.Target.Model.Meshes;
+
+        for (int mesh = 0; mesh < meshes.Count; mesh++)
+        {
+            _geometry.PoseMesh(running.Target.Placement, mesh, meshes[mesh].MeshToLocal);
+            running.Target.Pose(mesh, meshes[mesh].MeshToLocal);
         }
     }
 
@@ -1171,6 +1264,20 @@ public sealed class SceneUpdate
 
                     break;
 
+                // Where the character now is. Not a guard on the script, which is what the
+                // name suggests and what this was filed under: the reference's
+                // LocationGasNode calls SetActorLocation outright.
+                //
+                // Emilio's bench script ends with LOCATION LBY, a get-up animation and a
+                // walk to the hotel door — he leaves when Gabriel comes near, and the whole
+                // of what tells the rest of the game he has gone is that one line. Dropped,
+                // the lobby goes on believing he is outside on a bench, and every
+                // IsActorAtLocation about him answers wrongly for the rest of the morning.
+                case GasAction.AtLocation when step.Name is { Length: > 0 } moved &&
+                                               running.Owner is { } who:
+                    _api.State.SetActorLocation(who.Noun ?? who.Name, moved);
+                    break;
+
                 // Everything else is parsed and not run: the perception layer, which adds
                 // ways for a script to be interrupted rather than deciding what it does.
                 default:
@@ -1376,17 +1483,42 @@ public sealed class SceneUpdate
     {
         if (model is not { Length: > 0 })
         {
+            foreach (Playing running in _playing)
+            {
+                Rest(running);
+            }
+
             _playing.Clear();
             _held.Clear();
             _showings.Clear();
             _steps.Clear();
             _swaps.Clear();
+            _cues.Clear();
             return;
+        }
+
+        foreach (Playing running in _playing.Where(p =>
+            p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
+            p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase)))
+        {
+            Rest(running);
         }
 
         _playing.RemoveAll(p =>
             p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
             p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
+
+        // And the noises it was going to make. Reported from the museum: Estelle and Lady
+        // Howard stop whispering the moment they notice Gabriel, and the whispering went on
+        // being audible — the clip was stopped and its sound cues, which live in a list of
+        // their own, were not.
+        //
+        // By either name. A script stops an animation by the animation's name, and an actor
+        // is stopped by their model's; a cue can be reached from both because it remembers
+        // the first and may carry the second.
+        _cues.RemoveAll(c =>
+            c.Owner.Equals(model, StringComparison.OrdinalIgnoreCase) ||
+            c.Model.Equals(model, StringComparison.OrdinalIgnoreCase));
 
         // And whatever it was about to be shown or hidden by. A clip that is stopped
         // half-way should not still turn its model off four seconds later.
@@ -1495,6 +1627,40 @@ public sealed class SceneUpdate
     }
 
     /// <summary>
+    /// Which way somebody is looking.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <returns>A unit vector along their line of sight, or null when nobody answers.</returns>
+    /// <remarks>
+    /// From the walk in progress where there is one, because that is the live answer, and
+    /// otherwise out of the model's own placement. Not to be confused with
+    /// <see cref="Heading(string)"/> beside it, which answers where somebody is <em>going</em>
+    /// — the two names are the game's own and they mean different things.
+    /// </remarks>
+    public Vector3? Looking(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (_walking.TryGetValue(actor, out Walking? walking))
+        {
+            return Ahead(walking.Walker.Facing);
+        }
+
+        if (!_standing.TryGetValue(actor, out PlacedModel? placed))
+        {
+            return null;
+        }
+
+        return _walking.TryGetValue(placed.Name, out Walking? theirs)
+            ? Ahead(theirs.Walker.Facing)
+            : Ahead(Navigation.Walker.HeadingOf(placed.Standing));
+    }
+
+    /// <summary>The direction a heading looks along.</summary>
+    private static Vector3 Ahead(float heading) =>
+        new(MathF.Sin(heading), 0f, MathF.Cos(heading));
+
+    /// <summary>
     /// Sets an actor walking to a place on the floor.
     /// </summary>
     /// <param name="actor">Their model name.</param>
@@ -1557,6 +1723,27 @@ public sealed class SceneUpdate
 
             // No boundary is no obstacles, so the straight line is the route.
             : new WalkRoute(true, [destination]);
+
+        // Asked for at once rather than walked. The route is still found, because where the
+        // walk would have *ended* is where the player belongs — the boundary may stop it
+        // short of what was asked for, and arriving somewhere the floor does not reach is
+        // worse than the walk it replaced.
+        if (WarpNextWalk)
+        {
+            WarpNextWalk = false;
+
+            if (route.Points.Count > 0)
+            {
+                Place(
+                    actor,
+                    route.Points[^1],
+                    arriveFacing ?? (arriveLookingAt is { } look
+                        ? Walker.Heading(look - route.Points[^1])
+                        : facing));
+
+                return 0;
+            }
+        }
 
         // Far enough to be worth running. Measured along the route rather than straight at
         // the destination, because a walk that goes round the bed is the walk being taken —
@@ -2418,12 +2605,25 @@ public sealed class SceneUpdate
 
         private double _elapsed;
 
-        public Cue(AnimationSound sound, double period, int rate)
+        public Cue(AnimationSound sound, double period, int rate, string owner)
         {
             _sound = sound;
             _at = Math.Max(0, sound.Frame) / (double)Math.Max(1, rate);
             _period = period;
+            Owner = owner;
         }
+
+        /// <summary>Which model the cue names, if it names one at all.</summary>
+        public string Model => _sound.Model;
+
+        /// <summary>The animation this came out of, so stopping that can stop this.</summary>
+        /// <remarks>
+        /// The animation's name rather than a model's. A sound cue may name a model of its
+        /// own and most do not — a door, a match, a yawn belong to the animation and to
+        /// nothing standing in the room — so the animation is the only handle that always
+        /// exists.
+        /// </remarks>
+        public string Owner { get; }
 
         /// <summary>Whether it has been played and will not come round again.</summary>
         public bool Finished { get; private set; }

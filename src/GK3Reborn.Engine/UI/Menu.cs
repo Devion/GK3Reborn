@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Rendering;
 
@@ -50,13 +50,18 @@ public enum MenuItemKind
 /// Whether it can be used. A disabled row is drawn and skipped, which is how the menu says
 /// "this exists and is not available" rather than hiding it and leaving the player looking.
 /// </param>
+/// <param name="Picture">
+/// The interface's number for a picture drawn beside the row, or nought for none. What a
+/// save slot shows of the room it was written in.
+/// </param>
 public readonly record struct MenuItem(
     string Id,
     MenuItemKind Kind,
     string Text,
     string Value = "",
     float Fraction = 0f,
-    bool Enabled = true)
+    bool Enabled = true,
+    int Picture = 0)
 {
     /// <summary>A row that does something.</summary>
     public static MenuItem Button(string id, string text, bool enabled = true) =>
@@ -206,6 +211,15 @@ public sealed class MenuPage
     /// <summary>One row's height, which is what everything else is measured in.</summary>
     private float Row => Overlay.LineHeight * (Overlay.Atlas.Scalable ? 1.5f : 1.9f);
 
+    /// <summary>How much of the window a page's preview takes across.</summary>
+    /// <remarks>
+    /// A third of it. The first attempt drew a picture the height of a line of text beside
+    /// every row, which is small enough to be worse than nothing — a room is recognised by
+    /// its shape and its colour, and neither survives being a centimetre wide. One picture,
+    /// of the row the player is on, big enough to answer "is this the save I mean".
+    /// </remarks>
+    private const float PreviewWide = 0.34f;
+
     /// <summary>Draws a page and remembers where every row went.</summary>
     /// <param name="title">The heading.</param>
     /// <param name="items">The rows.</param>
@@ -248,12 +262,20 @@ public sealed class MenuPage
         // has room for. A page of short labels should not be a page-wide slab.
         float widest = title.Length > 0 ? Overlay.Measure(title) * large / (float)ink : 0;
 
+        bool illustrated = false;
+
         foreach (MenuItem item in items)
         {
             widest = Math.Max(
                 widest,
                 Overlay.Measure(item.Text) + Overlay.Measure("    ") + Overlay.Measure(item.Value));
+
+            illustrated |= item.Picture > 0;
         }
+
+        // A page whose rows carry pictures shows one of them, large, beside the list, so
+        // the panel moves out of the middle to leave room for it.
+        float across = illustrated ? 0.30f : Math.Clamp(Across, 0f, 1f);
 
         // A page with a heading is at least wide enough to look like one; a page without
         // is a column of short words and should be no wider than it needs.
@@ -265,10 +287,23 @@ public sealed class MenuPage
         // Knight 3" over a picture that says Gabriel Knight is how a menu looks like a
         // placeholder.
         float titleHeight = title.Length > 0 ? row + (titleUnit - unit) : pad / 2f;
+
+        // Tightened until it fits. The pages this was built for have five rows; a list of
+        // save slots has fifteen, and at the spacing five rows want that runs off the bottom
+        // of the window. Rather than a fixed height and a scroll bar, the rows close up —
+        // the whole page stays visible, which is what a menu is for, and a row can go down
+        // to a hair over one line before the letters would touch.
+        float available = height - (4 * unit) - titleHeight - pad;
+
+        if (items.Count > 0 && row * items.Count > available)
+        {
+            row = Math.Max(unit * 1.08f, available / items.Count);
+        }
+
         float panelHeight = titleHeight + (row * items.Count) + pad;
 
         float x = MathF.Round(Math.Clamp(
-            (width * Math.Clamp(Across, 0f, 1f)) - (panelWidth / 2f),
+            (width * across) - (panelWidth / 2f),
             unit,
             Math.Max(unit, width - panelWidth - unit)));
 
@@ -305,6 +340,26 @@ public sealed class MenuPage
         if (hovered >= 0)
         {
             Index = hovered;
+        }
+
+        // The picture belonging to the row the player is on, large, beside the list. One of
+        // them rather than one per row: a room is recognised by its shape and its colour, and
+        // neither survives being drawn the height of a line of text.
+        if (illustrated &&
+            Index >= 0 && Index < items.Count &&
+            items[Index].Picture > 0)
+        {
+            float wide = MathF.Round(width * PreviewWide);
+            float tall = MathF.Round(wide * 3f / 4f);
+
+            float left = MathF.Round(Math.Min(
+                x + panelWidth + (unit * 2f), width - wide - (unit * 2f)));
+
+            float topOf = MathF.Round(y + titleHeight);
+
+            // A border, so a dark room reads as a picture rather than as a hole.
+            Overlay.Rect(left - 2, topOf - 2, wide + 4, tall + 4, Rule);
+            Overlay.Picture(items[Index].Picture, left, topOf, wide, tall, Vector4.One);
         }
 
         for (int i = 0; i < items.Count; i++)

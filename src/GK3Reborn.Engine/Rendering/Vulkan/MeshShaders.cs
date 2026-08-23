@@ -57,7 +57,7 @@ internal static class MeshShaders
             // xyz how many cells along each axis, w how many lights the rig holds
             vec4 gridCounts;
 
-            // xyz the ambient floor, w unused
+            // xyz the ambient floor, w how much the bake shapes it
             vec4 ambientFloor;
         } frame;
 
@@ -191,6 +191,13 @@ internal static class MeshShaders
         // Mid grey is the modelled surface. Only read where the height scale is non-zero,
         // which it is only for a surface that actually has a map.
         layout(set = 1, binding = 4) uniform sampler2D heightTexture;
+
+        // How much of the ambient floor survives where the bake says a surface is in
+        // shadow, and how hard the bake's own brightness lifts it where it is not. The floor
+        // is not nought: a corner the artists left black still has to read as a corner rather
+        // than as a hole, and traced occlusion is what darkens it properly.
+        const float kHintFloor = 0.30;
+        const float kHintScale = 3.0;
 
         // A GK3 unit is roughly two and a half centimetres — a character stands about
         // seventy tall — so this offsets a ray start by under two centimetres. Enough to
@@ -1001,12 +1008,29 @@ internal static class MeshShaders
             // share of a surface the rig accounts for, and the bake was holding the rest.
             float lit = useLightmap * step(0.001, bakedWeight);
 
+            // Where the bake is not the lighting, it is still the best map anybody has of
+            // where the light in this room goes. The artists spent 1999 deciding that the
+            // wall by the sconce is warm and the corner behind the screen is not, and
+            // throwing all of it away flattened the dining room: the sconces went dark, the
+            // tablecloths turned from cream to grey, and a room full of lamps had almost no
+            // contrast in it.
+            //
+            // So it modulates the ambient floor rather than adding to it. Nothing here is a
+            // second copy of the direct light the rig computes — the term is still ambient,
+            // still subject to occlusion, and still never subtracted against. What it gains
+            // is shape and colour: bright where the artists put brightness, dim in the
+            // corners they left dim, and warm where they painted warmth.
+            vec3 shaped = mix(
+                vec3(1.0),
+                vec3(kHintFloor) + (baked * kHintScale),
+                frame.ambientFloor.w * useLightmap);
+
             // Alpha says what this term is, because the compositing pass treats the three
             // differently: zero for a surface that carries its own brightness, a half for
             // the ambient floor, one for a bake. Only a bake is a second copy of what the
             // rig is computing, and only a bake may be subtracted against.
             outColor = vec4(
-                albedo * mix(ambient, baked, lit), lit > 0.5 ? 1.0 : 0.5);
+                albedo * mix(ambient * shaped, baked, lit), lit > 0.5 ? 1.0 : 0.5);
             outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1), 1.0);
             #else
             // Indirect light. There is no gathered bounce, so the bake stands in for it,

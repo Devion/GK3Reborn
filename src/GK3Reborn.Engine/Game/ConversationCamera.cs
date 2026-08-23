@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -29,6 +29,13 @@ namespace GK3Reborn.Game;
 /// section 5 asks for. Where no authored camera can see both of them, the view is left
 /// alone — a bad cut is worse than no cut.
 /// </para>
+/// <para>
+/// <b>And from in front of them.</b> Scoring on framing alone picked shots from behind, which
+/// is how a conversation ended up watching the back of Gabriel's head — reported as him
+/// turning round, because from the player's chair that is exactly what it looks like. A
+/// camera behind a speaker holds them in frame perfectly well; what it does not do is show
+/// their face, and a shot of two people talking is a shot of at least one face.
+/// </para>
 /// </remarks>
 public static class ConversationCamera
 {
@@ -44,10 +51,24 @@ public static class ConversationCamera
     private const float Far = 900f;
 
     /// <summary>
+    /// How far round from a speaker's own line of sight a camera may sit and still see them.
+    /// </summary>
+    /// <remarks>
+    /// A right angle either side, so anything from a full profile forwards counts as a face
+    /// and anything behind the shoulders does not. Generous on purpose: three-quarter views
+    /// are most of the game's authored shots and a stricter rule would throw them away.
+    /// </remarks>
+    private const float Ahead = 0f;
+
+    /// <summary>
     /// Picks the camera that best shows everyone talking.
     /// </summary>
     /// <param name="cameras">Every camera the scene names.</param>
     /// <param name="speakers">Where the people talking are standing.</param>
+    /// <param name="looking">
+    /// Which way each of them is facing, in the same order. Optional: without it a shot is
+    /// judged on framing alone, which is what picked the back of Gabriel's head.
+    /// </param>
     /// <returns>The camera's name, or null when none of them shows the conversation.</returns>
     /// <remarks>
     /// <para>
@@ -62,7 +83,9 @@ public static class ConversationCamera
     /// </para>
     /// </remarks>
     public static string? Framing(
-        IEnumerable<SceneCamera> cameras, IReadOnlyList<Vector3> speakers)
+        IEnumerable<SceneCamera> cameras,
+        IReadOnlyList<Vector3> speakers,
+        IReadOnlyList<Vector3>? looking = null)
     {
         ArgumentNullException.ThrowIfNull(cameras);
         ArgumentNullException.ThrowIfNull(speakers);
@@ -77,7 +100,7 @@ public static class ConversationCamera
 
         foreach (SceneCamera camera in cameras)
         {
-            if (Scores(camera, speakers) is not { } score || score <= bestScore)
+            if (Scores(camera, speakers, looking) is not { } score || score <= bestScore)
             {
                 continue;
             }
@@ -90,7 +113,8 @@ public static class ConversationCamera
     }
 
     /// <summary>How well one camera holds a conversation, or null when it does not.</summary>
-    private static float? Scores(SceneCamera camera, IReadOnlyList<Vector3> speakers)
+    private static float? Scores(
+        SceneCamera camera, IReadOnlyList<Vector3> speakers, IReadOnlyList<Vector3>? looking)
     {
         Vector3 forward = camera.Forward;
 
@@ -104,8 +128,10 @@ public static class ConversationCamera
         float worst = float.MaxValue;
         float nearest = float.MaxValue;
 
-        foreach (Vector3 speaker in speakers)
+        for (int who = 0; who < speakers.Count; who++)
         {
+            Vector3 speaker = speakers[who];
+
             // The head, near enough: the shots are framed for faces and a scene position
             // is the floor somebody stands on.
             Vector3 toward = speaker with { Y = speaker.Y + 60f } - camera.Position;
@@ -120,6 +146,22 @@ public static class ConversationCamera
                 Math.Clamp(Vector3.Dot(forward, toward / distance), -1f, 1f));
 
             if (off > Within)
+            {
+                return null;
+            }
+
+            // And in front of them. A camera behind a speaker frames them as well as one in
+            // front does and shows the back of their head, which reads as the character
+            // having turned round rather than as a choice of shot.
+            //
+            // By index, because two speakers may be standing at the same point — an actor
+            // whose position nothing has updated is at the origin, and so is the other one.
+            if (looking is not null &&
+                who < looking.Count &&
+                looking[who].LengthSquared() > 1e-6f &&
+                Vector3.Dot(
+                    Vector3.Normalize(looking[who]),
+                    Vector3.Normalize(camera.Position - speaker)) <= Ahead)
             {
                 return null;
             }

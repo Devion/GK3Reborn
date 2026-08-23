@@ -144,6 +144,23 @@ public static class AnimationStart
             ? shape[axes.Point]
             : null;
 
+    /// <summary>How clear the facing test has to be before it takes the rare answer.</summary>
+    /// <remarks>
+    /// The reference calls a model facing along its own hip axis the rare case and everything
+    /// else the vast majority. A reading near zero is not evidence of the rare case; it is
+    /// evidence that the three points used to measure it are nearly in a line.
+    /// </remarks>
+    private const float Confident = 0.9f;
+
+    /// <summary>The last dot product the facing test read, for a diagnostic to print.</summary>
+    /// <remarks>
+    /// The reference says the vast majority of models face opposite the hip mesh's Y axis,
+    /// which is a negative reading. If ours come out positive the sign is inverted somewhere
+    /// and every character is being turned the wrong way, which is not something to argue
+    /// about when it can be measured.
+    /// </remarks>
+    public static float Reading { get; private set; }
+
     /// <summary>
     /// Which way the body is facing on the opening frame.
     /// </summary>
@@ -188,7 +205,20 @@ public static class AnimationStart
 
         // Facing along the mesh's own Y axis is the rare case, and the one where the half
         // turn is wrong. Walker.HeadingOf is the half turn, so this undoes it.
-        return Vector3.Dot(axis, Vector3.Normalize(normal)) > 0
+        Reading = Vector3.Dot(axis, Vector3.Normalize(normal));
+
+        // A confident reading, or the answer that is true of nearly every model in the game.
+        //
+        // The test asks whether a model faces along its hip mesh's Y axis or opposite it, and
+        // a clean answer is near plus or minus one: the corpus reads -1.00 for Emilio, Jean
+        // and Buthane. The museum's Estelle and Lady Howard read +0.55, which is not a model
+        // built the rare way — it is a shoe-and-hip triangle too flat to give a normal worth
+        // trusting, because the pose has them standing close together and angled. Believing
+        // it turned both of them to face the wall.
+        //
+        // So the rare branch needs to be earned. Anything short of a clear positive falls
+        // back to the common case, which cannot disturb a model that reads -1.00 either way.
+        return Reading > Confident
             ? Walker.HeadingOf(basis) - MathF.PI
             : turned;
     }

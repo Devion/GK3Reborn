@@ -58,6 +58,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         // screen. A key is what a player reaches for.
         [CameraAction.Inventory] = [Key.I],
         [CameraAction.Journal] = [Key.J],
+        [CameraAction.ShowHotspots] = [Key.AltLeft, Key.AltRight],
 
         // Where every adventure game has put them for thirty years.
         [CameraAction.QuickSave] = [Key.F5],

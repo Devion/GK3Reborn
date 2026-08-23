@@ -1,4 +1,4 @@
-# Ray tracing
+﻿# Ray tracing
 
 Four quality levels, as the settings screen will expose them:
 
@@ -80,8 +80,29 @@ answer to what the walls and floor throw back, and `ground_bounce` is the most
 common light name in the game. Evaluating the rig in full evaluates their bounce
 approximation along with their key light.
 
+**And the bake still says where the light goes.** It is not allowed to be the
+lighting at these tiers; it is allowed to shape what is. Dropping all of it
+flattened the dining room — the wall sconces went dark, the tablecloths turned
+from cream to grey, and a room with 42 authored lights in it had almost nothing
+that read as a shadow, because there was nothing for a shadow to be darker than.
+So the ambient term is multiplied by `0.30 + 3.0 x baked` where a lightmap
+exists. Nothing is added: the term stays ambient, stays subject to traced
+occlusion, and is still never subtracted against. What it gains is the room's
+shape and colour, bright where the artists put brightness and warm where they
+painted warmth.
+
+That is also why the flat part of the ambient floor is small — 0.15/0.16/0.17 at
+these tiers. A large uniform wash is what drowned the rig's direct light and made
+the shadows subtle; most of the ambient a lit surface gets should come from the
+shape, not from the floor.
+
 It is still an approximation and a gathered bounce would be better. What it is not
 is a regression: measured below, an interior lands within 3% of the bake.
+
+**What this does not reach is models.** A prop or a character has no lightmap, so
+it gets the flat floor and no shape — which is why the dining room's tablecloths
+read greyer than the bake's cream. Light probes are the fix and nothing here has
+one.
 
 **Alpha-tested geometry.** Windows, railings and foliage are keyed on magenta and
 are left out of the acceleration structure entirely, so they cast no shadow.

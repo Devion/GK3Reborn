@@ -615,6 +615,22 @@ public sealed unsafe class VulkanRenderer : IDisposable
         return number;
     }
 
+    /// <summary>Forgets the number a picture was given, so the next ask reloads it.</summary>
+    /// <param name="name">What it was called.</param>
+    /// <remarks>
+    /// For a picture whose content has changed under its own name — a save slot written over
+    /// with a new game. The picture already uploaded is left where it is: the interface's
+    /// sheet grows by one and is thrown away with the room, which is a great deal simpler
+    /// than freeing one entry out of the middle of it and costs a few hundred kilobytes in a
+    /// session where somebody saved repeatedly over the same slot.
+    /// </remarks>
+    public void DropOverlayPicture(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _pictures.Remove(name);
+    }
+
     /// <summary>The number of a picture already given, or zero.</summary>
     /// <param name="name">What it was called.</param>
     /// <returns>Its number.</returns>

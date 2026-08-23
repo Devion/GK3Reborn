@@ -42,6 +42,14 @@ public enum CameraAction
     /// <summary>Look in your own pockets.</summary>
     Inventory,
 
+    /// <summary>Show every hotspot in the room, while held.</summary>
+    /// <remarks>
+    /// A 1999 adventure game hides what can be clicked and expects the player to sweep the
+    /// pointer across the furniture until something lights up. Held rather than toggled: the
+    /// answer to "what is in this room" is wanted for a second and not for an evening.
+    /// </remarks>
+    ShowHotspots,
+
     /// <summary>Open the quest log.</summary>
     /// <remarks>
     /// A key of its own rather than a corner of another screen. Somebody who has lost the

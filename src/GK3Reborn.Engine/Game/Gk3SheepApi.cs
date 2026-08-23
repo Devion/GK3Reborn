@@ -788,21 +788,33 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // Looking closely at something in the room is a camera and not a screen: the view
+        // moves to a close-up of the thing and the room stays where it is. These used to put
+        // up a modal panel instead, which was harmless only for as long as nothing drew it —
+        // once the panel had a painter, inspecting the museum's H panel covered the screen
+        // with something that looked like the inventory.
+        //
+        // A scene registers the real ones over these, because only a standing scene has the
+        // cameras to move to. Without one there is nothing to look closely at, so these
+        // record the intent and show nothing.
         Register("InspectObject", a =>
         {
-            State.Screens.Show(new Screen(ScreenKind.SceneInspect, Arg(a, 0)));
+            State.Inspecting = Arg(a, 0) is { Length: > 0 } what ? what : State.Inspecting;
             return SheepValue.FromInt(0);
         });
 
         Register("InspectModelUsingAngle", a =>
         {
-            State.Screens.Show(new Screen(ScreenKind.SceneInspect, Arg(a, 0)));
+            State.Inspecting = Arg(a, 1) is { Length: > 0 } angle
+                ? angle
+                : Arg(a, 0) is { Length: > 0 } model ? model : State.Inspecting;
+
             return SheepValue.FromInt(0);
         });
 
         Register("UnInspect", _ =>
         {
-            State.Screens.Hide(ScreenKind.SceneInspect);
+            State.Inspecting = string.Empty;
             return SheepValue.FromInt(0);
         });
 

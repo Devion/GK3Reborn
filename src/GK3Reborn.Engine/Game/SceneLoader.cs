@@ -1447,7 +1447,9 @@ public sealed class SceneLoader
             }
         }
 
-        var resolver = new ActionResolver(api);
+        // Told where the story has got to, so a rule that hands off to another point in
+        // the story's own script is not offered at this one.
+        var resolver = new ActionResolver(api) { Now = request.State?.Timeblock };
         IReadOnlyList<string> names = ActionSets.For(init, request.State?.Timeblock);
         List<string> read = [];
 

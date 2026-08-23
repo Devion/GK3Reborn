@@ -76,7 +76,7 @@ public readonly record struct RayTracingSettings(
     /// </remarks>
     public Vector3 Ambient => UsesBake
         ? new Vector3(0.06f, 0.08f, 0.06f)
-        : new Vector3(0.26f, 0.28f, 0.30f);
+        : new Vector3(0.15f, 0.16f, 0.17f);
 
     /// <summary>How much of the traced ambient occlusion to believe, from zero to one.</summary>
     /// <remarks>
@@ -93,6 +93,26 @@ public readonly record struct RayTracingSettings(
     /// </para>
     /// </remarks>
     public float OcclusionStrength => UsesBake ? 0.55f : 0.85f;
+
+    /// <summary>How much the baked lightmaps shape the ambient floor, from zero to one.</summary>
+    /// <remarks>
+    /// <para>
+    /// A bake is not allowed to be the lighting at these tiers, and it is still the best map
+    /// anybody has of where the light in a room goes. The artists decided in 1999 that the
+    /// wall beside the sconce is warm and the corner behind the screen is not, and dropping
+    /// all of it flattened rooms that are full of lamps: the dining room's sconces went dark,
+    /// its tablecloths turned from cream to grey, and almost nothing in it cast a readable
+    /// shadow because there was nothing for a shadow to be darker than.
+    /// </para>
+    /// <para>
+    /// So the bake modulates the ambient term instead of adding to it. That is not the same
+    /// thing as lighting from it — the term stays ambient, stays subject to traced occlusion,
+    /// and is never subtracted against — and what it buys is the room's shape and colour
+    /// back. Nothing at None and Low, where the bake is already doing the lighting outright
+    /// and shaping it twice would only deepen it.
+    /// </para>
+    /// </remarks>
+    public float LightmapHint => UsesBake ? 0f : 1f;
 
     /// <summary>Whether any rays are traced at all.</summary>
     public bool TracesRays => ShadowLights > 0 || AmbientOcclusionRays > 0;

@@ -225,7 +225,282 @@ off, and the points are unreachable.
 and the tape that lifts it — plus the score name per object, which is the one part already
 written down: the list is in the reference and in `StoryCheckStage.ByTheFingerprintKit`.
 
+## 6. A posed character faces whichever way the clip draws them, and nothing can change it
+
+**Reported:** 2026-08-23, as Emilio's head pointing at the door while he walks to the bench,
+and as Estelle and Lady Howard facing away from each other. **Not fixed; measured, and the
+measurement is the useful part.**
+
+Setting a posed actor's placement heading from the clip changed **0.00% of the rendered
+pixels** on `MS3` — a byte-for-byte identical frame. So a posed character's orientation comes
+entirely from the clip's own mesh transforms, and the model's placement rotation never
+reaches them.
+
+That means the previous fix corrected the actor's *logical* heading, and the position with it
+— which is the "better position" in the report — and could not have moved the drawing.
+Whatever is turning these characters the wrong way is in how a clip's pose is applied, which
+is the path every animated character in the game goes through.
+
+**What has been ruled out.** `AnimationStart.Facing`'s half-turn branch matches the
+reference's exactly, including which side of the dot product takes the turn. The reference's
+`Vector3::Cross` is the same formula as `System.Numerics` — no handedness flip hiding there.
+`Walker.HeadingOf` round-trips correctly: a placement built from 314 degrees reads back as
+314, confirmed in the opening-pose log. And the head-glance arithmetic composes correctly on
+paper, giving +30 degrees of world turn for +30 degrees of yaw.
+
+**What it needs** is a controlled experiment rather than another reading: a synthetic scene
+with one character at a known heading and one target at a known bearing, rendered, so that
+the sign and the half-turn can be read off a picture instead of argued from a matrix. Two
+independent reports both say "opposite", so it is one half-turn in one place; guessing which
+would spin every character in the game if it were the wrong one.
+
 ## Closed
+
+### Saving from the menu, in named slots — done 2026-08-23
+
+F5 and F9 were already bound to quick save and quick load. What was missing was the menu: the
+pause page now has Save and Restore, and both open a list of the twelve numbered slots plus
+the two the game keeps for itself.
+
+A slot says what it was called and when it was written. A free one says so rather than being
+hidden, because a save menu that shows only what has already been saved gives a new player
+nothing to aim at. The quick and automatic slots can be restored from and not written to by
+hand: they belong to the game, and a player who overwrites their own autosave has been given
+a way to lose something they did not know they had. A save with no name of its own is called
+after where the player is — "Hotel Lobby, Day 1 10am" beats "Slot 3" and costs them nothing.
+
+The front end owns no store. It turns rows into a choice and hands the host a slot and a
+direction; reading and writing a game stays the one place that already does it.
+
+**The pages did not fit.** The menu was built for five rows and a slot list has fifteen, so it
+ran off the bottom of the window. The rows now close up until the page fits, down to a hair
+over one line of text — the whole page staying visible is what a menu is for, and it beats a
+fixed height with a scroll bar in it. The panel is as wide as its widest row, so a save's name
+is trimmed at twenty-eight characters: a save is recognised by its first few words and by
+when it was written.
+
+**And a picture of the room in each slot.** The frame is captured at the moment of saving,
+reduced to a quarter in each direction and written as a PNG *beside* the save rather than
+inside it — a saved game is JSON a person can read, and base64 in the middle of it would make
+the file unreadable to keep two things together that are happy apart. A save whose picture
+could not be written is still a save, and a slot with no picture is a row of words, which is
+what every save written before this is.
+
+**The menu reopens on its own first page.** It remembers where it was so that going back from
+Picture lands on Settings, which is right within one visit and wrong between two: pressing
+escape and finding yourself deep in a slot list from ten minutes ago is nobody's idea of a
+pause menu.
+
+### A GAS script could not say a character had left — fixed 2026-08-23
+
+Emilio's bench script outside the hotel ends with `LOCATION LBY`, a get-up animation, a walk
+to the door and the door animation: when Gabriel comes within a hundred units, he goes
+inside. That first line is the whole of what tells the rest of the game he has gone.
+
+**We parsed it and dropped it.** It was filed under "only run this script at a named
+location", which is what the name suggests; the reference's `LocationGasNode::Execute` calls
+`SetActorLocation` outright, so it records where the character now is. Dropped, the lobby
+goes on believing Emilio is outside on a bench, and every `IsActorAtLocation` about him
+answers wrongly for the rest of the morning — `RC1110A` calls both that and `SetActorLocation`
+by name.
+
+### A prop left in the air when the idle holding it was cut short — fixed 2026-08-23
+
+Reported for Emilio's newspaper, then again for Mosely's.
+
+Emilio's case was a declared cleanup that was never played, and fixing that fixed him.
+Mosely's is not the same bug: `mosPaperIdle.gas` **declares no cleanup at all**, so there is
+nothing to play and no amount of looking for one will find it. The paper simply keeps the
+last pose the idle gave it, in the air where his hands were.
+
+A prop posed by an idle now goes back to where it lives when that idle is cut short. Only a
+prop — a character keeps the pose they were interrupted in, which is right, because a person
+stopped mid-gesture stands oddly rather than snapping to attention. And only an idle: an idle
+is decoration and may be interrupted at any moment, where a script's animation is the story
+and a door it left open is meant to stay open.
+
+### A posed character's heading was the scene file's, not the pose's — fixed 2026-08-23
+
+Reported as Lady Howard pointing at the wall in the museum.
+
+`MS3` stands her and Estelle at 314 and 315 degrees, which is both of them turned towards
+Gabriel at the *end* of their conversation; the scene file records where they finish. Where
+they begin is stated as an animation, `initanim=lh2musestturn2gab`, and its opening frame
+wants 90 and 282 — the two of them whispering to each other. `Open()` sampled that frame and
+called `Follow`, which writes the position and nothing else.
+
+Measured rather than guessed: the opening-pose log now prints both headings, and the museum
+is the outlier. Everywhere else they already agree, which is why this had gone unnoticed —
+the lobby reports Jean at 180 with the clip wanting 180, `RC1` reports Buthane at 112
+wanting 112.
+
+**What was actually wrong was the logic, not the picture.** Setting the placement heading to
+the clip's changed the numbers and left the render identical, which establishes the thing the
+fix had to know: a posed character is oriented by the clip's own mesh transforms, and the
+model's placement rotation does not reach them. So before this, the game believed Lady Howard
+faced 314 while she was drawn facing 90 — and every walk, glance and `IsActorNear` about her
+worked from the wrong number. `AnimationStart.Facing` derives the heading from the clip's
+opening frame, shoe triad and half-turn included, and that is now what the actor is placed at.
+
+### Three ways to skip a walk, and a way to see the room — done 2026-08-23
+
+Shift arrives at once. A click walks it, a double-click runs it, shift skips it — three ways
+of saying how much of the walk you want to watch. Asked for on the ways out of a room, which
+are the walks a player repeats most and learns least from, and it costs nothing to mean the
+same thing everywhere. The route is still found, because where the walk would have *ended* is
+where the player belongs: the boundary may stop it short, and arriving somewhere the floor
+does not reach is worse than the walk it replaced. One walk, self-clearing, so a script's own
+walks are untouched.
+
+Holding **Alt** shows every hotspot in the room. A 1999 adventure game hides what can be
+clicked and expects the player to sweep the pointer over the furniture until something lights
+up. The labels are laid out rather than merely drawn — rooms put a dozen nouns within a few
+degrees of each other, and a heap on one spot answers nothing — each pushed down until it
+clears the ones already placed, nearest first so the thing at your elbow keeps its place and
+the far side of the room gives way. One label per noun, since the church carves its four
+angels as four models. A label with nowhere left to go is dropped: a wrong one is worse than a
+missing one.
+
+### A stopped animation went on making its noise — fixed 2026-08-23
+
+Reported from the museum: Estelle and Lady Howard stop whispering the moment they notice
+Gabriel, and Gabriel says so — but the whispering went on being audible underneath.
+
+An animation's sound cues live in a list of their own, separate from the poses, so that a
+clip which moves nothing can still make a noise. `StopAnimating` cleared the poses, the
+holds, the visibility changes, the footsteps and the texture swaps, and never the cues. So
+stopping an animation stopped everything about it except the part you could hear.
+
+Cues are now dropped by either name — a script stops an animation by the animation's name and
+an actor is stopped by their model's, and a cue can be reached from both.
+
+### Inspecting something put a panel over the room — fixed 2026-08-23
+
+Reported as the museum's H panel opening a full-screen dialog that looked like the inventory.
+
+Looking closely at something is a camera: the view moves to a close-up and the room stays
+where it is. A scene registers those calls over the base ones, because only a standing scene
+has cameras to move to — but the base ones showed a modal screen, and a comment beside them
+said that was harmless because nothing drew it. Something draws it now. They set the same
+close-up state the scene's own versions do.
+
+### The dining room lost its ambiance at Medium and High — fixed 2026-08-23
+
+Reported after the baked lightmaps stopped lighting rooms at those tiers: the wall sconces
+went dark, the tablecloths turned from cream to grey, and a room with **42 authored lights**
+in it had almost nothing in it that read as a shadow.
+
+Dropping the bake as *lighting* was right and is what P10 asks for. Dropping it as
+*information* was not. It remains the best map anybody has of where the light in a room
+goes — the artists decided in 1999 that the wall beside the sconce is warm and the corner
+behind the screen is not — so it now shapes the ambient term rather than adding to it:
+`0.30 + 3.0 x baked` where a lightmap exists. The term stays ambient, stays subject to
+traced occlusion, and is still never subtracted against.
+
+The flat part of the ambient floor came down with it, from 0.26/0.28/0.30 to
+0.15/0.16/0.17. A large uniform wash is what drowned the rig's direct light and made the
+shadows subtle; most of the ambient a lit surface gets should come from the shape.
+
+Measured on `DIN`: contrast (standard deviation of frame luminance) 32.3 against the bake's
+31.1, where before the hint it was flat. **Models are not reached** — a prop has no lightmap,
+so the tablecloths are still greyer than the bake's cream. That wants light probes and is
+noted in `docs/ray-tracing.md`.
+
+### The church offered a verb from two days later — fixed 2026-08-23
+
+Reported as the four angels offering "Trace" on the first morning.
+
+**The shipped data really does allow it.** The case is `VALID_TO_TRACE`, which reads
+`!GetFlag("LockedSquare") && GetNounVerbCount("Four_Angels","Trace") == 0`, and both halves
+are true from the moment the game begins. The original offers it early too.
+
+The rule says when it belongs, in its own script: those actions end in
+`CallSheep("chu205p", "Done")` — they hand off to the compiled script of one point in the
+story, which is loaded then and at no other time. An action calling into a script the game
+has not got cannot finish. **107 distinct timeblock scripts are called this way across the
+corpus**, so the resolver now withholds any rule that hands off to a timeblock other than the
+current one. The corpus sweep went from 36,723 performable verbs to 36,651 — 72 of them were
+premature.
+
+### Labels gave away more than the player knew — fixed 2026-08-23
+
+Three separate leaks, all in the hover label.
+
+The second floor names its doors after the guests — `EMILIOS_DOOR`, `BUTHANES_DOOR`,
+`WILKES_DOOR` — so the corridor introduced every suspect in the hotel the first time Gabriel
+walked down it. They are called by their room number now, which is what is actually on the
+door and what the scene's own `R27_PLATE` beside each one says.
+
+The church carves its four angels as four objects, and pointing at one read "Four Angels4".
+A trailing number is not always bookkeeping — `BUZZER_RM25` and `DUMB_WAITER_LOCK_R21` end in
+room numbers that mean everything — so what tells them apart is whether the scene also
+declares the name without it. The church declares `FOUR_ANGELS`; no room declares a
+`BUZZER_RM`.
+
+And a name the game's own string table wrote in lower case stayed that way, so an object read
+"bed". Only the first letter is decided, because recasing "Rennes-le-Chateau: Outside Church"
+puts a lower-case C in the middle of a place name.
+
+### The player arrived at somebody else's spot — fixed 2026-08-23
+
+Reported as Gabriel's position resetting on the way into the phone room and the kitchen: he
+appeared somewhere wrong, filling the screen, and a moment later the room's own script moved
+him to the door.
+
+The loader placed the player at the first entry of the scene's `[POSITIONS]` whenever nothing
+else said where. In the phone room that is `EMILIO_HERE_1` — a spot authored for a different
+character, a metre in front of the arrival camera. **22 of the game's scene files reach that
+fallback**, and exactly one of the 102 that place a player defines a `START` at all, so the
+guess was doing nearly all of the work and doing it wrongly.
+
+The artists' own convention answers it instead. A room names the spot you arrive at for each
+door into it, after where you came from: `FR_LBY` is where you stand having come from the
+lobby, and there are **308 of them across 80 scenes**. The room's enter script picks one by
+hand a frame later; making the same choice at load is what stops the player ever seeing the
+wrong one. Failing that, nothing — an unplaced player stands at the origin until a script
+moves them, which is what the reference does and is better than standing where somebody else
+was meant to.
+
+### Every line of dialogue talked over itself — fixed 2026-08-23
+
+Reported as voices being cut off, and worse the longer the recording.
+
+The four dialogue calls are marked waitable, and `SecondsFor` had no case for any of them, so
+they fell through to nought. A waited block containing one finished in the frame it began:
+the script ran straight on to the next statement, and starting a line abandons whatever is
+being said. Longer recordings lost more, which is exactly how it was reported.
+
+`StartDialogue` and `StartDialogueNoFidgets` now go through the same reckoning
+`StartVoiceOver` does — they take the same licence plate and line count. A continuation names
+no plate at all, only how many more lines, so it asks whatever is speaking: that is the one
+duration the script host cannot work out for itself.
+
+### Inspect won every click — fixed 2026-08-23
+
+The close-up is offered for nearly every noun in the game, and it sorted ahead of everything
+else, so it was what a left click did — a click meant to cross the room leaned in at a
+doorframe instead. It is on the **middle button** now. The left button takes the first verb
+that actually does something, and where a thing answers to nothing else it means what a click
+on the floor means and the player walks over.
+
+### The inventory strip is gone — done 2026-08-23
+
+It listed the same items the right-click menu already offers, and it lay across the foot of
+the screen — exactly where the floor at the player's feet is drawn, so every click on the
+ground in front of you was tested against it first and a good many were swallowed. The
+pockets are a key away and a screen of their own, which is where a list of twelve things
+belongs.
+
+The layout is kept rather than deleted, in case a strip is ever wanted as something the
+player can turn on.
+
+### An inventory item offered to be picked up again — fixed 2026-08-23
+
+An item and the object it was picked up from are the same noun, so the close-up of the marker
+in Gabriel's pocket resolved the same rules as the marker on the desk and offered `PICKUP`.
+The action files cannot tell the difference and are not wrong to — the rule exists for the
+desk. The verbs that only mean something for a thing still in the room are filtered out of an
+item's own menu.
 
 ### The player arrived at somebody else's spot — fixed 2026-08-23
 

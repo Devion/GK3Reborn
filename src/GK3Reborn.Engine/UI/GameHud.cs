@@ -8,6 +8,10 @@ namespace GK3Reborn.UI;
 /// <param name="Noun">What the pointer is over, or null.</param>
 /// <param name="Verbs">What that answers to, most likely first.</param>
 /// <param name="Verb">The verb a plain click would perform.</param>
+/// <param name="Hotspots">
+/// Every noun in the room and where it is on screen, while the player is holding the key
+/// that asks. Empty the rest of the time.
+/// </param>
 /// <param name="At">Where the pointer is, in pixels.</param>
 /// <param name="MenuOpen">Whether the player asked for the full list of verbs.</param>
 /// <param name="MenuIndex">
@@ -50,7 +54,8 @@ public readonly record struct HudState(
     string Place,
     GameConsole? Console = null,
     string? Score = null,
-    IReadOnlyList<string>? Items = null);
+    IReadOnlyList<string>? Items = null,
+    IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -166,8 +171,10 @@ public sealed class GameHud
         Overlay.Begin(width, height);
         _rows.Clear();
         _slots.Clear();
+        _buttons.Clear();
 
         Where(state, width);
+        Hotspots(state, width, height);
         // The bar of what the player is carrying used to live along the foot of the screen.
         // It is gone: the right-click menu already says which of your things a noun will
         // take, so the strip listed the same items a second time and did it across exactly
@@ -389,7 +396,8 @@ public sealed class GameHud
     /// which is nearly always the floor at the player's feet — so putting the pointer on
     /// the interface would walk them.
     /// </remarks>
-    public bool OverInterface(Vector2 point) => Inside(point, _strip);
+    public bool OverInterface(Vector2 point) =>
+        Inside(point, _strip) || ButtonAt(point) is { Length: > 0 };
 
     /// <summary>Which inventory item is at a point.</summary>
     /// <param name="point">Where the player clicked, in pixels.</param>
@@ -426,11 +434,133 @@ public sealed class GameHud
         Overlay.Rect(0, height - 1, width, 1, Rule);
         Overlay.Text(state.Place, 12 * unit, 5 * unit, Dim);
 
+        float right = width - (12 * unit);
+
         if (state.Score is { Length: > 0 } score)
         {
-            Overlay.Text(score, width - Overlay.Measure(score) - (12 * unit), 5 * unit, Dim);
+            right -= Overlay.Measure(score);
+            Overlay.Text(score, right, 5 * unit, Dim);
+            right -= 20 * unit;
+        }
+
+        // The two screens a player opens by hand, where the eye already goes for the score.
+        // Both have a key — I and J — and a key nobody is told about is a key nobody presses,
+        // which is how the quest log came to be a feature with no way in.
+        right = Button(state, "Journal", right, height, unit, "open:journal");
+        Button(state, "Pockets", right, height, unit, "open:inventory");
+    }
+
+    /// <summary>One word in the top bar that answers to a click.</summary>
+    /// <returns>Where the next one to its left should end.</returns>
+    private float Button(
+        HudState state, string label, float right, float height, float unit, string id)
+    {
+        float wide = Overlay.Measure(label) + (16 * unit);
+        var bounds = new Vector4(right - wide, 2 * unit, wide, height - (5 * unit));
+
+        bool under = Inside(state.At, bounds);
+
+        Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, under ? PanelLit : Panel);
+        Overlay.Text(label, bounds.X + (8 * unit), 5 * unit, under ? Accent : Dim);
+
+        _buttons.Add((id, bounds));
+
+        return bounds.X - (8 * unit);
+    }
+
+    private readonly List<(string Id, Vector4 Bounds)> _buttons = [];
+
+    /// <summary>Which of the top bar's buttons is at a point, if any.</summary>
+    /// <param name="point">Where the pointer is.</param>
+    /// <returns>What it opens, or null.</returns>
+    public string? ButtonAt(Vector2 point)
+    {
+        foreach ((string id, Vector4 bounds) in _buttons)
+        {
+            if (Inside(point, bounds))
+            {
+                return id;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Every hotspot in the room at once, while the key that asks is held.
+    /// </summary>
+    /// <param name="state">What the game is doing, including where each noun is.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <remarks>
+    /// <para>
+    /// A 1999 adventure game hides what can be clicked and expects the player to sweep the
+    /// pointer across the furniture until something lights up. Holding a key answers the
+    /// question outright, which is what <c>Plan/03</c> section 3 means by an interface easier
+    /// than the original's.
+    /// </para>
+    /// <para>
+    /// <b>Laid out so that no two labels overlap.</b> Rooms put a dozen nouns within a few
+    /// degrees of each other — a desk, its drawer, the register on it, the bell beside it —
+    /// and a heap of labels on the same spot answers nothing. Each is pushed down until it
+    /// clears the ones already placed, in order of depth so the nearest keeps its own place
+    /// and the ones behind give way. A label with nowhere left to go is dropped rather than
+    /// stacked, because a wrong label is worse than a missing one.
+    /// </para>
+    /// </remarks>
+    private void Hotspots(HudState state, int width, int height)
+    {
+        if (state.Hotspots is not { Count: > 0 } spots)
+        {
+            return;
+        }
+
+        float unit = Scale;
+        float row = Overlay.LineHeight + (6 * unit);
+        float bar = Overlay.LineHeight + (14f * unit);
+
+        List<Vector4> taken = [];
+
+        foreach ((string noun, Vector2 at) in spots)
+        {
+            string label = Pretty(noun);
+            float wide = Overlay.Measure(label) + (12 * unit);
+
+            float x = Math.Clamp(at.X - (wide / 2), 0, Math.Max(0, width - wide));
+            float y = Math.Clamp(at.Y - (row / 2), bar, Math.Max(bar, height - row));
+
+            // Down until it clears everything already placed. Down rather than sideways
+            // because a label that moves along the wall stops pointing at the thing.
+            bool room = true;
+
+            while (taken.Exists(b => Overlaps(b, x, y, wide, row)))
+            {
+                y += row + (2 * unit);
+
+                if (y + row > height)
+                {
+                    room = false;
+                    break;
+                }
+            }
+
+            if (!room)
+            {
+                continue;
+            }
+
+            taken.Add(new Vector4(x, y, wide, row));
+
+            Overlay.Rect(x, y, wide, row, Panel);
+            Overlay.Rect(x, y, wide, 1, Rule);
+            Overlay.Text(label, x + (6 * unit), y + (3 * unit), Ink);
         }
     }
+
+    /// <summary>Whether a proposed label would sit on one already placed.</summary>
+    private static bool Overlaps(Vector4 placed, float x, float y, float wide, float tall) =>
+        x < placed.X + placed.Z && x + wide > placed.X &&
+        y < placed.Y + placed.W && y + tall > placed.Y;
 
     /// <summary>
     /// The label that follows the pointer.
@@ -467,7 +597,11 @@ public sealed class GameHud
         // Kept on screen: a label that runs off the right edge is worse than one that stops
         // following the pointer for the last few pixels.
         float x = Math.Clamp(state.At.X + (18 * unit), 0, Math.Max(0, width - w));
-        float y = Math.Clamp(state.At.Y + (18 * unit), 0, Math.Max(0, height - h));
+        // Below the top bar, never over it. The bar carries the place, the score and the two
+        // buttons, and a label that lands on them hides all three at once.
+        float bar = Overlay.LineHeight + (14f * unit);
+
+        float y = Math.Clamp(state.At.Y + (18 * unit), bar, Math.Max(bar, height - h));
 
         Overlay.Rect(x, y, w, h, Panel);
         Overlay.Rect(x, y, 2 * unit, h, action is not null ? Accent : Rule);
@@ -755,7 +889,14 @@ public sealed class GameHud
         // place name.
         if (text.Any(char.IsLower))
         {
-            return text;
+            // Its own casing is kept, because recasing "Rennes-le-Chateau: Outside Church"
+            // gives it a lower-case C in the middle of a place name. Only the first letter
+            // is decided here, and only when the data left it lower: the string table has
+            // "bed" in it, and a label that reads "bed" looks like a mistake whatever the
+            // reason for it.
+            return char.IsLower(text[0])
+                ? char.ToUpperInvariant(text[0]) + text[1..]
+                : text;
         }
 
         // A topic is a thing to talk about rather than a thing to do.

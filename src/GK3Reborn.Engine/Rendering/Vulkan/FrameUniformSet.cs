@@ -429,7 +429,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
             // out which cell it stands in. Constant for as long as a room is loaded.
             _gridOrigin,
             _gridCounts,
-            new Vector4(settings.Ambient, 0));
+            new Vector4(settings.Ambient, settings.LightmapHint));
 
         _buffers[index].Write<FrameUniforms>([uniforms]);
 

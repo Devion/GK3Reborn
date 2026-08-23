@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Audio;
 using GK3Reborn.Formats.Audio;
 using GK3Reborn.Formats.Bitmaps;
@@ -38,16 +38,17 @@ public sealed class FrontEndTests
 
         Assert.Equal("Play", Row(Front(), "play").Text);
 
-        // Drawn and disabled rather than missing: a menu that simply omits saving leaves
-        // the player looking for it.
-        Assert.False(Row(Front(), "load").Enabled);
+        // Restoring works now, so the row is live. It was drawn and disabled while saving
+        // was unbuilt, because a menu that simply omits it leaves the player looking.
+        Assert.True(Row(Front(), "load").Enabled);
 
         // Paused, where the intro would be an odd thing to offer somebody in the middle of
-        // the game, and the first row is the one that gives it back to them.
+        // the game, and the first row is the one that gives it back to them. Saving belongs
+        // here and not on the title screen: there is nothing to write until there is a game.
         FrontEnd paused = Front(inGame: true);
 
         Assert.Equal(
-            ["resume", "load", "options", "quit"],
+            ["resume", "save", "load", "options", "quit"],
             paused.Items.Select(i => i.Id));
 
         Assert.Equal("Resume", Row(paused, "resume").Text);

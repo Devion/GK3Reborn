@@ -298,8 +298,12 @@ public sealed class ScreenPainter
             _hits.Add(("item:" + item, bounds));
         }
 
+        // What a click does, rather than a rule about holding. "Click to hold, click again
+        // to look at it closely" described the interface's own mechanics and not the
+        // player's intention — holding a thing is not something anybody sets out to do, and
+        // an item with one action now simply performs it.
         Overlay.Text(
-            "Click to hold. Click again to look at it closely.",
+            "Click an item to use it.",
             body.X + (20 * unit),
             body.Y + body.W - Overlay.LineHeight - (12 * unit),
             Dim);
@@ -314,10 +318,11 @@ public sealed class ScreenPainter
     /// <param name="unit">The interface's scale.</param>
     /// <remarks>
     /// <para>
-    /// By day and then by point in the story, newest last, with the block the player is in
-    /// marked. Finished objectives are kept rather than swept away — the question "what have
-    /// I actually done today" is worth as much as "what now", and a list that only ever
-    /// shrinks tells a player nothing about how far they have come.
+    /// By day and then by point in the story, newest last. <b>Only the block the player is
+    /// in lists its objectives</b>; the ones behind it keep their heading and their tally and
+    /// give up their list. The question the journal answers is "what now", and a morning's
+    /// worth of ticked lines buries it. The tally is what is left of "how far have I come",
+    /// which is worth keeping and is not worth eleven lines.
     /// </para>
     /// <para>
     /// <b>Nothing here says how.</b> The titles are written to say what, and a player who
@@ -358,10 +363,10 @@ public sealed class ScreenPainter
                 // The heading carries the tally, because "4 of 11" answers "am I nearly
                 // done here" without the player counting ticks.
                 Overlay.Text(
-                    $"{chapter.Title}{(chapter.Current ? "  \u2014 now" : string.Empty)}",
+                    chapter.Current ? chapter.Title + "  (now)" : chapter.Title,
                     x,
                     y,
-                    chapter.Current ? Accent : Ink);
+                    chapter.Current ? Accent : Dim);
 
                 Overlay.Text(
                     $"{chapter.Achieved} of {chapter.Total}",
@@ -372,6 +377,17 @@ public sealed class ScreenPainter
                 y += line + (4 * unit);
                 Overlay.Rect(x, y, width, 1, Rule);
                 y += 8 * unit;
+
+                // Only what the player is in the middle of. A point in the story they have
+                // finished with keeps its heading and its tally and gives up its list: the
+                // question the journal answers is "what now", and eleven ticked lines from
+                // this morning bury it. Asked for, having watched the list grow into
+                // something nobody could read at a glance.
+                if (!chapter.Current)
+                {
+                    y += 6 * unit;
+                    continue;
+                }
 
                 foreach (JournalEntry entry in chapter.Entries)
                 {
@@ -1549,7 +1565,7 @@ public sealed class ScreenPainter
         if (machine.Identity is { } printed)
         {
             Overlay.Text(
-                $"{machine.Library.Say("Print", "MakeID Screen")}: {printed.Category} — {printed.Title}",
+                $"{machine.Library.Say("Print", "MakeID Screen")}: {printed.Category}, {printed.Title}",
                 body.X + (20 * unit),
                 body.Y + body.W - (44 * unit),
                 Accent);

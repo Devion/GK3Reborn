@@ -117,6 +117,66 @@ public sealed class ScenePicker
     /// <c>GameState.BlockedHitTests</c>.
     /// </remarks>
     public ISet<string>? Blocked { get; init; }
+    /// <summary>
+    /// Everything in the room the player can act on, and where it is.
+    /// </summary>
+    /// <returns>Each noun once, with the middle of what it occupies in world space.</returns>
+    /// <remarks>
+    /// <para>
+    /// For showing them all at once while a key is held. A 1999 adventure game hides its
+    /// hotspots and expects the player to sweep the pointer over the furniture until
+    /// something lights up, which is the least interesting thing anybody does in one.
+    /// </para>
+    /// <para>
+    /// Each noun once, not each object: the church carves its four angels as four models and
+    /// the hallway's hit tests double up on doors, and a room labelled twice for the same
+    /// thing reads as a fault rather than as thoroughness. The first one found wins, and the
+    /// middle is of that one's own box.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<(string Noun, Vector3 Where)> Interactive()
+    {
+        var found = new List<(string, Vector3)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Target target in _targets)
+        {
+            if (target.Noun is not { Length: > 0 } noun ||
+                Blocked?.Contains(target.Name) == true ||
+                !seen.Add(noun))
+            {
+                continue;
+            }
+
+            Vector3 minimum = new(float.MaxValue);
+            Vector3 maximum = new(float.MinValue);
+            bool any = false;
+
+            foreach (Part part in target.Parts)
+            {
+                // Where the group is now, then where the model is now — the same pair the
+                // ray is transformed by. A room's own geometry has no placement and its
+                // triangles are already where they are.
+                Matrix4x4 pose = target.Of is { } placed
+                    ? part.Mesh >= 0
+                        ? placed.PoseOf(part.Mesh) * placed.Standing
+                        : placed.Standing
+                    : Matrix4x4.Identity;
+
+                minimum = Vector3.Min(minimum, Vector3.Transform(part.Minimum, pose));
+                maximum = Vector3.Max(maximum, Vector3.Transform(part.Maximum, pose));
+                any = true;
+            }
+
+            if (any)
+            {
+                found.Add((noun, (minimum + maximum) * 0.5f));
+            }
+        }
+
+        return found;
+    }
+
 
     /// <summary>Casts a ray into the scene.</summary>
     /// <param name="ray">Where from and which way.</param>

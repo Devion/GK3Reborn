@@ -38,7 +38,7 @@ public readonly record struct MeshVertex(
 /// How many cells the grid has along each axis, and how many lights the rig holds in all.
 /// </param>
 /// <param name="Ambient">
-/// The ambient floor, in rgb, with nothing in w. It is tier data rather than a constant
+/// The ambient floor in rgb, and in w how much the baked lightmaps shape it. It is tier data rather than a constant
 /// because what it has to stand in for changes: where the baked lightmaps still light the
 /// room it only keeps an unreached corner off black, and where they are gone it is the
 /// whole of what the walls and floor bounce back.

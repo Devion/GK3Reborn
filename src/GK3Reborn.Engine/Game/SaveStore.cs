@@ -370,4 +370,70 @@ public sealed class SaveStore
     }
 
     private string PathOf(string slot) => Path.Combine(_directory, slot + ".json");
+
+    /// <summary>Where a slot's picture of the room lives.</summary>
+    /// <param name="slot">The slot.</param>
+    /// <returns>The path, whether or not anything is there.</returns>
+    /// <remarks>
+    /// Beside the save rather than inside it. A saved game is JSON a person can read and a
+    /// picture is not, and base64 in the middle of it would make the file unreadable to keep
+    /// two things together that are perfectly happy apart. Deleting a save takes its picture
+    /// with it; a picture with no save is ignored.
+    /// </remarks>
+    public string PictureOf(string slot)
+    {
+        ArgumentNullException.ThrowIfNull(slot);
+
+        return Path.Combine(_directory, slot + ".png");
+    }
+
+    /// <summary>
+    /// Keeps a picture of the room beside a save.
+    /// </summary>
+    /// <param name="slot">The slot it belongs to.</param>
+    /// <param name="picture">The frame, already reduced to a thumbnail.</param>
+    /// <returns>True when it was written.</returns>
+    /// <remarks>
+    /// Failure is silent on purpose. A save whose picture could not be written is still a
+    /// save, and refusing the whole thing over a decoration would be the worse trade — which
+    /// is the same reasoning that makes the picture a separate file in the first place.
+    /// </remarks>
+    public bool Illustrate(string slot, Formats.Bitmaps.DecodedImage picture)
+    {
+        ArgumentNullException.ThrowIfNull(slot);
+
+        try
+        {
+            AtomicFile.WriteAllBytes(
+                PictureOf(slot), Formats.Bitmaps.PngWriter.Encode(picture));
+
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The picture beside a save, if there is one.</summary>
+    /// <param name="slot">The slot.</param>
+    /// <returns>The image, or null when the slot has none or it cannot be read.</returns>
+    public Formats.Bitmaps.DecodedImage? Picture(string slot)
+    {
+        ArgumentNullException.ThrowIfNull(slot);
+
+        try
+        {
+            string path = PictureOf(slot);
+
+            return File.Exists(path)
+                ? Formats.Bitmaps.PngReader.Decode(File.ReadAllBytes(path), path)
+                : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or
+                                      InvalidDataException or NotSupportedException)
+        {
+            return null;
+        }
+    }
 }

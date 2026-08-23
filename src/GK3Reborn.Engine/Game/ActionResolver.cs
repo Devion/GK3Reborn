@@ -278,6 +278,74 @@ public sealed class ActionResolver
     }
 
     /// <summary>
+    /// Whether an action belongs to a different point in the story than this one.
+    /// </summary>
+    /// <param name="action">The rule.</param>
+    /// <returns>True when it cannot sensibly run now.</returns>
+    /// <remarks>
+    /// <para>
+    /// Reported as the church's four angels offering "Trace" on the first morning, two days
+    /// before the puzzle that verb belongs to. The shipped data really does allow it: the
+    /// case is <c>VALID_TO_TRACE</c>, which reads <c>!GetFlag("LockedSquare") &amp;&amp;
+    /// GetNounVerbCount("Four_Angels","Trace") == 0</c>, and both halves are true from the
+    /// moment the game begins. The original offers it early too.
+    /// </para>
+    /// <para>
+    /// <b>The rule says when it belongs, in its own script.</b> Those actions end in
+    /// <c>CallSheep("chu205p", "Done")</c> — they hand off to the compiled script of one
+    /// point in the story, which is loaded at that point and at no other. An action that
+    /// calls into a script the game has not got is an action that cannot finish, and
+    /// offering it is offering a verb that does half of something.
+    /// </para>
+    /// <para>
+    /// 107 distinct timeblock scripts are called this way across the corpus, so this is a
+    /// general reading of the data rather than a patch for one statue. A rule that names no
+    /// such script is not filtered by it at all.
+    /// </para>
+    /// </remarks>
+    private bool Elsewhen(NvcAction action)
+    {
+        if (Now is not { } now || action.Script is not { Length: > 0 } script)
+        {
+            return false;
+        }
+
+        int at = 0;
+
+        while ((at = script.IndexOf("CallSheep", at, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            int open = script.IndexOf('"', at);
+            int close = open < 0 ? -1 : script.IndexOf('"', open + 1);
+
+            at += "CallSheep".Length;
+
+            if (close <= open || close - open - 1 != 7)
+            {
+                // Not a name of the shape LLLNNNa, so it names no point in the story and
+                // this has nothing to say about it.
+                continue;
+            }
+
+            // Three letters of location and then the timeblock, which is the whole of the
+            // convention: chu205p, hal310a, din303p.
+            if (Timeblock.TryParse(script[(open + 4)..close], out Timeblock when) && when != now)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Where the story has got to, when anything told the resolver.</summary>
+    /// <remarks>
+    /// Null leaves <see cref="Elsewhen"/> filtering nothing, which is what the tools want:
+    /// a sweep asks what a room can do across the whole story rather than at one moment in
+    /// it, and a resolver with no clock must not quietly answer a narrower question.
+    /// </remarks>
+    public Timeblock? Now { get; set; }
+
+    /// <summary>
     /// Gives a topic the walk that the Talk it was hoisted out of would have made.
     /// </summary>
     /// <param name="rule">The rule that is going to run.</param>
@@ -368,6 +436,7 @@ public sealed class ActionResolver
             {
                 if (!string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(action.Verb, written, StringComparison.OrdinalIgnoreCase) ||
+                    Elsewhen(action) ||
                     !IsCaseSatisfied(file, action.Case, ego, noun, asked))
                 {
                     continue;

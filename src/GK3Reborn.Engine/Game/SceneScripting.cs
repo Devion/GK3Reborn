@@ -792,7 +792,10 @@ public static class SceneScripting
                         .FirstOrDefault(c => Named(c, about))?.Name
                 : null)
             ?? api.State.DefaultDialogueCamera
-            ?? ConversationCamera.Framing(scene.Definition.Cameras(), Speakers(api, world));
+            ?? ConversationCamera.Framing(
+                scene.Definition.Cameras(),
+                Speakers(api, world),
+                Looking(api, world));
 
         if (wanted is { Length: > 0 } named)
         {
@@ -828,6 +831,27 @@ public static class SceneScripting
         }
 
         return where;
+    }
+
+    /// <summary>Which way the people in a conversation are facing.</summary>
+    /// <remarks>
+    /// In the same order <see cref="Speakers"/> gives them, and zero for anybody whose facing
+    /// nothing can answer — a zero vector is skipped rather than believed, so an unknown
+    /// facing costs a shot nothing.
+    /// </remarks>
+    private static List<Vector3> Looking(Gk3SheepApi api, SceneUpdate world)
+    {
+        List<Vector3> ahead = [];
+
+        foreach (string who in new[] { api.State.Ego, api.ActingOn })
+        {
+            if (who is { Length: > 0 } named && world.Where(named) is not null)
+            {
+                ahead.Add(world.Looking(named) ?? Vector3.Zero);
+            }
+        }
+
+        return ahead;
     }
 
     /// <summary>

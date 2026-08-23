@@ -1073,9 +1073,7 @@ public static class Application
                 Console.WriteLine(
                     $"Opening pose: {posed} clip(s) sampled" +
                     (update.Posed.Count > 0
-                        ? ", " + string.Join(", ", update.Posed.Select(m => string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"{m.Who} at {m.Where.X:F0}, {m.Where.Z:F0}")))
+                        ? ", " + string.Join(", ", update.Posed.Select(Described))
                         : string.Empty));
             }
 
@@ -2188,8 +2186,75 @@ public static class Application
 
                 front.InGame = true;
 
+                // The room as the player last saw it, taken before the menu is drawn over
+                // it. Captured here and not at the moment of saving: by then the pause menu
+                // is on the screen, and a save slot showing a picture of the save menu is
+                // worse than showing nothing at all.
+                Formats.Bitmaps.DecodedImage? seen = renderer.Capture();
+
+                // From the top, every time. The menu remembers which page it was on so that
+                // going back from Picture lands on Settings — which is right inside one
+                // visit and wrong between two. Pressing escape and finding yourself three
+                // pages deep in a slot list from ten minutes ago is nobody's idea of a
+                // pause menu.
+                front.Show(FrontEndPage.Main);
+
+                // What the slots hold, before the page can draw them. Read here rather
+                // than kept, because a save written by another copy of the game running
+                // beside this one is still a save this menu should show.
+                front.Saves = api.Saves?.List() ?? [];
+                front.Illustrations = slot => Illustration(renderer, api.Saves, slot);
+
                 FrontEndOutcome chose = ShowMenu(
                     window, renderer, pages, front, apply, MenuBehind.Room, () => cut(true));
+
+                if (chose is FrontEndOutcome.Save && front.Slot is { Length: > 0 } into)
+                {
+                    // Named for where the player is, when they have not named it
+                    // themselves. "Hotel Lobby, Day 1 10am" is a better answer than "Slot 3"
+                    // and costs the player nothing to get.
+                    string called = front.Naming is { Length: > 0 } given
+                        ? given
+                        : strings.Where(scene.Name, story.Timeblock.ToString());
+
+                    bool wrote = api.Saves?.Write(into, story.Capture(called)) ?? false;
+
+                    // And a picture of the room, from the last frame drawn before the menu
+                    // went up. Written after the save rather than with it: a save whose
+                    // picture failed is still a save, and one without a picture is a row of
+                    // words, which is what every save written before this was.
+                    if (wrote && seen is { } photograph)
+                    {
+                        api.Saves?.Illustrate(into, Thumbnail(photograph));
+
+                        // The renderer is holding the old picture for this slot under the
+                        // same name. Dropped, so the menu reloads it rather than showing
+                        // what used to be there.
+                        renderer.DropOverlayPicture("save:" + into);
+                    }
+
+                    Console.WriteLine(wrote
+                        ? $"Saved to {into}: {called}"
+                        : $"Could not save to {into}.");
+
+                    front.Naming = string.Empty;
+                    renderer.SetOverlay(null);
+                    continue;
+                }
+
+                if (chose is FrontEndOutcome.Load && front.Slot is { Length: > 0 } from &&
+                    api.Saves?.Read(from, out Game.SaveFault fault) is { } recovered)
+                {
+                    story.Restore(recovered);
+
+                    Console.WriteLine($"Restored {from}: {recovered.Title}");
+
+                    // The room the save was written in, which is very likely not this one.
+                    api.Wanted = story.Location;
+
+                    renderer.SetOverlay(null);
+                    break;
+                }
 
                 // The room has been standing still behind the menu and the clock has not.
                 // Without this the first frame back advances everything by however long the
@@ -2511,6 +2576,30 @@ public static class Application
                             $"{about}:{chose[5..]} [{onItem.Case}] - " +
                             $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
                     }
+                    else if (chose.StartsWith("item:", StringComparison.Ordinal) &&
+                             chose[5..] is { Length: > 0 } inHand &&
+                             !inHand.StartsWith("SIDNEY", StringComparison.OrdinalIgnoreCase) &&
+                             ItemVerbs(
+                                 new Screen(ScreenKind.InventoryInspect, inHand),
+                                 scene,
+                                 story) is [string only])
+                    {
+                        // One thing to do, so it is done. Making the player click through to
+                        // a screen that offers a single button is a step that exists only
+                        // because the interface was built inwards from the close-up.
+                        if (scene.Actions?.Find(inHand, only, story.Ego) is { } single)
+                        {
+                            ActionOutcome ran = new ActionRunner(api).Run(single);
+
+                            Console.WriteLine(
+                                $"{inHand}:{only} [{single.Case}] - " +
+                                $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
+                        }
+                        else
+                        {
+                            story.Inventory.SetActive(story.Ego, inHand);
+                        }
+                    }
                     else
                     {
                         OnScreen(chose, story, sidney, update, console);
@@ -2584,12 +2673,35 @@ public static class Application
                 continue;
             }
 
+            // The top bar's two buttons, which are the only way in that a player who has not
+            // read a key list will find.
+            if (!console.Open &&
+                window.WasClicked(Platform.PointerButton.Primary) &&
+                hud?.ButtonAt(pointer) is { Length: > 0 } opening &&
+                story.Screens.InventoryReachable)
+            {
+                ScreenKind wanted = opening == "open:journal"
+                    ? ScreenKind.Journal
+                    : ScreenKind.Inventory;
+
+                if (story.Screens.IsOnTop(wanted))
+                {
+                    story.Screens.Back();
+                }
+                else
+                {
+                    story.Screens.Show(new Screen(wanted));
+                }
+
+                menu = null;
+            }
+
             // The strip along the foot of the screen is the inventory, so a click on it is
             // a click on what the player is carrying rather than on the room behind it.
             // Once to take a thing in hand, again to look at it closely — which is where
             // its own verbs live, because the action files guard every one of them behind
             // "the inventory is what you are looking at".
-            if (!console.Open &&
+            else if (!console.Open &&
                 window.WasClicked(Platform.PointerButton.Primary) &&
                 hud?.ItemAt(pointer) is { Length: > 0 } clicked)
             {
@@ -2654,6 +2766,13 @@ public static class Application
                 // it opened is showing and has rows of its own.
                 string? chosenRow = inside ? hud?.RowNamed(menuIndex) : null;
                 bool openingBag = chosenRow == GameHud.UseRow;
+
+                // Shift arrives at once. Three ways of saying how much of the walk you want
+                // to watch: a click walks it, a double-click runs it, and shift skips it.
+                // Asked for on the ways out of a room, which are the walks a player repeats
+                // most and learns least from — and it costs nothing to mean the same thing
+                // everywhere, including a click on open floor.
+                update.WarpNextWalk = window.IsHeld(Platform.CameraAction.Fast);
 
                 ActionOutcome? did = menu is { } open
                     ? chosenRow is { Length: > 0 } && !openingBag
@@ -2748,7 +2867,14 @@ public static class Application
                         strings.Score(story.Score, api.Scores.Maximum),
                         [.. showing.Actions
                             .Where(a => IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs))
-                            .Select(a => a.LocalizedVerb)]),
+                            .Select(a => a.LocalizedVerb)],
+                        window.IsHeld(Platform.CameraAction.ShowHotspots)
+                            ? OnScreen(
+                                interaction.Nouns(),
+                                view,
+                                window.FramebufferWidth,
+                                window.FramebufferHeight)
+                            : null),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -3511,6 +3637,138 @@ public static class Application
         verb.Equals("OPEN", StringComparison.OrdinalIgnoreCase) ||
         verb.Equals("CLOSE", StringComparison.OrdinalIgnoreCase) ||
         verb.Equals("ENTER", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Puts each of the room's nouns where it appears on the screen.
+    /// </summary>
+    /// <param name="nouns">Each noun and the middle of what it occupies, in world space.</param>
+    /// <param name="camera">Where the view is.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <returns>The ones in front of the camera, nearest first.</returns>
+    /// <remarks>
+    /// Nearest first so that the labels which cannot all fit give way in the right order: a
+    /// thing at the player's elbow keeps its place and the far side of the room moves down.
+    /// Anything behind the camera or off the edge is left out rather than clamped to a
+    /// border, where it would point at nothing.
+    /// </remarks>
+    private static IReadOnlyList<(string Noun, Vector2 At)> OnScreen(
+        IReadOnlyList<(string Noun, Vector3 Where)> nouns,
+        Camera camera,
+        int width,
+        int height)
+    {
+        Matrix4x4 viewProjection = camera.View * camera.Projection((float)width / Math.Max(1, height));
+
+        List<(string Noun, Vector2 At, float Depth)> found = [];
+
+        foreach ((string noun, Vector3 where) in nouns)
+        {
+            Vector4 clip = Vector4.Transform(new Vector4(where, 1f), viewProjection);
+
+            if (clip.W <= 0.001f)
+            {
+                continue;
+            }
+
+            var screen = new Vector2(
+                (clip.X / clip.W * 0.5f + 0.5f) * width,
+                (clip.Y / clip.W * 0.5f + 0.5f) * height);
+
+            if (screen.X < 0 || screen.X > width || screen.Y < 0 || screen.Y > height)
+            {
+                continue;
+            }
+
+            found.Add((noun, screen, clip.W));
+        }
+
+        return [.. found.OrderBy(f => f.Depth).Select(f => (f.Noun, f.At))];
+    }
+
+    /// <summary>An angle in degrees, for a line somebody has to read.</summary>
+    private static double Degrees(float radians) => radians * 180.0 / Math.PI;
+
+    /// <summary>One character an opening pose moved, as a line of the log.</summary>
+    /// <remarks>
+    /// The heading the scene file put them at, and the one the clip's own opening frame
+    /// implies. Where those disagree the scene file is recording where the character ends up
+    /// and the animation is stating where they begin — which is worth being able to see
+    /// rather than infer from a screenshot.
+    /// </remarks>
+    private static string Described((string Who, Vector3 Where, float Placed, float? Wanted) m)
+    {
+        string at = FormattableString.Invariant(
+            $"{m.Who} at {m.Where.X:F0}, {m.Where.Z:F0} facing {Degrees(m.Placed):F0}");
+
+        return m.Wanted is { } want
+            ? at + FormattableString.Invariant(
+                $" (the clip wants {Degrees(want):F0}, dot {Game.Actors.AnimationStart.Reading:F2})")
+            : at;
+    }
+
+    /// <summary>
+    /// The interface's number for a slot's picture, loading it the first time it is asked for.
+    /// </summary>
+    /// <param name="renderer">What holds the interface's pictures.</param>
+    /// <param name="saves">Where the saves are.</param>
+    /// <param name="slot">Which slot.</param>
+    /// <returns>The number, or nought when the slot has no picture.</returns>
+    /// <remarks>
+    /// Kept by the renderer under the slot's own name, so opening the menu twice loads
+    /// nothing twice. A slot with no picture answers nought for ever, which costs one failed
+    /// file test per menu and is not worth remembering.
+    /// </remarks>
+    private static int Illustration(
+        Rendering.Vulkan.VulkanRenderer renderer, Game.SaveStore? saves, string slot)
+    {
+        if (saves is null)
+        {
+            return 0;
+        }
+
+        string name = "save:" + slot;
+
+        if (renderer.OverlayPicture(name) is > 0 and { } already)
+        {
+            return already;
+        }
+
+        return saves.Picture(slot) is { } picture
+            ? renderer.AddOverlayPicture(name, picture)
+            : 0;
+    }
+
+    /// <summary>A frame reduced to something a menu row can hold.</summary>
+    /// <remarks>
+    /// A quarter the width and height by dropping pixels, which is enough for a room to be
+    /// recognised and costs nothing: a save menu is opened by somebody who wants to get back
+    /// to the game, and resampling four megapixels properly would be felt.
+    /// </remarks>
+    private static Formats.Bitmaps.DecodedImage Thumbnail(Formats.Bitmaps.DecodedImage frame)
+    {
+        const int Step = 4;
+
+        int width = Math.Max(1, frame.Width / Step);
+        int height = Math.Max(1, frame.Height / Step);
+        byte[] pixels = new byte[width * height * 4];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int from = (((y * Step) * frame.Width) + (x * Step)) * 4;
+                int to = ((y * width) + x) * 4;
+
+                pixels[to] = frame.Pixels[from];
+                pixels[to + 1] = frame.Pixels[from + 1];
+                pixels[to + 2] = frame.Pixels[from + 2];
+                pixels[to + 3] = 255;
+            }
+        }
+
+        return new Formats.Bitmaps.DecodedImage(width, height, pixels, false, "save");
+    }
 
     /// <summary>Whether a verb is a thing in the bag rather than something to do.</summary>
     /// <param name="verb">The verb an action file wrote.</param>

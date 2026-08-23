@@ -235,6 +235,16 @@ public sealed class SceneInteraction
     /// </remarks>
     private string? Called(string noun, ScenePick pick, IReadOnlyList<AvailableAction> offered)
     {
+        if (Numbered(noun, pick.Name) is { Length: > 0 } room)
+        {
+            return room;
+        }
+
+        if (OneOfSeveral(noun) is { Length: > 0 } together)
+        {
+            return together;
+        }
+
         if (!GameStrings.IsNumberedExit(noun) || _actions is null)
         {
             return null;
@@ -248,6 +258,101 @@ public sealed class SceneInteraction
             verb is { Length: > 0 } chosen
                 ? _actions.Find(noun, chosen, _api.State.Ego)?.Script
                 : null);
+    }
+
+    /// <summary>
+    /// A hotel door, called by its number rather than by who is behind it.
+    /// </summary>
+    /// <param name="noun">The noun the scene gives it.</param>
+    /// <param name="model">The model's own name, which carries the room number.</param>
+    /// <returns>The label, or null when this is not a numbered door.</returns>
+    /// <remarks>
+    /// <para>
+    /// The second floor names its doors after the guests: <c>EMILIOS_DOOR</c>,
+    /// <c>BUTHANES_DOOR</c>, <c>WILKES_DOOR</c>. Shown as they are, the corridor introduces
+    /// every suspect in the hotel the first time Gabriel walks down it, before he has met any
+    /// of them — a whole evening of the game's own pacing given away by a hover label.
+    /// </para>
+    /// <para>
+    /// The number is what is actually on the door, and the scene agrees: beside each one it
+    /// places a <c>R27_PLATE</c> the player can read. So the label is the number, which is
+    /// true at every point in the story and spoils nothing. The name is not withheld and then
+    /// revealed — knowing that room 27 is Emilio's is something the player works out and then
+    /// keeps, and a label that changed under them would be its own small lie.
+    /// </para>
+    /// <para>
+    /// Taken from the model's name — <c>hal_27_door_scene</c>, <c>hal_door_29</c>,
+    /// <c>hal_21door</c> — rather than from a table, because a table of eight doors in one
+    /// corridor is a thing to keep in step with the data by hand. A door whose model names no
+    /// number is left alone; the supply closet has none and wants none.
+    /// </para>
+    /// </remarks>
+    private static string? Numbered(string noun, string model)
+    {
+        if (!noun.EndsWith("_DOOR", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        int at = 0;
+
+        while (at < model.Length && !char.IsAsciiDigit(model[at]))
+        {
+            at++;
+        }
+
+        int end = at;
+
+        while (end < model.Length && char.IsAsciiDigit(model[end]))
+        {
+            end++;
+        }
+
+        // Two digits, which every room in this hotel has and no other part of a model's name
+        // does. One digit is a suffix and three is something else entirely.
+        return end - at == 2 ? "Room " + model[at..end] : null;
+    }
+
+    /// <summary>
+    /// One of several copies of a thing, called by what the thing is.
+    /// </summary>
+    /// <param name="noun">The noun the scene gives it.</param>
+    /// <returns>The name without its copy number, or null when the number belongs.</returns>
+    /// <remarks>
+    /// <para>
+    /// The church carves the four angels as four objects — <c>FOUR_ANGELS1</c> through
+    /// <c>FOUR_ANGELS4</c> — and pointing at one of them read "Four Angels4", which is the
+    /// data's bookkeeping showing through the interface.
+    /// </para>
+    /// <para>
+    /// <b>A trailing number is not always bookkeeping.</b> <c>BUZZER_RM25</c> and
+    /// <c>DUMB_WAITER_LOCK_R21</c> end in digits that are room numbers and mean everything;
+    /// trimming those gives "Buzzer Rm". What tells the two apart is whether the scene also
+    /// declares the name without the number — the church declares <c>FOUR_ANGELS</c> beside
+    /// its four, and no room declares a <c>BUZZER_RM</c>. So the data answers it, and no list
+    /// of exceptions has to be kept in step with the corpus by hand.
+    /// </para>
+    /// </remarks>
+    private string? OneOfSeveral(string noun)
+    {
+        int end = noun.Length;
+
+        while (end > 0 && char.IsAsciiDigit(noun[end - 1]))
+        {
+            end--;
+        }
+
+        if (end == noun.Length || end == 0 || !char.IsAsciiLetter(noun[end - 1]))
+        {
+            return null;
+        }
+
+        string stem = noun[..end];
+
+        return _scene.Definition.Models().Any(
+            m => string.Equals(m.Noun, stem, StringComparison.OrdinalIgnoreCase))
+            ? stem
+            : null;
     }
 
     /// <summary>What the game's own names for things are, when anything read them.</summary>
@@ -266,6 +371,15 @@ public sealed class SceneInteraction
     /// an interaction with no room expect.
     /// </remarks>
     public SceneUpdate? Watcher { get; set; }
+
+    /// <summary>Every noun in the room the player can act on, and where it is.</summary>
+    /// <returns>Each noun once, with the middle of what it occupies in world space.</returns>
+    /// <remarks>
+    /// For showing them all at once while a key is held. It asks the picker, so what it lists
+    /// is exactly what a click could reach — a label for something unclickable would be worse
+    /// than no label.
+    /// </remarks>
+    public IReadOnlyList<(string Noun, Vector3 Where)> Nouns() => _picker.Interactive();
 
     /// <summary>Does something to what is under the pointer.</summary>
     /// <param name="hover">What was under it, from <see cref="At"/>.</param>

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Audio;
 using GK3Reborn.Game;
 
@@ -21,6 +21,12 @@ public enum FrontEndPage
 
     /// <summary>How the game plays.</summary>
     Gameplay,
+
+    /// <summary>The slots a game can be written to.</summary>
+    Save,
+
+    /// <summary>The slots a game can be read back from.</summary>
+    Load,
 }
 
 /// <summary>What the front end wants the host to do.</summary>
@@ -40,6 +46,12 @@ public enum FrontEndOutcome
 
     /// <summary>Leave the game.</summary>
     Quit,
+
+    /// <summary>Write the game to the slot the player chose.</summary>
+    Save,
+
+    /// <summary>Read the game back from the slot the player chose.</summary>
+    Load,
 }
 
 /// <summary>
@@ -108,6 +120,8 @@ public sealed class FrontEnd
         FrontEndPage.Options => "Settings",
         FrontEndPage.Video => "Picture",
         FrontEndPage.Audio => "Sound",
+        FrontEndPage.Save => "Save Game",
+        FrontEndPage.Load => "Restore Game",
         _ => "Playing",
     };
 
@@ -118,6 +132,8 @@ public sealed class FrontEnd
         FrontEndPage.Options => Options(),
         FrontEndPage.Video => Video(),
         FrontEndPage.Audio => Audio(),
+        FrontEndPage.Save => Slots(writing: true),
+        FrontEndPage.Load => Slots(writing: false),
         _ => Gameplay(),
     };
 
@@ -161,11 +177,31 @@ public sealed class FrontEnd
                 Page = FrontEndPage.Gameplay;
                 return FrontEndOutcome.Stay;
 
+            case "save":
+                Page = FrontEndPage.Save;
+                return FrontEndOutcome.Stay;
+
+            case "load":
+                Page = FrontEndPage.Load;
+                return FrontEndOutcome.Stay;
+
             case "back":
                 Back();
                 return FrontEndOutcome.Stay;
 
             default:
+                // A slot. Which one travels back with the outcome, because the front end
+                // knows what the player pointed at and the host is the only thing that can
+                // read or write a game.
+                if (action.Id.StartsWith("slot:", StringComparison.Ordinal))
+                {
+                    Slot = action.Id[5..];
+
+                    return Page == FrontEndPage.Save
+                        ? FrontEndOutcome.Save
+                        : FrontEndOutcome.Load;
+                }
+
                 Change(action);
                 return FrontEndOutcome.Stay;
         }
@@ -211,13 +247,44 @@ public sealed class FrontEnd
         return Settings.Save(path);
     }
 
+    /// <summary>Which slot the player last pointed at.</summary>
+    /// <remarks>
+    /// Read by the host after a <see cref="FrontEndOutcome.Save"/> or
+    /// <see cref="FrontEndOutcome.Load"/>. The front end deliberately owns no store: it turns
+    /// rows into a choice, and reading or writing a game is the host's business.
+    /// </remarks>
+    public string? Slot { get; private set; }
+
+    /// <summary>What each slot holds, for the host to fill in before the page is shown.</summary>
+    /// <remarks>
+    /// A list rather than a store, for the same reason. Empty until something sets it, which
+    /// draws every slot as free — the honest answer for a menu that has not been told.
+    /// </remarks>
+    public IReadOnlyList<SaveSlot> Saves { get; set; } = [];
+
+    /// <summary>The interface's number for a slot's picture, by slot.</summary>
+    /// <remarks>
+    /// Set by the host, which is the only thing that can hand a picture to the renderer. Nought
+    /// or absent draws the row as words alone, which is what a slot with no picture is — every
+    /// save written before the pictures existed, among others.
+    /// </remarks>
+    public Func<string, int>? Illustrations { get; set; }
+
+    /// <summary>What the player is calling the game they are about to save.</summary>
+    /// <remarks>
+    /// Typed on the save page and offered as the title. Empty means the slot keeps whatever
+    /// it was called, or is named for where the player is if it was free.
+    /// </remarks>
+    public string Naming { get; set; } = string.Empty;
+
     private IReadOnlyList<MenuItem> Main() => InGame
 
         // Paused. No intro from here: the player is in the middle of the game, and the row
         // they want first is the one that gives it back to them.
         ? [
             MenuItem.Button("resume", "Resume"),
-            MenuItem.Button("load", "Restore", enabled: false),
+            MenuItem.Button("save", "Save"),
+            MenuItem.Button("load", "Restore"),
             MenuItem.Button("options", "Settings"),
             MenuItem.Button("quit", "Leave the Game"),
         ]
@@ -228,13 +295,103 @@ public sealed class FrontEnd
             MenuItem.Button("intro", "Intro"),
             MenuItem.Button("play", "Play"),
 
-            // Drawn and disabled rather than hidden. Saving is not built, and a menu that
-            // simply omits it leaves the player wondering where it went.
-            MenuItem.Button("load", "Restore", enabled: false),
+            MenuItem.Button("load", "Restore"),
 
             MenuItem.Button("options", "Settings"),
             MenuItem.Button("quit", "Quit"),
         ];
+
+    /// <summary>
+    /// The slots, as rows.
+    /// </summary>
+    /// <param name="writing">Whether this is the page that saves or the page that restores.</param>
+    /// <returns>One row per slot, and a way back.</returns>
+    /// <remarks>
+    /// <para>
+    /// Twelve numbered slots, plus the two the game keeps for itself. A free slot is drawn as
+    /// free rather than hidden, because a save menu that shows only what has been saved gives
+    /// a new player nothing to aim at.
+    /// </para>
+    /// <para>
+    /// Each row carries what the player called it and when it was written. The quick and
+    /// automatic slots can be restored from and not written to by hand: they belong to the
+    /// game, and a player who overwrites their own autosave has been given a way to lose
+    /// something they did not know they had.
+    /// </para>
+    /// </remarks>
+    private List<MenuItem> Slots(bool writing)
+    {
+        List<MenuItem> rows = [];
+
+        foreach (string slot in Reserved)
+        {
+            if (!writing)
+            {
+                rows.Add(MenuItem.Button(
+                    "slot:" + slot, Described(slot), enabled: Written(slot) is not null) with
+                {
+                    Picture = Illustrations?.Invoke(slot) ?? 0,
+                });
+            }
+        }
+
+        for (int at = 1; at <= SaveStore.NumberedSlots; at++)
+        {
+            string slot = at.ToString("00", CultureInfo.InvariantCulture);
+
+            rows.Add(MenuItem.Button(
+                "slot:" + slot,
+                Described(slot),
+                enabled: writing || Written(slot) is not null) with
+            {
+                Picture = Illustrations?.Invoke(slot) ?? 0,
+            });
+        }
+
+        rows.Add(MenuItem.Button("back", "Back"));
+
+        return rows;
+    }
+
+    /// <summary>The two slots the game writes for itself.</summary>
+    private static readonly string[] Reserved = [SaveStore.QuickSlot, SaveStore.AutoSlot];
+
+    /// <summary>What a slot has in it, or null when it is free.</summary>
+    private SaveSlot? Written(string slot) =>
+        Saves.FirstOrDefault(s => string.Equals(s.Slot, slot, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>How a slot reads on the page.</summary>
+    /// <remarks>
+    /// What the player called it and when they wrote it. The date is the local one, short,
+    /// because a save menu is read at a glance and nobody is looking for a timezone.
+    /// </remarks>
+    private string Described(string slot)
+    {
+        string name = slot switch
+        {
+            SaveStore.QuickSlot => "Quick save",
+            SaveStore.AutoSlot => "Autosave",
+            _ => "Slot " + slot.TrimStart('0'),
+        };
+
+        if (Written(slot) is not { } save)
+        {
+            return name + "  -  empty";
+        }
+
+        string called = save.Title is { Length: > 0 } titled ? titled : save.Summary;
+
+        // Trimmed, because the panel is as wide as its widest row and a window is only so
+        // wide. A save is recognised by its first few words and by when it was written.
+        if (called.Length > 28)
+        {
+            called = called[..27].TrimEnd() + "\u2026";
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{name}  -  {called}  -  {save.Written.LocalDateTime:dd/MM HH:mm}");
+    }
 
     private static IReadOnlyList<MenuItem> Options() =>
     [
