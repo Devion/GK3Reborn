@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace GK3Reborn.Game.Actors;
 
@@ -35,6 +35,7 @@ public readonly record struct Glance(string Actor, string? Target, Vector3 Point
 public sealed class Glances
 {
     private readonly Dictionary<string, Glance> _looking = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double> _remaining = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>How far round a head will turn, in radians.</summary>
     /// <remarks>
@@ -56,11 +57,54 @@ public sealed class Glances
 
     /// <summary>Points an actor at something.</summary>
     /// <param name="glance">Who is looking at what.</param>
+    /// <param name="seconds">
+    /// How long for, or zero to hold the look until something cancels it. The scripts say
+    /// which they mean: <c>LOOKAT GABRIEL EH 5</c> is a five-second glance, and dropping
+    /// the five left Emilio watching Gabriel over his shoulder for the rest of the scene —
+    /// through standing up, through the whole of his walk to the hotel door.
+    /// </param>
     /// <remarks>
     /// One at a time: an actor asked to look somewhere else stops looking where they were,
     /// which is what a person does.
     /// </remarks>
-    public void Look(Glance glance) => _looking[glance.Actor] = glance;
+    public void Look(Glance glance, double seconds = 0)
+    {
+        _looking[glance.Actor] = glance;
+
+        if (seconds > 0)
+        {
+            _remaining[glance.Actor] = seconds;
+        }
+        else
+        {
+            _remaining.Remove(glance.Actor);
+        }
+    }
+
+    /// <summary>Lets the timed glances run out.</summary>
+    /// <param name="seconds">How long has passed.</param>
+    /// <remarks>
+    /// An expired glance is removed rather than zeroed, and the head then eases back to
+    /// straight ahead on its own: the turning code aims at nothing-in-particular the same
+    /// way it aims at a target.
+    /// </remarks>
+    public void Tick(double seconds)
+    {
+        foreach (string actor in _remaining.Keys.ToList())
+        {
+            double left = _remaining[actor] - seconds;
+
+            if (left > 0)
+            {
+                _remaining[actor] = left;
+            }
+            else
+            {
+                _remaining.Remove(actor);
+                _looking.Remove(actor);
+            }
+        }
+    }
 
     /// <summary>Stops an actor looking at anything.</summary>
     /// <param name="actor">Who to stop.</param>
@@ -68,6 +112,7 @@ public sealed class Glances
     public bool Cancel(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
+        _remaining.Remove(actor);
         return _looking.Remove(actor);
     }
 
@@ -81,7 +126,11 @@ public sealed class Glances
     }
 
     /// <summary>Stops everyone looking.</summary>
-    public void Clear() => _looking.Clear();
+    public void Clear()
+    {
+        _looking.Clear();
+        _remaining.Clear();
+    }
 
     /// <summary>
     /// How far a head has to turn to look at something.

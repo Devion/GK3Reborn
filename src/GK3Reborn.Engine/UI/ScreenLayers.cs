@@ -9,9 +9,6 @@ public enum ScreenKind
     /// <summary>One inventory item, close up, with its own actions.</summary>
     InventoryInspect,
 
-    /// <summary>Something in the room, close up.</summary>
-    SceneInspect,
-
     /// <summary>The binoculars.</summary>
     Binoculars,
 
@@ -118,6 +115,24 @@ public sealed class ScreenLayers
     /// <param name="kind">Which screen.</param>
     /// <returns>True when it is the one the player is looking at.</returns>
     public bool IsOnTop(ScreenKind kind) => Top?.Kind == kind;
+
+    /// <summary>Changes what the screen on top is about, without stacking another.</summary>
+    /// <param name="screen">The same screen, with a different subject.</param>
+    /// <remarks>
+    /// For the inventory, where clicking an item makes the page about that item and does not
+    /// open a second page. Going back from it should leave the inventory, not step through
+    /// one entry per thing the player poked at on the way.
+    /// </remarks>
+    public void Replace(Screen screen)
+    {
+        if (_open.Count > 0)
+        {
+            _open[^1] = screen;
+            return;
+        }
+
+        Show(screen);
+    }
 
     /// <summary>Opens a screen, or brings it forward if it is already open.</summary>
     /// <param name="screen">The screen.</param>

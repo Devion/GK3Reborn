@@ -84,7 +84,16 @@ public sealed class SceneUpdateTests
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,
-            IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null) => new(_next++);
+            IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null)
+        {
+            // The transform the model was added with, so TransformOf answers for a model
+            // that has never moved. The real geometry keeps it from the moment a model is
+            // placed; recording it only on MoveModel made this stub say every unmoved actor
+            // stood at the identity, which is a heading of a half turn.
+            Moves[_next] = transform ?? Matrix4x4.Identity;
+
+            return new(_next++);
+        }
 
         public void KeepRelief(IReadOnlySet<string> textures)
         {
@@ -204,6 +213,12 @@ public sealed class SceneUpdateTests
         var state = new GameState();
         var glances = new Glances();
         var sink = new Watcher();
+
+        // Where the actor is standing, as the geometry would already know it. The real one
+        // keeps a placement's transform from the moment the model is added; this fixture
+        // builds its placement by hand, so it has to be told the same thing — and the heads
+        // read the model's own transform rather than remembering one they were handed.
+        sink.Moves[0] = Matrix4x4.CreateRotationY(Walker.Rotation(0f));
 
         return (new SceneUpdate(Scene(), new Gk3SheepApi(state), glances, sink), glances, sink, state);
     }

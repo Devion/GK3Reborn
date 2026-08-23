@@ -648,26 +648,12 @@ public sealed class SceneUpdate
                     continue;
                 }
 
-                // Which way the clip says they are facing, before it is sampled. A scene
-                // records where a character ends up and states where they begin as an
-                // animation: the museum stands Lady Howard and Estelle at 314 and 315
-                // degrees, which is both of them turned towards Gabriel at the end of their
-                // conversation, and the clip that starts it wants 90 and 282 — the two of
-                // them whispering to each other. Left alone they stood shoulder to shoulder
-                // staring at a wall.
-                //
-                // Applied by moving the model rather than by composing with the pose, and
-                // before the pose is sampled: a non-absolute clip's coordinates are already
-                // the room's, so its heading replaces the scene file's rather than adding
-                // to it.
-                if (target.Kind == PlacedModelKind.Actor &&
-                    Clips is { } library &&
-                    Characters?.Of(target.Name) is { } known &&
-                    Actors.AnimationStart.Of(animation, library, target.Name, known) is { } begins)
-                {
-                    Place(target.Name, begins.Position, begins.Heading);
-                }
-
+                // Not turned to what the clip's opening frame faces. A relative clip is
+                // played facing whichever way the actor already faces, with the turn it was
+                // authored with taken back out — see Correction — so the scene file's
+                // heading is the heading, exactly as the reference has it: it samples the
+                // init anim with the model at the scene position and syncs the actor to the
+                // result afterwards.
                 var pose = new Playing(
                     clip,
                     target,
@@ -697,7 +683,8 @@ public sealed class SceneUpdate
                     // the game's opening poses.
                     float? wanted =
                         Clips is { } clips && Characters?.Of(target.Name) is { } who
-                            ? Actors.AnimationStart.Of(animation, clips, target.Name, who)?.Heading
+                            ? Actors.AnimationStart.Of(
+                                animation, clips, target.Name, who, target.BuiltFacing)?.Heading
                             : null;
 
                     _posed.Add((
@@ -1150,6 +1137,8 @@ public sealed class SceneUpdate
     /// </remarks>
     private void Step(Behaviour running, double seconds)
     {
+        Notice(running);
+
         running.Remaining -= seconds;
 
         for (int guard = 0; guard < 16 && running.Remaining <= 0; guard++)
@@ -1260,7 +1249,11 @@ public sealed class SceneUpdate
                                            running.Owner is { } looker:
                     _api.Invoke(
                         "LookitModel",
-                        [Sheep.SheepValue.FromString(looker.Name), Sheep.SheepValue.FromString(at)]);
+                        [
+                            Sheep.SheepValue.FromString(looker.Name),
+                            Sheep.SheepValue.FromString(at),
+                            Sheep.SheepValue.FromFloat((float)step.Seconds),
+                        ]);
 
                     break;
 
@@ -1285,6 +1278,81 @@ public sealed class SceneUpdate
             }
         }
     }
+
+    /// <summary>
+    /// Lets a behaviour notice somebody coming near, or leaving.
+    /// </summary>
+    /// <param name="running">The script.</param>
+    /// <remarks>
+    /// <para>
+    /// <c>WHENNEAR Gabriel, 100, END</c> is a standing condition, not an instruction: it
+    /// holds for the whole of the script and jumps to its label on the frame its answer
+    /// turns true, wherever execution happens to be — including the middle of a wait. This
+    /// was parsed and never run, which is why Emilio sat on his bench for ever with Gabriel
+    /// standing over him, and why the museum's whispering carried on however close Gabriel
+    /// came: the interruption each script wrote for exactly that moment could never fire.
+    /// </para>
+    /// <para>
+    /// On the edge, exactly as the reference has it — <c>GasPlayer::CheckDistanceConditions</c>
+    /// fires a condition when it goes from false to true and arms it again when it goes back.
+    /// Level-triggered, a WHENNEAR would jump every frame for as long as anybody stood in
+    /// the circle, and the label's own animation would restart sixty times a second.
+    /// </para>
+    /// <para>
+    /// Distance is flat, like every other nearness in the game: the spots carry heights the
+    /// floor disagrees with, and a radius through the vertical answers "far away" about
+    /// somebody standing on the mark.
+    /// </para>
+    /// </remarks>
+    private void Notice(Behaviour running)
+    {
+        IReadOnlyList<Formats.Animation.GasStep> steps = running.Script.Steps;
+
+        for (int index = 0; index < steps.Count; index++)
+        {
+            Formats.Animation.GasStep step = steps[index];
+
+            bool watching = step.Action is GasAction.WhenNear or GasAction.WhenNoLongerNear;
+
+            if (!watching ||
+                step.Name is not { Length: > 0 } noun ||
+                step.Other is not { Length: > 0 } label ||
+                running.Owner is not { } owner)
+            {
+                continue;
+            }
+
+            // From this script's own actor, unless the condition names somebody else to
+            // measure from — Estelle's whisper idle watches Gabriel against LADY_HOWARD,
+            // so the pair notice him together.
+            string from = step.Between is { Length: > 0 } other ? other : owner.Name;
+
+            bool near = Where(from) is { } here &&
+                        Where(noun) is { } them &&
+                        Flat(here - them) < step.Value * (float)step.Value;
+
+            bool met = step.Action == GasAction.WhenNear ? near : !near;
+            bool was = running.Noticed.Contains(index);
+
+            if (met && !was)
+            {
+                running.Noticed.Add(index);
+
+                if (running.Script.LabelAt(label) is { } at)
+                {
+                    running.Position = at;
+                    running.Remaining = 0;
+                }
+            }
+            else if (!met && was)
+            {
+                running.Noticed.Remove(index);
+            }
+        }
+    }
+
+    /// <summary>A distance squared, measured across the ground plan.</summary>
+    private static float Flat(Vector3 apart) => (apart.X * apart.X) + (apart.Z * apart.Z);
 
     /// <summary>Takes one of the choices in the run starting where the script is.</summary>
     /// <remarks>
@@ -1528,6 +1596,34 @@ public sealed class SceneUpdate
         // asked for it leaves a character standing perfectly still for the rest of the
         // scene.
         Release(model);
+    }
+
+    /// <summary>
+    /// Whether a script is animating somebody right now.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <returns>True while a clip the story asked for is playing on them.</returns>
+    /// <remarks>
+    /// <para>
+    /// A story's animation and a character's own idle are not the same thing and must not be
+    /// interrupted the same way. An idle is decoration and a click may cut it short at any
+    /// moment; a clip a script started is the scene happening, and walking out of the middle
+    /// of it leaves the story mid-sentence with nobody in the room it is addressed to.
+    /// </para>
+    /// <para>
+    /// Reported from the dining room: a click on the floor during the coffee scene sent
+    /// Gabriel away while the scene went on around where he had been standing.
+    /// </para>
+    /// </remarks>
+    public bool Performing(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        string model = ModelNamed(actor)?.Name ?? actor;
+
+        return _playing.Any(p =>
+            !p.FromBehaviour &&
+            p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Gives a model back to its own script, once nothing else is animating it.</summary>
@@ -1874,16 +1970,14 @@ public sealed class SceneUpdate
         _geometry.MoveModel(
             placed.Placement,
             Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) *
-            Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(heading)) *
+            Matrix4x4.CreateRotationY(
+                Actors.FacingArrow.Rotation(heading, placed.BuiltFacing)) *
             Matrix4x4.CreateTranslation(position));
 
         Follow(actor, position);
 
-        foreach (Turning turning in _actors)
-        {
-            turning.MovedTo(actor, position, heading);
-        }
-
+        // Nothing to tell the heads: they read the model's own transform, which this has
+        // just written, on the frame that follows.
         return true;
     }
 
@@ -2012,6 +2106,14 @@ public sealed class SceneUpdate
 
         /// <summary>Seconds until the next step.</summary>
         public double Remaining { get; set; }
+
+        /// <summary>Which of the script's standing conditions are currently met.</summary>
+        /// <remarks>
+        /// By step index, so two conditions on the same noun stay apart. What makes the
+        /// jumps edge-triggered: a condition fires the frame it turns true and not again
+        /// until it has turned false in between.
+        /// </remarks>
+        public HashSet<int> Noticed { get; } = [];
 
         /// <summary>Whether the clip it was waiting out was stopped for something else.</summary>
         /// <remarks>
@@ -2232,7 +2334,20 @@ public sealed class SceneUpdate
 
             // The actor's position follows the model, every frame, as the original syncs
             // it in LateUpdate.
-            Follow(playing.Target.Name, playing.Carried);
+            //
+            // For a character, from where the pose actually puts their feet rather than by
+            // adding up how far the clip has carried them. The difference matters wherever
+            // the placement they started from was wrong: the dining room names Mosely's spot
+            // MOSTALK and defines TALK_MOSELY, so his placement is the origin, and a running
+            // total from there keeps him at the origin however convincingly he is drawn
+            // sitting in a chair. Every IsActorNear about him then answers about a corner of
+            // the room. The reference has no such total — GKActor::SyncActorToModelPosition-
+            // AndRotation reads the model's floor position outright.
+            Follow(
+                playing.Target.Name,
+                playing.Target.Kind == PlacedModelKind.Actor
+                    ? playing.Now(_geometry.TransformOf(playing.Target.Placement))
+                    : playing.Carried);
 
             if (!running)
             {
@@ -2266,7 +2381,9 @@ public sealed class SceneUpdate
                 happened.Add($"{who} arrived");
             }
 
-            _geometry.MoveModel(walking.Placement, walking.Walker.Transform(walking.Scale));
+            _geometry.MoveModel(
+                walking.Placement,
+                walking.Walker.Transform(walking.Scale, walking.Built));
 
             // The legs, in the model's own space, on top of wherever the model now is.
             walking.Stride?.Step(_geometry, (float)seconds);
@@ -2277,15 +2394,36 @@ public sealed class SceneUpdate
             }
 
             Follow(who, walking.Walker.Position);
-
-            foreach (Turning actor in _actors)
-            {
-                actor.MovedTo(who, walking.Walker.Position, walking.Walker.Facing);
-            }
         }
+
+        // The timed glances run out here, before the heads move: LOOKAT's five seconds
+        // are five seconds, not for ever.
+        _glances.Tick(seconds);
 
         foreach (Turning actor in _actors)
         {
+            // Where the model is now, whatever put it there. Asked of the geometry rather
+            // than remembered, so a character moved by an animation or by a script is as
+            // correct as one moved by walking.
+            Matrix4x4 now = _geometry.TransformOf(actor.Placement);
+
+            // And while a clip has the body, from the clip. The reference turns no heads at
+            // all — every Lookit call in it is a stub — so this is the port's own feature
+            // and has to be right on its own terms: a glance is a yaw off the body, and
+            // the body is wherever the clip says, not wherever the placement is.
+            Playing? driving = _playing.Find(p =>
+                p.Target.Kind == PlacedModelKind.Actor &&
+                p.Target.Placement.Id == actor.Placement.Id);
+
+            if (driving is not null)
+            {
+                actor.Stands(driving.Now(now), driving.Facing(now) ?? actor.HeadingOf(now));
+            }
+            else
+            {
+                actor.Stands(now.Translation, actor.HeadingOf(now));
+            }
+
             if (actor.Step(_glances, (float)seconds))
             {
                 _geometry.TurnMesh(actor.Placement, actor.Head, actor.Turn());
@@ -2863,7 +3001,7 @@ public sealed class SceneUpdate
             _rate = Math.Max(1, rate);
             _delay = action.Frame / (double)_rate;
             _absolute = action.Placement is not null;
-            _correction = Correction(clip, target, action.Placement, standing);
+            _correction = Correction(clip, target, action.Placement, standing, character);
             _opened = Opens(clip);
             Began = began;
             Carried = began;
@@ -2952,7 +3090,11 @@ public sealed class SceneUpdate
         /// </para>
         /// </remarks>
         private static Matrix4x4 Correction(
-            ActFile clip, PlacedModel target, AnimationPlacement? placement, Matrix4x4 standing)
+            ActFile clip,
+            PlacedModel target,
+            AnimationPlacement? placement,
+            Matrix4x4 standing,
+            Actors.CharacterConfig? character)
         {
             if (placement is { } spot)
             {
@@ -2970,15 +3112,53 @@ public sealed class SceneUpdate
                 return Matrix4x4.Identity;
             }
 
+            // A relative clip plays facing whichever way the actor already faces, and the
+            // turn the clip was authored with is taken back out. That is the reference's
+            // rule — GKActor::StartAnimation and SampleAnimation both end in
+            // SetModelRotationToActorRotation, which measures the posed model's facing and
+            // rotates it to the actor's heading — and applying the clip's rotation raw on
+            // top of the placement is what stood the museum's Estelle and Lady Howard back
+            // to back: their opening clip is authored with a turn in it.
+            //
+            // Measured the way the reference measures it when nothing is animating the
+            // facing helper: the triangle of the hip and shoe mesh origins, whose normal is
+            // the facing outright. No dot product and no rare branch.
+            Matrix4x4 turn = Matrix4x4.Identity;
+
+            if (character is { Hips: { } hips, LeftShoe: { } left, RightShoe: { } right } &&
+                clip.PoseOf(hips.Mesh, 0) is { } hipPose &&
+                clip.PoseOf(left.Mesh, 0) is { } leftPose &&
+                clip.PoseOf(right.Mesh, 0) is { } rightPose)
+            {
+                Vector3 across = rightPose.Translation - leftPose.Translation;
+                Vector3 up = hipPose.Translation - leftPose.Translation;
+                Vector3 facing = Vector3.Cross(across, up) with { Y = 0 };
+
+                if (facing.LengthSquared() > 1e-6f)
+                {
+                    // Which way the model is built to face, which is what the placement's
+                    // rotation assumes it is looking along. The clip is turned so that its
+                    // opening frame looks that way too, and the placement then turns both
+                    // together to the actor's heading.
+                    float built = target.BuiltFacing ?? MathF.PI;
+                    float authored = Navigation.Walker.Heading(facing);
+
+                    turn = Matrix4x4.CreateRotationY(Navigation.Walker.Wrapped(built - authored));
+                }
+            }
+
             Vector3 rest = Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation));
 
+            // Where the clip's meshes open once the turn is taken out of them, so the
+            // translation that brings them to the model's own rest lands them there and not
+            // where they would have been before the turn.
             Vector3 opens = Average(Enumerable
                 .Range(0, clip.MeshCount)
                 .Select(m => clip.PoseOf(m, 0))
                 .Where(p => p is not null)
-                .Select(p => p!.Value.Translation));
+                .Select(p => Vector3.Transform(p!.Value.Translation, turn)));
 
-            return Matrix4x4.CreateTranslation(rest - opens);
+            return turn * Matrix4x4.CreateTranslation(rest - opens);
         }
 
 
@@ -3043,7 +3223,35 @@ public sealed class SceneUpdate
         /// is has to ask the pose rather than the placement. It is the same measure
         /// <see cref="Correction"/> works from, so the two cannot disagree.
         /// </remarks>
-        public Vector3 Settled(Matrix4x4 standing)
+        public Vector3 Settled(Matrix4x4 standing) => Standing(standing, 0f);
+
+        /// <summary>Where the clip has the character's feet on the frame it is on.</summary>
+        /// <param name="standing">The model's placement.</param>
+        /// <returns>The spot, in the room.</returns>
+        /// <remarks>
+        /// <see cref="Settled"/> at the frame last posed rather than at the opening one. What
+        /// the actor's position follows while a move clip plays: reading the opening frame
+        /// every frame left Emilio logically at the lobby door for the whole of his walk to
+        /// the bench, however far along it he was drawn.
+        /// </remarks>
+        public Vector3 Now(Matrix4x4 standing) => Standing(standing, Frame);
+
+        /// <summary>Which way the clip has the character facing on the frame it is on.</summary>
+        /// <param name="standing">The model's placement.</param>
+        /// <returns>The heading, or null when the clip does not pose the hips.</returns>
+        /// <remarks>
+        /// What a head's glance measures against. The placement's own heading is wrong for
+        /// as long as an absolute clip has the body somewhere else, and a glance worked out
+        /// against the wrong body direction turns the head the wrong way by exactly that
+        /// difference.
+        /// </remarks>
+        public float? Facing(Matrix4x4 standing) =>
+            _character is null
+                ? null
+                : Actors.AnimationStart.FacingAt(
+                    Clip, Frame, _repeat, _character, _correction * standing, Target.BuiltFacing);
+
+        private Vector3 Standing(Matrix4x4 standing, float frame)
         {
             Matrix4x4 world = _correction * standing;
 
@@ -3051,7 +3259,7 @@ public sealed class SceneUpdate
             // read out of a clip rather than a distance measured across one.
             return (_character is null
                 ? null
-                : Actors.AnimationStart.Standing(Clip, 0, false, _character, world))
+                : Actors.AnimationStart.Standing(Clip, frame, _repeat, _character, world))
                 ?? Vector3.Transform(_opened, world);
         }
 
@@ -3080,6 +3288,9 @@ public sealed class SceneUpdate
             .Where(p => p is not null)
             .Select(p => p!.Value.Translation));
 
+        /// <summary>The frame the model was last posed on.</summary>
+        public float Frame { get; private set; }
+
         /// <summary>Puts the model into one moment of the clip.</summary>
         /// <param name="geometry">Where the model stands.</param>
         /// <param name="frame">
@@ -3090,6 +3301,7 @@ public sealed class SceneUpdate
         private void Pose(ISceneSink geometry, double frame)
         {
             float at = (float)frame;
+            Frame = at;
 
             // Where the clip has carried the model to, in the world's terms rather than the
             // model's. This is what the actor's position follows.
@@ -3292,6 +3504,7 @@ public sealed class SceneUpdate
             Placement = placed.Placement;
             Walker = walker;
             Stride = stride;
+            Built = placed.BuiltFacing;
 
             // The placement is scale, then a turn, then a move, so the scale comes back out
             // as the length of a basis vector. Rebuilding the transform without it would
@@ -3313,6 +3526,9 @@ public sealed class SceneUpdate
         public WalkCycle? Stride { get; }
 
         public float Scale { get; }
+
+        /// <summary>Which way this model is built to face, when its arrow says.</summary>
+        public float? Built { get; }
     }
 
     /// <summary>
@@ -3569,7 +3785,8 @@ public sealed class SceneUpdate
             // The placement is a turn about the up axis and then a move, so the way the
             // actor faces can be read straight back out of it — as a heading rather than as
             // the rotation itself, because a glance is worked out from a heading.
-            _facing = Navigation.Walker.HeadingOf(placed.Transform);
+            _built = placed.BuiltFacing;
+            _facing = HeadingOf(placed.Transform);
             _eyes = CharacterHead.PivotOf(placed.Model, head).Y;
         }
 
@@ -3583,13 +3800,49 @@ public sealed class SceneUpdate
         /// while looking at something would go on aiming their head at where the thing was
         /// relative to where they set off from.
         /// </remarks>
-        public void MovedTo(string actor, Vector3 standing, float facing)
-        {
-            if (!string.Equals(actor, _name, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
+        /// <summary>Which way this model is built to face, when its arrow says.</summary>
+        private readonly float? _built;
 
+        /// <summary>The heading a placement of this model amounts to.</summary>
+        /// <remarks>
+        /// The inverse of what turned it. A model built facing something other than −Z is
+        /// turned by a different amount, so reading the heading back has to undo the same
+        /// amount — otherwise a head is worked out against a body direction the body does
+        /// not have.
+        /// </remarks>
+        public float HeadingOf(Matrix4x4 placement)
+        {
+            float turned = MathF.Atan2(placement.M31, placement.M33);
+
+            return _built is { } forward
+                ? Navigation.Walker.Wrapped(turned + forward)
+                : Navigation.Walker.Rotation(turned);
+        }
+
+        /// <summary>Where the model is standing and which way it faces, this frame.</summary>
+        /// <param name="standing">Its position.</param>
+        /// <param name="facing">Its heading.</param>
+        /// <remarks>
+        /// <para>
+        /// Read from the model every frame rather than remembered. It used to be told, by the
+        /// walking loop, under whichever name the walk had been asked for — and a walk is
+        /// asked for by noun as often as by model name, so <c>MovedTo("EMILIO")</c> never
+        /// matched a head filed under <c>eml</c> and the update was silently dropped.
+        /// </para>
+        /// <para>
+        /// Emilio is the case that shows it. His scene gives him no position at all, so his
+        /// facing began as the heading of the identity transform — which is a half turn — and
+        /// nothing ever replaced it. He walked to the bench with his head pointing at the
+        /// door, by exactly 180 degrees, for as long as this cached anything.
+        /// </para>
+        /// <para>
+        /// Nothing to keep in step is the point. A character is moved by walking, by an
+        /// animation, by a script placing them and by an opening pose, and a cache has to be
+        /// updated from all four; the model's own transform is already the answer to all four.
+        /// </para>
+        /// </remarks>
+        public void Stands(Vector3 standing, float facing)
+        {
             _standing = standing;
             _facing = facing;
         }

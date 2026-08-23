@@ -345,9 +345,14 @@ public sealed class Walker
     /// <summary>The transform to place the actor's model with.</summary>
     /// <param name="scale">The scale the model was placed at.</param>
     /// <returns>The transform.</returns>
-    public Matrix4x4 Transform(float scale = 1f) =>
+    /// <param name="built">
+    /// Which way the model is built to face, when its own arrow says. Null turns it by the
+    /// half turn most models want, which is what this did before any of them were measured.
+    /// </param>
+    public Matrix4x4 Transform(float scale = 1f, float? built = null) =>
         Matrix4x4.CreateScale(scale) *
-        Matrix4x4.CreateRotationY(Rotation(Facing)) *
+        Matrix4x4.CreateRotationY(
+            built is { } forward ? Wrap(Facing - forward) : Rotation(Facing)) *
         Matrix4x4.CreateTranslation(Position);
 
     /// <summary>The rotation that points a character's model along a heading.</summary>
@@ -439,6 +444,11 @@ public sealed class Walker
 
     /// <summary>Drops the vertical, because walking is a thing done on a floor.</summary>
     private static Vector3 Flat(Vector3 v) => new(v.X, 0, v.Z);
+
+    /// <summary>Brings an angle into the range where the shorter way round is the smaller.</summary>
+    /// <param name="radians">The angle.</param>
+    /// <returns>The same angle, between minus half a turn and a half turn.</returns>
+    public static float Wrapped(float radians) => Wrap(radians);
 
     /// <summary>Brings an angle into the range where the shorter way round is the smaller.</summary>
     private static float Wrap(float radians)

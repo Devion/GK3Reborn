@@ -319,6 +319,27 @@ public static class Application
         // through the same door the interface does.
         api.Saves = new Game.SaveStore();
 
+        // The saves the 1999 game wrote, brought across once each. They live in the
+        // original's install root, which is the parent of the Data directory this engine
+        // was pointed at — and a save file this engine has already imported is left alone,
+        // so deleting an import is how somebody asks for it again.
+        if (Path.GetDirectoryName(Path.GetFullPath(
+                Option(args, "--data") ?? DefaultDataDirectory())) is { Length: > 0 } installRoot)
+        {
+            // Both places the original wrote to: its install root, and the "Save Games"
+            // folder beside the Data directory that later installs used.
+            int broughtAcross =
+                Game.OriginalSaves.Import(installRoot, api.Saves, api.Scores) +
+                Game.OriginalSaves.Import(
+                    Path.Combine(installRoot, "Save Games"), api.Saves, api.Scores);
+
+            if (broughtAcross > 0)
+            {
+                Console.WriteLine(
+                    $"Imported {broughtAcross} save(s) from the original game in {installRoot}");
+            }
+        }
+
         if (request.State is not null)
         {
             Console.WriteLine($"Story: {request.State.Timeblock} in {request.State.Location}");
@@ -676,6 +697,12 @@ public static class Application
 
                 ShowIntro(window, renderer, movies, pages, which);
 
+                // The gesture that skipped the film is still on the frame's books, and the
+                // menu is about to be drawn under the pointer that made it. Without this,
+                // holding the mouse to skip the intro releases onto whichever row the
+                // pointer happens to be over and the game starts, or quits.
+                window.EndFrame();
+
                 title.Show(renderer);
                 theme = Theme(audio, sounds);
             }
@@ -703,6 +730,12 @@ public static class Application
             }
 
             FrontEndOutcome asked;
+
+            // What the slots hold, so the title screen's Restore has something to show. The
+            // pause menu filled this in and the title screen never did, so Restore from the
+            // first menu listed nothing while the same store held three saves.
+            front.Saves = api.Saves?.List() ?? [];
+            front.Illustrations = slot => Illustration(renderer, api.Saves, slot);
 
             // Round again for the Intro row, which is the one thing on the menu that goes
             // somewhere and comes back.
@@ -732,6 +765,20 @@ public static class Application
             // fills the window itself.
             audio?.Silence(theme);
             renderer.SetBackdrop(null);
+
+            // Restoring from the title screen. The save says where the player was, and that
+            // is the first room rather than the one the command line asked for. This used to
+            // fall through to the quit below: a Load outcome was "not Play", and choosing a
+            // save on the first menu closed the game.
+            if (asked == FrontEndOutcome.Load &&
+                front.Slot is { Length: > 0 } chosenSlot &&
+                api.Saves?.Read(chosenSlot, out Game.SaveFault titleFault) is { } titleSave)
+            {
+                api.State.Restore(titleSave);
+                request = SceneRequest.Continuing(api, api.State.Location);
+                Console.WriteLine($"Restored {chosenSlot}: {titleSave.Title}");
+                asked = FrontEndOutcome.Play;
+            }
 
             if (asked != FrontEndOutcome.Play)
             {
@@ -853,6 +900,14 @@ public static class Application
                     ? null
                     : compressed;
 
+            // --flat means flat wherever the maps would have come from. It used to null
+            // only the loose readers, which was the whole of the supply before the packs
+            // could answer; now they can, it has to silence both or it silences nothing.
+            if (args.Contains("--flat", StringComparer.OrdinalIgnoreCase))
+            {
+                loader.FlatSurfaces = true;
+            }
+
             if (first && loader.Compressed is not null && compressed.Describe() is { } sets)
             {
                 // Which set came from where, because the two are indistinguishable once a
@@ -885,6 +940,13 @@ public static class Application
             // GpuLight.IsDistantKey.
             renderer.SetLights(
                 scene.Lights, new SceneExtent(geometry.Minimum, geometry.Maximum));
+
+            if (scene.Sun is { } sun)
+            {
+                Console.WriteLine(
+                    $"Sun: elevation {MathF.Asin(-sun.Direction.Y) * 180f / MathF.PI:0}°, " +
+                    $"the rig's other {scene.Lights.Count - 1} lights kept");
+            }
             renderer.Quality = renderer.SupportsRayTracing
                 ? quality ?? settings.Quality
                 : RayTracingQuality.None;
@@ -2064,6 +2126,62 @@ public static class Application
             console.Type(typed);
         }
 
+        // --run types a command and presses Enter, which is how a headless run drives the
+        // game: a walk, a flag, a script function, anything the console can call. The
+        // console itself is closed again so the frames that follow are of the room.
+        //
+        // A command may start with @N — "@600 DumpActor(\"EMILIO\")" — to run on frame N
+        // rather than before the first one, which is how a headless run asks a question
+        // after something has had time to happen.
+        var deferred = new List<(int Frame, string Command)>();
+
+        if (Option(options, "--run") is { } command)
+        {
+            // Several calls, separated by semicolons, run in order in the same frame — a
+            // teleport and then the question that depends on it. The console itself takes
+            // one call at a time; this is the harness feeding it a script's worth.
+            foreach (string one in command.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string call = one.Trim();
+
+                if (call.StartsWith('@') &&
+                    call.IndexOf(' ') is > 1 and var split &&
+                    int.TryParse(call[1..split], out int at))
+                {
+                    deferred.Add((at, call[(split + 1)..].Trim()));
+                }
+                else
+                {
+                    deferred.Add((0, call));
+                }
+            }
+
+            deferred.Sort((a, b) => a.Frame.CompareTo(b.Frame));
+            Run(0);
+        }
+
+        void Run(int frame)
+        {
+            while (deferred.Count > 0 && deferred[0].Frame <= frame)
+            {
+                console.Show(true);
+                console.Type(deferred[0].Command);
+                deferred.RemoveAt(0);
+
+                int before = console.Lines.Count;
+                console.Submit();
+
+                // Mirrored to the terminal, because a headless run has no way to read the
+                // console's own scrollback and an answer nobody can read is no answer.
+                foreach (ConsoleLine line in console.Lines.Skip(before))
+                {
+                    Console.WriteLine($"run: {line.Text}");
+                }
+
+                console.Show(false);
+            }
+        }
+
         if (pinned is { } spot)
         {
             Console.WriteLine($"Pointer pinned at {spot.X}, {spot.Y}");
@@ -2082,6 +2200,7 @@ public static class Application
         while (!window.IsClosing && (frameLimit == 0 || presented < frameLimit))
         {
             window.PumpEvents();
+            Run(presented);
 
             double now = stopwatch.Elapsed.TotalSeconds;
             float delta = (float)Math.Min(0.1, now - previous);
@@ -2171,7 +2290,17 @@ public static class Application
                 showingMovie = false;
             }
 
-            if (!typing && !movies.Playing && window.WasPressed(Platform.CameraAction.Quit))
+            // A screen first. Escape means "out of whatever is in front of me", and with the
+            // inventory open the thing in front of the player is the inventory — opening the
+            // pause menu over it, which is what happened, answers a question nobody asked.
+            if (!typing &&
+                !movies.Playing &&
+                story.Screens.Top is not null &&
+                window.WasPressed(Platform.CameraAction.Quit))
+            {
+                story.Screens.Back();
+            }
+            else if (!typing && !movies.Playing && window.WasPressed(Platform.CameraAction.Quit))
             {
                 if (pages is null)
                 {
@@ -2509,6 +2638,37 @@ public static class Application
                 {
                     // Leaning in is a camera and, often, another room, so it is handled
                     // here where both are in reach rather than in OnScreen.
+                    // The fingerprint kit. Brushing counts what the surface has and keeps
+                    // the count in the screen's own subject, so there is no state to clean
+                    // up however the screen is left; lifting awards the prints — the score,
+                    // the flag and the item each one carries — which is the step the
+                    // original does from its own code and no script anywhere names.
+                    if (chose == "fp:brush" &&
+                        panel.Kind == ScreenKind.Fingerprint &&
+                        panel.Subject is { Length: > 0 } dusting)
+                    {
+                        int found =
+                            Game.FingerprintKit.On(dusting, story.Timeblock)?.Count ?? 0;
+
+                        story.Screens.Replace(
+                            new Screen(ScreenKind.Fingerprint, $"{dusting}|{found}"));
+                    }
+                    else if (chose == "fp:lift" &&
+                             panel.Kind == ScreenKind.Fingerprint &&
+                             panel.Subject is { Length: > 0 } lifting)
+                    {
+                        string bare = lifting.Split('|')[0];
+
+                        IReadOnlyList<string> gained =
+                            Game.FingerprintKit.Lift(bare, story, api.Scores);
+
+                        Console.WriteLine(gained.Count > 0
+                            ? $"fingerprints: {bare} gave {string.Join(", ", gained)}"
+                            : $"fingerprints: {bare} lifted");
+
+                        story.Screens.Back();
+                    }
+                    else
                     // Asking for help. One line of the walkthrough per press, always the
                     // next one, and never a word of it unasked — a player a little stuck
                     // needs the first, which says where to go, and the one that gives a
@@ -2578,16 +2738,20 @@ public static class Application
                     }
                     else if (chose.StartsWith("item:", StringComparison.Ordinal) &&
                              chose[5..] is { Length: > 0 } inHand &&
-                             !inHand.StartsWith("SIDNEY", StringComparison.OrdinalIgnoreCase) &&
-                             ItemVerbs(
-                                 new Screen(ScreenKind.InventoryInspect, inHand),
-                                 scene,
-                                 story) is [string only])
+                             panel.Kind == ScreenKind.Inventory &&
+                             !inHand.StartsWith("SIDNEY", StringComparison.OrdinalIgnoreCase))
                     {
-                        // One thing to do, so it is done. Making the player click through to
-                        // a screen that offers a single button is a step that exists only
-                        // because the interface was built inwards from the close-up.
-                        if (scene.Actions?.Find(inHand, only, story.Ego) is { } single)
+                        story.Inventory.SetActive(story.Ego, inHand);
+
+                        IReadOnlyList<string> offered = ItemVerbs(
+                            new Screen(ScreenKind.Inventory, inHand), scene, story) ?? [];
+
+                        // One thing to do, so it is done. Several, and they are offered
+                        // where the item sits, exactly as a right click offers a noun's
+                        // verbs in the room — rather than a page of its own to hold two
+                        // words on.
+                        if (offered is [string only] &&
+                            scene.Actions?.Find(inHand, only, story.Ego) is { } single)
                         {
                             ActionOutcome ran = new ActionRunner(api).Run(single);
 
@@ -2595,9 +2759,9 @@ public static class Application
                                 $"{inHand}:{only} [{single.Case}] - " +
                                 $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
                         }
-                        else
+                        else if (offered.Count > 0)
                         {
-                            story.Inventory.SetActive(story.Ego, inHand);
+                            story.Screens.Replace(new Screen(ScreenKind.Inventory, inHand));
                         }
                     }
                     else
@@ -2654,9 +2818,15 @@ public static class Application
                         seen,
                         camera.Aim,
                         ItemVerbs(panel, scene, story),
-                        panel.Kind == ScreenKind.Journal ? journal.Read() : null),
+                        panel.Kind == ScreenKind.Journal ? journal.Read() : null,
+                        panel.Kind == ScreenKind.Fingerprint &&
+                        panel.Subject?.Split('|') is [_, string counted] &&
+                        int.TryParse(counted, out int prints)
+                            ? prints
+                            : -1),
                     window.FramebufferWidth,
-                    window.FramebufferHeight);
+                    window.FramebufferHeight,
+                    pointer);
 
                 renderer.SetOverlay(screens.Overlay);
 
@@ -2787,8 +2957,14 @@ public static class Application
                 // was not on the interface: the inventory strip lies across the foot of
                 // the screen, exactly where the floor at the player's feet is drawn, and a
                 // click on it must not go through. And the ray reached the floor.
+                // And nobody is in the middle of a scene. A clip a script started is the
+                // story happening, and walking out of the middle of it leaves it playing to
+                // an empty patch of floor — reported from the dining room, where a click
+                // during the coffee sent Gabriel away while the scene carried on without
+                // him. A character's own idle is not this and may be cut short freely.
                 if (did is null &&
                     menu is null &&
+                    !update.Performing(story.Ego) &&
                     hud?.OverInterface(pointer) != true &&
                     interaction.FloorTarget(hover) is { } ground)
                 {
@@ -3609,7 +3785,7 @@ public static class Application
     private static IReadOnlyList<string>? ItemVerbs(
         Screen panel, LoadedScene scene, GameState story)
     {
-        if (panel.Kind != ScreenKind.InventoryInspect ||
+        if (panel.Kind is not (ScreenKind.InventoryInspect or ScreenKind.Inventory) ||
             panel.Subject is not { Length: > 0 } item ||
             scene.Actions is not { } actions)
         {

@@ -4,6 +4,7 @@
 // of the GNU General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 
+using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Story;
@@ -34,6 +35,10 @@ namespace GK3Reborn.UI;
 /// The quest log, by day, when that is what is being shown. Read fresh each frame from the
 /// score events the story already records, so nothing here can drift out of step with it.
 /// </param>
+/// <param name="Prints">
+/// How many prints the fingerprint kit has revealed on what it is dusting, or minus one
+/// while nothing has been brushed yet.
+/// </param>
 /// <param name="Verbs">
 /// What can be done to whatever the screen is about. Only the close-up of one thing uses
 /// it, and it is what makes the inventory worth opening: 619 of the game's actions are
@@ -53,7 +58,8 @@ public readonly record struct ScreenView(
     Panorama? Panorama = null,
     Vector2 Aim = default,
     IReadOnlyList<string>? Verbs = null,
-    IReadOnlyList<JournalDay>? Journal = null);
+    IReadOnlyList<JournalDay>? Journal = null,
+    int Prints = -1);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -134,10 +140,12 @@ public sealed class ScreenPainter
     /// <param name="view">What to draw.</param>
     /// <param name="width">Window width in pixels.</param>
     /// <param name="height">Window height.</param>
-    public void Build(ScreenView view, int width, int height)
+    /// <param name="at">Where the pointer is, for hovering a row.</param>
+    public void Build(ScreenView view, int width, int height, Vector2 at = default)
     {
         Overlay.Begin(width, height);
         _hits.Clear();
+        _pointer = at;
 
         float unit = Scale;
 
@@ -151,11 +159,22 @@ public sealed class ScreenPainter
         }
 
         // The room stays visible behind everything but the driving map, which is the one
-        // screen where the player is somewhere else entirely.
-        Overlay.Rect(0, 0, width, height, view.Screen.TakesOverInput ? Panel : Shade);
+        // screen where the player is somewhere else entirely. Drawn with the body below,
+        // because how much of the window the body takes decides where it goes.
+        // How much of the window a screen takes. The inventory is a page — it is a list of
+        // everything the player owns and wants the room — and one item held up to the light
+        // is not. Asked for: a close-up of a single thing filling the screen reads as a
+        // modal error box rather than as looking at something.
+        bool page = view.Screen.Kind is not
+            (ScreenKind.InventoryInspect or ScreenKind.Fingerprint);
 
         float margin = 40f * unit;
-        var body = new Vector4(margin, margin, width - (margin * 2), height - (margin * 2));
+
+        var body = page
+            ? new Vector4(margin, margin, width - (margin * 2), height - (margin * 2))
+            : Card(width, height, unit);
+
+        Overlay.Rect(0, 0, width, height, view.Screen.TakesOverInput ? Panel : Shade);
 
         Overlay.Rect(body.X, body.Y, body.Z, body.W, Panel);
         Overlay.Rect(body.X, body.Y, body.Z, 1, Rule);
@@ -169,7 +188,6 @@ public sealed class ScreenPainter
                 break;
 
             case ScreenKind.InventoryInspect:
-            case ScreenKind.SceneInspect:
                 Inspect(view, body, top, unit);
                 break;
 
@@ -189,6 +207,10 @@ public sealed class ScreenPainter
 
             case ScreenKind.Journal:
                 JournalPage(view, body, top, unit);
+                break;
+
+            case ScreenKind.Fingerprint:
+                Fingerprint(view, body, top, unit);
                 break;
 
             default:
@@ -247,7 +269,6 @@ public sealed class ScreenPainter
     {
         ScreenKind.Inventory => "CARRYING",
         ScreenKind.InventoryInspect => Pretty(view.Screen.Subject ?? view.Held ?? "ITEM"),
-        ScreenKind.SceneInspect => Pretty(view.Screen.Subject ?? "CLOSE UP"),
         ScreenKind.Binoculars => "BINOCULARS",
         ScreenKind.Driving => "WHERE TO?",
         ScreenKind.Fingerprint => "FINGERPRINT KIT",
@@ -296,6 +317,14 @@ public sealed class ScreenPainter
             Overlay.Text(Pretty(item), x + (10 * unit), y + (8 * unit), held ? Accent : Ink);
 
             _hits.Add(("item:" + item, bounds));
+
+            // The verbs for whichever item was clicked, beside it, exactly as a right click
+            // in the room offers a noun's verbs where the pointer is. Asked for: clicking a
+            // thing in your pocket used to open a page of its own to hold two words on.
+            if (string.Equals(view.Subject, item, StringComparison.OrdinalIgnoreCase))
+            {
+                Beside(view, bounds, body, unit);
+            }
         }
 
         // What a click does, rather than a rule about holding. "Click to hold, click again
@@ -307,6 +336,143 @@ public sealed class ScreenPainter
             body.X + (20 * unit),
             body.Y + body.W - Overlay.LineHeight - (12 * unit),
             Dim);
+    }
+
+    /// <summary>
+    /// The verbs for one item, beside the item.
+    /// </summary>
+    /// <param name="view">What to draw, including the verbs.</param>
+    /// <param name="slot">Where the item is drawn.</param>
+    /// <param name="body">The panel it is in, so the menu stays inside it.</param>
+    /// <param name="unit">The interface's scale.</param>
+    /// <remarks>
+    /// The same shape a right click gives in the room: a short column of words where the
+    /// pointer is. The alternative, and what this replaces, was a screen of its own holding
+    /// two options — which is a page for a thing that fits in a corner.
+    /// </remarks>
+    private void Beside(ScreenView view, Vector4 slot, Vector4 body, float unit)
+    {
+        if (view.Verbs is not { Count: > 0 } verbs)
+        {
+            return;
+        }
+
+        float row = Overlay.LineHeight + (10 * unit);
+        float wide = 0;
+
+        foreach (string verb in verbs)
+        {
+            wide = MathF.Max(wide, Overlay.Measure(Pretty(verb)));
+        }
+
+        wide += 28 * unit;
+
+        float x = MathF.Min(slot.X + (12 * unit), body.X + body.Z - wide - (8 * unit));
+        float y = MathF.Min(
+            slot.Y + slot.W - (4 * unit),
+            body.Y + body.W - (row * verbs.Count) - (8 * unit));
+
+        Overlay.Rect(x, y, wide, row * verbs.Count, PanelLit);
+        Overlay.Rect(x, y, wide, 1, Accent);
+
+        for (int i = 0; i < verbs.Count; i++)
+        {
+            var bounds = new Vector4(x, y + (row * i), wide, row);
+            bool under = Inside(_pointer, bounds);
+
+            if (under)
+            {
+                Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, Panel);
+            }
+
+            Overlay.Text(
+                Pretty(verbs[i]),
+                bounds.X + (12 * unit),
+                bounds.Y + (5 * unit),
+                under ? Accent : Ink);
+
+            _hits.Add(("verb:" + verbs[i], bounds));
+        }
+    }
+
+    /// <summary>Whether a point is inside a rectangle.</summary>
+    private static bool Inside(Vector2 point, Vector4 bounds) =>
+        point.X >= bounds.X && point.X <= bounds.X + bounds.Z &&
+        point.Y >= bounds.Y && point.Y <= bounds.Y + bounds.W;
+
+    /// <summary>Where the pointer is, for hovering a row.</summary>
+    private Vector2 _pointer;
+
+    /// <summary>
+    /// The fingerprint kit, over one surface.
+    /// </summary>
+    /// <param name="view">What to draw, including how many prints the brush has found.</param>
+    /// <param name="body">The card it goes in.</param>
+    /// <param name="top">Where the chrome ends.</param>
+    /// <param name="unit">The interface's scale.</param>
+    /// <remarks>
+    /// Two steps, which is the ritual reduced to what the story records: brush the surface,
+    /// and lift what shows with the tape. A card rather than a page, for the same reason the
+    /// item close-up is one — the room the object is in should stay most of the screen.
+    /// </remarks>
+    private void Fingerprint(ScreenView view, Vector4 body, float top, float unit)
+    {
+        float x = body.X + (20 * unit);
+        float y = top + (8 * unit);
+        float line = Overlay.LineHeight;
+
+        Overlay.Text(
+            view.Prints < 0
+                ? "A fine brush, and a roll of tape."
+                : view.Prints == 0
+                    ? "The powder settles. Nothing shows up."
+                    : view.Prints == 1
+                        ? "The powder settles on a clear print."
+                        : string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"The powder settles on {view.Prints} distinct prints."),
+            x,
+            y,
+            Ink);
+
+        y += (line * 2) + (6 * unit);
+
+        (string id, string label) = view.Prints < 0
+            ? ("fp:brush", "Brush for prints")
+            : view.Prints > 0
+                ? ("fp:lift", "Lift with tape")
+                : ("close", "Put the kit away");
+
+        float wide = Overlay.Measure(label) + (24 * unit);
+        var button = new Vector4(x, y, wide, line + (12 * unit));
+
+        Overlay.Rect(button.X, button.Y, button.Z, button.W, PanelLit);
+        Overlay.Rect(button.X, button.Y, button.Z, 1, Accent);
+        Overlay.Text(label, button.X + (12 * unit), button.Y + (6 * unit), Accent);
+
+        _hits.Add((id, button));
+    }
+
+    /// <summary>A panel for one thing rather than a page for everything.</summary>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <param name="unit">The interface's scale.</param>
+    /// <returns>Where to draw it.</returns>
+    /// <remarks>
+    /// Just over a third of the window, a little above centre, so the room it belongs to is
+    /// still most of what is on the screen. An object held up to the light is a small thing
+    /// and should look like one.
+    /// </remarks>
+    private static Vector4 Card(int width, int height, float unit)
+    {
+        float wide = MathF.Min(width - (80 * unit), MathF.Max(320 * unit, width * 0.38f));
+        float tall = MathF.Min(height - (80 * unit), MathF.Max(200 * unit, height * 0.46f));
+
+        return new Vector4(
+            MathF.Round((width - wide) / 2f),
+            MathF.Round((height - tall) / 2.4f),
+            MathF.Round(wide),
+            MathF.Round(tall));
     }
 
     /// <summary>

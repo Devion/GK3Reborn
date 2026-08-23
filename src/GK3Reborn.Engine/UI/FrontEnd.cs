@@ -225,7 +225,18 @@ public sealed class FrontEnd
             return false;
         }
 
-        Page = Page == FrontEndPage.Options ? FrontEndPage.Main : FrontEndPage.Options;
+        // Each page says where it came from. This used to read "anything that is not Options
+        // is a child of Options", which was true while the only pages below the top were the
+        // three kinds of setting — and sent Back from the save slots to the settings screen
+        // the moment saving was added.
+        Page = Page switch
+        {
+            FrontEndPage.Video or FrontEndPage.Audio or FrontEndPage.Gameplay =>
+                FrontEndPage.Options,
+
+            _ => FrontEndPage.Main,
+        };
+
         return true;
     }
 

@@ -184,6 +184,10 @@ public sealed class StoryCheckStage
     {
         var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // The fingerprint kit's own awards, which no script names because the original
+        // awarded them from its screen's code. The engine now does the same from its table.
+        found.UnionWith(FingerprintKit.Scores);
+
         foreach (string name in archives.Names(".SHP"))
         {
             if (archives.Read(name) is not { } bytes)

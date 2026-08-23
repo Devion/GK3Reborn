@@ -7,7 +7,7 @@ Go downstairs to lobby.
 Lobby	Ask Jean about the mysterious guys who knocked you out last night.	2/6
 Look at the log book and notice there are several other guests in this hotel.	2/8
 Go to the phone booth. Use the business card from Prince James to call him.	4/12
-Dining room	You'll see your long-time friend, Mosley, at the dining room. Ask him about the Treasure Hunter.	4/16
+Dining room	You'll see your long-time friend, Mosely, at the dining room. Ask him about the Treasure Hunter.	4/16
 Lobby	Meet Emilio at the lobby. Introduce yourself to him and ask about his check-in time.	4/20
 Go outside
 Hotel yard	Meet Madeleine, the tour leader. Introduce yourself and exhaust all the conversations.	4/24
@@ -39,7 +39,7 @@ Room 33	Knock on the door and enter.
 Discuss the case with Mosely.	2/66
 During the discussion, you'll hear a strange noise outside. Stop the conversation and peep through the keyhole.	5/71
 Emilio is trying to eavesdrop Knight's conversation. He'll put his glass on the table and enter his room.
-Continue your conversation. Tell Mosley about Grace (2) and Schattenjaeger (2).	4/75
+Continue your conversation. Tell Mosely about Grace (2) and Schattenjaeger (2).	4/75
 2nd floor hallway	Pick up Emilio's glass.	2/77
 When you walk outside the hotel, the time will change.
 
@@ -51,10 +51,10 @@ All bikes have been rented, so Gabe is going to disguise himself as Mosely to tr
 Lobby	Ask Lady Howard and Estelle about the reason they change room with Emilio.	2/81
 Get a candy from the basket on the table opposite the reception.	2/83
 Room 33	Ask Mosely about his passport. He always bring it in his pocket.
-Give Mosley the candy and see how much he likes it.
+Give Mosely the candy and see how much he likes it.
 Lobby	Pick up another candy. Go upstairs and put the candy on the table around the corner of Mosely's room, below the street painting.	2/85
 Go downstairs and look at the panel beside the reception. Push the button number 33 to call Mosely. Quickly go upstairs and hide on the corner (don't let him see you). When he picks up the candy, sneak behind him and snatch his passport from his back pocket.	7/92
-Room 33	Go inside Mosley's room while he still downstairs. Get his yellow jacket.	2/94
+Room 33	Go inside Mosely's room while he still downstairs. Get his yellow jacket.	2/94
 Cemetery	You'll see Arnaud left his sprinkler on the window. Get it.	2/96
 Alley	Follow the small alley beside the church until you reach the end. You'll see a cat there. Try to pet it. It will run into the hole below the door on the left. Leave the scene and go back again. The cat will stand on the top of the wall. Put the tape inside the hole (2) and use the sprinkler to make the cat run into the hole again (2).	4/100
 Get the fur from the tape (2). You'll have your home-made mustache (the infamous cat-mustache puzzle).	2/102
@@ -88,7 +88,7 @@ L'Homme Mort	Ask Mosely about his activities. He refuses to say anything.	2/155
 Write down his plate number.	2/157
 Blanchefort	You see two bikes here. One is Wilkes and whose the others? Climb the hill to your right and go to the top.
 Talk with Emilio.
-Use binoculars and zoom in at L'Homme Mort. You'll see a quarrel between Mosley and Madeleine.	5/162
+Use binoculars and zoom in at L'Homme Mort. You'll see a quarrel between Mosely and Madeleine.	5/162
 Go down the hill and head straight to the black rock spot on the other side of Blanchefort.
 Black Rock	Greet Wilkes and ask him about the black and white rock.
 Write down Emilio's plate number	2/164
@@ -115,7 +115,7 @@ Watch that hand shake carefully.	5/210
 Rennes Le Bains	Meet Buchelli and Wilkes at the bar.
 Go back to the hotel.
 2nd floor hallway	Mosely is not in room 33. Go back to your room.
-Room 25	Mosley is here. Ask about Prince James' men.	2/212
+Room 25	Mosely is here. Ask about Prince James' men.	2/212
 Tell him about the secret hand shake. If from left to right is 1 to 5, then the sequence is: 2, 5, 3, 1, 4.	5/217
 Exhaust conversation on Freemason.	2/219
 Gracie will ask you to have diner downstairs. This will ends Day 1.
@@ -144,7 +144,7 @@ Day 2: 10 AM - 12 PM (Gabriel)
 
 Room 25	Pick up the note. Pick up the fingerprint tools on the desk.	1/251
 Activate S.I.D.N.E.Y.
-"Add Data". Scan in the license numbers of Emilio, Buchelli, Lady Howard, Wilkes, and Mosley (5) and the tape (1).	6/257
+"Add Data". Scan in the license numbers of Emilio, Buchelli, Lady Howard, Wilkes, and Mosely (5) and the tape (1).	6/257
 "Open File" and link the plate numbers file to the suspects, except Mosely's (4).	4/261
 Translate the tape from French to English.	3/264
 2nd floor hallway	You'll meet the maid, Roxanne. Follow her and use the sneak icon on the door each time after she tosses the bed clothing in the cart, picks up the sprinkler and re-enters the rooms.
@@ -212,18 +212,18 @@ Talk with Wilkes to learn about the murder scene.	2/393
 Buchelli will come out and start talking with Wilkes. Talk with Jean at the receptionist desk.
 Tour of Magdala	Talk with Abbey Arnaud who denies knowing or talking to Prince James' men.	2/395
 Devil's Armchair	Look on the ground and you'll see a strange tire marks (2). Follow the track to the small alcove (2). You'll see a car there. Use the sketchpad on the tire (2).	6/401
-Go back to you bike, cross the street and enter the Devil Armchair. where Mosley is.	2/403
+Go back to you bike, cross the street and enter the Devil Armchair. where Mosely is.	2/403
 Examine and think on the sliced throat, the face, and his clothes. You'll get this extra points (2) when you think on the face.	2/405
 Talk with Mosely. Choose Vampire as your first answer.	2/407
 Find the pool of blood a bit further up the hill and examine it.	5/412
-Mosley will come over. Look closely at the strange marks (knee prints) near the blood stain. Use the 'Think' icon on it twice (2x2).	4/416
-When you walk out of the scene with Mosley, Madeleine will come with the police and Gabriel will take Mosley back to the hotel.
+Mosely will come over. Look closely at the strange marks (knee prints) near the blood stain. Use the 'Think' icon on it twice (2x2).	4/416
+When you walk out of the scene with Mosely, Madeleine will come with the police and Gabriel will take Mosely back to the hotel.
 Lobby	Call Prince James from the phone booth (you could call Prince James later on after the mid time block end to hear an alternate answer).	5/421
 Larry's house	Knock on the door and start asking him questions on the freemasons (2)(2) and the handshake signal (4). He'll throw you out.	8/429
 Sneak to the window and watch how he sets up the alarm clock. When he's gone, try to see what time the alarm has been set by sliding the coat hanger through the small hole in the window.	7/436
 Lobby	You'll see Emilio collides with Estelle.	2/438
 Room 25	Talk with Grace about Holy Grail (2), Abbey Arnaud (2), Priori of Sion (2), and the treasure (4).	10/448
-Mosley shows up and leaves the room, leaving his bottle on the table. Use the fingerprints kit on the bottle (2). Gabe will put it on the table near Sydney.	2/450
+Mosely shows up and leaves the room, leaving his bottle on the table. Use the fingerprints kit on the bottle (2). Gabe will put it on the table near Sydney.	2/450
 Lobby	Use the fingerprints tool on Wilkes glass.	2/452
 Tell Jean to give you a wake up call at 2 AM.	2/454
 Room 25	Add the fingerprints to Sydney (1) along with Buchelli's tape (1). Translate the tape from Italian to English (3). Link Wilkes' fingerprint to his files (1).	6/460
@@ -237,12 +237,12 @@ Room 25	Final scene
 Day 2: 5 PM - 10 PM (Grace)
 
 Room 25	On S.I.D.N.E.Y. Add the Emilio's note (1), Montreaux's fingerprints (1), and the robe's symbol drawing (1).	3/484
-Link the fingerprints to Montreaux's file (1) and Mosley plate number to his file (1).	2/486
+Link the fingerprints to Montreaux's file (1) and Mosely plate number to his file (1).	2/486
 Analyze the symbol (2). Sydney will process it through outside resources. It will notice you with e-mail later on.	2/488
 Translate the note from Latin to English (2): "SUM = to be".	2/490
 Analyze the first parchment. Use "Extract Anomalies" option. Choose French language to form the words (2). Then choose "View Geometry" and save the triangle shape (2). Do the same thing with the second parchment. Choose the "View Text" option and use French language again (2). Do "View Geometry" also (4), rotate the shapes (2) and save them.	12/502
 2nd floor hall	Pick up the glass on the floor in front of Lady Howard's room.	2/504
-Dining room	Listen to the conversation between Gabriel and Mosley.	5/509
+Dining room	Listen to the conversation between Gabriel and Mosely.	5/509
 You could find Buchelli sitting here to talk with.
 Lobby	Talk with Simone at the front desk.
 Museum	Get the folder on the door (2). It is L Serpent Rouge! Get the fingerprint from it (2).	4/513
@@ -256,7 +256,7 @@ Room 25	Operate Sydney. Analyze the map and choose "Draw Points". Click on the c
 Pisces: read and think about the verse. Grace will draw a conclusion that she needs to find a circle based on the location of Magdelen statues. Search for Magdalen on Sydney. Look at the second page of the pamphlet. You'll see the locations mentioned there. They are: Rennes-le-Chateau, St. Just et le Bezu, Bugarach, and Coutassa.
 Analyze the map again. Choose "Draw Points" and placed them at the cross sign in each places. Then click on the Graphics pull-down menu and choose "Use Shape". Choose circle and place it on the map. Resize the circle until it covers the 4 points.	5/530
 
-Lobby	You'll see Gabriel and Mosley are ready to go with Madeleine (2). You could talk with Lady Howard and Estelle inside the dining room. Emilio and Buchelli are drinking at the lobby. Watch carefully at their glasses. Wilkes is nowhere to be found.	2/532
+Lobby	You'll see Gabriel and Mosely are ready to go with Madeleine (2). You could talk with Lady Howard and Estelle inside the dining room. Emilio and Buchelli are drinking at the lobby. Watch carefully at their glasses. Wilkes is nowhere to be found.	2/532
 Room 25	Aries: Read the verse and think again. You'll notice three uppercase words on it: Quaternity, St. Michael, and Pythagoras.
 Search information on all of them (3x1). Pythagoras said something about squaring the circle.	3/535
 Analyze the map, click on the Graphics pull-down menu and use the square shape. Resize the shape until it right on the outside edge of the circle.	5/540
@@ -281,7 +281,7 @@ After he leaves, dig the spot where he was working (4) and you will find the blo
 Use fingerprint kit on the manuscript to get Larry Chester's print.	2/570
 When Gabriel starts his Harley, he sees a black Sedan passing through the street, but he won't be able to follow them.	2/572
 Chateaux de Serres	Look closely at the ground near the road and compare the tire track with the one you have (2). Match, so Prince James men were here earlier.	2/574
-L'Homme Mort	Find Mosley and talk with him.	2/576
+L'Homme Mort	Find Mosely and talk with him.	2/576
 Room 25	Vampire Cut scene
 
 Day 3: 7 AM - 10 AM (Grace)
@@ -301,7 +301,7 @@ Now draw line between L'Ermitage and Poussin Tomb.	5/603
 Virgo: read and think about the verse.
 Search Sydney database on St. Vincent (1), Temple of Solomon (1), and Temple Diagram (2). The connection to Temple Diagram page is down at this point.	4/607
 Grace will conclude that she needs to draw a temple wall on the map. Grace needs to find the center of the circle to draw the wall.
-Room 33	Use the key to enter Mosley's room.	2/609
+Room 33	Use the key to enter Mosely's room.	2/609
 Search his briefcases on the desk and on the top of his trunk. Open his wardrobe and try to search his bed. After that, get Mosely's tracking device from under his pile of clothes.	4/613
 Dining room	Talk with Lady Howard and Estelle.
 Motorcycle rental	Get the binocular on Lady Howard's bike	2/615
@@ -312,7 +312,7 @@ Go out and use the device on Grace. Walk around until the coordinates n the devi
 Use the shovel to dig it (2). After a while, Grace will stop digging.	2/621
 Use Tennier's painting on the big rock cave (5). Then point the cave (2) to see where St. Paul pointing to. He is pointing up to north east direction, towards Mount Cardou.	7/628
 L'Homme Mort	Talk to Madeline.	2/630
-Dining room	Talk to Mosley and tell him about Madeleine.
+Dining room	Talk to Mosely and tell him about Madeleine.
 Talk with Buchelli.	2/632
 Room 25	Activate Sidney, and mark the four points on the map to form a two-grid-wide vertical rectangle, pointing to the north east direction).	5/637
 
@@ -332,13 +332,13 @@ Larry Chester's house	Ask about Montreaux (2), the village (2), and the throne (
 Lady Howard's site	Greet them and notice that Estelle always bring that plastic bottle of hers.
 You could wrote down their moppet's number if you haven't done it before.
 Poussin Tomb	Talk with Emilio.	2/661
-Room 25	Mosley will come out with something in his hand (2). He will go straight to his room and Madeleine will follow afterwards.	2/663
+Room 25	Mosely will come out with something in his hand (2). He will go straight to his room and Madeleine will follow afterwards.	2/663
 Use Sydney to scan in Larry's fingerprints (1). Link it to his file (1).	2/665
 L'Homme Mort	Examine the footprints on the ground (2) and you'll find Wilkes' death body (5).	7/672
 Search his pocket to get his letter.	2/674
 Circle the big stone near him and you'll find a pool of blood. Examine it (1) and the knee mark also (1).	2/676
-Room 25	When you try to open your door, you'll see Madeleine coming out from Mosley room with something in her hand (2). Follow her and you'll notice that Buchelli spies on Madeleine also from his room.	2/678
-Ask Grace about the manuscript (2)(2)(2)(2) and tell her about Wilkes. Gabriel will realize that Mosley has taken the manuscript out of her room.	8/686
+Room 25	When you try to open your door, you'll see Madeleine coming out from Mosely room with something in her hand (2). Follow her and you'll notice that Buchelli spies on Madeleine also from his room.	2/678
+Ask Grace about the manuscript (2)(2)(2)(2) and tell her about Wilkes. Gabriel will realize that Mosely has taken the manuscript out of her room.	8/686
 Prince James will arrive at the village.
 
 Day 3: 12 PM - 3 PM (Grace)
@@ -354,11 +354,11 @@ Sagitarius: read and think about the verse. You'll need to draw the Red Serpent 
 2nd floor hall	As soon as Grace comes out from the room, she'll notice Buchelli comes out from Madeleine's room (2) holding something in his hand. Follow this guy to his room.	2/725
 Dining room	Overhear the conversation between Lady Howard and Estelle (2) and greet them.	2/727
 South West point	Find Wilkes handkerchief (2) on the rock in front of a sealed cave.	2/729
-Use Mosley's device to start tracking for the central of the location. Use the coordinate from Sydney to help you: 2o16'45" and 42o55'12". It is next to the place where you found Wilkes' handkerchief (2).	2/731
+Use Mosely's device to start tracking for the central of the location. Use the coordinate from Sydney to help you: 2o16'45" and 42o55'12". It is next to the place where you found Wilkes' handkerchief (2).	2/731
 Use the shovel to move the rocks that block the cave's mouth (5) and get another strange note inside the cave (2).	7/738
 North East spot	Pick up the note on the steel fence.	2/740
 Chateaux de Blanchefort	Visit the Holy of Holies across the road.
-Use Mosley's device on Grace to find the exact location of the central. Use the coordinates from Sydney: 2o19'39" and 42o56'06". Grace will put an X-mark when you find the place (2). Try to dig it (2). No luck!!	4/744
+Use Mosely's device on Grace to find the exact location of the central. Use the coordinates from Sydney: 2o19'39" and 42o56'06". Grace will put an X-mark when you find the place (2). Try to dig it (2). No luck!!	4/744
 Pick up the third note.	2/746
 While you were here, look at the Tour of Magdala at the scenery and think about it. You need to use the "Ctrl" and "Up" button to see it from the top of the rock at the central. That's the first Rook that is mentioned at the verses. The second one is The Tower of Blanchefort. What is the third one?
 Go to the top of Blanchefort and use the binocular on the orange rock on the scenery, you'll see Buchelli's moppet.	5/751
@@ -367,12 +367,12 @@ Use your fingerprint kit to get three fingerprints from the manuscript (3x2).	6/
 Estelle's site	Ask Estelle about the treasure.	2/763
 Tour of Magdala	Talk to Madeleine for fun
 Lobby	You'll see Prince James talking with Jean (2). He'll approach Grace and ask about Gabriel.	2/765
-Room 25	Use Sydney to scan in all the fingerprints (1)(1)(1). Then try to match the fingerprints with the suspects (1)(1)(1). Yup, they're Mosley's, Madeleine's, and Buchelli's. Then log out.	6/771
-Mosley will come up and tell you to go to the dining room for a meeting.
+Room 25	Use Sydney to scan in all the fingerprints (1)(1)(1). Then try to match the fingerprints with the suspects (1)(1)(1). Yup, they're Mosely's, Madeleine's, and Buchelli's. Then log out.	6/771
+Mosely will come up and tell you to go to the dining room for a meeting.
 
 Day 3: 3 PM - 6 PM (Gabriel)
 
-Dining room	Gabriel's answers: Mosley took the script from Gabriel's room (2), then Madeleine took it from Mosley's room (2) and Buchelli steal it from Madeleine's room (2) and buried it at the orange rock (2). If you answer all of these questions correctly then you'll be awarded with (20) points.	28/799
+Dining room	Gabriel's answers: Mosely took the script from Gabriel's room (2), then Madeleine took it from Mosely's room (2) and Buchelli steal it from Madeleine's room (2) and buried it at the orange rock (2). If you answer all of these questions correctly then you'll be awarded with (20) points.	28/799
 Villa Bethania	Return the manuscript to Prince James.	2/801
 Ask Prince James about Bloodline (2), the negotiation (2), and grapes (2). You will learn a lot about his family history.	6/807
 Tour of Magdala	Talk to Arnaud (3x2)	8/815

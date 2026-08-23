@@ -116,4 +116,43 @@ public sealed class SaveMenuTests
         Assert.Equal(FrontEndOutcome.Load, loading.Choose(Chose("slot:03")));
         Assert.Equal("03", loading.Slot);
     }
+
+    /// <summary>Back from a slot list returns to the menu it was opened from.</summary>
+    /// <remarks>
+    /// It used to read "anything that is not Options is a child of Options", which was true
+    /// while the only pages below the top were the three kinds of setting — and sent Back
+    /// from the save slots to the settings screen the moment saving was added.
+    /// </remarks>
+    [Theory]
+    [InlineData("save")]
+    [InlineData("load")]
+    public void Back_from_the_slots_returns_to_the_menu(string page)
+    {
+        FrontEnd front = Paused();
+        front.Choose(Chose(page));
+
+        Assert.True(front.Back());
+        Assert.Equal(FrontEndPage.Main, front.Page);
+    }
+
+    /// <summary>And a settings page still goes back to the settings.</summary>
+    [Theory]
+    [InlineData("video")]
+    [InlineData("audio")]
+    [InlineData("gameplay")]
+    public void Back_from_a_settings_page_returns_to_the_settings(string page)
+    {
+        FrontEnd front = Paused();
+        front.Choose(Chose("options"));
+        front.Choose(Chose(page));
+
+        Assert.True(front.Back());
+        Assert.Equal(FrontEndPage.Options, front.Page);
+
+        Assert.True(front.Back());
+        Assert.Equal(FrontEndPage.Main, front.Page);
+
+        // And the top of the menu is where it stops.
+        Assert.False(front.Back());
+    }
 }

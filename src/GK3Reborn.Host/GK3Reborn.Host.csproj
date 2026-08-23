@@ -7,6 +7,7 @@
     <AssemblyName>GK3Reborn</AssemblyName>
     <InvariantGlobalization>false</InvariantGlobalization>
     <StartupObject>GK3Reborn.Bootstrap.Program</StartupObject>
+    <Version>0.2.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

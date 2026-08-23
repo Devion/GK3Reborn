@@ -46,6 +46,14 @@ public sealed record PlacedModel(
     /// <summary>The script that drives it on its own, or null.</summary>
     public string? Gas { get; init; }
 
+    /// <summary>Which way this model is built to face, when its own arrow says.</summary>
+    /// <remarks>
+    /// From the character's <c>DOR_</c> model — see <see cref="Actors.FacingArrow"/>. Null
+    /// for a prop, and for a character the game ships no arrow for, and turning either then
+    /// falls back to the half turn the rest of the engine assumes.
+    /// </remarks>
+    public float? BuiltFacing { get; init; }
+
     /// <summary>Where it is standing, so that where it stands now can be asked.</summary>
     /// <remarks>
     /// The sink owns the live transform: <c>MoveModel</c> writes it every time an actor

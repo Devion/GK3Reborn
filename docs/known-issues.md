@@ -202,59 +202,215 @@ who has turned that down to one has turned this off with it.
 A walk a **script** asked for never does. Their timings were written against the pace the game
 walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
-## 5. The fingerprint kit awards no points, so thirteen objectives cannot complete
-
-**Reported:** 2026-08-23, by `check-story`. **Not fixed.** Reproduce with
-
-    GK3Reborn.Tools check-story --source <GK3>/Data
-
-and read the `GK3R3404` warnings.
-
-Every `*_fingerprint_kit_*` score in the game is awarded by the original's own fingerprint
-screen rather than from data — hardcoded in `FingerprintScreen.cpp` the way the score table
-and the starting inventory are hardcoded elsewhere. **Nothing about the shipped data is
-wrong and no script is missing**; what is missing is the screen on this side.
-`ScreenKind.Fingerprint` exists as a name and nothing draws it.
-
-Thirteen scores, across 210A, 212P, 202P, 205P, 302A, 303P and 312P — the mirror, the gun,
-the cigarette box, the suitcase, the book, the bottles, the envelope and the three
-manuscripts. Six journal objectives are measured partly or wholly by them and cannot tick
-off, and the points are unreachable.
-
-**What it needs:** the fingerprint screen — a surface to brush, a place the print appears,
-and the tape that lifts it — plus the score name per object, which is the one part already
-written down: the list is in the reference and in `StoryCheckStage.ByTheFingerprintKit`.
-
-## 6. A posed character faces whichever way the clip draws them, and nothing can change it
-
-**Reported:** 2026-08-23, as Emilio's head pointing at the door while he walks to the bench,
-and as Estelle and Lady Howard facing away from each other. **Not fixed; measured, and the
-measurement is the useful part.**
-
-Setting a posed actor's placement heading from the clip changed **0.00% of the rendered
-pixels** on `MS3` — a byte-for-byte identical frame. So a posed character's orientation comes
-entirely from the clip's own mesh transforms, and the model's placement rotation never
-reaches them.
-
-That means the previous fix corrected the actor's *logical* heading, and the position with it
-— which is the "better position" in the report — and could not have moved the drawing.
-Whatever is turning these characters the wrong way is in how a clip's pose is applied, which
-is the path every animated character in the game goes through.
-
-**What has been ruled out.** `AnimationStart.Facing`'s half-turn branch matches the
-reference's exactly, including which side of the dot product takes the turn. The reference's
-`Vector3::Cross` is the same formula as `System.Numerics` — no handedness flip hiding there.
-`Walker.HeadingOf` round-trips correctly: a placement built from 314 degrees reads back as
-314, confirmed in the opening-pose log. And the head-glance arithmetic composes correctly on
-paper, giving +30 degrees of world turn for +30 degrees of yaw.
-
-**What it needs** is a controlled experiment rather than another reading: a synthetic scene
-with one character at a known heading and one target at a known bearing, rendered, so that
-the sign and the half-turn can be read off a picture instead of argued from a matrix. Two
-independent reports both say "opposite", so it is one half-turn in one place; guessing which
-would spin every character in the game if it were the wrong one.
-
 ## Closed
+
+### Round things are rounded, and the village ground gained its relief — done 2026-08-23
+
+**The bell, the lamps, the vases.** A curated list of round objects — names containing bell,
+lamp, lantern, candle, chandel, vase, urn — is subdivided twice at scene load, silhouette and
+shading both. The head's subdivision could not do it, for a structural reason worth writing
+down: it pins boundary vertices, and a lathed object is strips and caps whose vertices are
+all on a boundary — the rim between a bell's side and its top belongs to two surfaces, so
+refining each surface alone holds the hexagon exactly where it was. `ObjectRounding` welds
+the whole object by position first, carries texture coordinates per corner so seams stay
+seams, and smooths true boundaries along their curve instead of pinning them. Capped at five
+hundred authored triangles per object, so a "lamp" that is really a street of lampposts
+stays as authored. The refined triangles go to the ray tracer too, so the shadow matches the
+silhouette. Adding an object is one name in `SceneGeometry.RoundNames`.
+
+**The village ground.** Every RC1 walking texture was displacement-mapped except
+`RC1MOTGRAS` — the mottled dirt most of the village stands on — because the derivation had
+classified it as foliage. It is ground with grass in the picture, not blades standing up;
+marked edited, displacement on at depth 2.5, and RC1 grew from 41,675 triangles to 65,765.
+
+**Why outdoor relief still reads as subtle:** geometric bumps show through directional light
+and the shadows it casts, and RC1's rig has no sun — open issue 4. The cobbles are cut into
+the geometry at depth 4 and have been for some time; under an overcast ambient they simply
+have nothing to cast. The sun is the remaining lever, not the displacement.
+
+### A relative clip played with its authored turn left in — fixed 2026-08-23
+
+The cause of Estelle and Lady Howard standing back to back, found in the reference at last:
+`GKActor::StartAnimation` and `SampleAnimation` both end in `SetModelRotationToActorRotation`,
+which measures the posed model's facing and rotates it to the actor's heading. **A relative
+clip plays facing whichever way the actor already faces, and whatever turn it was authored
+with is cancelled.** This engine applied the clip's rotation raw on top of the placement, so
+the museum pair — whose opening clip is authored with a turn in it — came out turned by it.
+
+The correction now measures the clip's opening facing the way the reference measures it when
+nothing animates the facing helper — the triangle of hip and shoe mesh origins, whose normal
+is the facing outright, no dot product and no rare branch — and turns the clip back to the
+model's built-forward before the placement turns both to the scene heading. Mosely, Jean and
+Buthane, whose clips are authored in the canonical orientation, do not move by a pixel.
+
+### The head turn overwrote the pose — fixed 2026-08-23
+
+Emilio walked from the lobby door to the bench with his head turned half a circle from his
+shoulders. `TurnMesh` rebuilt the head from the model's rest transform while every other part
+of him followed the clip — and his walk is an absolute clip, whose correction carries the
+authored heading, so the head was anchored to a placement the body was nowhere near. The turn
+now composes on top of the pose the mesh is actually in. The glance's yaw is also measured
+against the facing the clip has the body at, frame by frame, rather than against the
+placement.
+
+### The perception layer existed in the data and not in the engine — fixed 2026-08-23
+
+`WHENNEAR Gabriel, 100, END` is a standing condition: it holds for the whole of a GAS script
+and jumps to its label the frame it turns true, wherever execution is. It was parsed and
+never run. Emilio could not notice Gabriel standing over his bench; the museum pair could not
+notice him walking up, so their whispering played on however close he came — reported as the
+sound that would not stop.
+
+Implemented on the edge, as `GasPlayer::CheckDistanceConditions` has it: fire on false to
+true, arm again on true to false. With the fourth argument the museum needed and the parser
+dropped: `WHENNEAR Gabriel, 140, CHANGEIDLE, LADY_HOWARD` measures Gabriel against Lady
+Howard, so both women notice him together. Verified: stand Gabriel beside them and both
+switch from the whisper idles to the quiet ones.
+
+### The fingerprint kit works — done 2026-08-23
+
+`ShowFingerPrintInterface` now opens a card — not a page — with the ritual reduced to what
+the story records: brush, see what shows, lift with tape. Lifting awards each print's score,
+flag and inventory item from a table adapted from the reference's own screen, which is where
+the original kept it: no script names these thirteen score events, and none was missing.
+
+One departure, on purpose: the reference carries Buchelli's lobby-glass score commented out,
+which makes the objective it belongs to impossible. The game's own score sheet lists it at
+two points, so this engine awards it. **check-story now reports zero unreachable events** —
+every objective in the journal can be completed.
+
+### The title screen's Restore listed nothing — fixed 2026-08-23
+
+The pause menu filled the slot list in and the title screen never did, so Restore from the
+first menu showed empty slots while the store held three saves. Worse, choosing one fell
+through "not Play" and closed the game. The title menu now lists the saves, shows their
+pictures, and restoring from it starts in the room the save was written in.
+
+### The 1999 game's own saves are imported — done 2026-08-23
+
+A retail `.gk3` starts with a summary — name, location, timeblock, score, and a PNG of the
+moment — before the part no reimplementation reads, where the original serialised its whole
+class graph. The importer reads the summary and recovers what it implies: every score event
+of every timeblock already behind the save is marked earned, the pockets get at least a new
+game's starting items, and the original's own thumbnail becomes the slot picture. Imports are
+idempotent, filed as `gk3-<filename>`, scanned from the install root and its Save Games
+folder at startup.
+
+Measured against three real saves, which corrected the reference twice: the magic is
+`GK3!Save` where G-Engine's writer says `SAVE`, and the summary opens with the name outright,
+no version number first. All three import: "Mosely Clothes" (RC1, day 1 2PM, 99 points),
+"Train Station" (TR1, day 1 4PM, 140), and "On the Tour" (POU, day 2 7AM, 213) — the last
+correctly resuming as Grace.
+
+### An actor's position was a running total from wherever they started — fixed 2026-08-23
+
+Reported as clicking Mosely in the dining room walking Gabriel into a corner of the room to
+describe a man sitting behind him.
+
+`DIN` names Mosely's spot `MOSTALK` and defines `TALK_MOSELY`. It is a typo in the shipped
+data, it happens once in the game, and the loader already reports it — so Mosely's placement
+is the origin and his idle draws him in a chair. Two things then went wrong from the same
+cause.
+
+**Aiming at him used the shape he was authored in.** A walk towards a model measured the
+model's rest-pose vertices against its placement, which for him is a corner. It now measures
+the pose a clip has actually put each group in, the same transforms the hit testing uses, so a
+character animated into a chair is aimed at where the chair is.
+
+**And his position never recovered.** The per-frame sync added up how far the clip had carried
+him from where he began, and beginning at the origin keeps him there however convincingly he
+is drawn. A character's position is now read from where the pose puts their feet, which is
+what `GKActor::SyncActorToModelPositionAndRotation` does and what makes every `IsActorNear`
+about him answer about the chair rather than the corner.
+
+### A click on the floor walked out of a scene — fixed 2026-08-23
+
+Reported from the dining room. A clip a script started is the story happening, and walking out
+of the middle of it leaves it playing to an empty patch of floor. A floor click is refused
+while one is running on the player.
+
+Only a script's animation. A character's own idle is decoration and may be cut short at any
+moment, which is the distinction the whole animation layer already draws.
+
+### The close-up screen is gone, and an item's verbs are offered where the item is — done 2026-08-23
+
+Asked for repeatedly, and the first two attempts did not go far enough.
+
+`ScreenKind.SceneInspect` no longer exists. Looking closely at something in the room is a
+camera and always was; the screen was a leftover that nothing opened any more but the painter
+could still draw, which is the difference between unlikely and impossible.
+
+Clicking a thing in the inventory used to open a page of its own to hold two words on. It now
+offers that item's verbs beside the item, which is the shape a right click gives in the room —
+and where an item has exactly one thing to do, that one thing is simply done. Going back from
+it leaves the inventory rather than stepping through one entry per thing the player poked at.
+
+The item close-up the scripts still open — 343 calls to `InventoryInspect` — is a card of
+about a third of the window rather than a full page. A single object held up to the light
+filling the screen reads as a modal error box.
+
+### Escape opened the pause menu over the inventory — fixed 2026-08-23
+
+Escape means "out of whatever is in front of me". Two handlers wanted it and the pause menu's
+came first, so closing the inventory opened the menu on top of it instead. A screen on the
+stack now takes it.
+
+### Which way a model is built to face is now read from the game, not assumed — done 2026-08-23
+
+`Actors.FacingArrow` loads a character's `DOR_` model — the invisible arrow the original uses
+for exactly this — and derives the heading its three vertices point along, with the two
+characters whose arrow is read from the other end (`MOS` and `DEM`) written down by name.
+`PlacedModel.BuiltFacing` carries it, and placing, walking and reading a heading back all use
+it in place of the half turn they assumed.
+
+Nothing moved, which is the point: every arrow in the game reads a half turn, so the
+assumption was right and is now checked rather than believed. It also settles that a reversed
+character is reversed for some other reason.
+
+### Emilio walked to the bench with his head turned 180 degrees — fixed 2026-08-23
+
+A head's glance is worked out relative to which way the body faces, and `Turning` kept that
+as a cached number. Only one thing ever updated it: the walking loop, calling `MovedTo` under
+whichever name the walk had been asked for. A walk is asked for by noun as often as by model
+name, so `MovedTo("EMILIO")` never matched a head filed under `eml` and the update was
+silently dropped.
+
+Emilio is the case that shows it, because `RC1` gives him **no position at all**. His facing
+began as the heading of the identity transform — which is a half turn — and nothing ever
+replaced it. Exactly 180 degrees, for as long as anything cached it.
+
+The head now reads the model's own transform every frame. A character is moved by walking, by
+an animation, by a script placing them and by an opening pose; a cache has to be updated from
+all four, and the model's transform is already the answer to all four. Nothing left to keep in
+step.
+
+The two glance tests failed on the change and were right to: the fixture built its placement
+by hand and never told the sink where the actor stood, so every unmoved actor read as facing a
+half turn. The real geometry keeps a placement's transform from the moment the model is added.
+
+### Back from the save slots went to the settings — fixed 2026-08-23
+
+`Back()` read "anything that is not Options is a child of Options", which was true while the
+only pages below the top were the three kinds of setting. Saving added two pages that hang off
+the main menu, and Back from either landed on the settings screen. Each page now says where it
+came from.
+
+### Skipping the intro clicked a menu row — fixed 2026-08-23
+
+The film is skipped by holding the mouse, and the release landed on the menu drawn underneath
+the pointer that made it — starting the game, or quitting, depending on where the pointer
+happened to be. The gesture is consumed before the menu is shown.
+
+### Two spellings of Mosely — corrected 2026-08-23
+
+The game's own data spells him **Mosely** 425 times and **Mosley** three, and our walkthrough
+and quest table had picked up both. Corrected to Mosely throughout the prose.
+
+**The score event names keep the data's spelling**, because they are identifiers rather than
+words: `e_112p_r33_talk_mosley_case` is what the shipped scripts pass to `ChangeScore`, and
+correcting it would make the objective impossible to complete. The first pass changed those
+too and `JournalTests` caught it in the same run — which is exactly the case that test exists
+for.
 
 ### Saving from the menu, in named slots — done 2026-08-23
 

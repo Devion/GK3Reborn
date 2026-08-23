@@ -605,11 +605,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             return;
         }
 
-        Matrix4x4 meshToWorld = turn * model.Meshes[mesh].MeshToLocal * where;
-
+        // On top of the pose the mesh is in now, not the pose the model was authored in.
+        // A clip moves every group of a character and the head is one of them; rebuilding
+        // the head from its rest transform while the rest of the body follows the clip put
+        // it back where the model was placed — which for an absolute move clip, whose
+        // correction carries the authored heading, is the wrong place and the wrong way
+        // round. That was Emilio walking from the lobby door to the bench with his head
+        // twisted a half turn from his shoulders.
         foreach (int index in batches)
         {
-            _batches[index] = _batches[index] with { Transform = meshToWorld };
+            _batches[index] = _batches[index] with
+            {
+                Transform = turn * _batches[index].Local * where,
+            };
         }
     }
 
@@ -954,6 +962,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         List<ReliefVertex> pieces = [];
         List<int> pieceIndices = [];
 
+        // Which surfaces have already been rounded off and emitted whole, so the polygon
+        // loop below does not emit them a second time triangle by triangle — and which
+        // objects have been considered at all, so one too big to round is decided once
+        // rather than re-gathered for every polygon it owns.
+        HashSet<int> roundedOff = [];
+        HashSet<int> consideredRound = [];
+
         foreach (BspPolygon polygon in scene.Polygons)
         {
             if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= scene.Surfaces.Count)
@@ -984,6 +999,27 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 : Vector4.Zero;
 
             bool displace = relief is not null && relief.Covers(surface, Deep(surface.TextureName));
+
+            // A round thing, rounded off. The desk bell, the lamps, the vases: small
+            // objects whose whole character is a curve, drawn with the dozen flat faces
+            // 1999 could afford. Rounded as one object across every surface it is made of
+            // — a rim shared between a bell's side and its top has to move, and it can
+            // only move if both are in the same mesh — the first time any of its polygons
+            // comes past. The loop then skips what has been emitted.
+            if (!displace &&
+                !roundedOff.Contains(polygon.SurfaceIndex) &&
+                IsRound(owner) &&
+                consideredRound.Add(surface.ObjectIndex))
+            {
+                RoundOff(
+                    scene, surface.ObjectIndex, hidden, roundedOff,
+                    groups, occluders, occluderIndices);
+            }
+
+            if (roundedOff.Contains(polygon.SurfaceIndex))
+            {
+                continue;
+            }
 
             (string, bool, bool, string, bool) key =
                 (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, displace, owner, hidden);
@@ -1143,6 +1179,174 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             SurfaceFinish finish = Materials.Of(texture);
 
             return finish.Displaced && finish.HeightDepth > 0f && _textures.HasField(texture);
+        }
+    }
+
+    /// <summary>The names of the room's round things, matched by what they contain.</summary>
+    /// <remarks>
+    /// A curated list rather than a measurement. Curvature could be estimated, and would
+    /// then round off things whose faceting is the point — a cut gem, a timber beam — so
+    /// the things that are round on purpose are named: bells, lamps, lanterns, candles,
+    /// chandeliers, vases and urns.
+    /// </remarks>
+    private static readonly string[] RoundNames =
+        ["bell", "lamp", "lantern", "candle", "chandel", "vase", "urn"];
+
+    /// <summary>Whether an object is one whose silhouette should be a curve.</summary>
+    private static bool IsRound(string owner) =>
+        owner.Length > 0 &&
+        RoundNames.Any(round => owner.Contains(round, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The most triangles an object may hold and still be worth rounding.</summary>
+    /// <remarks>
+    /// Two levels of subdivision are sixteen times the triangles, so five hundred is a cap
+    /// of about eight thousand for one object — a chandelier's worth, not a building's. A
+    /// "lamp" that is really a street of lampposts stays as authored.
+    /// </remarks>
+    private const int RoundBudget = 500;
+
+    /// <summary>
+    /// Rounds one object off across every surface it is made of, and emits it whole.
+    /// </summary>
+    /// <param name="scene">The room.</param>
+    /// <param name="objectIndex">Which of its objects.</param>
+    /// <param name="hidden">Whether the object starts hidden.</param>
+    /// <param name="roundedOff">Receives every surface index this handled.</param>
+    /// <param name="groups">The batches being built.</param>
+    /// <param name="occluders">What a ray can hit.</param>
+    /// <param name="occluderIndices">Its indices.</param>
+    /// <remarks>
+    /// <para>
+    /// See <see cref="ObjectRounding"/> for why the object is welded whole: the rim between
+    /// a bell's side and its top belongs to two surfaces, and refining each alone pins it,
+    /// which is how the first attempt at this left every bell exactly as hexagonal as it
+    /// found it.
+    /// </para>
+    /// <para>
+    /// Each refined triangle is emitted into its own surface's batch, with its lightmap
+    /// coordinate computed from its texture coordinate through that surface's mapping — the
+    /// same arithmetic every unrounded surface uses.
+    /// </para>
+    /// </remarks>
+    private void RoundOff(
+        BspFile scene,
+        int objectIndex,
+        bool hidden,
+        HashSet<int> roundedOff,
+        Dictionary<(string Texture, bool SelfLit, bool Displaced, string Object, bool Hidden),
+                   (List<MeshVertex> Vertices, List<uint> Indices)> groups,
+        List<Vector3> occluders,
+        List<uint> occluderIndices)
+    {
+        string owner = objectIndex >= 0 && objectIndex < scene.ObjectNames.Count
+            ? scene.ObjectNames[objectIndex]
+            : string.Empty;
+
+        // Every triangle of every surface the object owns, with its surface remembered.
+        List<(Vector3, Vector3, Vector3, Vector2, Vector2, Vector2, int)> raw = [];
+        List<int> surfaces = [];
+
+        foreach (BspPolygon polygon in scene.Polygons)
+        {
+            if (polygon.SurfaceIndex < 0 ||
+                polygon.SurfaceIndex >= scene.Surfaces.Count ||
+                scene.Surfaces[polygon.SurfaceIndex].ObjectIndex != objectIndex)
+            {
+                continue;
+            }
+
+            if (!surfaces.Contains(polygon.SurfaceIndex))
+            {
+                surfaces.Add(polygon.SurfaceIndex);
+            }
+
+            foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
+            {
+                raw.Add((
+                    scene.Vertices[a], scene.Vertices[b], scene.Vertices[c],
+                    scene.TexCoordFor(a), scene.TexCoordFor(b), scene.TexCoordFor(c),
+                    polygon.SurfaceIndex));
+            }
+        }
+
+        // Marked handled either way, so a refusal is decided once per object rather than
+        // once per polygon of it.
+        foreach (int index in surfaces)
+        {
+            roundedOff.Add(index);
+        }
+
+        if (raw.Count < 4 || raw.Count > RoundBudget)
+        {
+            if (raw.Count > 0)
+            {
+                foreach (int index in surfaces)
+                {
+                    roundedOff.Remove(index);
+                }
+            }
+
+            return;
+        }
+
+        // Welded for the normals and left exactly where it was authored. Moving the
+        // vertices was tried — two levels of Loop subdivision — and it wrecked what it
+        // touched: a lamp shade's panels sagged inward between their ribs and its rim
+        // spiked, because subdivision rules written for dense meshes pull a coarse open
+        // shell towards its own average. What actually made these objects read as low-poly
+        // was the faceted shading, and smoothing the normals across the welded seams fixes
+        // that without the power to make anything worse.
+        List<Vector3> positions = [];
+        List<RoundedTriangle> welded = ObjectRounding.Weld(raw, positions);
+
+        Vector3[] normals = ObjectRounding.Normals(welded, positions);
+
+        foreach (RoundedTriangle piece in welded)
+        {
+            BspSurface surface = scene.Surfaces[piece.Surface];
+
+            Vector4 region = _lightmapRegions is not null && piece.Surface < _lightmapRegions.Count
+                ? _lightmapRegions[piece.Surface]
+                : Vector4.Zero;
+
+            (string, bool, bool, string, bool) key =
+                (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, false, owner, hidden);
+
+            if (!groups.TryGetValue(key, out (List<MeshVertex> Vertices, List<uint> Indices) group))
+            {
+                group = ([], []);
+                groups[key] = group;
+            }
+
+            foreach (RoundedCorner corner in (ReadOnlySpan<RoundedCorner>)[piece.A, piece.B, piece.C])
+            {
+                group.Indices.Add((uint)group.Vertices.Count);
+                group.Vertices.Add(new MeshVertex(
+                    positions[corner.Position],
+                    normals[corner.Position],
+                    corner.TexCoord,
+                    Lightmap(corner.TexCoord, surface, region)));
+
+                if (!hidden)
+                {
+                    Grow(positions[corner.Position]);
+                }
+            }
+
+            bool occludes = !hidden &&
+                            surface.CastsShadows &&
+                            !_textures.Keyed.Contains(surface.TextureName) &&
+                            Materials.Of(surface.TextureName).Occludes;
+
+            if (occludes)
+            {
+                Occlude(
+                    occluders,
+                    occluderIndices,
+                    positions[piece.A.Position],
+                    positions[piece.B.Position],
+                    positions[piece.C.Position]);
+            }
         }
     }
 

@@ -64,8 +64,25 @@ public sealed record LoadedScene(
     /// </remarks>
     public Navigation.CameraBounds? CameraShell { get; init; }
 
-    /// <summary>The lights the artists authored for this time of day.</summary>
-    public IReadOnlyList<AuthoredLight> Lights => Asset?.Lights ?? [];
+    /// <summary>
+    /// The sun, on a daytime exterior. The one light no artist authored: see
+    /// <see cref="Sunlight"/> for why it exists, where it stands, and whose light it
+    /// replaces.
+    /// </summary>
+    public AuthoredLight? Sun { get; init; }
+
+    /// <summary>The corners of the loaded geometry, for recognising distant lights.</summary>
+    internal (Vector3 Minimum, Vector3 Maximum) Bounds { get; init; }
+
+    /// <summary>
+    /// The rig the room is actually lit by: the artists' lights, with any scenekey the
+    /// synthesized sun stands in for taken out and the sun put in.
+    /// </summary>
+    public IReadOnlyList<AuthoredLight> Lights =>
+        Sun is { } sun
+            ? [.. (Asset?.Lights ?? [])
+                  .Where(l => !Sunlight.IsAuthoredSun(l, Bounds.Minimum, Bounds.Maximum)), sun]
+            : Asset?.Lights ?? [];
 
     /// <summary>
     /// How high the ground is under a point, or null when the scene cannot say.
@@ -267,6 +284,10 @@ public sealed class SceneLoader
     /// </remarks>
     public CompressedTextures? Compressed { get; set; }
 
+    /// <summary>Colour only: no normal maps, no finishes, no height, from any source.</summary>
+    /// <remarks><c>--flat</c>, for photographing what the maps alone are doing.</remarks>
+    public bool FlatSurfaces { get; set; }
+
     /// <summary>How many times to subdivide a character's head; zero draws it as authored.</summary>
     /// <remarks>
     /// Characters only, and only their heads. See <see cref="Actors.HeadRefinement"/> for
@@ -394,6 +415,20 @@ public sealed class SceneLoader
             ReadSoundtracks(init, diagnostics))
         {
             CameraShell = ReadCameraBounds(init, diagnostics),
+
+            // A sky overhead means the room is outdoors, and outdoors the sun is placed by
+            // the story's own clock — over the middle of what was just built, which is why
+            // this stands here after AddScene rather than anywhere tidier.
+            Bounds = (geometry.Minimum, geometry.Maximum),
+            // The state's own clock where there is one; the asset suffix is only "A"
+            // for seven different mornings and afternoons, and names no hour.
+            Sun = asset is { Skybox.IsEmpty: false } &&
+                  (request.State?.Timeblock
+                      ?? (Timeblock.TryParse(timeblock, out Timeblock parsed)
+                          ? parsed
+                          : (Timeblock?)null)) is { } when
+                ? Sunlight.For(when, (geometry.Minimum + geometry.Maximum) / 2f)
+                : null,
         };
     }
 
@@ -998,12 +1033,22 @@ public sealed class SceneLoader
                 actor.Name,
                 diagnostics);
 
+            // Which way this character's model is built to face, out of the invisible
+            // arrow the game ships beside it. Everything that turns them uses it in place of
+            // the half turn most models happen to want; see Actors.FacingArrow.
+            float? built = _archives.Read(Actors.FacingArrow.NameFor(actor.Name) + ".MOD") is
+                { } arrowBytes
+                ? Actors.FacingArrow.Of(
+                    ModFile.Parse(arrowBytes, Actors.FacingArrow.NameFor(actor.Name) + ".MOD"),
+                    actor.Name)
+                : null;
+
             // Heading turns about the up axis; the model's own origin is at its feet, so
             // the position needs no vertical adjustment. An actor with no spot stands at
             // the origin facing zero, which is what the original leaves them at.
             Matrix4x4 placement = spot is null
                 ? Matrix4x4.Identity
-                : Matrix4x4.CreateRotationY(Navigation.Walker.Rotation(spot.Heading)) *
+                : Matrix4x4.CreateRotationY(Actors.FacingArrow.Rotation(spot.Heading, built)) *
                   Matrix4x4.CreateTranslation(spot.Position);
 
             ModelPlacement standing =
@@ -1025,6 +1070,10 @@ public sealed class SceneLoader
                 // Null unless the head was actually refined, which is what tells the clip
                 // playback whether to shape the head's vertices or to fit them.
                 Head = head,
+
+                // Which way this model is built to face, so that turning it is a difference
+                // rather than an assumption. See Actors.FacingArrow.
+                BuiltFacing = built,
 
                 // Where they are now comes from the sink, because walking moves them
                 // there and nothing writes it back to the placement above.
@@ -1204,13 +1253,25 @@ public sealed class SceneLoader
             // A generated normal map for this surface, if there is one. 324 of the game's
             // 6,657 textures have one so far and the rest look exactly as they did — a
             // partial set is a perfectly good set.
-            bool normal = Normals is not null && !geometry.HasNormalMap(texture);
+            // From either source. These used to require the loose enhanced directory to
+            // exist before the packs were even asked, which with packs present — the
+            // shipped arrangement, where loose content is deliberately ignored — turned
+            // every normal map, every surface finish and every height map in the game off.
+            // Displacement, parallax and the material response all read as flat, because
+            // they were: DisplacedTriangles was nought in every room.
+            bool normal = !FlatSurfaces &&
+                          (Normals ?? (object?)Compressed) is not null &&
+                          !geometry.HasNormalMap(texture);
 
             // The same again for the other two. Each is asked for independently, because a
             // surface may have any combination of the three: the passes that produce them
             // run separately and are accepted separately.
-            bool orm = Orms is not null && !geometry.HasOrmMap(texture);
-            bool height = Heights is not null && !geometry.HasHeightMap(texture);
+            bool orm = !FlatSurfaces &&
+                       (Orms ?? (object?)Compressed) is not null &&
+                       !geometry.HasOrmMap(texture);
+            bool height = !FlatSurfaces &&
+                          (Heights ?? (object?)Compressed) is not null &&
+                          !geometry.HasHeightMap(texture);
 
             // Already on the device from an earlier room, so there is nothing to read,
             // decode or upload. Most of what a room asks for is something it has met

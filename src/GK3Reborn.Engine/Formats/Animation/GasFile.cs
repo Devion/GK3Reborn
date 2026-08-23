@@ -292,6 +292,12 @@ public sealed record GasFile
         {
             Value = (int)(Number(parts, 2) ?? 0),
             Other = parts[3],
+
+            // The optional fourth: who to measure from, when it is not this script's own
+            // actor. The museum is the reason it exists — Estelle's whisper idle watches
+            // the distance from Gabriel to LADY_HOWARD, so the two women notice him
+            // together rather than one at a time.
+            Between = parts.Length > 4 ? parts[4] : null,
         };
 
     /// <summary>Reads a number from a position, or null when there is not one there.</summary>
@@ -337,6 +343,9 @@ public readonly record struct GasStep(GasAction Action, string? Name, double Sec
 
     /// <summary>The comparison an <see cref="GasAction.If"/> makes.</summary>
     public string? Comparison { get; init; }
+
+    /// <summary>Whose distance a condition measures, when not this script's own actor.</summary>
+    public string? Between { get; init; }
 
     /// <summary>A number: what to set, what to compare against, how near is near.</summary>
     public int Value { get; init; }

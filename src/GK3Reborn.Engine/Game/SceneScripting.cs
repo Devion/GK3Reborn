@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System.Globalization;
+using System.Numerics;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Formats.Animation;
@@ -426,7 +427,12 @@ public static class SceneScripting
                 return SheepValue.FromInt(0);
             }
 
-            glances.Look(new Glance(actor, target, point, quick));
+            // A third argument is how long for, in seconds. The GAS scripts say it
+            // outright — LOOKAT GABRIEL EH 5 — and a call without one is a look that
+            // holds until cancelled, which is how the sheep scripts use these.
+            double seconds = arguments.Count >= 3 ? arguments[2].AsFloat() : 0;
+
+            glances.Look(new Glance(actor, target, point, quick), seconds);
             return SheepValue.FromInt(0);
         }
     }
@@ -467,9 +473,16 @@ public static class SceneScripting
         // everybody at the spot they were on when the room loaded.
         Matrix4x4 standing = placed.Standing;
 
-        foreach (ModMesh mesh in placed.Model.Meshes)
+        // The pose a clip has put each group in, rather than the shape the model was
+        // authored in. A character animated into a chair is where the chair is, and their
+        // placement may be nowhere near it: the dining room names Mosely's spot MOSTALK and
+        // defines TALK_MOSELY, so his placement is the origin and he is drawn in his seat by
+        // his idle. Aiming at the authored shape walked Gabriel into the corner of the room
+        // to describe a man sitting behind him.
+        for (int index = 0; index < placed.Model.Meshes.Count; index++)
         {
-            Matrix4x4 toWorld = mesh.MeshToLocal * standing;
+            ModMesh mesh = placed.Model.Meshes[index];
+            Matrix4x4 toWorld = placed.PoseOf(index) * standing;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {
@@ -1086,7 +1099,8 @@ public static class SceneScripting
             return 0;
         }
 
-        if (AnimationStart.Of(read, clips, model, character) is not { } start)
+        if (AnimationStart.Of(
+                read, clips, model, character, Placed(scene, actor)?.BuiltFacing) is not { } start)
         {
             Cannot("a clip in it that poses " + model, "none of its " + read.Actions.Count);
             return 0;
@@ -1492,6 +1506,25 @@ public static class SceneScripting
             }
 
             return SheepValue.FromInt(0);
+        });
+
+        // A development answer, not a game function: where somebody is right now and
+        // which way they are pointed, for a headless run that cannot see the room.
+        api.Register("DumpActor", arguments =>
+        {
+            if (arguments.Count > 0 &&
+                arguments[0].AsString() is { Length: > 0 } named &&
+                world.Where(named) is { } at)
+            {
+                Vector3 ahead = world.Looking(named) ?? Vector3.Zero;
+
+                return SheepValue.FromString(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"at ({at.X:0.0}, {at.Y:0.0}, {at.Z:0.0}), " +
+                    $"ahead ({ahead.X:0.00}, {ahead.Y:0.00}, {ahead.Z:0.00})"));
+            }
+
+            return SheepValue.FromString("no such actor here");
         });
     }
 

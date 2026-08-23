@@ -16,6 +16,10 @@ GNU General Public License version 3. G-Engine is used as the behavioral oracle
 and file-format reference for GK3Reborn. Files that adapt G-Engine code carry a
 per-file attribution notice.
 
+The fingerprint table in src/GK3Reborn.Engine/Game/FingerprintKit.cs — which prints are on
+which surface, and what lifting each one gives and scores — is adapted from G-Engine's
+FingerprintScreen.cpp, and carries the attribution in its own header comment.
+
 Three of G-Engine's own data files are adapted here, in src/GK3Reborn.Engine/Assets/Story:
 
   Pockets.txt     what Gabriel and Grace are carrying when the game begins

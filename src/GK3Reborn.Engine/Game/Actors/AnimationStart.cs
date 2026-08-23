@@ -41,6 +41,11 @@ public static class AnimationStart
     /// <param name="clips">Where its vertex animations come from.</param>
     /// <param name="model">The actor's model name, which picks their clip out of it.</param>
     /// <param name="character">Their entry in <c>CHARACTERS.TXT</c>, for the axis triads.</param>
+    /// <param name="built">
+    /// Which way their model is built to face, out of its own arrow — see
+    /// <see cref="FacingArrow"/>. Null falls back to measuring it from the shoes and hips,
+    /// which is what the reference does for an actor the game ships no arrow for.
+    /// </param>
     /// <returns>
     /// The spot and the heading, or null when the animation moves nobody by that name — a
     /// scenery animation, or one whose actor is not in this room.
@@ -49,7 +54,8 @@ public static class AnimationStart
         AnimationFile animation,
         ClipLibrary clips,
         string model,
-        CharacterConfig character)
+        CharacterConfig character,
+        float? built = null)
     {
         ArgumentNullException.ThrowIfNull(animation);
         ArgumentNullException.ThrowIfNull(clips);
@@ -89,7 +95,7 @@ public static class AnimationStart
             Vector3 local = Point(clip, hips) ?? Vector3.Zero;
             Vector3 position = Vector3.Transform(local, basis);
 
-            return (position, Facing(clip, character, basis, toWorld));
+            return (position, Facing(clip, character, basis, toWorld, built));
         }
 
         return null;
@@ -138,19 +144,46 @@ public static class AnimationStart
         return Vector3.Transform(local, pose * toWorld);
     }
 
+    /// <summary>
+    /// Which way a character is facing at a moment of a clip.
+    /// </summary>
+    /// <param name="clip">The clip.</param>
+    /// <param name="frame">How far into it.</param>
+    /// <param name="repeat">Whether it loops.</param>
+    /// <param name="character">Their entry in <c>CHARACTERS.TXT</c>, for the axis triads.</param>
+    /// <param name="toWorld">Where the clip's space sits in the room.</param>
+    /// <param name="built">Which way their model is built to face, or null to measure it.</param>
+    /// <returns>The heading, or null when the clip does not pose the hips.</returns>
+    /// <remarks>
+    /// The same reckoning the opening frame gets, at any frame. A head's glance is measured
+    /// against the body's facing, and while an absolute clip has the body somewhere other
+    /// than its placement the placement's heading is the wrong number to measure against.
+    /// </remarks>
+    public static float? FacingAt(
+        Formats.Animation.ActFile clip,
+        float frame,
+        bool repeat,
+        CharacterConfig character,
+        Matrix4x4 toWorld,
+        float? built)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(character);
+
+        if (character.Hips is not { } hips ||
+            clip.PoseAt(hips.Mesh, frame, repeat) is not { } pose)
+        {
+            return null;
+        }
+
+        return Facing(clip, character, pose * toWorld, toWorld, built);
+    }
+
     /// <summary>The triad's point on the opening frame, if the clip records vertices.</summary>
     private static Vector3? Point(Formats.Animation.ActFile clip, CharacterAxes axes) =>
         clip.ShapeOf(axes.Mesh, axes.Group, 0) is { } shape && axes.Point < shape.Count
             ? shape[axes.Point]
             : null;
-
-    /// <summary>How clear the facing test has to be before it takes the rare answer.</summary>
-    /// <remarks>
-    /// The reference calls a model facing along its own hip axis the rare case and everything
-    /// else the vast majority. A reading near zero is not evidence of the rare case; it is
-    /// evidence that the three points used to measure it are nearly in a line.
-    /// </remarks>
-    private const float Confident = 0.9f;
 
     /// <summary>The last dot product the facing test read, for a diagnostic to print.</summary>
     /// <remarks>
@@ -175,8 +208,17 @@ public static class AnimationStart
         Formats.Animation.ActFile clip,
         CharacterConfig character,
         Matrix4x4 basis,
-        Matrix4x4 toWorld)
+        Matrix4x4 toWorld,
+        float? built)
     {
+        // The character's own arrow is loaded and measured — see FacingArrow — and it is not
+        // used here yet. Every one of the game's twenty-three reads a half turn, which
+        // confirms the assumption the rest of the engine makes and rules the built facing
+        // out as the cause of a reversed character. Substituting it for the triangle below
+        // was tried and turned Estelle without turning Lady Howard, which cannot be right
+        // when both of them are reversed together.
+        _ = built;
+
         float turned = Walker.HeadingOf(basis);
 
         if (character.LeftShoe is not { } left ||
@@ -207,18 +249,7 @@ public static class AnimationStart
         // turn is wrong. Walker.HeadingOf is the half turn, so this undoes it.
         Reading = Vector3.Dot(axis, Vector3.Normalize(normal));
 
-        // A confident reading, or the answer that is true of nearly every model in the game.
-        //
-        // The test asks whether a model faces along its hip mesh's Y axis or opposite it, and
-        // a clean answer is near plus or minus one: the corpus reads -1.00 for Emilio, Jean
-        // and Buthane. The museum's Estelle and Lady Howard read +0.55, which is not a model
-        // built the rare way — it is a shoe-and-hip triangle too flat to give a normal worth
-        // trusting, because the pose has them standing close together and angled. Believing
-        // it turned both of them to face the wall.
-        //
-        // So the rare branch needs to be earned. Anything short of a clear positive falls
-        // back to the common case, which cannot disturb a model that reads -1.00 either way.
-        return Reading > Confident
+        return Reading > 0
             ? Walker.HeadingOf(basis) - MathF.PI
             : turned;
     }

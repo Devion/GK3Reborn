@@ -1,4 +1,4 @@
-# The journal's objectives: what the player is trying to do, without saying how.
+﻿# The journal's objectives: what the player is trying to do, without saying how.
 #
 # The original game shipped no journal. This is the port's own, and its whole reason for
 # existing is that a 1999 adventure game will let a player wander for an hour with no idea

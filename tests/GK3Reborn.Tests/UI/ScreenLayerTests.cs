@@ -1,4 +1,4 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using GK3Reborn.Sheep;
 using GK3Reborn.UI;
 using Xunit;
@@ -64,7 +64,7 @@ public sealed class ScreenLayerTests
         screens.Show(new Screen(ScreenKind.Binoculars));
         Assert.True(screens.InventoryReachable);
 
-        screens.Show(new Screen(ScreenKind.SceneInspect, "PAINTING"));
+        screens.Show(new Screen(ScreenKind.InventoryInspect, "TAPE_RECORDER"));
         Assert.True(screens.InventoryReachable);
 
         // The driving map is somewhere else entirely.
