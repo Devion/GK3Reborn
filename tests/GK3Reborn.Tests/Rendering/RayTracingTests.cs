@@ -91,13 +91,41 @@ public sealed class RayTracingTests
             ]);
     }
 
-    /// <summary>A horizontal quad facing up, centred on the origin.</summary>
-    private static ModFile Floor(float half) => Quad(
-        "white",
+    /// <summary>The floor, as the room's own geometry rather than as a model.</summary>
+    /// <remarks>
+    /// <para>
+    /// It has to be the room. A shadow ray leaving a model traces the room and skips every
+    /// other model, because GK3's people are a dozen overlapping shells and a ray leaving
+    /// the shirt hits the arm inside it — so a floor built out of a <c>.MOD</c> is a floor
+    /// that nothing standing on it can ever shadow, and these tests measured exactly that
+    /// for as long as they were written that way.
+    /// </para>
+    /// <para>
+    /// The case they are about is the real one: something placed in a room, laying a
+    /// shadow on the room. Wound anticlockwise seen from above so the plane normal comes
+    /// out along +Y, since a BSP carries no normals and each triangle is given its own
+    /// plane's.
+    /// </para>
+    /// </remarks>
+    private static BspFile FloorScene(float half) => BspFile.FromParts(
+        "floor",
+        ["floor"],
         [
-            new(-half, 0, -half), new(half, 0, -half), new(half, 0, half), new(-half, 0, half),
+            new BspSurface
+            {
+                ObjectIndex = 0,
+                TextureName = "white",
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            },
         ],
-        Vector3.UnitY);
+        [new BspPolygon { VertexIndexOffset = 0, VertexIndexCount = 4, SurfaceIndex = 0 }],
+        [
+            new(-half, 0, -half), new(-half, 0, half), new(half, 0, half), new(half, 0, -half),
+        ],
+        [new(0, 0), new(0, 1), new(1, 1), new(1, 0)],
+        [0, 1, 2, 3]);
 
     /// <summary>A vertical quad standing on the floor along the x axis.</summary>
     private static ModFile Wall(float half, float height) => Quad(
@@ -142,12 +170,16 @@ public sealed class RayTracingTests
     };
 
     /// <summary>Renders the floor, with or without the wall that shadows it.</summary>
-    private static float Render(SceneRenderer renderer, RayTracingQuality quality, bool wall)
+    private static DecodedImage Picture(
+        SceneRenderer renderer,
+        RayTracingQuality quality,
+        bool wall,
+        RayTracingSettings? settings = null)
     {
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         geometry.AddTexture("white", White());
-        geometry.Add(Floor(400f));
+        geometry.AddScene(FloorScene(400f));
 
         if (wall)
         {
@@ -156,9 +188,14 @@ public sealed class RayTracingTests
 
         renderer.SetLights([SideLight()]);
         renderer.Quality = quality;
+        renderer.Overriding = settings;
 
-        return MeanLuminance(renderer.Render(geometry, 200, 200, Overlooking()));
+        return renderer.Render(geometry, 200, 200, Overlooking());
     }
+
+    /// <summary>How bright that render came out.</summary>
+    private static float Render(SceneRenderer renderer, RayTracingQuality quality, bool wall) =>
+        MeanLuminance(Picture(renderer, quality, wall));
 
     /// <summary>
     /// A light too faint to change a pixel, but with a reach long enough that the rig
@@ -190,7 +227,7 @@ public sealed class RayTracingTests
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         geometry.AddTexture("white", White());
-        geometry.Add(Floor(400f));
+        geometry.AddScene(FloorScene(400f));
 
         if (wall)
         {
@@ -215,7 +252,7 @@ public sealed class RayTracingTests
         using SceneGeometry geometry = renderer.CreateGeometry();
 
         geometry.AddTexture("white", White());
-        geometry.Add(Floor(400f));
+        geometry.AddScene(FloorScene(400f));
         geometry.Add(Wall(400f, 120f));
         geometry.Finish();
 
@@ -279,20 +316,119 @@ public sealed class RayTracingTests
             $"the picture changed without any rays being traced: {open} to {blocked}");
     }
 
+    /// <summary>
+    /// The floor is darker where it meets the wall once occlusion is traced, and not
+    /// before.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Medium against Medium with its occlusion rays given no reach, so the two renders
+    /// differ in that and nothing else. The reach rather than the ray count, because it is
+    /// the reach the occlusion pass is handed — <c>AmbientOcclusionRays</c> only tells the
+    /// mesh shader that occlusion is being traced at all. Comparing two tiers, which is what this used to do, stopped
+    /// meaning anything once Medium gave up the baked lightmaps: the tiers now differ in
+    /// what lights the room as well as in how many rays they spend, and Medium came out the
+    /// brighter of the two for reasons that had nothing to do with occlusion.
+    /// </para>
+    /// <para>
+    /// Measured where the floor meets the wall on the lit side. The shadow the wall throws
+    /// lands on the other side and is not in the band at all, so what is left for occlusion
+    /// to explain is the near contact — the line under the wall that a shadow ray toward a
+    /// single lamp cannot produce.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void Occlusion_darkens_the_scene_further()
+    public void Occlusion_darkens_the_floor_where_it_meets_the_wall()
     {
         Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
 
         using VulkanContext context = VulkanContext.CreateHeadless();
         using SceneRenderer renderer = SceneRenderer.Create(context);
 
-        float shadowsOnly = Render(renderer, RayTracingQuality.Low, wall: true);
-        float withOcclusion = Render(renderer, RayTracingQuality.Medium, wall: true);
+        RayTracingSettings medium = RayTracingSettings.For(RayTracingQuality.Medium);
+
+        float without = Contact(Picture(
+            renderer, RayTracingQuality.Medium, wall: true,
+            settings: medium with { AmbientOcclusionRadius = 0f }));
+
+        float with = Contact(Picture(renderer, RayTracingQuality.Medium, wall: true));
 
         Assert.True(
-            withOcclusion < shadowsOnly,
-            $"occlusion did not darken anything: {shadowsOnly} to {withOcclusion}");
+            without > 0.5f,
+            $"the floor was already dark at the wall with no occlusion traced: {without}");
+
+        // Two per cent, and that is the honest size of it on a floor a lamp is shining
+        // straight at. Occlusion attenuates the ambient term and nothing else — which is
+        // correct, and means its effect is bounded by how much of a surface's light is
+        // ambient. On a lit floor that share is small on purpose; where it earns its keep is
+        // the corner the lamp does not reach, which this fixture has none of.
+        Assert.True(
+            with < without * 0.98f,
+            $"occlusion did not darken the floor at the wall: {without} to {with}");
+    }
+
+    /// <summary>
+    /// How bright the floor is where it meets the wall, against the floor in the open.
+    /// </summary>
+    /// <param name="picture">A render of the floor with the wall standing on it.</param>
+    /// <returns>The ratio. Below one because the far band is nearer the lamp.</returns>
+    /// <remarks>
+    /// The camera looks straight down with its up along positive z and the wall runs along
+    /// x through the origin, so the wall is a horizontal line across the middle of the
+    /// picture. The light is on the negative z side, which is the bottom half — so that half
+    /// is the lit one, and the shadow the wall throws lands in the other.
+    /// </remarks>
+    private static float Contact(DecodedImage picture)
+    {
+        float near = MeanRows(picture, picture.Height / 2, (picture.Height / 2) + 12);
+        float far = MeanRows(picture, picture.Height - 30, picture.Height);
+
+        return far > 0.01f ? near / far : 0f;
+    }
+
+    /// <summary>The mean luminance of a band of rows.</summary>
+    private static float MeanRows(DecodedImage picture, int first, int last)
+    {
+        double total = 0;
+        int counted = 0;
+
+        for (int y = Math.Max(first, 0); y < Math.Min(last, picture.Height); y++)
+        {
+            for (int x = 0; x < picture.Width; x++)
+            {
+                int at = ((y * picture.Width) + x) * 4;
+
+                total += (0.2126 * picture.Pixels[at]) +
+                         (0.7152 * picture.Pixels[at + 1]) +
+                         (0.0722 * picture.Pixels[at + 2]);
+
+                counted++;
+            }
+        }
+
+        return counted > 0 ? (float)(total / counted) : 0f;
+    }
+
+    [Fact]
+    public void The_same_scene_renders_to_the_same_pixels_twice()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        // Every filtered stage of a ray-traced frame remembers the frame before it, and
+        // through the host that is the point: the shadow settles over however many frames
+        // the wall clock allowed, so two runs of the same build differ across a few per
+        // cent of the picture and a screenshot diff below that floor means nothing.
+        //
+        // Headless, nothing is carried over — the denoiser and the reflection pass are
+        // built for one render and thrown away with it — so the difference is exactly
+        // nought, which is what lets a render be compared against a reference at all.
+        byte[] first = Picture(renderer, RayTracingQuality.High, wall: true).Pixels;
+        byte[] second = Picture(renderer, RayTracingQuality.High, wall: true).Pixels;
+
+        Assert.Equal(first, second);
     }
 
     [Fact]

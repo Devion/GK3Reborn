@@ -5,6 +5,13 @@ using GK3Reborn.Foundation.Diagnostics;
 namespace GK3Reborn.Sheep;
 
 /// <summary>
+/// Told about a call an expression made.
+/// </summary>
+/// <param name="name">The function called.</param>
+/// <param name="arguments">What it resolved to.</param>
+public delegate void SheepCallObserver(string name, IReadOnlyList<SheepValue> arguments);
+
+/// <summary>
 /// Evaluates Sheep expressions written as text.
 /// </summary>
 /// <remarks>
@@ -32,12 +39,19 @@ public sealed class SheepExpression
     private readonly IReadOnlyDictionary<string, SheepValue>? _variables;
     private int _position;
 
-    private SheepExpression(string text, ISheepApi api, IReadOnlyDictionary<string, SheepValue>? variables)
+    private SheepExpression(
+        string text,
+        ISheepApi api,
+        IReadOnlyDictionary<string, SheepValue>? variables,
+        SheepCallObserver? observer)
     {
         _text = text;
         _api = api;
         _variables = variables;
+        _observer = observer;
     }
+
+    private readonly SheepCallObserver? _observer;
 
     /// <summary>Evaluates an expression.</summary>
     /// <param name="text">The expression source.</param>
@@ -46,15 +60,24 @@ public sealed class SheepExpression
     /// Values bound to bare names. Action conditions use <c>n$</c> and <c>v$</c> for the
     /// noun and verb being evaluated, which is what lets one condition serve many rules.
     /// </param>
+    /// <param name="observer">
+    /// Told about each call as it is made, with the arguments it resolved to. For a caller
+    /// that wants to know something about a call the return value does not say — how long
+    /// it takes, most of all, since an expression evaluated on its own has no wait block to
+    /// record that in.
+    /// </param>
     /// <returns>The resulting value.</returns>
     /// <exception cref="FormatParseException">The expression is malformed.</exception>
     public static SheepValue Evaluate(
-        string text, ISheepApi api, IReadOnlyDictionary<string, SheepValue>? variables = null)
+        string text,
+        ISheepApi api,
+        IReadOnlyDictionary<string, SheepValue>? variables = null,
+        SheepCallObserver? observer = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(api);
 
-        var parser = new SheepExpression(text, api, variables);
+        var parser = new SheepExpression(text, api, variables, observer);
         SheepValue result = parser.ParseOr();
         parser.SkipWhitespace();
 
@@ -300,6 +323,8 @@ public sealed class SheepExpression
                 throw Malformed($"missing closing parenthesis in call to '{name}'");
             }
         }
+
+        _observer?.Invoke(name, arguments);
 
         return _api.Invoke(name, arguments);
     }

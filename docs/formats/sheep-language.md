@@ -1,4 +1,4 @@
-# Sheep: what the original specification tells us
+﻿# Sheep: what the original specification tells us
 
 The archives contain `SHEEP ENGINE.DOC` (2.3 MB), the original team's own
 specification of the Sheep language and its runtime API. It is the authoritative
@@ -110,6 +110,16 @@ behaviour class — is generated to
 `ContentWorkspace/manifests/sheep-api-from-docs.json`. It lives in the workspace,
 not the repository: it is derived from copyrighted documentation, and it is a
 working aid rather than a deliverable.
+
+## What has been built from it
+
+The scanner, the parser and the compiler, in `Sheep/`. See `sheep-compiler.md`, which also
+records where the signature catalogue a compiler needs comes from — the game's own import
+tables rather than this document, because this document does not ship.
+
+The API surface it specifies is closed: all 130 of its `IMMEDIATE` and `WAIT` functions are
+implemented or recorded, as are all 139 the game's scripts actually call. See
+`sheep-bytecode.md`.
 
 ## Other documents worth reading first
 

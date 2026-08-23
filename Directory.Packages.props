@@ -8,14 +8,23 @@
   <!-- Versions are pinned exactly. See Plan/01-architecture.md section 1:
        do not float package versions. -->
   <ItemGroup>
+    <PackageVersion Include="FFMediaToolkit" Version="4.8.1" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
+    <!-- A pure-managed MP3 decoder. 97.5% of the game's audio is an MP3 inside a RIFF
+         header, and decoding it in process is what lets the archives be read directly
+         instead of keeping 3.7 GB of decoded copies beside them. -->
+    <PackageVersion Include="NLayer" Version="2.0.1" />
     <PackageVersion Include="Silk.NET.Core" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Input" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Maths" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.OpenAL" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.OpenAL.Extensions.Soft" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.OpenAL.Extensions.Creative" Version="2.23.0" />
+    <!-- The bindings are separate from the library they bind; without this there is no
+         soft_oal.dll to load and opening a device fails at runtime rather than at build. -->
+    <PackageVersion Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
     <PackageVersion Include="Silk.NET.Shaderc" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />

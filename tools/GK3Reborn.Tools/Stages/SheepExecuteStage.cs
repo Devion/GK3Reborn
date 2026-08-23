@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Barn;
 using GK3Reborn.Foundation.Diagnostics;
@@ -167,8 +167,11 @@ public sealed class SheepExecuteStage
 
         _log(string.Create(CultureInfo.InvariantCulture,
             $"    {api.Events.Count} presentation calls recorded"));
+        // Not "unimplemented": these are the calls a standing room answers and this sweep
+        // has no room. SceneScripting registers them over the recorded ones when a scene is
+        // loaded, so the launcher answers every one of them and this deliberately does not.
         _log(string.Create(CultureInfo.InvariantCulture,
-            $"    {api.UnknownFunctions.Count} functions still unimplemented"));
+            $"    {api.UnknownFunctions.Count} functions that need a scene, which this sweep has none of"));
 
         foreach (string unknown in api.UnknownFunctions.OrderBy(u => u, StringComparer.Ordinal).Take(20))
         {

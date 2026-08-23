@@ -1,0 +1,307 @@
+﻿// Copyright (C) 2026 the GK3Reborn authors.
+//
+// This program is free software: you can redistribute it and/or modify it under the terms
+// of the GNU General Public License as published by the Free Software Foundation, either
+// version 3 of the License, or (at your option) any later version.
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using GK3Reborn.Content.Authoring;
+using GK3Reborn.Content.Manifests;
+using GK3Reborn.Foundation.Diagnostics;
+
+namespace GK3Reborn.Rendering.Materials;
+
+/// <summary>How rough and how reflective each texture is, looked up by name.</summary>
+/// <remarks>
+/// <para>
+/// A <see cref="MaterialLibrary"/> read once and turned into something a renderer can ask
+/// six thousand times a frame. Three of its channels are read: how rough a surface is, how
+/// metallic it is, and how much light it throws back when looked at straight on. The first
+/// two feed the specular lobe; roughness also decides which pixels are worth tracing a
+/// reflection from and how tightly to gather one.
+/// </para>
+/// <para>
+/// A texture nobody has measured is matte, which costs nothing and reflects nothing — the
+/// renderer's behaviour before any of this existed.
+/// </para>
+/// </remarks>
+public sealed class SurfaceFinishes
+{
+    /// <summary>What a surface nobody has measured is assumed to be.</summary>
+    public static readonly SurfaceFinish Matte = new(1f, 0.5f, 0f, 1f, 0f, false, false, false);
+
+    /// <summary>The deepest relief a height field may claim, in world units.</summary>
+    /// <remarks>
+    /// Eight units is twenty centimetres, which is a kerb rather than a texture. Everything
+    /// in a generated height field is invented, and both things that read one degrade the
+    /// same way when it is pushed: the march starts to reveal that the surface has no
+    /// silhouette, and displaced geometry starts to lift off whatever it abuts.
+    /// </remarks>
+    public const float MaximumRelief = 8f;
+
+    private readonly Dictionary<string, SurfaceFinish> _finishes;
+
+    private SurfaceFinishes(Dictionary<string, SurfaceFinish> finishes) => _finishes = finishes;
+
+    /// <summary>Nothing measured, so everything matte.</summary>
+    public static SurfaceFinishes Empty { get; } =
+        new(new Dictionary<string, SurfaceFinish>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>How many textures there is an answer for.</summary>
+    public int Count => _finishes.Count;
+
+    /// <summary>How many of those are metals.</summary>
+    /// <remarks>
+    /// Worth reporting on its own because it is the number that goes obviously wrong. A
+    /// classifier that calls half a room's stonework metal produces a picture nobody can
+    /// mistake for correct, and the count says so before the frame does.
+    /// </remarks>
+    public int Metallic
+    {
+        get
+        {
+            int count = 0;
+
+            foreach (SurfaceFinish finish in _finishes.Values)
+            {
+                if (finish.Metallic > 0.5f)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    /// <summary>How many of those are smooth enough to reflect anything.</summary>
+    public int Reflective
+    {
+        get
+        {
+            int count = 0;
+
+            foreach (SurfaceFinish finish in _finishes.Values)
+            {
+                if (finish.Reflects)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    /// <summary>How many of the finishes a person corrected by hand.</summary>
+    /// <remarks>
+    /// Reported because a correction that silently failed to apply — a texture renamed, an
+    /// edits file in the wrong place — looks exactly like no correction at all.
+    /// </remarks>
+    public int Corrected { get; private set; }
+
+    /// <summary>Reads the library the workspace's material pass wrote, and its corrections.</summary>
+    /// <param name="path">Path to <c>manifests/material-library.json</c>.</param>
+    /// <param name="diagnostics">Receives warnings about corrections that no longer apply.</param>
+    /// <returns>The finishes, or empty ones if the file is missing or unreadable.</returns>
+    /// <remarks>
+    /// <para>
+    /// Missing is not an error. The file comes from a pass over the texture corpus that a
+    /// checkout need not have run.
+    /// </para>
+    /// <para>
+    /// <b>The corrections beside it are read too</b>, from
+    /// <c>material-library.materials.edits.json</c>. That layer is the whole point of
+    /// ADR 0006 — a classifier guesses, and the person looking at the scene in-engine knows
+    /// better — and it was being written and never read, so every correction anybody made
+    /// to a material did nothing at all. A generated roughness of 0.44 on somebody's hair
+    /// is exactly what it exists to fix.
+    /// </para>
+    /// </remarks>
+    public static SurfaceFinishes Load(string path, DiagnosticBag? diagnostics = null)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (!File.Exists(path))
+        {
+            return Empty;
+        }
+
+        try
+        {
+            MaterialLibrary? library = JsonSerializer.Deserialize<MaterialLibrary>(
+                File.ReadAllText(path), ManifestJson.Options);
+
+            if (library is null)
+            {
+                return Empty;
+            }
+
+            var bag = diagnostics ?? new DiagnosticBag();
+            int before = Authored(library);
+
+            library = library.WithEdits(Corrections(path), bag);
+
+            SurfaceFinishes finishes = From(library);
+            finishes.Corrected = Authored(library) - before;
+
+            return finishes;
+        }
+        catch (JsonException)
+        {
+            return Empty;
+        }
+        catch (IOException)
+        {
+            return Empty;
+        }
+    }
+
+    /// <summary>How many of a library's materials a person has had a hand in.</summary>
+    private static int Authored(MaterialLibrary library) =>
+        library.Materials.Count(m => m.Provenance != AuthoringProvenance.Derived);
+
+    /// <summary>The corrections filed beside a library, if anybody has made any.</summary>
+    /// <remarks>
+    /// Named for the library rather than chosen: <c>&lt;library&gt;.materials.edits.json</c>
+    /// is what <c>MaterialEdits</c> documents and what the authoring store writes.
+    /// </remarks>
+    private static MaterialEdits? Corrections(string path)
+    {
+        string beside = Path.Combine(
+            Path.GetDirectoryName(path) ?? string.Empty,
+            Path.GetFileNameWithoutExtension(path) + ".materials.edits.json");
+
+        if (!File.Exists(beside))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<MaterialEdits>(
+                File.ReadAllText(beside), ManifestJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Builds a lookup over a library already in hand.</summary>
+    /// <param name="library">The materials.</param>
+    /// <returns>The finishes.</returns>
+    public static SurfaceFinishes From(MaterialLibrary library)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+
+        var finishes = new Dictionary<string, SurfaceFinish>(
+            library.Materials.Count, StringComparer.OrdinalIgnoreCase);
+
+        foreach (MaterialDefinition material in library.Materials)
+        {
+            finishes[material.Id] = new SurfaceFinish(
+                Math.Clamp(material.Roughness, 0f, 1f),
+                Math.Clamp(material.SpecularReflectance, 0f, 1f),
+                Math.Clamp(material.Metallic, 0f, 1f),
+                Math.Clamp(material.NormalStrength, 0f, 4f),
+                Math.Clamp(material.HeightDepth, 0f, MaximumRelief),
+                material.Emissive != System.Numerics.Vector3.Zero,
+                material.Provenance != AuthoringProvenance.Derived,
+                material.Displaced);
+        }
+
+        return new SurfaceFinishes(finishes);
+    }
+
+    /// <summary>What a texture's surface is like.</summary>
+    /// <param name="texture">The texture's name, without an extension.</param>
+    /// <returns>Its finish, or <see cref="Matte"/> if it is not in the library.</returns>
+    public SurfaceFinish Of(string? texture) =>
+        texture is not null && _finishes.TryGetValue(texture, out SurfaceFinish finish)
+            ? finish
+            : Matte;
+}
+
+/// <summary>How a surface responds to light beyond its colour.</summary>
+/// <param name="Roughness">
+/// Zero for a mirror, one for chalk. Widens the cone a reflection is gathered over.
+/// </param>
+/// <param name="Specular">
+/// How much light the surface throws back when looked at straight on, before the grazing
+/// angle raises it. Half is the usual dielectric value and the assumption here.
+/// </param>
+/// <param name="Metallic">
+/// Zero for a dielectric, one for a conductor. A metal has no diffuse term at all and
+/// tints its own reflection with its base colour, which is why this is not a slider between
+/// two shading models but a switch between them — and why a classifier that guesses it
+/// wrong on a stone wall is unmistakable rather than subtle.
+/// </param>
+/// <param name="NormalStrength">
+/// How much of the normal map to believe. One is as generated; everything in a generated
+/// map is invented, so this is a per-material decision rather than a constant.
+/// </param>
+/// <param name="HeightDepth">
+/// How deep the height map goes, in world units from its floor to its ceiling. Clamped to
+/// <see cref="SurfaceFinishes.MaximumRelief"/>, which is well past anything a generated
+/// field has any business claiming about a surface.
+/// </param>
+/// <param name="Emits">
+/// Whether the surface is its own light source — a lit bulb, a lamp shade with a bulb
+/// inside it, the painted view through a window.
+/// </param>
+/// <param name="Authored">
+/// Whether a person had a hand in these numbers, rather than a classifier alone.
+/// </param>
+/// <param name="Displaced">
+/// Whether the height map is cut into the geometry as well as marched by the shader. Only a
+/// paved, tiled or boarded surface wants this; see
+/// <see cref="MaterialDefinition.Displaced"/>.
+/// </param>
+/// <remarks>
+/// <b>An authored finish beats a generated map.</b> Where a surface has an ORM map, the map
+/// is normally the answer — it is a measurement of that surface and the library's value is
+/// a classifier's guess at the same thing. But a correction somebody made after looking at
+/// the room in-engine outranks both, and if it did not the edit layer would be unable to
+/// fix the one class of thing it most obviously needs to: a generated roughness that is
+/// wrong for what the surface actually is.
+/// </remarks>
+public readonly record struct SurfaceFinish(
+    float Roughness,
+    float Specular,
+    float Metallic = 0f,
+    float NormalStrength = 1f,
+    float HeightDepth = 0f,
+    bool Emits = false,
+    bool Authored = false,
+    bool Displaced = false)
+{
+    /// <summary>Whether this surface should stop a ray.</summary>
+    /// <remarks>
+    /// A light fitting must not. The rig puts its emitters where the bulb is — inside the
+    /// shade, behind the pane — because the 1999 bake never traced a fitting against its
+    /// own light, and tracing it now seals every lamp inside its own shade. R25's floor
+    /// went black for exactly this reason: its lamps are placed models rather than room
+    /// geometry, and the flags the room's surfaces carry do not reach them.
+    /// </remarks>
+    public bool Occludes => !Emits;
+
+    /// <summary>Whether this is smooth enough for a reflection to be worth tracing.</summary>
+    /// <remarks>
+    /// Past this the cone a reflection would be gathered over is wide enough that what
+    /// comes back is the ambient term the surface already has, arrived at far more
+    /// expensively.
+    /// </remarks>
+    public bool Reflects => Roughness <= Roughest;
+
+    /// <summary>The roughest surface still worth tracing a reflection from.</summary>
+    public const float Roughest = 0.6f;
+}

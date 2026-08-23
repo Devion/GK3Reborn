@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Foundation;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Sheep;
@@ -55,6 +55,76 @@ public sealed class ScriptHost
     /// <summary>Diagnostics raised while running.</summary>
     public DiagnosticBag Diagnostics { get; } = new();
 
+    /// <summary>The machine the host runs scripts on, for a scheduler to resume them.</summary>
+    public SheepVirtualMachine Machine => _vm;
+
+    /// <summary>
+    /// Somewhere to leave a script that is waiting for something, if anywhere.
+    /// </summary>
+    /// <remarks>
+    /// Without one, a blocked thread is told everything it waited on has finished and
+    /// carried straight on, which is what this did from the beginning and what every tool
+    /// still wants: a sweep of the corpus has no clock and no reason to want one. With
+    /// one, the script waits, and the pacing it was written with is the pacing it gets.
+    /// </remarks>
+    public SheepScheduler? Scheduler
+    {
+        get => _scheduler;
+
+        set
+        {
+            _scheduler = value;
+
+            if (value is not null)
+            {
+                value.Calls = Within;
+            }
+        }
+    }
+
+    private SheepScheduler? _scheduler;
+
+    /// <summary>Runs something, and says which scripts it called into.</summary>
+    /// <remarks>
+    /// The list is held before it is pushed, so that popping it in a finally and returning
+    /// it are the same list without a field in between.
+    /// </remarks>
+    private List<SheepThread> Within(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        List<SheepThread> started = [];
+        _nested.Push(started);
+
+        try
+        {
+            work();
+        }
+        finally
+        {
+            _nested.Pop();
+        }
+
+        return started;
+    }
+
+    /// <summary>The script <c>CallGlobal</c> reaches into, once one has said it is.</summary>
+    private string? _global;
+
+    /// <summary>
+    /// The scripts each running function has called, innermost last.
+    /// </summary>
+    /// <remarks>
+    /// <c>wait CallSheep("rc1102p", "LookMop")</c> means "carry on when that function is
+    /// over", and how long that takes is not knowable in advance: the function may itself
+    /// wait on a timer, a line of dialogue or an animation. So the wait is on the
+    /// <em>thread</em> rather than on a duration, and this is where a caller finds the
+    /// threads it started. A fifth of every statement in the action corpus is one of these,
+    /// and treating them as instant is what let RC1 show Wilkes's moped and hide it again
+    /// in the same frame.
+    /// </remarks>
+    private readonly Stack<List<SheepThread>> _nested = new();
+
     /// <summary>Makes a script available to call.</summary>
     /// <param name="script">The script.</param>
     public void Add(SheepScriptFile script)
@@ -85,15 +155,43 @@ public sealed class ScriptHost
 
         CallStackTrace.Add($"{AssetId.From(scriptName)}:{functionName}");
 
-        SheepThread thread = _vm.Execute(script, functionName);
+        // Anything this function calls into is started while it runs, so a list is opened
+        // for it first and taken back afterwards. That list is what a wait on a CallSheep
+        // is actually waiting for; see below.
+        _nested.Push([]);
 
-        // The host assumes waited calls finish at once. A scheduler with a real clock
-        // replaces this; the observable order of calls does not change.
-        int resumes = 0;
-        while (thread.State is SheepThreadState.Blocked or SheepThreadState.Yielded && resumes++ < 1000)
+        SheepThread thread;
+        List<SheepThread> called;
+
+        try
         {
-            SheepVirtualMachine.NotifyWaitsCompleted(thread);
-            _vm.Resume(thread);
+            thread = _vm.Execute(script, functionName);
+        }
+        finally
+        {
+            called = _nested.Pop();
+        }
+
+        // And this thread is one of the enclosing function's calls, if there is one, so
+        // that a wait two levels up covers everything underneath it.
+        if (_nested.Count > 0)
+        {
+            _nested.Peek().Add(thread);
+        }
+
+        // With a scheduler, the thread waits its time out and somebody else carries it on.
+        // Without one, the host assumes waited calls finish at once, which is what it did
+        // before anything could take time and what every caller with no clock still needs.
+        if (Scheduler?.Park(thread, called) != true)
+        {
+            int resumes = 0;
+
+            while (thread.State is SheepThreadState.Blocked or SheepThreadState.Yielded &&
+                   resumes++ < 1000)
+            {
+                SheepVirtualMachine.NotifyWaitsCompleted(thread);
+                _vm.Resume(thread);
+            }
         }
 
         foreach (Diagnostic diagnostic in thread.Diagnostics.Items)
@@ -106,9 +204,44 @@ public sealed class ScriptHost
 
     private void RegisterCallingFunctions()
     {
-        // CallSheep(script, function) is the common form; Call(function) stays inside the
-        // script that is already running, which the host cannot know here, so it is
-        // recorded rather than guessed at.
+        // Call(function) stays inside the script that is already running. The host is given
+        // a name and no context, so the context is the machine's: the thread it is stepping
+        // knows which script it belongs to. 190 of the game's calls are these — ARM202P
+        // alone cuts between Gabe_CU$, Mose_CU$, TwoShot$ and Overview$ that way — and
+        // leaving them recorded is a scene that runs with its camera never moving.
+        _api.Register("Call", arguments =>
+        {
+            if (arguments.Count < 1 || _vm.Current is not { } running)
+            {
+                return SheepValue.FromInt(0);
+            }
+
+            return Nested(running.Script.Name, arguments[0].AsString());
+        }, waitable: true);
+
+        // The same thing, in whichever script was made the global one. Nothing in the game
+        // calls it, and SetGlobalSheep is likewise unused, so it goes where it can and
+        // records itself otherwise rather than inventing a policy for a case that does not
+        // arise.
+        _api.Register("CallGlobal", arguments =>
+        {
+            if (arguments.Count < 1)
+            {
+                return SheepValue.FromInt(0);
+            }
+
+            return _global is { Length: > 0 } global
+                ? Nested(global, arguments[0].AsString())
+                : SheepValue.FromInt(0);
+        }, waitable: true);
+
+        _api.Register("SetGlobalSheep", _ =>
+        {
+            _global = _vm.Current?.Script.Name;
+            return SheepValue.FromInt(0);
+        });
+
+        // CallSheep(script, function) is the common form.
         _api.Register("CallSheep", arguments =>
         {
             if (arguments.Count < 2)

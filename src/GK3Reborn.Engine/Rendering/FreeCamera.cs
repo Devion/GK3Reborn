@@ -32,6 +32,27 @@ public sealed class FreeCamera
     /// <summary>How fast it moves, in scene units per second.</summary>
     public float Speed { get; set; } = 200f;
 
+    /// <summary>
+    /// Where the camera is looking, in degrees: heading across, pitch up and down.
+    /// </summary>
+    /// <remarks>
+    /// Degrees rather than the radians it keeps inside, because the two things that read
+    /// this are the game's own data — the binoculars' rectangles of sky and the scene
+    /// files' camera angles — and both are written in degrees.
+    /// </remarks>
+    public Vector2 Aim
+    {
+        get => new(
+            ((_yaw * 180f / MathF.PI) % 360f + 360f) % 360f,
+            _pitch * 180f / MathF.PI);
+
+        set
+        {
+            _yaw = value.X * MathF.PI / 180f;
+            _pitch = Math.Clamp(value.Y * MathF.PI / 180f, -PitchLimit, PitchLimit);
+        }
+    }
+
     /// <summary>How far the near plane sits.</summary>
     public float NearPlane { get; set; } = 1f;
 
@@ -40,6 +61,24 @@ public sealed class FreeCamera
 
     /// <summary>How much the view turns per pixel of pointer movement, in radians.</summary>
     public float LookSensitivity { get; set; } = 0.004f;
+
+    /// <summary>
+    /// What decides how far a step is allowed to get, or null to let it go anywhere.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Given where the camera is and the offset it wants to move by; answers where it ends
+    /// up, which may be short of the offset and off to one side of it — a camera stopped
+    /// dead by every wall it brushed would be unusable, so what stops it is expected to
+    /// let it slide along instead.
+    /// </para>
+    /// <para>
+    /// A hook rather than the thing itself. What the camera may not pass through is a
+    /// question about the room, and the room belongs to the game rather than to the
+    /// renderer; see <c>Game.Navigation.CameraBounds</c>, which is what fills this in.
+    /// </para>
+    /// </remarks>
+    public Func<Vector3, Vector3, Vector3>? Confine { get; set; }
 
     /// <summary>Which way the camera looks.</summary>
     public Vector3 Forward => new(
@@ -75,17 +114,25 @@ public sealed class FreeCamera
 
         if (input.IsDragging)
         {
-            _yaw -= input.PointerDelta.X * LookSensitivity;
+            // Yaw increases toward screen right. Forward is (sin yaw, ., cos yaw), whose
+            // derivative in yaw is (cos yaw, ., -sin yaw) — which is cross(up, forward),
+            // the left-handed right. Dragging the pointer right therefore has to add.
+            // Under the old right-handed view the same two vectors were negatives of each
+            // other and this subtracted, which is why the sign changes with the camera.
+            _yaw += input.PointerDelta.X * LookSensitivity;
+
+            // Pitch is unaffected by any of that: it is a rotation about the screen's own
+            // horizontal axis, and the pointer's Y grows downward, so looking down
+            // subtracts either way.
             _pitch = Math.Clamp(_pitch - (input.PointerDelta.Y * LookSensitivity), -PitchLimit, PitchLimit);
         }
 
         Vector3 forward = Forward;
 
-        // cross(forward, up), not cross(up, forward). Matrix4x4.CreateLookAt is
-        // right-handed, so the basis vector that maps to screen right is
-        // cross(up, position - target) — which is cross(forward, up). The other
-        // order is its negative, and strafes the wrong way.
-        Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
+        // cross(up, forward), the left-handed order, because the view matrix is
+        // left-handed to match GK3's own world; see Camera. The other order is its
+        // negative, and strafes the wrong way.
+        Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
 
         var movement = Vector3.Zero;
 
@@ -122,7 +169,9 @@ public sealed class FreeCamera
         if (movement.LengthSquared() > 1e-9f)
         {
             float speed = Speed * (input.IsHeld(CameraAction.Fast) ? 4f : 1f);
-            Position += Vector3.Normalize(movement) * speed * seconds;
+            Vector3 step = Vector3.Normalize(movement) * speed * seconds;
+
+            Position = Confine is { } fence ? fence(Position, step) : Position + step;
         }
     }
 

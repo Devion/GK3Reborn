@@ -20,6 +20,24 @@ per-node bounding spheres.
 **Surface**, 60 bytes: object index, 32-byte texture name, lightmap UV offset and
 scale, an unknown float, and flags.
 
+Surface flags are a bit field, documented from G-Engine's `BSPSurface` and confirmed
+against the corpus. Three of them the renderer acts on:
+
+| bit | meaning | what it changes |
+|---|---|---|
+| 1 | certain walls, ceilings and floors | nothing |
+| 2 | surfaces that are hard to make out | nothing |
+| 4 | a mixture of light sources and hit tests | nothing; too inconsistent to act on — it is on a bedsheet in R25 |
+| 8 | the bake did not light this surface | drawn at full brightness, and casts no ray-traced shadow |
+| 16 | light fittings: shades, globes, sconces, stained glass | casts no ray-traced shadow |
+| 32 | not present anywhere in the corpus | – |
+| 64 | a translucent shadow decal rather than solid geometry | casts no ray-traced shadow |
+
+Bit 8 is the one the original renderer itself reads: it binds a white lightmap and a
+multiplier of one, which comes out as the texture untouched. A lit bulb, a glowing
+shade and the painted view through a window are all bit 8, and multiplying any of them
+by a bake leaves them as dim as the room they are meant to be lighting.
+
 **Polygon**, 8 bytes: offset into the vertex-index array, an unknown value that is
 almost always 1073, index count, surface index.
 

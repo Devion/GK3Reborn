@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Content.Authoring;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -21,6 +21,21 @@ public sealed record MaterialPatch
 
     /// <summary>New normal-map strength, or null to keep.</summary>
     public float? NormalStrength { get; init; }
+
+    /// <summary>A different normal map, or empty to go back to having none.</summary>
+    public string? NormalTexture { get; init; }
+
+    /// <summary>A different packed occlusion/roughness/metalness map.</summary>
+    public string? OrmTexture { get; init; }
+
+    /// <summary>A different height map, or empty to go back to having none.</summary>
+    public string? HeightTexture { get; init; }
+
+    /// <summary>New height-map depth in world units, or null to keep.</summary>
+    public float? HeightDepth { get; init; }
+
+    /// <summary>Whether the height map becomes geometry, or null to keep.</summary>
+    public bool? Displaced { get; init; }
 
     /// <summary>New emissive color, or null to keep.</summary>
     public Vector3? Emissive { get; init; }
@@ -76,6 +91,94 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
     /// <summary>Strength of the normal map, where one exists.</summary>
     public float NormalStrength { get; init; } = 1.0f;
 
+    /// <summary>
+    /// The surface's normal map, named for the colour texture it belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Null where there is none, which is most of them: 324 of the game's 6,657 textures
+    /// have one so far. A surface without one is given a flat map and looks exactly as it
+    /// did, which is how a partial set stays a perfectly good set.
+    /// </remarks>
+    public string? NormalTexture { get; init; }
+
+    /// <summary>
+    /// The surface's packed occlusion, roughness and metalness.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Red is ambient occlusion, green is roughness, blue is metalness — the glTF packing,
+    /// which is what every generator and every authoring tool already writes. Read from
+    /// <c>enhanced/orm</c>, named for the colour texture it belongs to.
+    /// </para>
+    /// <para>
+    /// The map multiplies <see cref="Roughness"/> and <see cref="Metallic"/> rather than
+    /// replacing them, which is what keeps a corrected value in the edit layer meaningful
+    /// once a generated map arrives for the same surface.
+    /// </para>
+    /// </remarks>
+    public string? OrmTexture { get; init; }
+
+    /// <summary>
+    /// The surface's height field, for parallax and for displacement.
+    /// </summary>
+    /// <remarks>
+    /// Read from <c>enhanced/height</c>, named for the colour texture it belongs to. Mid
+    /// grey is the modelled surface and the channel runs either side of it. Two things
+    /// consume it: a marched texture-coordinate offset, which deepens mortar courses and
+    /// cobbles and does nothing at all to a silhouette, and — on a floor, where the
+    /// silhouette is what gives a street away — real geometry. See
+    /// <see cref="ReliefPlan"/>.
+    /// </remarks>
+    public string? HeightTexture { get; init; }
+
+    /// <summary>
+    /// How deep the height map goes, in <em>world</em> units from its floor to its ceiling.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A GK3 unit is roughly two and a half centimetres, so the default is a relief of
+    /// about four: a cobble's crown over its gutter, a floorboard's chamfer, the depth of a
+    /// mortar course. Like <see cref="NormalStrength"/> this is a decision recorded per
+    /// material rather than a constant in the shader, because how much of a generated
+    /// field to believe differs by surface.
+    /// </para>
+    /// <para>
+    /// <b>World units, not texture coordinates.</b> It was the latter until the corpus was
+    /// measured: the game tiles one road texture over 232 units of street and one lobby
+    /// floor over 32, so a single number in texture coordinates was seven times as deep on
+    /// the second as on the first, and nobody had chosen that. The shader converts through
+    /// the surface's own tiling, which it can read off the tangent frame it already builds.
+    /// </para>
+    /// </remarks>
+    public float HeightDepth { get; init; } = 1.5f;
+
+    /// <summary>
+    /// Whether this surface's relief is cut into the geometry as well as marched by the
+    /// shader.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default, and it has to be. Every texture in the game has a generated height
+    /// field, and for most of them the field is not relief at all: a grass texture's is
+    /// blades, a rug's is pile, a painted backdrop's is whatever the model made of a
+    /// picture of a hillside. Marching those does no harm — the offset is a few texels and
+    /// it reads as texture. Moving vertices by them makes a lawn out of corrugated iron.
+    /// </para>
+    /// <para>
+    /// <b>And it is what the triangle budget is spent on.</b> CSE's floor object is
+    /// nineteen million square units of village, of which the road is one; displacing all
+    /// of it buys a cell so coarse that the high-passed field averages to nothing inside
+    /// one, which is the worst of both — every triangle paid for and no relief to show for
+    /// them. Turned on for the paved fifth of it, the same budget buys four units a cell.
+    /// </para>
+    /// <para>
+    /// The set that has it on is derived from the material classifier and then reviewed:
+    /// stone, brick, tile, concrete, marble and wood, plus the surfaces it calls ground
+    /// whose names say road, cobble, path or pavement rather than soil or sand.
+    /// </para>
+    /// </remarks>
+    public bool Displaced { get; init; }
+
     /// <summary>Linear emissive color. Zero for non-emissive surfaces.</summary>
     public Vector3 Emissive { get; init; }
 
@@ -106,6 +209,19 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
             Metallic = patch.Metallic ?? Metallic,
             SpecularReflectance = patch.SpecularReflectance ?? SpecularReflectance,
             NormalStrength = patch.NormalStrength ?? NormalStrength,
+
+            // An empty string means "go back to having none", which a null cannot say.
+            NormalTexture = patch.NormalTexture is null
+                ? NormalTexture
+                : patch.NormalTexture.Length > 0 ? patch.NormalTexture : null,
+            OrmTexture = patch.OrmTexture is null
+                ? OrmTexture
+                : patch.OrmTexture.Length > 0 ? patch.OrmTexture : null,
+            HeightTexture = patch.HeightTexture is null
+                ? HeightTexture
+                : patch.HeightTexture.Length > 0 ? patch.HeightTexture : null,
+            HeightDepth = patch.HeightDepth ?? HeightDepth,
+            Displaced = patch.Displaced ?? Displaced,
             Emissive = patch.Emissive ?? Emissive,
             AlphaCutoff = patch.AlphaCutoff ?? AlphaCutoff,
             DoubleSided = patch.DoubleSided ?? DoubleSided,

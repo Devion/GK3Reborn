@@ -1,0 +1,29 @@
+# What Gabriel and Grace are carrying when the game begins.
+#
+# Adapted from G-Engine's InventoryManager::Init (GPL-3); see NOTICE. Its own comment
+# there reads "Obviously, this should be data-driven, but not sure where this is
+# defined?" — and it is not defined anywhere in the shipped data. None of the eight
+# barns holds a list of starting items, and no scene script gives them out: the very
+# first thing 110A expects of the player is a Gabriel who already has these in his
+# pockets, so the table was compiled into the original executable along with the score
+# table beside it.
+#
+# It matters more than a convenience. Prince James's card is how Gabriel knows the
+# number to dial, so a player without it cannot use the pay phone, and the timeblock
+# cannot be completed at all.
+#
+# One line per item: owner, then the item's own name as the action files write it.
+
+GABRIEL DAGGER
+GABRIEL GABES_PASSPORT
+GABRIEL NOTEPAD
+GABRIEL PRINCE_JAMES_CARD
+GABRIEL R25_ROOM_KEY
+GABRIEL TALISMAN
+GABRIEL TAPE_RECORDER
+GABRIEL WALLET
+
+GRACE GRACE_WALLET
+GRACE GRACES_PASSPORT
+GRACE R25_ROOM_KEY_GRACE
+GRACE SKETCHPAD

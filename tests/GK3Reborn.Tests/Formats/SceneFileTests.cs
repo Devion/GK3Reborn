@@ -103,6 +103,39 @@ public sealed class SceneFileTests
     }
 
     [Fact]
+    public void Camera_bounds_accumulate_across_the_blocks_that_apply()
+    {
+        // The one general setting the original adds to rather than overriding. R25 names
+        // the room's shell unconditionally and a second one for the timeblocks where
+        // Sidney is out on the desk; reading only the last would lose the room's own.
+        const string Both =
+            """
+            [GENERAL]
+            cameraBounds=R25CameraBounds
+
+            [GENERAL={IsCurrentTime("202p")}]
+            cameraBounds=r25_sidcm
+            """;
+
+        SceneInitFile init = SceneInitFile.Parse(
+            Both, "R25.SIF", _ => true);
+
+        Assert.Equal(["R25CameraBounds", "r25_sidcm"], init.CameraBounds());
+    }
+
+    [Fact]
+    public void Camera_bounds_in_a_block_that_does_not_apply_are_left_out()
+    {
+        SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");
+
+        Assert.Equal(["R25CameraBounds"], init.CameraBounds());
+    }
+
+    [Fact]
+    public void A_scene_that_fences_the_camera_in_nowhere_says_so_with_an_empty_list() =>
+        Assert.Empty(SceneInitFile.Parse("[GENERAL]\nfloor=ma2_floor\n", "MA2.SIF").CameraBounds());
+
+    [Fact]
     public void Cameras_carry_their_angles_in_radians_and_their_default()
     {
         SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");
@@ -208,6 +241,121 @@ public sealed class SceneFileTests
         Assert.Equal("gab", actor.Name);
         Assert.Equal("GABRIEL", actor.Noun);
         Assert.True(actor.IsEgo);
+    }
+
+    [Fact]
+    public void Deciding_the_conditions_leaves_a_scene_in_one_state()
+    {
+        // 202P: the hall door is hidden and the suitcases are not there at all.
+        SceneInitFile init = SceneInitFile.Parse(
+            InitFixture, "R25.SIF", c => Mentions(c, "202p"));
+
+        SceneModel door = Assert.Single(init.Models(), m => m.Name == "r25door2hal_scene");
+
+        Assert.True(init.ConditionsResolved);
+        Assert.True(door.Hidden);
+        Assert.False(door.VisibilityDisputed);
+        Assert.DoesNotContain(init.Models(), m => m.Name == "luggageunderbed");
+    }
+
+    [Fact]
+    public void The_other_side_of_the_same_pair_leaves_the_door_standing()
+    {
+        SceneInitFile init = SceneInitFile.Parse(
+            InitFixture, "R25.SIF", c => Mentions(c, "106p"));
+
+        SceneModel door = Assert.Single(init.Models(), m => m.Name == "r25door2hal_scene");
+
+        Assert.False(door.Hidden);
+
+        // The later block turns the hotel exterior back on, and with one state to reason
+        // about the last declaration simply wins.
+        Assert.False(Assert.Single(init.Models(), m => m.Name == "RC1_HOTEL_01").Hidden);
+    }
+
+    [Fact]
+    public void The_scene_asset_follows_the_conditions_that_hold()
+    {
+        Assert.Equal(
+            "r25_m",
+            SceneInitFile.Parse(InitFixture, "R25.SIF", c => Mentions(c, "110a"))
+                .SceneAsset(includeConditional: true));
+
+        Assert.Equal(
+            "r25_n",
+            SceneInitFile.Parse(InitFixture, "R25.SIF", c => Mentions(c, "202p"))
+                .SceneAsset(includeConditional: true));
+    }
+
+    [Fact]
+    public void Read_without_deciding_a_scene_holds_every_state_at_once()
+    {
+        SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");
+
+        Assert.False(init.ConditionsResolved);
+        Assert.True(Assert.Single(init.Models(), m => m.Name == "r25door2hal_scene").VisibilityDisputed);
+        Assert.Contains(init.Models(), m => m.Name == "luggageunderbed");
+    }
+
+    /// <summary>
+    /// Stands in for the Sheep evaluator: a condition holds when it names this timeblock
+    /// and is not negated. Enough for the fixture, and it keeps the format tests free of
+    /// the game layer.
+    /// </summary>
+    private static bool Mentions(string? condition, string timeblock)
+    {
+        if (condition is null)
+        {
+            return true;
+        }
+
+        bool names = condition.Contains(timeblock, StringComparison.OrdinalIgnoreCase);
+        return condition.TrimStart().StartsWith('!') ? !names : names;
+    }
+
+    [Theory]
+    [InlineData(0u, true)]
+    [InlineData(1u, true)]
+    [InlineData(2u, true)]
+    [InlineData(4u, true)]
+    [InlineData(8u, false)]
+    [InlineData(16u, false)]
+    [InlineData(24u, false)]
+    [InlineData(64u, false)]
+    public void Light_fittings_and_self_lit_surfaces_do_not_block_a_ray(uint flags, bool casts)
+    {
+        // R25's lamps are bit 16 and its window backdrop bit 12, and the rig's emitters
+        // sit inside both. Tracing them shuts the lamps inside their shades.
+        var surface = new BspSurface
+        {
+            ObjectIndex = 0,
+            TextureName = "LAMPSHADE",
+            LightmapUvOffset = Vector2.Zero,
+            LightmapUvScale = Vector2.One,
+            Flags = flags,
+        };
+
+        Assert.Equal(casts, surface.CastsShadows);
+    }
+
+    [Theory]
+    [InlineData(0u, false)]
+    [InlineData(16u, false)]
+    [InlineData(8u, true)]
+    [InlineData(12u, true)]
+    [InlineData(64u, true)]
+    public void The_bake_skips_the_surfaces_that_carry_their_own_brightness(uint flags, bool selfLit)
+    {
+        var surface = new BspSurface
+        {
+            ObjectIndex = 0,
+            TextureName = "LIGHTBULB",
+            LightmapUvOffset = Vector2.Zero,
+            LightmapUvScale = Vector2.One,
+            Flags = flags,
+        };
+
+        Assert.Equal(selfLit, surface.IsSelfLit);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Microsoft.Win32.SafeHandles;
 using System.IO.Compression;
 using GK3Reborn.Formats.Compression;
 using GK3Reborn.Foundation;
@@ -73,12 +74,16 @@ public sealed class BarnArchive : IDisposable
     private const uint DataTag = 0x44617461;      // "Data"
 
     private readonly FileStream _stream;
+    private readonly SafeFileHandle _handle;
+    private readonly long _length;
     private readonly Dictionary<AssetId, BarnEntry> _entries = [];
     private readonly uint _dataOffset;
 
     private BarnArchive(FileStream stream, string name, uint dataOffset, IEnumerable<BarnEntry> entries)
     {
         _stream = stream;
+        _handle = stream.SafeFileHandle;
+        _length = stream.Length;
         _dataOffset = dataOffset;
         Name = name;
 
@@ -143,24 +148,24 @@ public sealed class BarnArchive : IDisposable
                 $"Extract it from {entry.ReferencedArchive} instead."));
         }
 
-        _stream.Seek(_dataOffset + entry.Offset, SeekOrigin.Begin);
+        long at = _dataOffset + entry.Offset;
 
         if (entry.Compression == BarnCompression.None)
         {
-            return ReadExactly(entry.Size, entry.Name);
+            return ReadAt(at, checked((int)entry.Size), entry.Name);
         }
 
         // Compressed entries are prefixed with the decompressed length and four bytes
         // that are not used.
         Span<byte> prefix = stackalloc byte[8];
-        _stream.ReadExactly(prefix);
+        Fill(at, prefix, entry.Name);
         uint decompressedSize = BinaryPrimitives.ReadUInt32LittleEndian(prefix);
 
         // The last entry in an archive sometimes claims more bytes than the file holds.
         // The data still decompresses correctly, so read what is actually there.
-        long available = _stream.Length - _stream.Position;
+        long available = _length - (at + 8);
         int toRead = (int)Math.Min(entry.Size, available);
-        byte[] compressed = ReadExactly(toRead, entry.Name);
+        byte[] compressed = ReadAt(at + 8, toRead, entry.Name);
 
         byte[] output = new byte[decompressedSize];
 
@@ -317,19 +322,40 @@ public sealed class BarnArchive : IDisposable
         inflater.ReadExactly(output);
     }
 
-    private byte[] ReadExactly(int count, string assetName)
+    /// <summary>Reads bytes from a fixed place in the file.</summary>
+    /// <remarks>
+    /// Positioned reads rather than seek-then-read. A scene decodes its textures on several
+    /// threads at once, and a stream's position is the one thing about a file handle that
+    /// cannot be shared: two extractions in flight would each seek out from under the other
+    /// and both come back with somebody else's bytes. The handle itself reads concurrently
+    /// quite happily.
+    /// </remarks>
+    private byte[] ReadAt(long offset, int count, string assetName)
     {
         byte[] buffer = new byte[count];
-        int read = _stream.ReadAtLeast(buffer, count, throwOnEndOfStream: false);
-        if (read != count)
-        {
-            throw Corrupt(Name, _stream.Position, $"{count} bytes for '{assetName}'", $"{read} available");
-        }
+        Fill(offset, buffer, assetName);
 
         return buffer;
     }
 
-    private byte[] ReadExactly(uint count, string assetName) => ReadExactly(checked((int)count), assetName);
+    private void Fill(long offset, Span<byte> buffer, string assetName)
+    {
+        int filled = 0;
+
+        while (filled < buffer.Length)
+        {
+            int read = RandomAccess.Read(_handle, buffer[filled..], offset + filled);
+
+            if (read <= 0)
+            {
+                throw Corrupt(
+                    Name, offset + filled,
+                    $"{buffer.Length} bytes for '{assetName}'", $"{filled} available");
+            }
+
+            filled += read;
+        }
+    }
 
     private static void Seek(FileStream stream, uint offset, string name, string what)
     {

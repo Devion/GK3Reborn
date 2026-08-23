@@ -30,14 +30,13 @@ public static class Program
 
     // Kept out of Main so that resolving GK3Reborn.App does not happen until after
     // the resolver above is installed.
+    //
+    // No arguments are substituted here. Somebody double-clicking the game passes none,
+    // so no arguments has to *be* the way the game starts - the defaults belong where
+    // they can be read and changed, not in a launcher nobody looks inside.
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Launch(string[] args)
     {
-        if (args == null || args.Length == 0)
-        {
-            args = ["--scene", "R25", "--timeblock","N", "--camera", "FR_B25", "--rt","high"];
-        }
-
-        return GK3Reborn.Application.Run(args, NativeLibraryLocator.LibsRoot);
+        return GK3Reborn.Application.Run(args ?? [], NativeLibraryLocator.LibsRoot);
     }
 }

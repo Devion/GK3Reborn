@@ -49,6 +49,25 @@ public sealed class SheepVirtualMachineTests
     }
 
     [Fact]
+    public void A_function_is_found_whether_or_not_the_caller_writes_its_dollar()
+    {
+        // A compiled script names its functions with a $ on the end — R25_ALL's reads
+        // Window_Open$ — and the callers routinely leave it off, CallSheep("R25_ALL",
+        // "WINDOW_OPEN") being how the action files spell it. Matching exactly means the
+        // call finds nothing and the action appears to run and do nothing at all.
+        SheepScriptFile script = new ScriptBuilder()
+            .Function("Window_Open$")
+            .Op(SheepOpcode.ReturnV)
+            .Build();
+
+        var vm = new SheepVirtualMachine(new StubApi());
+
+        Assert.Equal(SheepThreadState.Completed, vm.Execute(script, "WINDOW_OPEN").State);
+        Assert.Equal(SheepThreadState.Completed, vm.Execute(script, "Window_Open$").State);
+        Assert.Equal(SheepThreadState.Faulted, vm.Execute(script, "Window_Shut").State);
+    }
+
+    [Fact]
     public void A_void_call_still_pushes_a_result()
     {
         // The original compiler emits a Pop after every void call, so a VM that pushed

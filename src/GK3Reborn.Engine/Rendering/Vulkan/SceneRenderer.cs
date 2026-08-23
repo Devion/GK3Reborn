@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using Silk.NET.Vulkan;
 
@@ -8,9 +8,27 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// Renders loaded scene geometry into an offscreen image.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Headless by design. A render that needs no window runs on a build agent, produces a
 /// file that can be compared between runs, and can be inspected without anyone watching
 /// the screen at the right moment — none of which is true of a screenshot.
+/// </para>
+/// <para>
+/// It draws the same frame the windowed renderer draws, deferred stages included: the room
+/// writes its parts, the occlusion is traced and filtered, and a compositing pass puts them
+/// back together. It did not always. For a while it bound the picture alone and threw the
+/// rest of the frame away, which at any ray-traced level meant the rig's light went to a
+/// target nothing read and every character came out lit by the ambient floor — a whole
+/// class of shading bug the tool could not show, and three tests that could not pass.
+/// </para>
+/// <para>
+/// Two differences from the windowed renderer remain, and both are deliberate. There is no
+/// sky, because nothing here has a room's cube map to draw. And <b>a single frame has no
+/// previous picture to reflect</b>, so the reflection pass marches against black and adds
+/// nothing: reflections are the host's to show. What that buys is the thing a regression
+/// image needs and the host cannot give — the same scene renders to the same pixels every
+/// time, because no stage here carries anything over from a frame before.
+/// </para>
 /// </remarks>
 public sealed unsafe class SceneRenderer : IDisposable
 {
@@ -34,6 +52,8 @@ public sealed unsafe class SceneRenderer : IDisposable
     private readonly FrameUniformSet _frames;
     private readonly MeshPipeline? _rayTraced;
     private readonly FrameUniformSet? _rayTracedFrames;
+
+    private bool _warnedAboutDeferred;
 
     private SceneRenderer(
         VulkanContext context,
@@ -65,7 +85,28 @@ public sealed unsafe class SceneRenderer : IDisposable
     /// and it does so to avoid the ray-tracing shader's cost entirely rather than because
     /// it would give a different picture.
     /// </remarks>
+    /// <summary>How the room's lights are divided up, once a scene has been given some.</summary>
+    /// <remarks>
+    /// Reported rather than drawn. The whole point of the grid is that nothing looks
+    /// different — a fragment gets the same lights, reached more cheaply — so the only way
+    /// to know it is working is the numbers: how many cells, and how many lights the
+    /// average one holds against how many the room declares.
+    /// </remarks>
+    public SceneLightGrid? LightGrid { get; private set; }
+
     public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
+
+    /// <summary>The tier's settings, with anything set here in place of them.</summary>
+    /// <remarks>
+    /// The four levels are what a player chooses between, and setting this is how anything
+    /// else asks for a combination they do not offer — one knob moved and the rest of the
+    /// tier left alone, which is what it takes to attribute a change in the picture to that
+    /// knob rather than to the four differences between two levels.
+    /// </remarks>
+    public RayTracingSettings? Overriding { get; set; }
+
+    /// <summary>What this frame is actually being traced with.</summary>
+    private RayTracingSettings Tracing => Overriding ?? RayTracingSettings.For(Quality);
 
     /// <summary>Creates a renderer.</summary>
     /// <param name="context">Device context.</param>
@@ -86,8 +127,11 @@ public sealed unsafe class SceneRenderer : IDisposable
 
             if (context.SupportsRayTracing)
             {
+                // Light, not a picture: the ray-traced room writes half of its lighting
+                // into this target and the compositing pass finishes it, so the values in
+                // it run past white and it has to be the format with room for them.
                 rayTraced = MeshPipeline.Create(
-                    context, ColorFormat, DepthFormat, compiler, rayTracing: true);
+                    context, GBuffer.LightFormat, DepthFormat, compiler, rayTracing: true);
 
                 rayTracedFrames = FrameUniformSet.Create(context, rayTraced, 1);
             }
@@ -103,14 +147,23 @@ public sealed unsafe class SceneRenderer : IDisposable
 
     /// <summary>Creates geometry this renderer can draw.</summary>
     /// <returns>Empty scene geometry.</returns>
-    public SceneGeometry CreateGeometry() => SceneGeometry.Create(_context, _pipeline);
+    public SceneGeometry CreateGeometry() =>
+        SceneGeometry.Create(_context, _pipeline, Textures);
+
+    /// <summary>The textures the device holds, shared by every scene this renderer draws.</summary>
+    public TextureCache Textures =>
+        field ??= new TextureCache(_context, SceneGeometry.CheckerBoard());
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
-    public void SetLights(IReadOnlyList<Formats.Scenes.AuthoredLight> lights)
+    /// <param name="scene">What the geometry occupies; default decides nothing.</param>
+    public void SetLights(
+        IReadOnlyList<Formats.Scenes.AuthoredLight> lights, SceneExtent scene = default)
     {
-        _frames.SetLights(lights);
-        _rayTracedFrames?.SetLights(lights);
+        _frames.SetLights(lights, scene);
+        _rayTracedFrames?.SetLights(lights, scene);
+
+        LightGrid = _frames.Grid;
     }
 
     /// <summary>Renders geometry and returns the image.</summary>
@@ -133,56 +186,151 @@ public sealed unsafe class SceneRenderer : IDisposable
                        _rayTracedFrames is not null &&
                        geometry.RayTracing is not null;
 
+        ShadowDenoiser? denoiser = null;
+        Reflections? reflections = null;
+        CompositePipeline? composite = null;
+
+        if (tracing)
+        {
+            (denoiser, reflections, composite) = BuildDeferred(width, height);
+
+            // The ray-traced pipeline writes light rather than a picture, so without the
+            // pass that finishes it there is no picture at all. Falling back to the plain
+            // pipeline is what makes the warning true: the room draws with the lighting it
+            // had before any of this existed.
+            tracing = denoiser is not null && reflections is not null && composite is not null;
+        }
+
         MeshPipeline pipeline = tracing ? _rayTraced! : _pipeline;
         FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
 
         if (tracing)
         {
             frames.SetScene(geometry.RayTracing!);
-            frames.Settings = RayTracingSettings.For(Quality);
+            frames.Settings = Tracing;
         }
 
-        (Image color, DeviceMemory colorMemory, ImageView colorView) = CreateTarget(
+        // Everything the frame writes besides its picture. The plain pipeline declares the
+        // same four colour outputs as the ray-traced one, so all four are bound either
+        // way: a rendering scope that does not match its pipeline is undefined rather than
+        // forgiving, and this one used to bind exactly one of them.
+        ImageUsageFlags parts = ImageUsageFlags.ColorAttachmentBit |
+                                (tracing ? ImageUsageFlags.SampledBit : 0);
+
+        Target picture = CreateTarget(
             width, height, ColorFormat,
             ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit,
             ImageAspectFlags.ColorBit);
 
-        (Image depth, DeviceMemory depthMemory, ImageView depthView) = CreateTarget(
+        Target scene = tracing
+            ? CreateTarget(width, height, GBuffer.LightFormat, parts, ImageAspectFlags.ColorBit)
+            : default;
+
+        // What the reflection march has to look at. Cleared and never drawn into: a
+        // headless frame has no frame before it, and reflecting this frame's own
+        // half-finished lighting would put something on the floor the host would never
+        // show there.
+        Target lit = tracing
+            ? CreateTarget(
+                width, height, ColorFormat,
+                ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
+                ImageAspectFlags.ColorBit)
+            : default;
+
+        Target normal = CreateTarget(
+            width, height, GBuffer.NormalFormat, parts, ImageAspectFlags.ColorBit);
+
+        Target motion = CreateTarget(
+            width, height, GBuffer.MotionFormat, parts, ImageAspectFlags.ColorBit);
+
+        Target direct = CreateTarget(
+            width, height, GBuffer.LightFormat, parts, ImageAspectFlags.ColorBit);
+
+        Target depth = CreateTarget(
             width, height, DepthFormat,
-            ImageUsageFlags.DepthStencilAttachmentBit,
+            ImageUsageFlags.DepthStencilAttachmentBit |
+                (tracing ? ImageUsageFlags.SampledBit : 0),
             ImageAspectFlags.DepthBit);
 
         try
         {
             CommandBuffer command = _context.BeginOneShot();
 
-            _context.Transition(command, color, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
+            if (tracing)
+            {
+                denoiser!.Settle(command);
+                reflections!.Settle(command);
+
+                _context.Transition(
+                    command, lit.Image, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+                ClearToBlack(command, lit.Image);
+
+                _context.Transition(
+                    command, lit.Image, ImageLayout.TransferDstOptimal,
+                    ImageLayout.ShaderReadOnlyOptimal);
+
+                _context.Transition(
+                    command, scene.Image, ImageLayout.Undefined,
+                    ImageLayout.ColorAttachmentOptimal);
+            }
 
             _context.Transition(
-                command, depth, ImageLayout.Undefined, ImageLayout.DepthStencilAttachmentOptimal,
-                ImageAspectFlags.DepthBit);
+                command, picture.Image, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
+
+            foreach (Target part in (ReadOnlySpan<Target>)[normal, motion, direct])
+            {
+                _context.Transition(
+                    command, part.Image, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
+            }
+
+            _context.Transition(
+                command, depth.Image, ImageLayout.Undefined,
+                ImageLayout.DepthStencilAttachmentOptimal, ImageAspectFlags.DepthBit);
+
+            ReadOnlySpan<ImageView> colors =
+            [
+                tracing ? scene.View : picture.View,
+                normal.View,
+                motion.View,
+                direct.View,
+            ];
 
             SceneDraw.Begin(
-                _context.Api, command, colorView, depthView, width, height, camera.Background);
+                _context.Api, command, colors, depth.View, width, height, camera.Background,
+                keepDepth: tracing);
 
             SceneDraw.Record(
                 _context.Api, command, pipeline, frames, geometry, 0, width, height, camera);
 
             _context.Api.CmdEndRendering(command);
 
-            _context.Transition(
-                command, color, ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferSrcOptimal);
+            if (tracing)
+            {
+                Compose(
+                    command, denoiser!, reflections!, composite!, geometry, frames, camera,
+                    scene, normal, motion, direct, depth, lit, picture.View, width, height);
+            }
 
-            return ReadBack(command, color, width, height);
+            _context.Transition(
+                command, picture.Image, ImageLayout.ColorAttachmentOptimal,
+                ImageLayout.TransferSrcOptimal);
+
+            return ReadBack(command, picture.Image, width, height);
         }
         finally
         {
-            _context.Api.DestroyImageView(_context.Device, depthView, null);
-            _context.Api.DestroyImage(_context.Device, depth, null);
-            _context.Api.FreeMemory(_context.Device, depthMemory, null);
-            _context.Api.DestroyImageView(_context.Device, colorView, null);
-            _context.Api.DestroyImage(_context.Device, color, null);
-            _context.Api.FreeMemory(_context.Device, colorMemory, null);
+            Destroy(depth);
+            Destroy(direct);
+            Destroy(motion);
+            Destroy(normal);
+            Destroy(lit);
+            Destroy(scene);
+            Destroy(picture);
+
+            composite?.Dispose();
+            reflections?.Dispose();
+            denoiser?.Dispose();
         }
     }
 
@@ -195,6 +343,173 @@ public sealed unsafe class SceneRenderer : IDisposable
         _frames.Dispose();
         _pipeline.Dispose();
         _compiler.Dispose();
+    }
+
+    /// <summary>Builds the three stages that finish a ray-traced frame.</summary>
+    /// <param name="width">Viewport width.</param>
+    /// <param name="height">Viewport height.</param>
+    /// <returns>The stages, or nulls if they could not be built.</returns>
+    /// <remarks>
+    /// Built for one render and thrown away with it. They are the frame's memory — the
+    /// denoiser reprojects the last frame's answer into this one, and the reflection pass
+    /// keeps the last picture to march against — and a tool that renders two scenes
+    /// through one renderer must not let the first leak into the second. Keeping them
+    /// would save a few milliseconds and cost the one property a regression image exists
+    /// for.
+    /// </remarks>
+    private (ShadowDenoiser?, Reflections?, CompositePipeline?) BuildDeferred(int width, int height)
+    {
+        ShadowDenoiser? denoiser = null;
+        Reflections? reflections = null;
+        CompositePipeline? composite = null;
+
+        try
+        {
+            denoiser = ShadowDenoiser.Create(_context, _compiler, width, height);
+
+            if (denoiser is not null)
+            {
+                reflections = Reflections.Create(_context, _compiler, width, height);
+                composite = CompositePipeline.Create(_context, _compiler, ColorFormat);
+
+                return (denoiser, reflections, composite);
+            }
+        }
+        catch (VulkanException error)
+        {
+            // Once a stage has failed to build it will fail the same way for every render,
+            // so this is said once rather than for each of them.
+            if (!_warnedAboutDeferred)
+            {
+                _warnedAboutDeferred = true;
+
+                Console.Error.WriteLine(
+                    "WARNING GK3R3411: The compositing stages could not be built, so the " +
+                    "scene is rendered without ray tracing. (" + error.Message + ")");
+            }
+        }
+
+        composite?.Dispose();
+        reflections?.Dispose();
+        denoiser?.Dispose();
+
+        return (null, null, null);
+    }
+
+    /// <summary>Traces the occlusion, filters it, and puts the picture together.</summary>
+    /// <param name="command">Command buffer being recorded.</param>
+    /// <param name="denoiser">The tracing and filtering stages.</param>
+    /// <param name="reflections">The screen-space reflection stages.</param>
+    /// <param name="composite">The pass that multiplies the parts together.</param>
+    /// <param name="geometry">What was drawn, for its acceleration structure.</param>
+    /// <param name="frames">The frame's uniforms, for the rig the tracing reads.</param>
+    /// <param name="camera">Where the frame was drawn from.</param>
+    /// <param name="scene">The indirect light the room pass wrote.</param>
+    /// <param name="normal">The frame's normals.</param>
+    /// <param name="motion">The frame's motion vectors.</param>
+    /// <param name="direct">The rig's light, before any of it is blocked.</param>
+    /// <param name="depth">The frame's depth.</param>
+    /// <param name="lit">What the reflection march looks at.</param>
+    /// <param name="picture">Where the finished frame goes.</param>
+    /// <param name="width">Viewport width.</param>
+    /// <param name="height">Viewport height.</param>
+    /// <remarks>
+    /// Outside the room's rendering scope, because the tracing reads the depth and the
+    /// normals that scope wrote and an attachment cannot be sampled while it is still one.
+    /// </remarks>
+    private void Compose(
+        CommandBuffer command,
+        ShadowDenoiser denoiser,
+        Reflections reflections,
+        CompositePipeline composite,
+        SceneGeometry geometry,
+        FrameUniformSet frames,
+        Camera camera,
+        Target scene,
+        Target normal,
+        Target motion,
+        Target direct,
+        Target depth,
+        Target lit,
+        ImageView picture,
+        int width,
+        int height)
+    {
+        foreach (Target part in (ReadOnlySpan<Target>)[scene, normal, motion, direct])
+        {
+            _context.Transition(
+                command, part.Image, ImageLayout.ColorAttachmentOptimal,
+                ImageLayout.ShaderReadOnlyOptimal);
+        }
+
+        _context.Transition(
+            command, depth.Image, ImageLayout.DepthStencilAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
+
+        denoiser.Bind(
+            depth.View,
+            normal.View,
+            motion.View,
+            geometry.RayTracing!.Handle,
+            frames.Rig.Handle,
+            frames.Rig.Size);
+
+        reflections.Bind(depth.View, normal.View, motion.View, lit.View);
+
+        composite.Bind(
+            scene.View,
+            direct.View,
+            denoiser.Shadow,
+            denoiser.Occlusion,
+            denoiser.DynamicShadow,
+            reflections.Buffers);
+
+        RayTracingSettings settings = Tracing;
+
+        denoiser.Record(
+            command, camera, depth.Image, settings.AmbientOcclusionRadius, settings.OcclusionSamples);
+
+        reflections.Record(command, camera, Rendering.Materials.SurfaceFinish.Roughest);
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = picture,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+
+            // Nothing to load: the one triangle covers every pixel of it.
+            LoadOp = AttachmentLoadOp.DontCare,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+        };
+
+        _context.Api.CmdBeginRendering(command, in rendering);
+        composite.Record(
+            command, width, height, reflections.Parity, settings.OcclusionStrength);
+        _context.Api.CmdEndRendering(command);
+    }
+
+    private void ClearToBlack(CommandBuffer command, Image image)
+    {
+        var range = new ImageSubresourceRange
+        {
+            AspectMask = ImageAspectFlags.ColorBit,
+            LevelCount = 1,
+            LayerCount = 1,
+        };
+
+        var black = new ClearColorValue(0f, 0f, 0f, 0f);
+
+        _context.Api.CmdClearColorImage(
+            command, image, ImageLayout.TransferDstOptimal, in black, 1, in range);
     }
 
     private DecodedImage ReadBack(CommandBuffer command, Image color, int width, int height)
@@ -247,7 +562,25 @@ public sealed unsafe class SceneRenderer : IDisposable
         }
     }
 
-    private (Image, DeviceMemory, ImageView) CreateTarget(
+    private void Destroy(Target target)
+    {
+        if (target.View.Handle != 0)
+        {
+            _context.Api.DestroyImageView(_context.Device, target.View, null);
+        }
+
+        if (target.Image.Handle != 0)
+        {
+            _context.Api.DestroyImage(_context.Device, target.Image, null);
+        }
+
+        if (target.Memory.Handle != 0)
+        {
+            _context.Api.FreeMemory(_context.Device, target.Memory, null);
+        }
+    }
+
+    private Target CreateTarget(
         int width, int height, Format format, ImageUsageFlags usage, ImageAspectFlags aspect)
     {
         var imageInfo = new ImageCreateInfo
@@ -292,8 +625,11 @@ public sealed unsafe class SceneRenderer : IDisposable
             throw new VulkanException("Could not create a render target view.");
         }
 
-        return (image, memory, view);
+        return new Target(image, memory, view);
     }
+
+    /// <summary>An image, its memory and its view, which are made and freed together.</summary>
+    private readonly record struct Target(Image Image, DeviceMemory Memory, ImageView View);
 }
 
 /// <summary>
@@ -305,34 +641,66 @@ public sealed unsafe class SceneRenderer : IDisposable
 /// </remarks>
 public static unsafe class SceneDraw
 {
-    /// <summary>Begins rendering into a colour and depth view.</summary>
+    /// <summary>Begins rendering into the frame's colour targets and its depth.</summary>
     /// <param name="vk">Vulkan API.</param>
     /// <param name="command">Command buffer to record into.</param>
-    /// <param name="color">Colour view.</param>
+    /// <param name="colors">
+    /// Every colour target the pipeline declares, the picture first. All of them, always:
+    /// a rendering scope that binds fewer attachments than its pipeline writes is not a
+    /// smaller frame, it is undefined behaviour.
+    /// </param>
     /// <param name="depth">Depth view.</param>
     /// <param name="width">Target width.</param>
     /// <param name="height">Target height.</param>
-    /// <param name="background">Colour to clear to.</param>
+    /// <param name="background">Colour to clear the picture to.</param>
+    /// <param name="keepDepth">Whether anything reads the depth after the scope ends.</param>
     public static void Begin(
         Vk vk,
         CommandBuffer command,
-        ImageView color,
+        ReadOnlySpan<ImageView> colors,
         ImageView depth,
         int width,
         int height,
-        Vector3 background)
+        Vector3 background,
+        bool keepDepth = false)
     {
         ArgumentNullException.ThrowIfNull(vk);
 
-        var colorAttachment = new RenderingAttachmentInfo
+        if (colors.Length != (int)GBuffer.Targets)
+        {
+            throw new ArgumentException(
+                $"A frame has {GBuffer.Targets} colour targets, not {colors.Length}.",
+                nameof(colors));
+        }
+
+        RenderingAttachmentInfo* attachments =
+            stackalloc RenderingAttachmentInfo[(int)GBuffer.Targets];
+
+        attachments[GBuffer.Colour] = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
-            ImageView = color,
+            ImageView = colors[GBuffer.Colour],
             ImageLayout = ImageLayout.ColorAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
             ClearValue = new ClearValue(new ClearColorValue(background.X, background.Y, background.Z, 1f)),
         };
+
+        for (int i = 1; i < colors.Length; i++)
+        {
+            attachments[i] = new RenderingAttachmentInfo
+            {
+                SType = StructureType.RenderingAttachmentInfo,
+                ImageView = colors[i],
+                ImageLayout = ImageLayout.ColorAttachmentOptimal,
+                LoadOp = AttachmentLoadOp.Clear,
+                StoreOp = AttachmentStoreOp.Store,
+
+                // Zero motion and a zero normal, which is what a pixel the room never
+                // covered should read as: the sky did not move and has no surface.
+                ClearValue = new ClearValue(new ClearColorValue(0f, 0f, 0f, 0f)),
+            };
+        }
 
         var depthAttachment = new RenderingAttachmentInfo
         {
@@ -340,7 +708,7 @@ public static unsafe class SceneDraw
             ImageView = depth,
             ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Clear,
-            StoreOp = AttachmentStoreOp.DontCare,
+            StoreOp = keepDepth ? AttachmentStoreOp.Store : AttachmentStoreOp.DontCare,
             ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(1f, 0)),
         };
 
@@ -349,8 +717,8 @@ public static unsafe class SceneDraw
             SType = StructureType.RenderingInfo,
             RenderArea = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) },
             LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachment,
+            ColorAttachmentCount = GBuffer.Targets,
+            PColorAttachments = attachments,
             PDepthAttachment = &depthAttachment,
         };
 
@@ -390,7 +758,7 @@ public static unsafe class SceneDraw
         vk.CmdSetScissor(command, 0, 1, in scissor);
         vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, pipeline.Handle);
 
-        frames.Bind(command, pipeline, frame, camera, (float)width / height);
+        frames.Bind(command, pipeline, frame, camera, (float)width / height, width, height);
         geometry.Record(command, pipeline);
     }
 }

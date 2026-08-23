@@ -34,6 +34,34 @@ public sealed class VulkanDeviceSelector
 
     /// <summary>Surveys the machine.</summary>
     /// <returns>What was found.</returns>
+    /// <summary>Surveys the devices an instance that already exists can see.</summary>
+    /// <param name="vk">The Vulkan API.</param>
+    /// <param name="instance">An instance the caller owns and keeps.</param>
+    /// <returns>The report.</returns>
+    /// <remarks>
+    /// The renderer has an instance by the time anybody wants to read this, and building a
+    /// second one to look through costs 145 ms of the time to a first frame. Building it on
+    /// another thread to hide that cost is worse than paying it: two instances being created
+    /// at once enumerated only one of this machine's two devices about one run in six.
+    /// </remarks>
+    public static VulkanDeviceReport Survey(Vk vk, Instance instance)
+    {
+        ArgumentNullException.ThrowIfNull(vk);
+
+        unsafe
+        {
+            List<VulkanDeviceInfo> devices = EnumerateDevices(vk, instance);
+
+            return new VulkanDeviceReport
+            {
+                VulkanAvailable = true,
+                ValidationAvailable = HasValidationLayer(vk),
+                Devices = devices,
+                Selected = Choose(devices),
+            };
+        }
+    }
+
     public static VulkanDeviceReport Survey()
     {
         Vk vk;

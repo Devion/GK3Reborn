@@ -231,28 +231,47 @@ public sealed unsafe class TrianglePipeline : IDisposable
                 RasterizationSamples = SampleCountFlags.Count1Bit,
             };
 
-            var blendAttachment = new PipelineColorBlendAttachmentState
+            // Three attachments, because the frame has three and a pipeline has to describe
+            // every one of them. This pass writes the picture and nothing else, so the other
+            // two are masked off rather than left to write whatever the shader happens to
+            // leave in them.
+            PipelineColorBlendAttachmentState* blendAttachments =
+                stackalloc PipelineColorBlendAttachmentState[(int)GBuffer.Targets];
+
+            blendAttachments[GBuffer.Colour] = new PipelineColorBlendAttachmentState
             {
                 ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit |
                                  ColorComponentFlags.BBit | ColorComponentFlags.ABit,
                 BlendEnable = false,
             };
 
+            for (int i = 1; i < (int)GBuffer.Targets; i++)
+            {
+                blendAttachments[i] = default;
+            }
+
             var blend = new PipelineColorBlendStateCreateInfo
             {
                 SType = StructureType.PipelineColorBlendStateCreateInfo,
-                AttachmentCount = 1,
-                PAttachments = &blendAttachment,
+                AttachmentCount = GBuffer.Targets,
+                PAttachments = blendAttachments,
             };
 
             // Dynamic rendering means the pipeline is told its target formats directly
             // rather than being tied to a render pass object.
-            Format format = colorFormat;
+            Format* formats = stackalloc Format[(int)GBuffer.Targets]
+            {
+                colorFormat,
+                GBuffer.NormalFormat,
+                GBuffer.MotionFormat,
+                GBuffer.LightFormat,
+            };
+
             var rendering = new PipelineRenderingCreateInfo
             {
                 SType = StructureType.PipelineRenderingCreateInfo,
-                ColorAttachmentCount = 1,
-                PColorAttachmentFormats = &format,
+                ColorAttachmentCount = GBuffer.Targets,
+                PColorAttachmentFormats = formats,
             };
 
             var createInfo = new GraphicsPipelineCreateInfo

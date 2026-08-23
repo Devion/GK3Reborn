@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Formats.Bitmaps;
@@ -15,6 +15,19 @@ public readonly record struct DecodedImage(
     byte[] Pixels,
     bool HasAlpha,
     string SourceFormat);
+
+/// <summary>A palettised bitmap left as its palette indices, top row first.</summary>
+/// <param name="Width">Width in pixels.</param>
+/// <param name="Height">Height in pixels.</param>
+/// <param name="Indices">One palette index per pixel, row-major from the top.</param>
+/// <remarks>
+/// Some of GK3's bitmaps are data rather than pictures, and the index <em>is</em> the
+/// datum. A walk boundary is the clearest case: index 0 to 7 is walkable ground, 255 is
+/// wall, and 128 upwards are regions a script can open and close. Resolving those through
+/// the palette to a colour throws the meaning away and leaves the caller guessing it back
+/// from an RGB triple.
+/// </remarks>
+public readonly record struct IndexedImage(int Width, int Height, byte[] Indices);
 
 /// <summary>
 /// Decodes GK3's texture formats to RGBA.
@@ -48,6 +61,58 @@ public static class BitmapDecoder
     /// <returns>True when <see cref="Decode(System.ReadOnlySpan{byte}, string)"/> will succeed.</returns>
     public static bool CanDecode(ReadOnlySpan<byte> data) =>
         IsGk3(data) || IsWindows(data);
+
+    /// <summary>Reads a palettised bitmap as its palette indices.</summary>
+    /// <param name="data">The asset's bytes.</param>
+    /// <param name="name">Name used in diagnostics.</param>
+    /// <returns>The indices, top row first.</returns>
+    /// <exception cref="FormatParseException">
+    /// The data is not a Windows bitmap, or not eight bits per pixel.
+    /// </exception>
+    public static IndexedImage DecodeIndexed(ReadOnlySpan<byte> data, string name = "<memory>")
+    {
+        if (!IsWindows(data))
+        {
+            throw Unsupported(name, "a Windows bitmap", "something else");
+        }
+
+        uint dataOffset = BinaryPrimitives.ReadUInt32LittleEndian(data[10..]);
+        int width = BinaryPrimitives.ReadInt32LittleEndian(data[18..]);
+        int height = BinaryPrimitives.ReadInt32LittleEndian(data[22..]);
+        int bitsPerPixel = BinaryPrimitives.ReadUInt16LittleEndian(data[28..]);
+        uint compression = BinaryPrimitives.ReadUInt32LittleEndian(data[30..]);
+
+        if (bitsPerPixel != 8 || compression != 0)
+        {
+            throw Unsupported(
+                name, "an uncompressed 8-bit bitmap", $"{bitsPerPixel} bpp, compression {compression}");
+        }
+
+        bool bottomUp = height > 0;
+        height = Math.Abs(height);
+
+        if (width <= 0 || height <= 0)
+        {
+            throw Unsupported(name, "positive dimensions", $"{width}x{height}");
+        }
+
+        int stride = (width + 3) & ~3;
+        long required = dataOffset + ((long)stride * height);
+        if (required > data.Length)
+        {
+            throw Truncated(name, width, height, required, data.Length);
+        }
+
+        byte[] indices = new byte[width * height];
+
+        for (int y = 0; y < height; y++)
+        {
+            int sourceRow = (int)dataOffset + (stride * (bottomUp ? height - 1 - y : y));
+            data.Slice(sourceRow, width).CopyTo(indices.AsSpan(y * width, width));
+        }
+
+        return new IndexedImage(width, height, indices);
+    }
 
     /// <summary>Decodes a bitmap to RGBA.</summary>
     /// <param name="data">The asset's bytes.</param>

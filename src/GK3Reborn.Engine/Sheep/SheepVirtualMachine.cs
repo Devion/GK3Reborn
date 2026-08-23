@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Globalization;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -51,6 +51,19 @@ public interface ISheepApi
     /// <param name="name">Function name.</param>
     /// <returns>True when the function is waitable.</returns>
     bool IsWaitable(string name);
+
+    /// <summary>How long a waited call takes.</summary>
+    /// <param name="name">Function name.</param>
+    /// <param name="arguments">What it was called with, since the wait often is one.</param>
+    /// <returns>Seconds, or zero when the host has no idea and the call is over at once.</returns>
+    /// <remarks>
+    /// Zero by default, which is what the engine did everywhere before anything could take
+    /// time: a script waits and carries straight on. A host that knows better — a timer
+    /// knows exactly, a camera glide knows its own duration — says so, and only then does a
+    /// script's own pacing start to mean anything. Guessing for the calls whose length
+    /// depends on assets that are not read yet would invent timing the game does not have.
+    /// </remarks>
+    double SecondsFor(string name, IReadOnlyList<SheepValue> arguments) => 0;
 }
 
 /// <summary>One running script.</summary>
@@ -91,6 +104,15 @@ public sealed class SheepThread
     internal bool InWaitBlock { get; set; }
 
     internal int PendingWaits { get; set; }
+
+    /// <summary>
+    /// How long the wait block this thread is in still has to run.
+    /// </summary>
+    /// <remarks>
+    /// The longest of the calls inside it, because a wait block waits for all of them and
+    /// is therefore over when the slowest is.
+    /// </remarks>
+    public double WaitSeconds { get; internal set; }
 }
 
 /// <summary>
@@ -142,7 +164,7 @@ public sealed class SheepVirtualMachine
         ArgumentNullException.ThrowIfNull(functionName);
 
         (string Name, int Offset)? entry = script.Functions
-            .FirstOrDefault(f => string.Equals(f.Name, functionName, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(f => Same(f.Name, functionName));
 
         if (entry is not { } found || found.Name is null)
         {
@@ -174,6 +196,22 @@ public sealed class SheepVirtualMachine
     }
 
     /// <summary>
+    /// Whether two function names refer to the same function.
+    /// </summary>
+    /// <remarks>
+    /// A compiled script names its functions with a <c>$</c> on the end — the disassembly
+    /// of R25's reads <c>Window_Open$</c> — and the callers routinely leave it off:
+    /// <c>CallSheep("R25_ALL","WINDOW_OPEN")</c> is how the action files spell it. The
+    /// original appends the suffix when it is missing, with the comment "some GK3 data
+    /// files do this, some don't". Matching exactly instead means the call finds nothing,
+    /// the thread faults, and the action appears to run and do nothing at all — which is
+    /// what opening R25's window did.
+    /// </remarks>
+    private static bool Same(string? declared, string wanted) =>
+        declared is not null &&
+        string.Equals(declared.TrimEnd('$'), wanted.TrimEnd('$'), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Tells a blocked thread that everything it waited on has finished.
     /// </summary>
     /// <remarks>
@@ -188,12 +226,24 @@ public sealed class SheepVirtualMachine
 
         thread.PendingWaits = 0;
         thread.InWaitBlock = false;
+        thread.WaitSeconds = 0;
 
         if (thread.State == SheepThreadState.Blocked)
         {
             thread.State = SheepThreadState.Yielded;
         }
     }
+
+    /// <summary>
+    /// The thread being stepped, while one is.
+    /// </summary>
+    /// <remarks>
+    /// A script may ask the host to do something that depends on which script asked —
+    /// <c>Call("TwoShot")</c> means "the function of that name <em>in me</em>", and there
+    /// are 190 of those in the game. The host is given a name and no context, so this is
+    /// the context. It nests, because a called script may call another.
+    /// </remarks>
+    public SheepThread? Current { get; private set; }
 
     /// <summary>Runs a thread until it stops.</summary>
     /// <param name="thread">The thread to run.</param>
@@ -207,6 +257,22 @@ public sealed class SheepVirtualMachine
             return thread;
         }
 
+        SheepThread? outer = Current;
+        Current = thread;
+
+        try
+        {
+            return Step(thread);
+        }
+        finally
+        {
+            Current = outer;
+        }
+    }
+
+    /// <summary>Steps one thread until it stops running.</summary>
+    private SheepThread Step(SheepThread thread)
+    {
         thread.State = SheepThreadState.Running;
         ReadOnlySpan<byte> code = thread.Script.Bytecode;
 
@@ -306,6 +372,7 @@ public sealed class SheepVirtualMachine
             case SheepOpcode.BeginWait:
                 thread.InWaitBlock = true;
                 thread.PendingWaits = 0;
+                thread.WaitSeconds = 0;
                 break;
 
             case SheepOpcode.EndWait:
@@ -472,6 +539,10 @@ public sealed class SheepVirtualMachine
         if (waited)
         {
             thread.PendingWaits++;
+
+            // The longest call in the block decides when the block is over.
+            thread.WaitSeconds = Math.Max(
+                thread.WaitSeconds, _api.SecondsFor(import.Name, arguments));
         }
 
         thread.Calls.Add(new SheepCall(import.Name, arguments, waited));

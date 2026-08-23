@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
@@ -53,16 +53,71 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         [CameraAction.Reset] = [Key.R],
         [CameraAction.NextCamera] = [Key.Tab],
         [CameraAction.CycleRayTracing] = [Key.F2],
+
+        // The original made the inventory a small target to click at the edge of the
+        // screen. A key is what a player reaches for.
+        [CameraAction.Inventory] = [Key.I],
+        [CameraAction.Journal] = [Key.J],
+        [CameraAction.ShowHotspots] = [Key.AltLeft, Key.AltRight],
+
+        // Where every adventure game has put them for thirty years.
+        [CameraAction.QuickSave] = [Key.F5],
+        [CameraAction.QuickLoad] = [Key.F9],
         [CameraAction.Quit] = [Key.Escape],
     };
 
+    /// <summary>Which key does which editing job.</summary>
+    /// <remarks>
+    /// Grave and Escape both appear here and in the camera bindings, which is deliberate:
+    /// the key is one key and what it means depends on whether the console has the
+    /// keyboard. Deciding that here would put a piece of the interface in the platform
+    /// layer.
+    /// </remarks>
+    private static readonly (EditKey Edit, Key Which)[] Editing =
+    [
+        (EditKey.Backspace, Key.Backspace),
+        (EditKey.Enter, Key.Enter),
+        (EditKey.Enter, Key.KeypadEnter),
+        (EditKey.Tab, Key.Tab),
+        (EditKey.Up, Key.Up),
+        (EditKey.Down, Key.Down),
+        (EditKey.Left, Key.Left),
+        (EditKey.Right, Key.Right),
+        (EditKey.Escape, Key.Escape),
+        (EditKey.Console, Key.GraveAccent),
+    ];
+
     private readonly IWindow _window;
+    /// <summary>How far the pointer may travel between press and release and still be a click.</summary>
+    private const float DragThreshold = 4f;
+
+    /// <summary>How long a second click may take to arrive and still pair, in seconds.</summary>
+    /// <remarks>
+    /// Windows' own default. Worth matching rather than choosing, because a player's idea
+    /// of how fast a double-click is comes from the rest of their machine.
+    /// </remarks>
+    private const double DoubleClickWindow = 0.5;
+
+    /// <summary>How far apart two clicks may land and still pair, in pixels.</summary>
+    /// <remarks>
+    /// Two clicks at opposite ends of the room are two decisions, however quickly they were
+    /// made. Looser than <see cref="DragThreshold"/>: a hand that is hurrying wanders.
+    /// </remarks>
+    private const float DoubleClickDistance = 8f;
+
     private readonly HashSet<CameraAction> _pressed = [];
+    private readonly HashSet<PointerButton> _clicked = [];
+    private readonly HashSet<PointerButton> _doubleClicked = [];
+    private readonly HashSet<EditKey> _edits = [];
+    private readonly System.Text.StringBuilder _typed = new();
+    private readonly Dictionary<PointerButton, (double At, Vector2 Where)> _lastClick = [];
     private IInputContext? _input;
     private IKeyboard? _keyboard;
     private IMouse? _mouse;
     private Vector2 _pointerDelta;
     private Vector2 _lastPointer;
+    private Vector2 _pressedAt;
+    private int _scroll;
     private bool _hasPointer;
 
     private SilkGameWindow(IWindow window)
@@ -172,9 +227,37 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     public Vector2 PointerDelta => _pointerDelta;
 
     /// <inheritdoc/>
+    public Vector2 PointerPosition => _lastPointer;
+
+    /// <inheritdoc/>
+    public bool WasClicked(PointerButton button) => _clicked.Contains(button);
+
+    /// <inheritdoc />
+    public bool WasDoubleClicked(PointerButton button) => _doubleClicked.Contains(button);
+
+    /// <inheritdoc />
+    public string Typed => _typed.ToString();
+
+    /// <inheritdoc />
+    public bool WasPressed(EditKey key) => _edits.Contains(key);
+
+    /// <inheritdoc/>
+    public int ScrollDelta => _scroll;
+
+    /// <inheritdoc/>
     public bool IsDragging =>
         _mouse is not null &&
         (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
+
+    /// <inheritdoc/>
+    public bool IsHeld(PointerButton button) =>
+        _mouse is not null &&
+        _mouse.IsButtonPressed(button switch
+        {
+            PointerButton.Secondary => MouseButton.Right,
+            PointerButton.Middle => MouseButton.Middle,
+            _ => MouseButton.Left,
+        });
 
     /// <inheritdoc/>
     public bool IsHeld(CameraAction action) =>
@@ -189,7 +272,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     public void EndFrame()
     {
         _pressed.Clear();
+        _clicked.Clear();
+        _doubleClicked.Clear();
+        _edits.Clear();
+        _typed.Clear();
         _pointerDelta = Vector2.Zero;
+        _scroll = 0;
     }
 
     /// <inheritdoc/>
@@ -232,10 +320,94 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         _keyboard = _input.Keyboards.Count > 0 ? _input.Keyboards[0] : null;
         _mouse = _input.Mice.Count > 0 ? _input.Mice[0] : null;
 
+        if (_mouse is not null)
+        {
+            // A click is only a click if the pointer did not travel while the button was
+            // down. Dragging to look around passes over every noun between where it
+            // started and where it stopped, and acting on the one it happens to end over
+            // is not what the player asked for.
+            _mouse.MouseDown += (_, _) =>
+            {
+                _pressedAt = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+            };
+
+            _mouse.Scroll += (_, wheel) =>
+            {
+                // Rounded away from zero, so the smallest turn a trackpad reports still
+                // counts as one notch rather than being lost.
+                _scroll += Math.Sign(wheel.Y) * (int)Math.Ceiling(Math.Abs(wheel.Y));
+            };
+
+            _mouse.MouseUp += (_, mouseButton) =>
+            {
+                var at = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+
+                if ((at - _pressedAt).Length() > DragThreshold)
+                {
+                    return;
+                }
+
+                PointerButton? which = mouseButton switch
+                {
+                    MouseButton.Left => PointerButton.Primary,
+                    MouseButton.Right => PointerButton.Secondary,
+                    MouseButton.Middle => PointerButton.Middle,
+                    _ => null,
+                };
+
+                if (which is not { } button)
+                {
+                    return;
+                }
+
+                _clicked.Add(button);
+
+                // The window's own clock, which is the one this layer is allowed to read.
+                double now = _window.Time;
+
+                if (_lastClick.TryGetValue(button, out (double At, Vector2 Where) previous) &&
+                    now - previous.At <= DoubleClickWindow &&
+                    (at - previous.Where).Length() <= DoubleClickDistance)
+                {
+                    _doubleClicked.Add(button);
+
+                    // Forgotten, so a third click in quick succession starts a new pair
+                    // rather than making every click after the second a double one.
+                    _lastClick.Remove(button);
+                }
+                else
+                {
+                    _lastClick[button] = (now, at);
+                }
+            };
+        }
+
         if (_keyboard is not null)
         {
+            // What the player meant to write, with the layout and the shift state already
+            // applied by the platform. Reconstructing this from key codes is how a console
+            // ends up working on one keyboard layout and no others.
+            _keyboard.KeyChar += (_, c) =>
+            {
+                if (c >= ' ' && c != (char)127)
+                {
+                    _typed.Append(c);
+                }
+            };
+
             _keyboard.KeyDown += (_, key, _) =>
             {
+                // Recorded whether or not anything is reading them. Which of the two
+                // meanings a key has — a camera action or an edit — is decided by whoever
+                // is listening this frame, and a console that is open takes the keyboard.
+                foreach ((EditKey edit, Key which) in Editing)
+                {
+                    if (key == which)
+                    {
+                        _edits.Add(edit);
+                    }
+                }
+
                 foreach ((CameraAction action, Key[] keys) in Bindings)
                 {
                     if (Array.IndexOf(keys, key) >= 0)

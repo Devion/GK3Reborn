@@ -1,4 +1,4 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using GK3Reborn.Sheep;
 using Xunit;
 
@@ -108,8 +108,94 @@ public sealed class Gk3SheepApiTests
         api.Invoke("SetFlag", [Str("metJean")]);
         Assert.Equal(1, api.Invoke("GetFlag", [Str("metjean")]).AsInt());
 
-        api.Invoke("ChangeScore", [Num(25)]);
+        // ChangeScore takes the *name* of a score event, not a number: reading it as one
+        // awards nothing, which is what it did for every one of the corpus's 321 calls.
+        api.Scores = ScoreEvents.Parse("[SCORES]" + Environment.NewLine + "e_test_event = 25");
+
+        api.Invoke("ChangeScore", [Str("e_test_event")]);
         Assert.Equal(25, state.Score);
+
+        // And once. The same call is made every time the player does the thing.
+        api.Invoke("ChangeScore", [Str("e_test_event")]);
+        Assert.Equal(25, state.Score);
+
+        // A name the table does not have scores nothing rather than guessing.
+        api.Invoke("ChangeScore", [Str("e_no_such_event")]);
+        Assert.Equal(25, state.Score);
+
+        // IncreaseScore is the one that takes a number.
+        api.Invoke("IncreaseScore", [Num(5)]);
+        Assert.Equal(30, state.Score);
+    }
+
+    [Theory]
+    [InlineData("110A", 1, 10, false)]
+    [InlineData("102P", 1, 2, true)]
+    [InlineData("202p", 2, 2, true)]
+    [InlineData("312P", 3, 12, true)]
+    public void A_timeblock_code_survives_a_round_trip(string code, int day, int hour, bool afternoon)
+    {
+        Assert.True(Timeblock.TryParse(code, out Timeblock timeblock));
+
+        Assert.Equal(new Timeblock(day, hour, afternoon), timeblock);
+
+        // The hour is two digits. Scripts compare against this string, so an unpadded
+        // "22P" makes every IsCurrentTime("202p") false and silently loads the wrong
+        // state of every scene.
+        Assert.Equal(code.ToUpperInvariant(), timeblock.ToString());
+    }
+
+    [Fact]
+    public void Visits_are_counted_per_actor_per_location_per_timeblock()
+    {
+        var state = new GameState { Timeblock = new Timeblock(2, 2, IsAfternoon: true), Ego = "GABRIEL" };
+
+        state.EnterLocation("GABRIEL", "R25");
+        state.EnterLocation("GABRIEL", "HAL");
+        state.EnterLocation("GABRIEL", "R25");
+
+        Assert.Equal(2, state.GetLocationCount("GABRIEL", "R25"));
+        Assert.Equal(0, state.GetLocationCount("GRACE", "R25"));
+
+        // A different timeblock is a different count, which is what the scene files ask
+        // about: "first time here this afternoon", not "first time here at all".
+        state.Timeblock = new Timeblock(3, 3, IsAfternoon: true);
+        Assert.Equal(0, state.GetLocationCount("GABRIEL", "R25"));
+        Assert.True(state.WasEverInLocation("GABRIEL", "R25"));
+        Assert.False(state.WasEverInLocation("GABRIEL", "CHU"));
+    }
+
+    [Fact]
+    public void Arriving_somewhere_makes_the_place_left_behind_the_last_location()
+    {
+        var state = new GameState { Ego = "GABRIEL" };
+
+        state.EnterLocation("GABRIEL", "R25");
+        Assert.Equal("R25", state.Location);
+        Assert.Equal(string.Empty, state.LastLocation);
+
+        state.EnterLocation("GABRIEL", "HAL");
+        Assert.Equal("HAL", state.Location);
+        Assert.Equal("R25", state.LastLocation);
+
+        // Arriving where you already are is not a move; the original goes out of its way
+        // to keep location and last location distinct.
+        state.EnterLocation("GABRIEL", "HAL");
+        Assert.Equal("R25", state.LastLocation);
+        Assert.Equal(2, state.GetLocationCount("GABRIEL", "HAL"));
+    }
+
+    [Fact]
+    public void An_actor_who_is_not_ego_moves_without_moving_the_player()
+    {
+        var state = new GameState { Ego = "GABRIEL" };
+        state.EnterLocation("GABRIEL", "R25");
+
+        state.EnterLocation("GRACE", "CHU");
+
+        Assert.Equal("R25", state.Location);
+        Assert.Equal("CHU", state.GetActorLocation("GRACE"));
+        Assert.Equal(1, state.GetLocationCount("GRACE", "CHU"));
     }
 
     [Fact]

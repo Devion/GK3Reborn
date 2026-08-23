@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Content.Manifests;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
@@ -29,6 +29,14 @@ public static class Program
         {
             PrintUsage();
             return args.Length == 0 ? 1 : 0;
+        }
+
+        // Parsed by the pack commands themselves: they carry a dozen flags of their own,
+        // and putting all of them into the record every other command shares would make
+        // those commands' help worse to no purpose.
+        if (Stages.PackCommands.Commands.Contains(args[0], StringComparer.Ordinal))
+        {
+            return Stages.PackCommands.Run(args);
         }
 
         Options options = Options.Parse(args);
@@ -70,12 +78,36 @@ public static class Program
             case "sheep":
                 return Sheep(options, diagnostics);
 
+            case "compile-sheep":
+                return CompileSheep(options, diagnostics);
+
             case "actions":
                 return Actions(options, diagnostics);
 
             case "render-model":
             case "render-scene":
                 return Render(options, diagnostics);
+
+            case "check-scenes":
+                return CheckScenes(options, diagnostics);
+
+            case "check-story":
+                return CheckStory(options, diagnostics);
+
+            case "import-textures":
+                return ImportTextures(options, diagnostics);
+
+            case "act-info":
+                return ActInfo(options, diagnostics);
+
+            case "head-solve":
+                return HeadSolve(options, diagnostics);
+
+            case "video-info":
+                return VideoInfo(options, diagnostics);
+
+            case "floor-materials":
+                return FloorMaterials(options, diagnostics);
 
             case "compile-content":
             case "inspect":
@@ -110,12 +142,150 @@ public static class Program
                 output,
                 options.Width,
                 options.Height,
+                options.WalkOverlay,
+                options.WalkPath,
+                options.Pick,
+                options.NounMap,
+                options.Perform,
+                options.Advance,
+                options.Glance,
+                EnhancedDirectory(options),
+                options.Heads,
+                options.Relief,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
-                options.Source, options.Model, output, options.Width, options.Height, diagnostics);
+                options.Source, options.Model, output, options.Width, options.Height,
+                options.Heads, diagnostics);
 
         Report(diagnostics);
         return rendered ? 0 : 3;
+    }
+
+    /// <summary>Where the enhanced textures are, if the caller asked for any.</summary>
+    /// <remarks>
+    /// A relative path is taken from the workspace, because that is where enhanced content
+    /// lives and typing the whole thing every time is how a flag stops being used.
+    /// </remarks>
+    private static string? EnhancedDirectory(Options options)
+    {
+        if (options.Enhanced is not { Length: > 0 } directory)
+        {
+            return null;
+        }
+
+        return Path.IsPathRooted(directory) || options.Workspace is null
+            ? directory
+            : Path.Combine(options.Workspace, directory);
+    }
+
+    private static int ImportTextures(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Workspace is null)
+        {
+            Console.Error.WriteLine("import-textures requires --workspace.");
+            return 2;
+        }
+
+        bool imported = new TextureImportStage(Console.WriteLine).Run(
+            options.Workspace,
+            options.Model ?? "enhanced/textures/imagegen-pilot",
+            options.Variant ?? "_imagegen_2048w",
+            options.Tool ?? "unrecorded",
+            options.Force,
+            diagnostics);
+
+        Report(diagnostics);
+        return imported ? 0 : 3;
+    }
+
+    private static int FloorMaterials(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("floor-materials requires --source.");
+            return 2;
+        }
+
+        bool ok = new FloorMaterialStage(Console.WriteLine).Run(
+            options.Source, options.Workspace, diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
+    }
+
+    private static int VideoInfo(Options options, DiagnosticBag diagnostics)
+    {
+        // Neither is required. With no workspace it reports the packs, which is what a
+        // shipped game has; with no packs it reports the workspace, which is what a
+        // development tree has; with both it reports which of them wins.
+        bool ok = new VideoInfoStage(Console.WriteLine).Run(
+            options.Workspace,
+            options.Packs ?? options.Workspace,
+            options.Model,
+            options.Deep,
+            diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
+    }
+
+    private static int ActInfo(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("act-info requires --source.");
+            return 2;
+        }
+
+        bool clean = new ActInfoStage(Console.WriteLine).Run(
+            options.Source, options.Model, options.Deep, diagnostics);
+
+        Report(diagnostics);
+        return clean ? 0 : 3;
+    }
+
+    private static int HeadSolve(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("head-solve requires --source.");
+            return 2;
+        }
+
+        bool rigid = new HeadSolveStage(Console.WriteLine).Run(
+            options.Source, options.Model, options.Output, diagnostics);
+
+        Report(diagnostics);
+        return rigid ? 0 : 3;
+    }
+
+    private static int CheckScenes(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("check-scenes requires --source.");
+            return 2;
+        }
+
+        bool ok = new SceneCheckStage(Console.WriteLine).Run(
+            options.Source, options.Model, options.Deep, diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
+    }
+
+    private static int CheckStory(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("check-story requires --source.");
+            return 2;
+        }
+
+        bool ok = new StoryCheckStage(Console.WriteLine).Run(options.Source, diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
     }
 
     private static int ImportVideo(Options options, DiagnosticBag diagnostics)
@@ -401,9 +571,38 @@ public static class Program
             $"  {summary.FullyDecoded} decoded completely, {summary.Partial} stopped early, {summary.Failed} failed"));
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"  {summary.DistinctImports} distinct API functions called"));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  {summary.RoundTripped} of {summary.Scripts} written back out and read again identically"));
 
         Report(diagnostics);
         return diagnostics.HasErrors ? 1 : 0;
+    }
+
+    private static int CompileSheep(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Input is null)
+        {
+            Console.Error.WriteLine("compile-sheep requires --input <script.shp source file>.");
+            return 2;
+        }
+
+        var stage = new SheepCompileStage(Console.WriteLine);
+        SheepCompileSummary? summary = stage.Run(
+            options.Input, options.Output, options.Source, diagnostics);
+
+        if (summary is { } made)
+        {
+            Console.WriteLine();
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {made.Functions} function(s), {made.Instructions} instructions, "
+                + $"{made.Bytes} bytes of bytecode"));
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {made.Imports} function(s) called, {made.Strings} string(s), "
+                + $"{made.Variables} symbol(s)"));
+        }
+
+        Report(diagnostics);
+        return summary is null || diagnostics.HasErrors ? 1 : 0;
     }
 
     private static int Actions(Options options, DiagnosticBag diagnostics)
@@ -461,26 +660,99 @@ public static class Program
               lighting-analysis Measure the baked lighting, as evidence for light rigs.
               derive-lighting   Propose a light rig per scene and time of day.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
+              pack-content      Encode the enhanced content to DDS and pack it into the
+                                one or two ReBarn volumes that ship beside the game.
+              pack-list         Say what a ReBarn pack holds.
+              pack-extract      Write a pack's entries back out as loose files.
+              pack-verify       Read every entry and check it against its checksum.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
-              sheep             Disassemble every compiled Sheep script.
+              sheep             Disassemble every compiled Sheep script, gather the
+                                function signatures, and check the writer by reading
+                                every one back.
+              compile-sheep     Compile a Sheep source file to bytecode the game's
+                                own machine runs. --input is the source, --output
+                                the .SHP, --source the game data whose scripts say
+                                what each function takes and returns.
               actions           Read the noun/verb/case files and resolve against them.
               render-model      Render one model from the archives to a PNG.
               render-scene      Render a scene, its props and its lighting, to a PNG.
+              check-story       Walk the story from the first morning to the last
+                                night and report whether it can be finished.
+              check-scenes      Load every scene at every point in the story and
+                                report what came out. --model limits it to one
+                                location.
+              act-info          Read every vertex animation and say what is in them.
+              head-solve        Measure how rigidly every character's head moves.
+              video-info        Say which movies could be played, from the packs or
+                                the workspace, and decode them to prove it.
+              floor-materials   Say which textures the game walks on, from the floor
+                                object every scene names, and how each is finished.
+              import-textures   Check generated texture candidates against the
+                                originals they replace and take the sound ones
+                                into the enhanced set.
 
             options:
               --source <dir>       The game's Data directory. Read only; never modified.
+              --input <file>       The file a command reads.
               --workspace <dir>    Content workspace root. Outputs go to build/.
               --ffmpeg-dir <dir>   Directory containing ffmpeg and ffprobe.
               --force              Redo work even when a cached output is still valid.
+                                   For import-textures it also writes over textures
+                                   already in the enhanced set, which are hand-corrected
+                                   and live outside the repository. Without it, anything
+                                   already there is left exactly as it is.
               --verify             Decompress and validate without writing anything.
               --model NAME         Model or scene to render; the extension is optional.
-              --timeblock M|A|E|N  Which time of day render-scene loads.
+              --timeblock <block>  Which time of day render-scene loads. A story
+                                   timeblock such as 202P decides the scene file's
+                                   conditions and so loads the scene in one state;
+                                   M, A, E or N only picks the bake.
               --camera NAME        Which of the scene's room cameras to render from.
               --rt none|low|med|high  How much ray tracing render-scene does.
               --output PATH        Where render-model writes its PNG.
               --width N            Render width (default 1024).
               --height N           Render height (default 768).
+              --deep               check-scenes also loads geometry, bakes and
+                                   textures, not only what a scene is made of.
+              --variant SUFFIX     Which of each candidate's files import-textures
+                                   takes (default _imagegen_2048w).
+              --no-relief          render-scene leaves the floor flat, drawing its
+                                   height map with the shader alone. What the room
+                                   looked like before displacement, for comparison.
+              --heads N            How far render-model subdivides a character's
+                                   head, 0 to 3. The same refinement the game
+                                   applies, so a before and after can be
+                                   rendered from one command.
+              --tool NAME          What produced the candidates, recorded as
+                                   provenance by import-textures.
+              --texconv PATH       Where texconv.exe is, for pack-content.
+              --cap KIND=N         Longest edge pack-content encodes a kind at, such as
+                                   normals=1024. Colour is never capped by default.
+              --kinds a,b          Which kinds of content a pack command touches.
+              --single-volume      pack-content writes one file rather than two.
+              --dry-run            Report what pack-content would do and write nothing.
+              --enhanced DIR       Textures to use in place of the archives',
+                                   named without extensions. Relative paths are
+                                   taken from --workspace.
+              --walk-overlay       Draw where actors may stand over the floor, shaded
+                                   by region: green is open ground, darkening towards
+                                   the walls, amber for the regions scripts open.
+              --walk-path FROM:TO  Find a way across the boundary and draw it, blue if
+                                   it arrives and red if it could only get near. Each
+                                   end is one of the scene's position names or a pair
+                                   of world coordinates, x,z.
+              --pick X,Y           Report what a click on that pixel would land on.
+              --noun-map PATH      Write a map of what the player can click, one
+                                   colour per noun, from the same camera as the
+                                   render. Grey is scenery with no noun.
+              --do NOUN:VERB       Carry out an action and report what it did.
+                                   Needs --timeblock, since a story state is what
+                                   decides which rule applies.
+              --advance SECONDS    Let that much time pass afterwards and perform
+                                   whatever the story had asked for by then.
+              --glance ACTOR:AT    Turn an actor's head towards another actor, a
+                                   prop or an object in the geometry.
 
             The toolchain never writes to the source installation.
             """);
@@ -492,6 +764,9 @@ public static class Program
         public string? Source { get; init; }
 
         public string? Workspace { get; init; }
+
+        /// <summary>Where the ReBarn volumes are, when they are not beside the workspace.</summary>
+        public string? Packs { get; init; }
 
         public string? FfmpegDirectory { get; init; }
 
@@ -505,9 +780,39 @@ public static class Program
 
         public string? Output { get; init; }
 
+        public string? Input { get; init; }
+
         public int Width { get; init; } = 1024;
 
         public int Height { get; init; } = 768;
+
+        public bool Deep { get; init; }
+
+        public bool WalkOverlay { get; init; }
+
+        public string? WalkPath { get; init; }
+
+        public string? Pick { get; init; }
+
+        public string? NounMap { get; init; }
+
+        public string? Perform { get; init; }
+
+        public double Advance { get; init; }
+
+        public string? Glance { get; init; }
+
+        public string? Variant { get; init; }
+
+        /// <summary>How far render-model subdivides a character's head.</summary>
+        public int Heads { get; init; }
+
+        /// <summary>Whether render-scene cuts the floor's height map into its geometry.</summary>
+        public bool Relief { get; init; } = true;
+
+        public string? Tool { get; init; }
+
+        public string? Enhanced { get; init; }
 
         public bool Force { get; init; }
 
@@ -522,8 +827,23 @@ public static class Program
         public static Options Parse(string[] args)
         {
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
+            string? packs = null;
+            string? input = null;
             string? timeblock = null, camera = null, rayTracing = null;
             int width = 1024, height = 768;
+            bool deep = false;
+            bool walkOverlay = false;
+            string? walkPath = null;
+            string? pick = null;
+            string? nounMap = null;
+            string? perform = null;
+            double advance = 0;
+            string? glance = null;
+            string? variant = null;
+            int heads = 0;
+            bool relief = true;
+            string? tool = null;
+            string? enhanced = null;
             bool force = false;
             bool verify = false;
             bool execute = false;
@@ -536,12 +856,20 @@ public static class Program
                     case "--source" when i + 1 < args.Length:
                         source = args[++i];
                         break;
+                    case "--packs" when i + 1 < args.Length:
+                        packs = args[++i];
+                        break;
+
                     case "--workspace" when i + 1 < args.Length:
                         workspace = args[++i];
                         break;
                     case "--ffmpeg-dir" when i + 1 < args.Length:
                         ffmpeg = args[++i];
                         break;
+                    case "--no-relief":
+                        relief = false;
+                        break;
+
                     case "--force":
                         force = true;
                         break;
@@ -566,6 +894,10 @@ public static class Program
                     case "--model" when i + 1 < args.Length:
                         model = args[++i];
                         break;
+                    case "--input" when i + 1 < args.Length:
+                        input = args[++i];
+                        break;
+
                     case "--output" when i + 1 < args.Length:
                         output = args[++i];
                         break;
@@ -574,6 +906,43 @@ public static class Program
                         break;
                     case "--height" when i + 1 < args.Length:
                         height = int.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
+                    case "--deep":
+                        deep = true;
+                        break;
+                    case "--walk-overlay":
+                        walkOverlay = true;
+                        break;
+                    case "--walk-path" when i + 1 < args.Length:
+                        walkPath = args[++i];
+                        break;
+                    case "--pick" when i + 1 < args.Length:
+                        pick = args[++i];
+                        break;
+                    case "--noun-map" when i + 1 < args.Length:
+                        nounMap = args[++i];
+                        break;
+                    case "--do" when i + 1 < args.Length:
+                        perform = args[++i];
+                        break;
+                    case "--advance" when i + 1 < args.Length:
+                        advance = double.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
+                    case "--glance" when i + 1 < args.Length:
+                        glance = args[++i];
+                        break;
+                    case "--variant" when i + 1 < args.Length:
+                        variant = args[++i];
+                        break;
+                    case "--heads" when i + 1 < args.Length:
+                        heads = int.TryParse(
+                            args[++i], CultureInfo.InvariantCulture, out int levels) ? levels : 0;
+                        break;
+                    case "--tool" when i + 1 < args.Length:
+                        tool = args[++i];
+                        break;
+                    case "--enhanced" when i + 1 < args.Length:
+                        enhanced = args[++i];
                         break;
                     default:
                         return new Options { Error = $"Unrecognized or incomplete argument: {args[i]}" };
@@ -585,6 +954,7 @@ public static class Program
                 Command = args[0],
                 Source = source,
                 Workspace = workspace,
+                Packs = packs,
                 FfmpegDirectory = ffmpeg,
                 Force = force,
                 Verify = verify,
@@ -595,8 +965,22 @@ public static class Program
                 Camera = camera,
                 RayTracing = rayTracing,
                 Output = output,
+                Input = input,
                 Width = width,
                 Height = height,
+                Deep = deep,
+                WalkOverlay = walkOverlay,
+                WalkPath = walkPath,
+                Pick = pick,
+                NounMap = nounMap,
+                Perform = perform,
+                Advance = advance,
+                Glance = glance,
+                Variant = variant,
+                Heads = heads,
+                Relief = relief,
+                Tool = tool,
+                Enhanced = enhanced,
             };
         }
     }

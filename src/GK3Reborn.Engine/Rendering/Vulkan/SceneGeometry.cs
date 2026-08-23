@@ -1,9 +1,10 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Rendering.Materials;
 using Silk.NET.Vulkan;
 
 namespace GK3Reborn.Rendering.Vulkan;
@@ -34,31 +35,108 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     private const float LightmapMultiplier = 4.59f;
 
+    /// <summary>How much of a displaced surface's depth is left for the shader to march.</summary>
+    /// <remarks>
+    /// A quarter. The geometry is cut at whatever spacing the triangle budget affords — six
+    /// or seven units on a street — and the field is averaged over a cell before a vertex is
+    /// moved, so what the vertices carry is the part of the relief coarser than that and
+    /// what remains is the part finer. The remainder is nearly all of the field's detail and
+    /// a small share of its amplitude, and this is an estimate of that share rather than a
+    /// measurement: splitting a single map into two bands exactly would mean handing the
+    /// shader the complement of what the geometry took, and there is nowhere to put it.
+    /// </remarks>
+    private const float ResidualRelief = 0.25f;
+
     private readonly VulkanContext _context;
     private readonly MeshPipeline _pipeline;
     private readonly List<Batch> _batches = [];
-    private readonly Dictionary<string, VulkanTexture> _textures = new(StringComparer.OrdinalIgnoreCase);
-    private readonly VulkanTexture _fallbackTexture;
+
+    /// <summary>
+    /// Which batches belong to each of the room's own named objects.
+    /// </summary>
+    /// <remarks>
+    /// The room is one mesh as far as the file is concerned, and a name over a run of its
+    /// surfaces is all that separates the front desk from the wall behind it. Scripts show
+    /// and hide those names 287 times across the corpus — a curtain drawn back, a door that
+    /// becomes a prop for a cutscene — so the batches are cut along the same lines and this
+    /// says which is which.
+    /// </remarks>
+    private readonly Dictionary<string, List<int>> _sceneObjects =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Which batches belong to which mesh of which placed model.</summary>
+    /// <remarks>
+    /// A mesh becomes one batch per submesh, so moving a head means moving all of them
+    /// together. Kept beside the batches rather than inside them because only the handful
+    /// of models that can move ever need it.
+    /// </remarks>
+    private readonly List<Dictionary<int, List<int>>> _placements = [];
+
+    /// <summary>What each placement was, so a mesh can be re-placed from its own space.</summary>
+    private readonly List<(ModFile Model, Matrix4x4 Transform)> _placed = [];
+
+    /// <summary>Shapes given since the last flush, by batch.</summary>
+    private readonly Dictionary<int, IReadOnlyList<Vector3>> _pendingShapes = [];
+
+    /// <summary>Batches whose traced geometry no longer matches what is drawn.</summary>
+    private readonly HashSet<int> _posed = [];
+
+    /// <summary>How many frames the renderer keeps in flight.</summary>
+    /// <remarks>
+    /// Must match <c>VulkanRenderer.FramesInFlight</c>. An animated batch keeps one vertex
+    /// buffer per frame so that writing this frame's pose cannot disturb one the device has
+    /// not finished reading — and one more besides, because the frame still in flight is
+    /// also reading the pose before it, to know how far the surface moved.
+    /// </remarks>
+    private const int FramesInFlight = 2;
+    private readonly TextureCache _textures;
     private readonly VulkanTexture _whiteTexture;
 
-    private readonly HashSet<string> _keyedTextures = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly List<RayTracingMesh> _traceable = [];
+
+    /// <summary>The textures of this room's floor, whose height maps are kept readable.</summary>
+    private readonly HashSet<string> _relief = new(StringComparer.OrdinalIgnoreCase);
 
     private RayTracingScene? _rayTracing;
     private VulkanTexture? _lightmap;
     private IReadOnlyList<Vector4>? _lightmapRegions;
     private DescriptorPool _descriptorPool;
+
+    /// <summary>
+    /// Pools opened after the room was built, for material sets nothing knew it needed.
+    /// </summary>
+    /// <remarks>
+    /// The pool <see cref="Finish"/> creates is sized for exactly the batches the room
+    /// loaded, which is right for everything the loader knows about and wrong the moment a
+    /// face starts moving: repainting a texture is a new combination of images and
+    /// therefore a new set. Each of these holds a block of them, and another is opened when
+    /// one fills, which keeps the common case — a room where nothing repaints — costing
+    /// nothing at all.
+    /// </remarks>
+    private readonly List<DescriptorPool> _extraPools = [];
+
+    /// <summary>How many sets each pool opened after loading holds.</summary>
+    private const int ExtraPoolSets = 64;
+
+    /// <summary>Material sets for repainted surfaces, by what they draw.</summary>
+    /// <remarks>
+    /// Kept because a face comes back to the same mouth shape a dozen times a sentence, and
+    /// a set that is only a handful of image views is far cheaper to keep than to build.
+    /// </remarks>
+    private readonly Dictionary<(string Painted, string Of), DescriptorSet> _repainted =
+        new();
     private Vector3 _minimum = new(float.MaxValue);
     private Vector3 _maximum = new(float.MinValue);
 
-    private SceneGeometry(VulkanContext context, MeshPipeline pipeline)
+    private SceneGeometry(VulkanContext context, MeshPipeline pipeline, TextureCache textures)
     {
         _context = context;
         _pipeline = pipeline;
 
-        // A model referencing a texture the corpus does not contain still has to draw, and
-        // a wrong-looking texture is better than a silently black one.
-        _fallbackTexture = VulkanTexture.Create(context, CheckerBoard());
+        // The renderer's, not this room's. A room that threw its textures away on the way
+        // out spent most of the next room's load getting them back.
+        _textures = textures;
 
         // Bound wherever a batch has no lightmap. Vulkan requires every declared binding to
         // point at something valid even when the shader ignores what it reads.
@@ -66,7 +144,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>Total triangles loaded.</summary>
-    public int TriangleCount => _batches.Sum(b => (int)b.IndexCount / 3);
+    public int TriangleCount => _batches.Where(b => !b.Hidden).Sum(b => (int)b.IndexCount / 3);
+
+    /// <summary>How many triangles are loaded, drawn or not.</summary>
+    /// <remarks>
+    /// The room's hit-test volumes and whatever the story is holding back are in the
+    /// buffers and not in the picture, so the two numbers differ — by 7,000 triangles in
+    /// the lobby. <see cref="TriangleCount"/> is what is drawn, because that is what every
+    /// caller means by it.
+    /// </remarks>
+    public int LoadedTriangleCount => _batches.Sum(b => (int)b.IndexCount / 3);
 
     /// <summary>How many draws a frame costs.</summary>
     public int BatchCount => _batches.Count;
@@ -74,8 +161,32 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Distinct textures uploaded.</summary>
     public int TextureCount => _textures.Count;
 
+    /// <summary>How many of this room's textures the device already had.</summary>
+    public int TexturesReused { get; private set; }
+
     /// <summary>The scene as rays see it, once <see cref="Finish"/> has built it.</summary>
     public RayTracingScene? RayTracing => _rayTracing;
+
+    /// <summary>Whether and how finely a floor's relief becomes geometry.</summary>
+    /// <remarks>
+    /// Set by whoever loads the scene, from the player's own settings. Off, every surface
+    /// takes the path it took before displacement existed.
+    /// </remarks>
+    public ReliefSettings Relief { get; set; } = ReliefSettings.Default;
+
+    /// <summary>How many triangles this room's floor was cut into, or zero.</summary>
+    public int DisplacedTriangles { get; private set; }
+
+    /// <summary>How long an edge of that subdivision is, in world units, or zero.</summary>
+    public float ReliefCell { get; private set; }
+
+    /// <summary>What each texture's surface is like, for the passes that care.</summary>
+    /// <remarks>
+    /// Set by whoever loads the scene. Empty by default, which makes every surface matte
+    /// and every reflection cost nothing.
+    /// </remarks>
+    public Rendering.Materials.SurfaceFinishes Materials { get; set; } =
+        Rendering.Materials.SurfaceFinishes.Empty;
 
     /// <summary>How many triangles are in the ray-traced representation.</summary>
     /// <remarks>
@@ -93,13 +204,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Creates an empty scene.</summary>
     /// <param name="context">Device context.</param>
     /// <param name="pipeline">Pipeline its descriptor sets must match.</param>
+    /// <param name="textures">The device's textures, which outlast any one room.</param>
     /// <returns>The scene.</returns>
-    public static SceneGeometry Create(VulkanContext context, MeshPipeline pipeline)
+    public static SceneGeometry Create(
+        VulkanContext context, MeshPipeline pipeline, TextureCache textures)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pipeline);
+        ArgumentNullException.ThrowIfNull(textures);
 
-        return new SceneGeometry(context, pipeline);
+        return new SceneGeometry(context, pipeline, textures);
     }
 
     /// <summary>Uploads a texture under a name models can reference.</summary>
@@ -109,36 +223,219 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (!_textures.ContainsKey(name))
+        if (_textures.Has(name))
         {
-            // Keying happens before upload so that mip generation never sees the key
-            // colour; see TextureKeying.
-            DecodedImage keyed = TextureKeying.Apply(image);
-
-            if (keyed.HasAlpha)
-            {
-                // Remembered so the geometry using it can be kept out of the acceleration
-                // structure: without an any-hit shader, a keyed surface would cast a solid
-                // shadow from the parts of it that are holes.
-                _keyedTextures.Add(name);
-            }
-
-            _textures[name] = VulkanTexture.Create(_context, keyed);
+            TexturesReused++;
+            return;
         }
+
+        _textures.Add(name, image);
+    }
+
+    /// <summary>The six sides of the room's sky, once it has been given one.</summary>
+    /// <remarks>
+    /// Kept rather than uploaded here: building the pipeline needs the shader compiler and
+    /// the swapchain's formats, which belong to the renderer. The geometry's job is to know
+    /// what the room asked for.
+    /// </remarks>
+    public IReadOnlyList<DecodedImage>? SkyboxFaces { get; private set; }
+
+    /// <summary>How far the sky is turned, in radians.</summary>
+    public float SkyboxAzimuth { get; private set; }
+
+    /// <inheritdoc/>
+    public void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth)
+    {
+        ArgumentNullException.ThrowIfNull(faces);
+
+        SkyboxFaces = faces;
+        SkyboxAzimuth = azimuth;
+    }
+
+    /// <inheritdoc/>
+    public void AddNormalMap(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddNormal(name, image);
+    }
+
+    /// <inheritdoc/>
+    public void AddTexture(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_textures.Has(name))
+        {
+            TexturesReused++;
+            return;
+        }
+
+        _textures.Add(name, image);
+    }
+
+    /// <inheritdoc/>
+    public void AddNormalMap(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddNormal(name, image);
+    }
+
+    /// <inheritdoc/>
+    public void AddOrmMap(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddOrm(name, image);
+    }
+
+    /// <inheritdoc/>
+    public void AddOrmMap(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddOrm(name, image);
+    }
+
+    /// <inheritdoc/>
+    public bool HasOrmMap(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _textures.HasOrm(name);
+    }
+
+    /// <inheritdoc/>
+    public void AddHeightMap(string name, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddHeight(name, image, _relief.Contains(name));
+    }
+
+    /// <inheritdoc/>
+    public void AddHeightMap(string name, CompressedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        _textures.AddHeight(name, image, _relief.Contains(name));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A map that is here as a picture but not as numbers is not here, for a floor that
+    /// wants to be displaced: the room before this one uploaded it and had no reason to
+    /// keep a readable copy, and the only way to get one is to read the file again.
+    /// </remarks>
+    public bool HasHeightMap(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _textures.HasHeight(name) &&
+               (!_relief.Contains(name) || _textures.HasField(name));
+    }
+
+    /// <inheritdoc/>
+    public void KeepRelief(IReadOnlySet<string> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+
+        _relief.Clear();
+
+        foreach (string texture in textures)
+        {
+            _relief.Add(texture);
+        }
+    }
+
+    /// <summary>The material constants for one batch's texture.</summary>
+    /// <remarks>
+    /// Scalars, and a map multiplies them rather than replacing them — which is what makes
+    /// a corrected roughness in the edit layer still mean something once a generated map
+    /// arrives for the same surface. The neutral map is all ones in the two channels that
+    /// multiply, so a surface with no map gets its measured finish unchanged.
+    /// </remarks>
+    private Vector4 MaterialOf(string texture)
+    {
+        SurfaceFinish finish = Materials.Of(texture);
+
+        // Zero reflectance where there is nothing to shade with, which switches the
+        // specular lobe off for that surface. The library's roughness and metalness are a
+        // classifier's guess at median confidence 0.32, and GK3's diffuse textures already
+        // have their highlights painted in — so a physical lobe over a painted one counts
+        // the same light twice and reads as plastic. A generated map is a measurement of
+        // the surface, and a hand correction is somebody's judgement of it; either earns
+        // the lobe, a guess does not.
+        bool measured = _textures.HasOrm(texture);
+        float reflectance = measured || finish.Authored ? finish.Specular : 0f;
+
+        // Negative roughness says "this number is the answer, ignore the map's". The sign
+        // is free because roughness is clamped to at least 0.03, and it is how a person's
+        // correction outranks a generated map for the same surface — which is the one
+        // thing the edit layer most needs to be able to do. See SurfaceFinish.
+        float roughness = finish.Authored ? -finish.Roughness : finish.Roughness;
+
+        return new Vector4(
+            roughness, finish.Metallic, reflectance, finish.NormalStrength);
+    }
+
+    /// <inheritdoc/>
+    public bool HasNormalMap(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _textures.HasNormal(name);
+    }
+
+    /// <summary>Roughly how much video memory the resident textures take.</summary>
+    public long TextureDeviceBytes => _textures.DeviceBytes;
+
+    /// <summary>How many of this room's surfaces have a normal map.</summary>
+    public int NormalMapCount => _textures.NormalCount;
+
+    /// <inheritdoc/>
+    public bool HasTexture(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (!_textures.Has(name))
+        {
+            return false;
+        }
+
+        TexturesReused++;
+        return true;
     }
 
     /// <summary>Loads a model.</summary>
     /// <param name="model">The parsed model.</param>
     /// <param name="transform">Where to place it, or null for its authored position.</param>
-    public void Add(ModFile model, Matrix4x4? transform = null)
+    /// <param name="meshTurns">Extra rotations for particular meshes, about their own origins.</param>
+    public ModelPlacement Add(
+        ModFile model,
+        Matrix4x4? transform = null,
+        IReadOnlyDictionary<int, Matrix4x4>? meshTurns = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
         Matrix4x4 placement = transform ?? Matrix4x4.Identity;
+        Dictionary<int, List<int>> batches = [];
+        _placements.Add(batches);
 
-        foreach (ModMesh mesh in model.Meshes)
+        for (int index = 0; index < model.Meshes.Count; index++)
         {
-            Matrix4x4 meshToWorld = mesh.MeshToLocal * placement;
+            ModMesh mesh = model.Meshes[index];
+
+            // Before the mesh's own transform, so the turn happens about the mesh's origin
+            // - which for a head is where the neck is, because that is where the artist
+            // put it - rather than about the model's feet.
+            Matrix4x4 meshToLocal =
+                meshTurns is not null && meshTurns.TryGetValue(index, out Matrix4x4 turn)
+                    ? turn * mesh.MeshToLocal
+                    : mesh.MeshToLocal;
+
+            Matrix4x4 meshToWorld = meshToLocal * placement;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {
@@ -148,7 +445,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 }
 
                 MeshVertex[] vertices = new MeshVertex[submesh.Positions.Length];
-                var world = new Vector3[submesh.Positions.Length];
+                // In the model's own space rather than the room's, and placed by the
+                // instance transform instead. Baked into world space, an actor's shadow
+                // stays wherever they were standing when the room loaded: it does not
+                // follow them when they walk, and outdoors, where the room stands them
+                // somewhere else on arrival, it is left behind at their authored spot.
+                var local = new Vector3[submesh.Positions.Length];
 
                 for (int i = 0; i < vertices.Length; i++)
                 {
@@ -158,11 +460,20 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                         i < submesh.TexCoords.Length ? submesh.TexCoords[i] : Vector2.Zero,
                         Vector2.Zero);
 
-                    world[i] = Vector3.Transform(submesh.Positions[i], meshToWorld);
-                    Grow(world[i]);
+                    local[i] = Vector3.Transform(submesh.Positions[i], meshToLocal);
+                    Grow(Vector3.Transform(submesh.Positions[i], meshToWorld));
                 }
 
-                RecordTraceable(submesh.TextureName, world, submesh.Indices);
+                RecordTraceable(
+                    submesh.TextureName, local, submesh.Indices, _placements.Count);
+
+                if (!batches.TryGetValue(index, out List<int>? owned))
+                {
+                    owned = [];
+                    batches[index] = owned;
+                }
+
+                owned.Add(_batches.Count);
 
                 AddBatch(
                     vertices,
@@ -172,23 +483,438 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     (uint)submesh.Indices.Length,
                     meshToWorld,
                     submesh.TextureName,
-                    useLightmap: false);
+                    useLightmap: false,
+                    selfLit: false,
+                    local: meshToLocal,
+                    isModel: true);
             }
         }
+
+        _placed.Add((model, placement));
+        return new ModelPlacement(_placements.Count - 1);
+    }
+
+    /// <inheritdoc/>
+    public void Repaint(ModelPlacement placement, string texture, string? painted)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        foreach (List<int> batches in _placements[placement.Id].Values)
+        {
+            foreach (int index in batches)
+            {
+                Batch batch = _batches[index];
+
+                if (!batch.TextureName.Equals(texture, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(batch.Painted, painted, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                _batches[index] = batch with
+                {
+                    Painted = painted,
+                    Material = painted is { Length: > 0 } picture
+                        ? MaterialFor(picture, batch.TextureName)
+                        : MaterialFor(batch.TextureName, batch.TextureName),
+                };
+            }
+        }
+    }
+
+    /// <summary>A material set drawing one picture with another surface's normal map.</summary>
+    /// <remarks>
+    /// Never a lightmap: only the room's own geometry is baked, and the only things that
+    /// repaint are models. Cached, because a talking face comes back to the same eight
+    /// mouth shapes over and over.
+    /// </remarks>
+    private DescriptorSet MaterialFor(string picture, string surface)
+    {
+        if (_repainted.TryGetValue((picture, surface), out DescriptorSet known))
+        {
+            return known;
+        }
+
+        DescriptorSet made = CreateMaterialSet(
+            TextureFor(picture),
+            _whiteTexture,
+            _textures.GetNormal(surface),
+            _textures.GetOrm(surface),
+            _textures.GetHeight(surface));
+
+        _repainted[(picture, surface)] = made;
+        return made;
+    }
+
+    private readonly HashSet<int> _invisible = [];
+
+    /// <inheritdoc/>
+    public void SetVisible(ModelPlacement placement, bool visible)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (visible ? !_invisible.Remove(placement.Id) : !_invisible.Add(placement.Id))
+        {
+            return;
+        }
+
+        foreach (List<int> batches in _placements[placement.Id].Values)
+        {
+            foreach (int index in batches)
+            {
+                _batches[index] = _batches[index] with { Hidden = !visible };
+            }
+        }
+
+        // And out of the traced world with it. The parts are numbered from one, because
+        // part zero is the room itself; see RecordTraceable.
+        _rayTracing?.SetTraced(placement.Id + 1, visible);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The vertices do not move; the transform they are drawn with does. That keeps a
+    /// glance to a handful of matrix multiplies a frame and leaves the acceleration
+    /// structure alone — which is also its limit, since a head turned under ray tracing
+    /// still casts the shadow of the head it was.
+    /// </remarks>
+    public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (!_placements[placement.Id].TryGetValue(mesh, out List<int>? batches))
+        {
+            return;
+        }
+
+        (ModFile model, Matrix4x4 where) = _placed[placement.Id];
+
+        if (mesh >= model.Meshes.Count)
+        {
+            return;
+        }
+
+        // On top of the pose the mesh is in now, not the pose the model was authored in.
+        // A clip moves every group of a character and the head is one of them; rebuilding
+        // the head from its rest transform while the rest of the body follows the clip put
+        // it back where the model was placed — which for an absolute move clip, whose
+        // correction carries the authored heading, is the wrong place and the wrong way
+        // round. That was Emilio walking from the lobby door to the bench with his head
+        // twisted a half turn from his shoulders.
+        foreach (int index in batches)
+        {
+            _batches[index] = _batches[index] with
+            {
+                Transform = turn * _batches[index].Local * where,
+            };
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The positions are kept and written into a buffer by <see cref="Flush"/>, not written
+    /// here. A vertex buffer the device may still be reading cannot be overwritten from the
+    /// CPU, and the only place that knows which frame the device has finished with is the
+    /// renderer.
+    /// </remarks>
+    public void ShapeMesh(
+        ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (!_placements[placement.Id].TryGetValue(mesh, out List<int>? batches) ||
+            submesh < 0 || submesh >= batches.Count)
+        {
+            return;
+        }
+
+        _pendingShapes[batches[submesh]] = positions;
+    }
+
+    /// <summary>
+    /// Writes whatever has been reshaped into the buffers for a frame.
+    /// </summary>
+    /// <param name="frame">Which of the frames in flight is about to be recorded.</param>
+    /// <remarks>
+    /// <para>
+    /// One vertex buffer per frame in flight, cycled. Writing a single buffer from the CPU
+    /// while the device is still reading it for an earlier frame gives a character built
+    /// from two different poses at once; waiting for the device instead would give up the
+    /// pipelining that makes it worth having frames in flight at all.
+    /// </para>
+    /// <para>
+    /// A batch is only given animated buffers the first time something reshapes it, so a
+    /// scene where nothing deforms pays nothing.
+    /// </para>
+    /// </remarks>
+    public void Flush(int frame)
+    {
+        if (_pendingShapes.Count == 0)
+        {
+            return;
+        }
+
+        foreach ((int index, IReadOnlyList<Vector3> positions) in _pendingShapes)
+        {
+            Batch batch = _batches[index];
+
+            if (positions.Count != batch.Shape.Length)
+            {
+                continue;
+            }
+
+            VulkanBuffer[] buffers = batch.Animated ?? Animate(index, ref batch);
+            MeshVertex[] shape = batch.Shape;
+
+            for (int i = 0; i < shape.Length; i++)
+            {
+                shape[i] = shape[i] with { Position = positions[i] };
+            }
+
+            int slot = ((frame % buffers.Length) + buffers.Length) % buffers.Length;
+
+            buffers[slot].Write<MeshVertex>(shape);
+
+            // The pose before this one, kept because a motion vector needs where each
+            // vertex was, not only where the model it belongs to was: a character standing
+            // still while it gestures moves nothing but its own vertices.
+            _batches[index] = batch with { Live = buffers[slot], Was = batch.Live ?? buffers[slot] };
+            _posed.Add(index);
+        }
+
+        _pendingShapes.Clear();
+        Retrace();
+    }
+
+    /// <summary>Hands the acceleration structure the vertices now being drawn.</summary>
+    /// <remarks>
+    /// Without this a character's shadow is the shape the model was authored in, wherever
+    /// the animation has actually put them: rays leaving a raised arm start inside a body
+    /// that is still standing at rest, and report themselves as shadowed. It shows as
+    /// smears across whichever parts of them moved.
+    /// </remarks>
+    private void Retrace()
+    {
+        if (_posed.Count == 0 || _rayTracing is null)
+        {
+            return;
+        }
+
+        foreach (int index in _posed)
+        {
+            Batch batch = _batches[index];
+            MeshVertex[] shape = batch.Shape;
+            var placed = new Vector3[shape.Length];
+
+            for (int i = 0; i < shape.Length; i++)
+            {
+                placed[i] = Vector3.Transform(shape[i].Position, batch.Local);
+            }
+
+            _rayTracing.Reshape(index, placed);
+        }
+
+        _posed.Clear();
+    }
+
+    /// <summary>Gives a batch the buffers it needs to be animated.</summary>
+    private VulkanBuffer[] Animate(int index, ref Batch batch)
+    {
+        VulkanBuffer[] buffers = new VulkanBuffer[FramesInFlight + 1];
+
+        for (int i = 0; i < buffers.Length; i++)
+        {
+            buffers[i] = VulkanBuffer.CreateHostVisible(
+                _context,
+                (ulong)(batch.Shape.Length * Marshal.SizeOf<MeshVertex>()),
+                BufferUsageFlags.VertexBufferBit);
+        }
+
+        batch = batch with { Animated = buffers };
+        _batches[index] = batch;
+
+        return buffers;
+    }
+
+    /// <inheritdoc/>
+    public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (!_placements[placement.Id].TryGetValue(mesh, out List<int>? batches))
+        {
+            return;
+        }
+
+        Matrix4x4 meshToWorld = meshToLocal * _placed[placement.Id].Transform;
+
+        foreach (int index in batches)
+        {
+            _batches[index] = _batches[index] with
+            {
+                Transform = meshToWorld,
+                Local = meshToLocal,
+            };
+
+            _posed.Add(index);
+        }
+    }
+
+    /// <inheritdoc/>
+    public Matrix4x4 TransformOf(ModelPlacement placement) =>
+        placement.Exists && placement.Id < _placed.Count
+            ? _placed[placement.Id].Item2
+            : Matrix4x4.Identity;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every batch of every mesh is re-placed against the new transform. A mesh that has
+    /// been turned keeps its turn, because the turn is folded in when it is applied and the
+    /// model's own <c>MeshToLocal</c> is what is being rebuilt from — so a head that was
+    /// looking at something goes on looking at it while its owner crosses the room.
+    /// </remarks>
+    public void MoveModel(ModelPlacement placement, Matrix4x4 transform)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        (ModFile model, Matrix4x4 _) = _placed[placement.Id];
+        _placed[placement.Id] = (model, transform);
+
+        // And the shadow with it. The structure holds this model's triangles in the
+        // model's own space, so where it stands is one transform rather than ten thousand
+        // rewritten vertices.
+        _rayTracing?.Move(placement.Id + 1, transform);
+
+        foreach ((int mesh, List<int> batches) in _placements[placement.Id])
+        {
+            if (mesh >= model.Meshes.Count)
+            {
+                continue;
+            }
+
+            Matrix4x4 meshToWorld = model.Meshes[mesh].MeshToLocal * transform;
+
+            foreach (int index in batches)
+            {
+                _batches[index] = _batches[index] with
+                {
+                    Transform = meshToWorld,
+                    Local = model.Meshes[mesh].MeshToLocal,
+                };
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adds a flat, unlit, single-colour mesh drawn over the scene.
+    /// </summary>
+    /// <param name="name">A name for the colour's texture, unique per colour.</param>
+    /// <param name="positions">World-space vertices.</param>
+    /// <param name="indices">Triangles over them.</param>
+    /// <param name="colour">What to draw it in, each channel from zero to one.</param>
+    /// <remarks>
+    /// For diagnostic overlays — the walk boundary is the first — so it deliberately does
+    /// not participate in anything else: no lightmap, no rig, and nothing in the
+    /// acceleration structure, because an overlay that cast shadows would change the
+    /// picture it exists to check.
+    /// </remarks>
+    public void AddOverlay(
+        string name, ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices, Vector3 colour)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (positions.Length == 0 || indices.Length == 0)
+        {
+            return;
+        }
+
+        AddTexture(name, Solid(colour));
+
+        MeshVertex[] vertices = new MeshVertex[positions.Length];
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            // The middle of a one-pixel texture, so filtering has nothing to blend with.
+            vertices[i] = new MeshVertex(positions[i], Vector3.UnitY, new Vector2(0.5f, 0.5f), Vector2.Zero);
+        }
+
+        AddBatch(
+            vertices,
+            VulkanBuffer.CreateDeviceLocal<uint>(_context, indices, BufferUsageFlags.IndexBufferBit),
+            IndexType.Uint32,
+            (uint)indices.Length,
+            Matrix4x4.Identity,
+            name,
+            useLightmap: false,
+            selfLit: true);
+    }
+
+    /// <inheritdoc/>
+    public bool SetSceneObjectVisible(string objectName, bool visible)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        if (!_sceneObjects.TryGetValue(objectName, out List<int>? belonging))
+        {
+            return false;
+        }
+
+        foreach (int index in belonging)
+        {
+            _batches[index] = _batches[index] with { Hidden = !visible };
+        }
+
+        return true;
     }
 
     /// <summary>Loads a scene's geometry.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">The scene's baked lightmaps, in surface order, if any.</param>
     /// <param name="hiddenObjects">Names of objects inside it that must not be drawn.</param>
+    /// <param name="floorObject">
+    /// The object the scene calls its floor, whose surfaces may have their relief cut into
+    /// the geometry rather than only sampled by the shader, or null to displace nothing.
+    /// </param>
     /// <remarks>
+    /// <para>
     /// BSP files carry no normals, so each triangle gets the normal of its own plane. Flat
     /// shading is wrong for the few curved surfaces a scene contains and right for the
     /// walls, floors and doorways that make up nearly all of them, and it invents no
     /// smoothing groups the data never had.
+    /// </para>
+    /// <para>
+    /// The floor is the exception, and has to be: a displaced surface is subdivided, and
+    /// giving every piece of it the plane's normal would make the relief invisible. Those
+    /// pieces carry a normal smoothed across the floor instead. See
+    /// <see cref="ReliefPlan"/>.
+    /// </para>
     /// </remarks>
     public void AddScene(
-        BspFile scene, MulFile? lightmaps = null, IReadOnlySet<string>? hiddenObjects = null)
+        BspFile scene,
+        MulFile? lightmaps = null,
+        IReadOnlySet<string>? hiddenObjects = null,
+        string? floorObject = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
@@ -204,8 +930,44 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _lightmapRegions = atlas.Regions;
         }
 
-        Dictionary<string, (List<MeshVertex> Vertices, List<uint> Indices)> groups =
-            new(StringComparer.OrdinalIgnoreCase);
+        // Which of the room's surfaces can have their relief cut into the geometry, and how
+        // finely this room can afford to cut it. Null when the scene names no floor, when
+        // none of the floor's textures has a height map, or when the setting is off — and
+        // then everything below takes exactly the path it took before any of this existed.
+        ReliefPlan? relief = Relief.Displace
+            ? ReliefPlan.For(scene, floorObject, Deep, Relief.TriangleBudget)
+            : null;
+
+        ReliefCell = relief?.Cell ?? 0f;
+        DisplacedTriangles = 0;
+
+        // Keyed by whether the surface lights itself as well as by texture, because one
+        // texture serves both states: LAMPSHADE is on a shade that the bake lit and on
+        // one that glows on its own.
+        //
+        // And by whether it was displaced, because that is a different draw of the same
+        // texture: geometry that already carries the relief must not also march for it.
+        // CONCRETE is on CSE's forecourt and on its walls, and only the forecourt moved.
+        Dictionary<(string Texture, bool SelfLit, bool Displaced, string Object, bool Hidden),
+                   (List<MeshVertex> Vertices, List<uint> Indices)> groups = [];
+
+        // What a ray can hit, gathered here rather than per batch: the split between
+        // surfaces that block light and surfaces that do not cuts across the texture the
+        // batches are grouped by.
+        List<Vector3> occluders = [];
+        List<uint> occluderIndices = [];
+
+        // Reused across every triangle of the floor rather than allocated per triangle;
+        // there are a quarter of a million of them by the time this is done.
+        List<ReliefVertex> pieces = [];
+        List<int> pieceIndices = [];
+
+        // Which surfaces have already been rounded off and emitted whole, so the polygon
+        // loop below does not emit them a second time triangle by triangle — and which
+        // objects have been considered at all, so one too big to round is decided once
+        // rather than re-gathered for every polygon it owns.
+        HashSet<int> roundedOff = [];
+        HashSet<int> consideredRound = [];
 
         foreach (BspPolygon polygon in scene.Polygons)
         {
@@ -216,23 +978,65 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             BspSurface surface = scene.Surfaces[polygon.SurfaceIndex];
 
-            if (hiddenObjects is { Count: > 0 } &&
-                surface.ObjectIndex >= 0 &&
-                surface.ObjectIndex < scene.ObjectNames.Count &&
-                hiddenObjects.Contains(scene.ObjectNames[surface.ObjectIndex]))
-            {
-                continue;
-            }
+            // Which of the room's named objects this surface belongs to. It goes in the
+            // batch key so that a script can show and hide one of them: the original
+            // renders surface by surface and carries a flag on each, and the closest thing
+            // to that here is a batch nothing else shares.
+            string owner = surface.ObjectIndex >= 0 && surface.ObjectIndex < scene.ObjectNames.Count
+                ? scene.ObjectNames[surface.ObjectIndex]
+                : string.Empty;
+
+            // A hidden object's geometry is still loaded — it is only not drawn. The scene
+            // declares hit-test volumes and things the story brings out later that way, and
+            // dropping their triangles is the mistake this file has made twice before:
+            // there is no showing something that was never read.
+            bool hidden = hiddenObjects is { Count: > 0 } &&
+                          owner.Length > 0 &&
+                          hiddenObjects.Contains(owner);
 
             Vector4 region = _lightmapRegions is not null && polygon.SurfaceIndex < _lightmapRegions.Count
                 ? _lightmapRegions[polygon.SurfaceIndex]
                 : Vector4.Zero;
 
-            if (!groups.TryGetValue(surface.TextureName, out (List<MeshVertex>, List<uint>) group))
+            bool displace = relief is not null && relief.Covers(surface, Deep(surface.TextureName));
+
+            // A round thing, rounded off. The desk bell, the lamps, the vases: small
+            // objects whose whole character is a curve, drawn with the dozen flat faces
+            // 1999 could afford. Rounded as one object across every surface it is made of
+            // — a rim shared between a bell's side and its top has to move, and it can
+            // only move if both are in the same mesh — the first time any of its polygons
+            // comes past. The loop then skips what has been emitted.
+            if (!displace &&
+                !roundedOff.Contains(polygon.SurfaceIndex) &&
+                IsRound(owner) &&
+                consideredRound.Add(surface.ObjectIndex))
+            {
+                RoundOff(
+                    scene, surface.ObjectIndex, hidden, roundedOff,
+                    groups, occluders, occluderIndices);
+            }
+
+            if (roundedOff.Contains(polygon.SurfaceIndex))
+            {
+                continue;
+            }
+
+            (string, bool, bool, string, bool) key =
+                (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, displace, owner, hidden);
+
+            if (!groups.TryGetValue(key, out (List<MeshVertex>, List<uint>) group))
             {
                 group = ([], []);
-                groups[surface.TextureName] = group;
+                groups[key] = group;
             }
+
+            // Nothing that is not drawn may block a ray either. A hit-test volume is a
+            // slab across a doorway with its visibility switched off, and tracing one
+            // stands a wall of shadow in the middle of the room.
+            bool occludes = !hidden &&
+                            surface.CastsShadows &&
+                            !_textures.Keyed.Contains(surface.TextureName) &&
+                            Materials.Of(surface.TextureName).Occludes;
 
             foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
             {
@@ -247,6 +1051,68 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 Vector2 ub = scene.TexCoordFor(b);
                 Vector2 uc = scene.TexCoordFor(c);
 
+                if (displace)
+                {
+                    relief!.Tessellate(
+                        pa, pb, pc, ua, ub, uc,
+                        surface.TextureName,
+                        _textures.FieldFor(surface.TextureName),
+                        Materials.Of(surface.TextureName).HeightDepth,
+                        pieces,
+                        pieceIndices);
+
+                    uint first = (uint)group.Item1.Count;
+
+                    foreach (ReliefVertex piece in pieces)
+                    {
+                        group.Item1.Add(new MeshVertex(
+                            piece.Position,
+                            piece.Normal,
+                            piece.TexCoord,
+                            Lightmap(piece.TexCoord, surface, region)));
+
+                        if (!hidden)
+                        {
+                            Grow(piece.Position);
+                        }
+                    }
+
+                    foreach (int index in pieceIndices)
+                    {
+                        group.Item2.Add(first + (uint)index);
+                    }
+
+                    DisplacedTriangles += pieceIndices.Count / 3;
+
+                    if (occludes)
+                    {
+                        // The cut-up floor, so that a cobble shadows the gutter beside it
+                        // — which is the whole reason to have moved the vertices rather
+                        // than only the texels. Off, it is the flat triangle that goes in,
+                        // and the acceleration structure stays the size it always was.
+                        if (Relief.Trace)
+                        {
+                            int origin = occluders.Count;
+
+                            foreach (ReliefVertex piece in pieces)
+                            {
+                                occluders.Add(piece.Position);
+                            }
+
+                            foreach (int index in pieceIndices)
+                            {
+                                occluderIndices.Add((uint)(origin + index));
+                            }
+                        }
+                        else
+                        {
+                            Occlude(occluders, occluderIndices, pa, pb, pc);
+                        }
+                    }
+
+                    continue;
+                }
+
                 uint at = (uint)group.Item1.Count;
                 group.Item1.Add(new MeshVertex(pa, normal, ua, Lightmap(ua, surface, region)));
                 group.Item1.Add(new MeshVertex(pb, normal, ub, Lightmap(ub, surface, region)));
@@ -255,20 +1121,37 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 group.Item2.Add(at + 1);
                 group.Item2.Add(at + 2);
 
+                if (occludes)
+                {
+                    Occlude(occluders, occluderIndices, pa, pb, pc);
+                }
+
                 Grow(pa);
                 Grow(pb);
                 Grow(pc);
             }
         }
 
-        foreach ((string texture, (List<MeshVertex> vertices, List<uint> indices)) in groups)
+        if (_context.SupportsRayTracing && occluderIndices.Count > 0)
+        {
+            _traceable.Add(new RayTracingMesh([.. occluders], [.. occluderIndices]));
+        }
+
+        foreach (((string texture, bool selfLit, bool displaced, string owner, bool hidden),
+                  (List<MeshVertex> vertices, List<uint> indices)) in groups)
         {
             if (indices.Count > 0)
             {
-                RecordTraceable(
-                    texture,
-                    vertices.Select(v => v.Position).ToArray(),
-                    CollectionsMarshal.AsSpan(indices));
+                if (owner.Length > 0)
+                {
+                    if (!_sceneObjects.TryGetValue(owner, out List<int>? belonging))
+                    {
+                        belonging = [];
+                        _sceneObjects[owner] = belonging;
+                    }
+
+                    belonging.Add(_batches.Count);
+                }
 
                 // Scene batches routinely pass 65,535 vertices: a single wall texture in
                 // the larger scenes covers more geometry than a 16-bit index can address.
@@ -280,13 +1163,209 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     (uint)indices.Count,
                     Matrix4x4.Identity,
                     texture,
-                    useLightmap: true);
+                    useLightmap: true,
+                    selfLit: selfLit,
+                    displaced: displaced,
+                    hidden: hidden);
+            }
+        }
+
+        // Whether this texture's relief is to become geometry: the material says so, it
+        // has depth to give, and its map is here as numbers rather than only as a picture.
+        // All three are required — a floor whose map never arrived cannot be displaced,
+        // and one nothing asked to displace must not be.
+        bool Deep(string texture)
+        {
+            SurfaceFinish finish = Materials.Of(texture);
+
+            return finish.Displaced && finish.HeightDepth > 0f && _textures.HasField(texture);
+        }
+    }
+
+    /// <summary>The names of the room's round things, matched by what they contain.</summary>
+    /// <remarks>
+    /// A curated list rather than a measurement. Curvature could be estimated, and would
+    /// then round off things whose faceting is the point — a cut gem, a timber beam — so
+    /// the things that are round on purpose are named: bells, lamps, lanterns, candles,
+    /// chandeliers, vases and urns.
+    /// </remarks>
+    private static readonly string[] RoundNames =
+        ["bell", "lamp", "lantern", "candle", "chandel", "vase", "urn"];
+
+    /// <summary>Whether an object is one whose silhouette should be a curve.</summary>
+    private static bool IsRound(string owner) =>
+        owner.Length > 0 &&
+        RoundNames.Any(round => owner.Contains(round, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The most triangles an object may hold and still be worth rounding.</summary>
+    /// <remarks>
+    /// Two levels of subdivision are sixteen times the triangles, so five hundred is a cap
+    /// of about eight thousand for one object — a chandelier's worth, not a building's. A
+    /// "lamp" that is really a street of lampposts stays as authored.
+    /// </remarks>
+    private const int RoundBudget = 500;
+
+    /// <summary>
+    /// Rounds one object off across every surface it is made of, and emits it whole.
+    /// </summary>
+    /// <param name="scene">The room.</param>
+    /// <param name="objectIndex">Which of its objects.</param>
+    /// <param name="hidden">Whether the object starts hidden.</param>
+    /// <param name="roundedOff">Receives every surface index this handled.</param>
+    /// <param name="groups">The batches being built.</param>
+    /// <param name="occluders">What a ray can hit.</param>
+    /// <param name="occluderIndices">Its indices.</param>
+    /// <remarks>
+    /// <para>
+    /// See <see cref="ObjectRounding"/> for why the object is welded whole: the rim between
+    /// a bell's side and its top belongs to two surfaces, and refining each alone pins it,
+    /// which is how the first attempt at this left every bell exactly as hexagonal as it
+    /// found it.
+    /// </para>
+    /// <para>
+    /// Each refined triangle is emitted into its own surface's batch, with its lightmap
+    /// coordinate computed from its texture coordinate through that surface's mapping — the
+    /// same arithmetic every unrounded surface uses.
+    /// </para>
+    /// </remarks>
+    private void RoundOff(
+        BspFile scene,
+        int objectIndex,
+        bool hidden,
+        HashSet<int> roundedOff,
+        Dictionary<(string Texture, bool SelfLit, bool Displaced, string Object, bool Hidden),
+                   (List<MeshVertex> Vertices, List<uint> Indices)> groups,
+        List<Vector3> occluders,
+        List<uint> occluderIndices)
+    {
+        string owner = objectIndex >= 0 && objectIndex < scene.ObjectNames.Count
+            ? scene.ObjectNames[objectIndex]
+            : string.Empty;
+
+        // Every triangle of every surface the object owns, with its surface remembered.
+        List<(Vector3, Vector3, Vector3, Vector2, Vector2, Vector2, int)> raw = [];
+        List<int> surfaces = [];
+
+        foreach (BspPolygon polygon in scene.Polygons)
+        {
+            if (polygon.SurfaceIndex < 0 ||
+                polygon.SurfaceIndex >= scene.Surfaces.Count ||
+                scene.Surfaces[polygon.SurfaceIndex].ObjectIndex != objectIndex)
+            {
+                continue;
+            }
+
+            if (!surfaces.Contains(polygon.SurfaceIndex))
+            {
+                surfaces.Add(polygon.SurfaceIndex);
+            }
+
+            foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
+            {
+                raw.Add((
+                    scene.Vertices[a], scene.Vertices[b], scene.Vertices[c],
+                    scene.TexCoordFor(a), scene.TexCoordFor(b), scene.TexCoordFor(c),
+                    polygon.SurfaceIndex));
+            }
+        }
+
+        // Marked handled either way, so a refusal is decided once per object rather than
+        // once per polygon of it.
+        foreach (int index in surfaces)
+        {
+            roundedOff.Add(index);
+        }
+
+        if (raw.Count < 4 || raw.Count > RoundBudget)
+        {
+            if (raw.Count > 0)
+            {
+                foreach (int index in surfaces)
+                {
+                    roundedOff.Remove(index);
+                }
+            }
+
+            return;
+        }
+
+        // Welded for the normals and left exactly where it was authored. Moving the
+        // vertices was tried — two levels of Loop subdivision — and it wrecked what it
+        // touched: a lamp shade's panels sagged inward between their ribs and its rim
+        // spiked, because subdivision rules written for dense meshes pull a coarse open
+        // shell towards its own average. What actually made these objects read as low-poly
+        // was the faceted shading, and smoothing the normals across the welded seams fixes
+        // that without the power to make anything worse.
+        List<Vector3> positions = [];
+        List<RoundedTriangle> welded = ObjectRounding.Weld(raw, positions);
+
+        Vector3[] normals = ObjectRounding.Normals(welded, positions);
+
+        foreach (RoundedTriangle piece in welded)
+        {
+            BspSurface surface = scene.Surfaces[piece.Surface];
+
+            Vector4 region = _lightmapRegions is not null && piece.Surface < _lightmapRegions.Count
+                ? _lightmapRegions[piece.Surface]
+                : Vector4.Zero;
+
+            (string, bool, bool, string, bool) key =
+                (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, false, owner, hidden);
+
+            if (!groups.TryGetValue(key, out (List<MeshVertex> Vertices, List<uint> Indices) group))
+            {
+                group = ([], []);
+                groups[key] = group;
+            }
+
+            foreach (RoundedCorner corner in (ReadOnlySpan<RoundedCorner>)[piece.A, piece.B, piece.C])
+            {
+                group.Indices.Add((uint)group.Vertices.Count);
+                group.Vertices.Add(new MeshVertex(
+                    positions[corner.Position],
+                    normals[corner.Position],
+                    corner.TexCoord,
+                    Lightmap(corner.TexCoord, surface, region)));
+
+                if (!hidden)
+                {
+                    Grow(positions[corner.Position]);
+                }
+            }
+
+            bool occludes = !hidden &&
+                            surface.CastsShadows &&
+                            !_textures.Keyed.Contains(surface.TextureName) &&
+                            Materials.Of(surface.TextureName).Occludes;
+
+            if (occludes)
+            {
+                Occlude(
+                    occluders,
+                    occluderIndices,
+                    positions[piece.A.Position],
+                    positions[piece.B.Position],
+                    positions[piece.C.Position]);
             }
         }
     }
 
+    /// <summary>Records one triangle as something a ray can hit.</summary>
+    private static void Occlude(
+        List<Vector3> occluders, List<uint> indices, Vector3 a, Vector3 b, Vector3 c)
+    {
+        indices.Add((uint)occluders.Count);
+        indices.Add((uint)occluders.Count + 1);
+        indices.Add((uint)occluders.Count + 2);
+
+        occluders.Add(a);
+        occluders.Add(b);
+        occluders.Add(c);
+    }
+
     /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
-    private void RecordTraceable(string texture, Vector3[] positions, ReadOnlySpan<ushort> indices)
+    private void RecordTraceable(
+        string texture, Vector3[] positions, ReadOnlySpan<ushort> indices, int part = 0)
     {
         var widened = new uint[indices.Length];
 
@@ -295,19 +1374,59 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             widened[i] = indices[i];
         }
 
-        RecordTraceable(texture, positions, widened);
+        RecordTraceable(texture, positions, widened, part);
     }
 
     /// <summary>Records a batch's triangles for ray tracing, if it is opaque.</summary>
-    private void RecordTraceable(string texture, Vector3[] positions, ReadOnlySpan<uint> indices)
+    private void RecordTraceable(
+        string texture, Vector3[] positions, ReadOnlySpan<uint> indices, int part = 0)
     {
-        if (!_context.SupportsRayTracing || _keyedTextures.Contains(texture))
+        // Nor anything that is its own light source. A room's own surfaces say so
+        // through the flags the BSP carries; a placed model — which is what most of the
+        // lamps in this game are — says so only here.
+        if (!_context.SupportsRayTracing ||
+            _textures.Keyed.Contains(texture) ||
+            !Materials.Of(texture).Occludes)
         {
             return;
         }
 
-        _traceable.Add(new RayTracingMesh(positions, indices.ToArray()));
+        // Keyed by the batch this is about to become, so that reshaping the batch can
+        // reshape the geometry rays see. Recorded before the batch is added, which is
+        // what makes the count the index it will have.
+        _traceable.Add(new RayTracingMesh(positions, indices.ToArray())
+        {
+            Part = part,
+            Key = _batches.Count,
+        });
     }
+
+    /// <summary>Remembers where everything was drawn, ready for the next frame.</summary>
+    /// <remarks>
+    /// Called after a frame is recorded, not before: what a motion vector needs is where a
+    /// thing was when it was last <em>drawn</em>, and something that moved twice between
+    /// two frames was only ever drawn at the second place.
+    /// </remarks>
+    public void Advance()
+    {
+        for (int i = 0; i < _batches.Count; i++)
+        {
+            if (_batches[i].Previous != _batches[i].Transform)
+            {
+                _batches[i] = _batches[i] with { Previous = _batches[i].Transform };
+            }
+        }
+    }
+
+    /// <summary>Makes the traced world agree with the drawn one, once a frame.</summary>
+    /// <remarks>
+    /// Anything that moved this frame has only been recorded; this is what rebuilds the
+    /// structure that shadows are cast against. Called before the frame traces anything.
+    /// </remarks>
+    public void Settle() => _rayTracing?.Settle();
+
+    /// <summary>How many separately movable things the traced world holds.</summary>
+    public int TraceablePartCount => _rayTracing?.PartCount ?? 0;
 
     /// <summary>Builds the descriptor sets and acceleration structure the batches need.</summary>
     /// <remarks>
@@ -323,10 +1442,18 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         _rayTracing ??= RayTracingScene.Build(_context, _traceable);
 
+        // Whatever was hidden while the room was being built. The structure did not exist
+        // to be told at the time, and a hidden model that still casts a shadow is worse
+        // than one that is simply drawn.
+        foreach (int hidden in _invisible)
+        {
+            _rayTracing?.SetTraced(hidden + 1, false);
+        }
+
         var size = new DescriptorPoolSize
         {
             Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = (uint)(_batches.Count * 2),
+            DescriptorCount = (uint)(_batches.Count * 3),
         };
 
         var poolInfo = new DescriptorPoolCreateInfo
@@ -351,7 +1478,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             {
                 Material = CreateMaterialSet(
                     TextureFor(batch.TextureName),
-                    batch.UseLightmap ? _lightmap ?? _whiteTexture : _whiteTexture),
+                    batch.UseLightmap && !batch.SelfLit ? _lightmap ?? _whiteTexture : _whiteTexture,
+                    _textures.GetNormal(batch.TextureName),
+                    _textures.GetOrm(batch.TextureName),
+                    _textures.GetHeight(batch.TextureName)),
             };
         }
     }
@@ -379,9 +1509,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         Vk vk = _context.Api;
 
+        // Reused for every batch: two vertex streams, both from the start of their buffer.
+        Silk.NET.Vulkan.Buffer* streams = stackalloc Silk.NET.Vulkan.Buffer[2];
+        ulong* offsets = stackalloc ulong[2] { 0, 0 };
+
         foreach (Batch batch in _batches)
         {
-            if (batch.Material.Handle == 0)
+            if (batch.Material.Handle == 0 || batch.Hidden)
             {
                 continue;
             }
@@ -392,12 +1526,45 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             pipeline.PushConstants(command, new DrawConstants(
                 batch.Transform,
+                batch.Previous,
                 new Vector4(
-                    _lightmap is not null && batch.UseLightmap ? 1f : 0f, LightmapMultiplier, 0, 0)));
+                    _lightmap is not null && batch.UseLightmap ? 1f : 0f,
+                    LightmapMultiplier,
+                    // Two flags in one number: 1 for self-lit, 2 for a model standing in
+                    // the room. The second is what lets a shadow ray leaving a character
+                    // skip characters — see RayTracingScene.MaskFor.
+                    (batch.SelfLit ? 1f : 0f) + (batch.IsModel ? 2f : 0f),
 
-            ulong offset = 0;
-            Silk.NET.Vulkan.Buffer vertices = batch.Vertices.Handle;
-            vk.CmdBindVertexBuffers(command, 0, 1, in vertices, in offset);
+                    // How deep this surface's height map goes, and zero where it has none —
+                    // which is what keeps the level map bound in its place from shifting
+                    // every texture in the game by a constant offset.
+                    //
+                    // Reduced where the geometry already carries the relief. The march and
+                    // the vertices read the same field, so a batch that was displaced at
+                    // full depth and marched at full depth has its cobbles twice: once
+                    // where they are and once painted over them. What is left is the part
+                    // of the field finer than a cell, which is most of the field and none
+                    // of its amplitude.
+                    _textures.HasHeight(batch.TextureName)
+                        ? Materials.Of(batch.TextureName).HeightDepth *
+                          (batch.Displaced ? ResidualRelief : 1f)
+                        : 0f),
+
+                // The finish the material library measured for this texture, which is what
+                // the shader uses where no ORM map overrides it. A texture nobody has
+                // measured comes back matte and non-metallic, which is the surface the
+                // renderer assumed before any of this existed.
+                MaterialOf(batch.TextureName)));
+
+            // The animated buffer when something has reshaped this batch, and the one the
+            // model was built with otherwise.
+            // Two streams: this pose and the one before it. A batch nothing has animated
+            // binds the same buffer twice, which is the truth about it — its vertices are
+            // where they have always been, and only its transform can have moved.
+            streams[0] = (batch.Live ?? batch.Vertices).Handle;
+            streams[1] = (batch.Was ?? batch.Live ?? batch.Vertices).Handle;
+
+            vk.CmdBindVertexBuffers(command, 0, 2, streams, offsets);
             vk.CmdBindIndexBuffer(command, batch.Indices.Handle, 0, batch.IndexType);
             vk.CmdDrawIndexed(command, batch.IndexCount, 1, 0, 0, 0);
         }
@@ -422,13 +1589,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _descriptorPool = default;
         }
 
-        foreach (VulkanTexture texture in _textures.Values)
+        foreach (DescriptorPool extra in _extraPools)
         {
-            texture.Dispose();
+            _context.Api.DestroyDescriptorPool(_context.Device, extra, null);
         }
 
-        _textures.Clear();
-        _fallbackTexture.Dispose();
+        _extraPools.Clear();
+        _repainted.Clear();
+
+        // The textures are the renderer's and outlast this room; see TextureCache.
         _whiteTexture.Dispose();
         _lightmap?.Dispose();
         _lightmap = null;
@@ -454,8 +1623,26 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private static DecodedImage Solid(byte level) =>
         new(1, 1, [level, level, level, 255], HasAlpha: false, "solid");
 
+    /// <summary>A one-pixel image of a single colour.</summary>
+    private static DecodedImage Solid(Vector3 colour) =>
+        new(
+            1,
+            1,
+            [Channel(colour.X), Channel(colour.Y), Channel(colour.Z), 255],
+            HasAlpha: false,
+            "solid");
+
+    private static byte Channel(float value) => (byte)Math.Clamp(value * 255f, 0f, 255f);
+
     /// <summary>A visibly wrong texture, so a missing one is obvious rather than silent.</summary>
-    private static DecodedImage CheckerBoard()
+    /// <summary>
+    /// Drawn wherever a model asks for a texture the corpus does not contain.
+    /// </summary>
+    /// <remarks>
+    /// A wrong-looking texture is better than a silently black one: the first is a bug you
+    /// can see, and the second is a room that merely looks badly lit.
+    /// </remarks>
+    internal static DecodedImage CheckerBoard()
     {
         const int Size = 64;
         byte[] pixels = new byte[Size * Size * 4];
@@ -490,41 +1677,122 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         uint indexCount,
         Matrix4x4 transform,
         string texture,
-        bool useLightmap) =>
+        bool useLightmap,
+        bool selfLit = false,
+        Matrix4x4? local = null,
+        bool isModel = false,
+        bool displaced = false,
+        bool hidden = false) =>
         _batches.Add(new Batch
         {
+            Hidden = hidden,
+            // Identity for the room's own geometry, which is already where it belongs.
+            Local = local ?? Matrix4x4.Identity,
             Vertices = VulkanBuffer.CreateDeviceLocal<MeshVertex>(
                 _context, vertices, BufferUsageFlags.VertexBufferBit),
+            Shape = [.. vertices],
             Indices = indices,
             IndexCount = indexCount,
             IndexType = indexType,
             Transform = transform,
+
+            // Where it was is where it is, on the frame it first appears. A zero matrix
+            // here reports the whole screen as having moved half its width.
+            Previous = transform,
             TextureName = texture,
             UseLightmap = useLightmap,
+            SelfLit = selfLit,
+            IsModel = isModel,
+            Displaced = displaced,
         });
 
     private VulkanTexture TextureFor(string name) =>
-        name.Length > 0 && _textures.TryGetValue(name, out VulkanTexture? texture)
-            ? texture
-            : _fallbackTexture;
+        _textures.Get(name);
 
-    private DescriptorSet CreateMaterialSet(VulkanTexture diffuse, VulkanTexture lightmap)
+    /// <summary>Takes a material set from whichever pool still has room.</summary>
+    /// <remarks>
+    /// The room's own pool first, then any opened since, then a new one. Allocation
+    /// failing is how a pool says it is full — Vulkan reports it rather than trapping —
+    /// so it is a case to handle and not an error.
+    /// </remarks>
+    private DescriptorSet Allocate()
     {
         DescriptorSetLayout layout = _pipeline.MaterialLayout;
 
-        var allocateInfo = new DescriptorSetAllocateInfo
+        DescriptorSet? From(DescriptorPool pool)
         {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _descriptorPool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &layout,
+            if (pool.Handle == 0)
+            {
+                return null;
+            }
+
+            DescriptorSetLayout wanted = layout;
+
+            var info = new DescriptorSetAllocateInfo
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = pool,
+                DescriptorSetCount = 1,
+                PSetLayouts = &wanted,
+            };
+
+            return _context.Api.AllocateDescriptorSets(_context.Device, in info, out DescriptorSet set)
+                   == Result.Success
+                ? set
+                : null;
+        }
+
+        if (From(_descriptorPool) is { } fromRoom)
+        {
+            return fromRoom;
+        }
+
+        for (int i = _extraPools.Count - 1; i >= 0; i--)
+        {
+            if (From(_extraPools[i]) is { } fromExtra)
+            {
+                return fromExtra;
+            }
+        }
+
+        var size = new DescriptorPoolSize
+        {
+            Type = DescriptorType.CombinedImageSampler,
+
+            // Five images a set: colour, lightmap, normal, ORM, height. Raised with the
+            // layout, or a pool runs out partway through a room and the sets after it are
+            // never allocated.
+            DescriptorCount = ExtraPoolSets * 5,
         };
 
-        if (_context.Api.AllocateDescriptorSets(_context.Device, in allocateInfo, out DescriptorSet set)
+        var poolInfo = new DescriptorPoolCreateInfo
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &size,
+            MaxSets = ExtraPoolSets,
+        };
+
+        if (_context.Api.CreateDescriptorPool(_context.Device, in poolInfo, null, out DescriptorPool opened)
             != Result.Success)
         {
-            throw new VulkanException("Could not allocate a material descriptor set.");
+            throw new VulkanException("Could not create a descriptor pool.");
         }
+
+        _extraPools.Add(opened);
+
+        return From(opened) ??
+               throw new VulkanException("Could not allocate a material descriptor set.");
+    }
+
+    private DescriptorSet CreateMaterialSet(
+        VulkanTexture diffuse,
+        VulkanTexture lightmap,
+        VulkanTexture normal,
+        VulkanTexture orm,
+        VulkanTexture height)
+    {
+        DescriptorSet set = Allocate();
 
         var diffuseInfo = new DescriptorImageInfo
         {
@@ -540,7 +1808,28 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             Sampler = lightmap.Sampler,
         };
 
-        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[2];
+        var normalInfo = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = normal.View,
+            Sampler = normal.Sampler,
+        };
+
+        var ormInfo = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = orm.View,
+            Sampler = orm.Sampler,
+        };
+
+        var heightInfo = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = height.View,
+            Sampler = height.Sampler,
+        };
+
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[5];
         writes[0] = new WriteDescriptorSet
         {
             SType = StructureType.WriteDescriptorSet,
@@ -560,7 +1849,37 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             PImageInfo = &lightmapInfo,
         };
 
-        _context.Api.UpdateDescriptorSets(_context.Device, 2, writes, 0, null);
+        writes[2] = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = set,
+            DstBinding = 2,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImageInfo = &normalInfo,
+        };
+
+        writes[3] = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = set,
+            DstBinding = 3,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImageInfo = &ormInfo,
+        };
+
+        writes[4] = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = set,
+            DstBinding = 4,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImageInfo = &heightInfo,
+        };
+
+        _context.Api.UpdateDescriptorSets(_context.Device, 5, writes, 0, null);
         return set;
     }
 
@@ -568,6 +1887,26 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private readonly record struct Batch
     {
         public required VulkanBuffer Vertices { get; init; }
+
+        /// <summary>The vertices as the model authored them, reused as scratch when animated.</summary>
+        public required MeshVertex[] Shape { get; init; }
+
+        /// <summary>One buffer per frame in flight, once anything has animated this batch.</summary>
+        public VulkanBuffer[]? Animated { get; init; }
+
+        /// <summary>Whichever animated buffer was written most recently.</summary>
+        public VulkanBuffer? Live { get; init; }
+
+        /// <summary>The pose before that one.</summary>
+        public VulkanBuffer? Was { get; init; }
+
+        /// <summary>This mesh's place within its model.</summary>
+        /// <remarks>
+        /// Rays see one structure per model, placed by one transform, so each mesh's own
+        /// transform has to be folded into the vertices handed to it — which means
+        /// knowing what that transform currently is.
+        /// </remarks>
+        public Matrix4x4 Local { get; init; }
 
         public required VulkanBuffer Indices { get; init; }
 
@@ -577,9 +1916,49 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         public required Matrix4x4 Transform { get; init; }
 
+        /// <summary>Where this batch was drawn last frame.</summary>
+        /// <remarks>
+        /// Half of a motion vector. Advanced at the end of a frame rather than when the
+        /// batch moves, because several things may move it between one drawing and the
+        /// next and what a filter needs is where it actually last appeared.
+        /// </remarks>
+        public Matrix4x4 Previous { get; init; }
+
         public required string TextureName { get; init; }
 
         public required bool UseLightmap { get; init; }
+
+        /// <summary>Whether this batch's relief was cut into its geometry.</summary>
+        public bool Displaced { get; init; }
+
+        /// <summary>The surface carries its own brightness and the bake does not touch it.</summary>
+        public bool SelfLit { get; init; }
+
+        /// <summary>A model standing in the room, rather than the room itself.</summary>
+        /// <remarks>
+        /// Carried through to the shader so a shadow ray leaving this pixel knows to skip
+        /// the models: GK3's people are a stack of overlapping shells and a ray leaving a
+        /// shirt hits the arm inside it. See <see cref="RayTracingScene.MaskFor"/>.
+        /// </remarks>
+        public bool IsModel { get; init; }
+
+        /// <summary>What is drawn on it instead of its own texture, if anything is.</summary>
+        /// <remarks>
+        /// A character's face while they talk or blink. The original texture's name is kept
+        /// beside it because that is what the normal map is filed under, and because
+        /// putting the face back is asking for the model's own picture again.
+        /// </remarks>
+        public string? Painted { get; init; }
+
+        /// <summary>Whether it is kept out of the picture.</summary>
+        /// <remarks>
+        /// A model a scene declares <c>hidden</c>, or one a script has hidden. It is loaded
+        /// and placed either way, because <c>ShowModel</c> is how the story brings it out
+        /// and there is no way to do that with something that was never read. Written the
+        /// negative way round because a batch is a struct and the common case has to be
+        /// the default one.
+        /// </remarks>
+        public bool Hidden { get; init; }
 
         public DescriptorSet Material { get; init; }
     }

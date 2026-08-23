@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
@@ -16,27 +16,70 @@ public readonly record struct MeshVertex(
 
 /// <summary>Constants shared by every draw of a frame.</summary>
 /// <param name="ViewProjection">World to clip space.</param>
+/// <param name="PreviousViewProjection">
+/// The same, as it was last frame. Half of what a motion vector is: where a point that is
+/// here now would have been on the screen a frame ago.
+/// </param>
 /// <param name="LightDirection">Direction the fallback key light travels.</param>
 /// <param name="CameraPosition">Where the eye is, in world space.</param>
 /// <param name="Rays">
 /// Shadowed light count, occlusion rays, rays per shadow, and how much the bake counts.
 /// </param>
-/// <param name="Tuning">Occlusion radius, frame counter, and two spare components.</param>
+/// <param name="Tuning">
+/// Occlusion radius, and three components nothing reads. The second used to be a frame
+/// counter that seeded the sampling noise; it made the grain change every frame, which
+/// with no temporal filter to average it is a pattern crawling across the picture.
+/// </param>
+/// <param name="GridOrigin">
+/// The corner the light grid starts at, and how wide one of its cells is. See
+/// <see cref="SceneLightGrid"/>.
+/// </param>
+/// <param name="GridCounts">
+/// How many cells the grid has along each axis, and how many lights the rig holds in all.
+/// </param>
+/// <param name="Ambient">
+/// The ambient floor in rgb, and in w how much the baked lightmaps shape it. It is tier data rather than a constant
+/// because what it has to stand in for changes: where the baked lightmaps still light the
+/// room it only keeps an unreached corner off black, and where they are gone it is the
+/// whole of what the walls and floor bounce back.
+/// </param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
     Matrix4x4 ViewProjection,
+    Matrix4x4 PreviousViewProjection,
     Vector4 LightDirection,
     Vector4 CameraPosition,
     Vector4 Rays,
-    Vector4 Tuning);
+    Vector4 Tuning,
+    Vector4 GridOrigin,
+    Vector4 GridCounts,
+    Vector4 Ambient);
 
 /// <summary>Constants that change per draw, delivered as push constants.</summary>
 /// <param name="Model">Model to world space.</param>
-/// <param name="Shading">
-/// How to shade: x selects the lightmap over the rig, y scales the lightmap.
+/// <param name="PreviousModel">
+/// The same, as it was last frame. The other half of a motion vector: without it a walking
+/// character reports the movement of the camera and none of his own, which is exactly the
+/// case a temporal filter has to get right.
 /// </param>
+/// <param name="Shading">
+/// How to shade: x selects the lightmap over the rig, y scales the lightmap, z marks a
+/// surface that carries its own brightness, w is how deep its height map goes.
+/// </param>
+/// <param name="Material">
+/// The surface's finish where no map says otherwise: x roughness, y metalness,
+/// z specular reflectance at normal incidence, w how much of the normal map to believe.
+/// </param>
+/// <remarks>
+/// A hundred and sixty bytes, which is past the hundred and twenty-eight Vulkan
+/// guarantees. Every desktop driver this renderer has run on offers 256, and the two
+/// matrices alone were already past the floor — but it is the number to look at first if
+/// a device ever refuses the pipeline layout, and the fix is a uniform buffer rather than
+/// a smaller struct.
+/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
-public readonly record struct DrawConstants(Matrix4x4 Model, Vector4 Shading);
+public readonly record struct DrawConstants(
+    Matrix4x4 Model, Matrix4x4 PreviousModel, Vector4 Shading, Vector4 Material);
 
 /// <summary>
 /// A textured, lit mesh pipeline, optionally with ray tracing compiled in.
@@ -208,7 +251,7 @@ public sealed unsafe class MeshPipeline : IDisposable
 
     private void CreateDescriptorLayouts()
     {
-        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[3];
+        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[5];
         frameBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
@@ -216,16 +259,38 @@ public sealed unsafe class MeshPipeline : IDisposable
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
         };
+        // The rig, and the grid that says which of it reaches where. Storage buffers
+        // rather than uniform ones: a uniform block has to be sized at compile time and
+        // the standard only guarantees 16 KB of it, which is what put a limit of sixty-four
+        // lights on a scene. A storage buffer is unsized on both sides and the loop is
+        // bounded by the cell rather than by the array. See SceneLightGrid.
         frameBindings[1] = new DescriptorSetLayoutBinding
         {
             Binding = 1,
-            DescriptorType = DescriptorType.UniformBuffer,
+            DescriptorType = DescriptorType.StorageBuffer,
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.FragmentBit,
         };
         frameBindings[2] = new DescriptorSetLayoutBinding
         {
             Binding = 2,
+            DescriptorType = DescriptorType.StorageBuffer,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+        frameBindings[3] = new DescriptorSetLayoutBinding
+        {
+            Binding = 3,
+            DescriptorType = DescriptorType.StorageBuffer,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        // Last, so that the count can leave it off on a device that cannot trace. A
+        // binding is not added by writing to it — the count is what the driver reads.
+        frameBindings[4] = new DescriptorSetLayoutBinding
+        {
+            Binding = 4,
             DescriptorType = DescriptorType.AccelerationStructureKhr,
             DescriptorCount = 1,
             StageFlags = ShaderStageFlags.FragmentBit,
@@ -234,7 +299,7 @@ public sealed unsafe class MeshPipeline : IDisposable
         var frameInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = RayTracing ? 3u : 2u,
+            BindingCount = RayTracing ? 5u : 4u,
             PBindings = frameBindings,
         };
 
@@ -243,7 +308,7 @@ public sealed unsafe class MeshPipeline : IDisposable
             throw new VulkanException("Could not create the frame descriptor set layout.");
         }
 
-        DescriptorSetLayoutBinding* materialBindings = stackalloc DescriptorSetLayoutBinding[2];
+        DescriptorSetLayoutBinding* materialBindings = stackalloc DescriptorSetLayoutBinding[5];
         materialBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
@@ -259,10 +324,46 @@ public sealed unsafe class MeshPipeline : IDisposable
             StageFlags = ShaderStageFlags.FragmentBit,
         };
 
+        // A surface's normal map. Every batch binds one — a flat map where there is none —
+        // so a partial set of enhanced materials stays a perfectly good set.
+        materialBindings[2] = new DescriptorSetLayoutBinding
+        {
+            Binding = 2,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        // The surface's packed occlusion, roughness and metalness. Every batch binds one —
+        // a neutral map where there is none — so switching the specular lobe on before the
+        // maps exist changes nothing about what is drawn.
+        materialBindings[3] = new DescriptorSetLayoutBinding
+        {
+            Binding = 3,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        // The surface's height field, for parallax. Bound the same way and for the same
+        // reason: a level map where there is none, and a height scale of zero to go with it.
+        materialBindings[4] = new DescriptorSetLayoutBinding
+        {
+            Binding = 4,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
         var materialInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 2,
+
+            // Raised with the array above and not after it. A binding written into the
+            // array without this count moving is not a binding: the driver does not
+            // complain, it corrupts binding 0, and every surface draws the fallback
+            // checkerboard. That cost a debugging round the first time.
+            BindingCount = 5,
             PBindings = materialBindings,
         };
 
@@ -317,14 +418,22 @@ public sealed unsafe class MeshPipeline : IDisposable
                 PName = (byte*)entryPoint,
             };
 
-            var binding = new VertexInputBindingDescription
-            {
-                Binding = 0,
-                Stride = (uint)Marshal.SizeOf<MeshVertex>(),
-                InputRate = VertexInputRate.Vertex,
-            };
+            // Two bindings over the same kind of vertex: this frame's pose and the last
+            // one. Both are whole MeshVertex streams, and only the position is read from
+            // the second.
+            VertexInputBindingDescription* bindings = stackalloc VertexInputBindingDescription[2];
 
-            VertexInputAttributeDescription* attributes = stackalloc VertexInputAttributeDescription[4];
+            for (int i = 0; i < 2; i++)
+            {
+                bindings[i] = new VertexInputBindingDescription
+                {
+                    Binding = (uint)i,
+                    Stride = (uint)Marshal.SizeOf<MeshVertex>(),
+                    InputRate = VertexInputRate.Vertex,
+                };
+            }
+
+            VertexInputAttributeDescription* attributes = stackalloc VertexInputAttributeDescription[5];
             attributes[0] = new VertexInputAttributeDescription
             {
                 Location = 0, Binding = 0, Format = Format.R32G32B32Sfloat, Offset = 0,
@@ -341,13 +450,17 @@ public sealed unsafe class MeshPipeline : IDisposable
             {
                 Location = 3, Binding = 0, Format = Format.R32G32Sfloat, Offset = 32,
             };
+            attributes[4] = new VertexInputAttributeDescription
+            {
+                Location = 4, Binding = 1, Format = Format.R32G32B32Sfloat, Offset = 0,
+            };
 
             var vertexInput = new PipelineVertexInputStateCreateInfo
             {
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 1,
-                PVertexBindingDescriptions = &binding,
-                VertexAttributeDescriptionCount = 4,
+                VertexBindingDescriptionCount = 2,
+                PVertexBindingDescriptions = bindings,
+                VertexAttributeDescriptionCount = 5,
                 PVertexAttributeDescriptions = attributes,
             };
 
@@ -403,25 +516,42 @@ public sealed unsafe class MeshPipeline : IDisposable
                 DepthCompareOp = CompareOp.Less,
             };
 
-            var blendAttachment = new PipelineColorBlendAttachmentState
+            // Three targets: the picture, the surface normal and how far each pixel moved
+            // since the last frame. A pipeline drawing into a set of attachments has to
+            // describe all of them whether it writes to them or not, which is why the sky
+            // and the interface describe three as well and mask two of them off.
+            const ColorComponentFlags All =
+                ColorComponentFlags.RBit | ColorComponentFlags.GBit |
+                ColorComponentFlags.BBit | ColorComponentFlags.ABit;
+
+            PipelineColorBlendAttachmentState* blendAttachments =
+                stackalloc PipelineColorBlendAttachmentState[(int)GBuffer.Targets];
+
+            for (int i = 0; i < (int)GBuffer.Targets; i++)
             {
-                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit |
-                                 ColorComponentFlags.BBit | ColorComponentFlags.ABit,
-            };
+                blendAttachments[i] = new PipelineColorBlendAttachmentState { ColorWriteMask = All };
+            }
 
             var blend = new PipelineColorBlendStateCreateInfo
             {
                 SType = StructureType.PipelineColorBlendStateCreateInfo,
-                AttachmentCount = 1,
-                PAttachments = &blendAttachment,
+                AttachmentCount = GBuffer.Targets,
+                PAttachments = blendAttachments,
             };
 
-            Format color = colorFormat;
+            Format* colors = stackalloc Format[(int)GBuffer.Targets]
+            {
+                colorFormat,
+                GBuffer.NormalFormat,
+                GBuffer.MotionFormat,
+                GBuffer.LightFormat,
+            };
+
             var rendering = new PipelineRenderingCreateInfo
             {
                 SType = StructureType.PipelineRenderingCreateInfo,
-                ColorAttachmentCount = 1,
-                PColorAttachmentFormats = &color,
+                ColorAttachmentCount = GBuffer.Targets,
+                PColorAttachmentFormats = colors,
                 DepthAttachmentFormat = depthFormat,
             };
 

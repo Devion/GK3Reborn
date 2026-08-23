@@ -1,4 +1,4 @@
-# Compiled Sheep (`.SHP`)
+﻿# Compiled Sheep (`.SHP`)
 
 224 scripts holding the game's logic. The language and its runtime API are specified by
 the original team in `SHEEP ENGINE.DOC` (see [sheep-language.md](sheep-language.md)); the
@@ -234,6 +234,98 @@ state hash, since which character holds what decides whether puzzles can be solv
 place would let a player combine the same pair repeatedly, which is a puzzle-semantics
 question rather than a bookkeeping one.
 
+Noun/verb counts are kept **per character**. Gabriel and Grace investigate the same
+places, and what one of them has already looked at says nothing about the other, so
+`1ST_TIME` means the first time for whoever is being played and `GetNounVerbCount(noun,
+verb)` reads the current ego's. The game has a function whose only purpose is to set both
+at once — `SetNounVerbCountBoth` — which is what gives the distinction away, and what
+opening R25's window calls so the window stays open for whoever walks in next.
+
+Carrying an item and having it **in hand** are different. GK3's inventory screen has one
+item selected at a time, and using an item on something is written in the action files as
+a verb named for the item, so `IsActiveInvItem` asks which of the things in the bag is the
+one about to be used. `SetEgoActiveInvItem` puts it there — not refused when the character
+is not carrying it, because the original logs a warning and does it anyway and scripts
+rely on that. Removing an item empties the hand that held it.
+
+## The six the corpus asked for and nothing answered
+
+`check-scenes` names every function a scene calls and no host implements. Six came from
+the action files' own case conditions, where an unimplemented function returns zero and
+warns once — so the condition reads as false, the action leaves the game, and nothing says
+so at the point it matters.
+
+| function | what it asks |
+| --- | --- |
+| `IsActiveInvItem` | is this the item in ego's hand |
+| `DoesSidneyFileExist` | has the player gathered this evidence in Sidney, the in-game computer |
+| `GetNounVerbCountInt`, `GetTopicCountInt` | the same counts as the named forms |
+| `GetRandomInt` | a number in a range, both ends inclusive |
+| `IsTopLayerInventory` | is the inventory screen on top |
+
+The `Int` forms exist because the original numbers nouns and verbs: its script host can
+only pass integers between a case and a function, so `n$` and `v$` are indices into the
+action manager's tables. Here they carry the names themselves, so the two spellings ask
+the same question and the suffix is only history.
+
+`GetRandomInt` is drawn from the state's own generator, seeded fixed — ADR 0004 forbids
+ambient nondeterminism in engine code, and the differential harness compares two runs of
+the same story. How many numbers have been drawn is part of the state hash: two runs that
+have drawn a different number of times will disagree about everything random from then
+on, and that should show up at once rather than at the first visible consequence.
+
+Sidney's files and the item in hand are in the hash for the same reason. Nothing writes
+Sidney's files yet — that is the analysis screen — so it reads as an investigation nobody
+has started, and `IsTopLayerInventory` is answered no because there is no inventory screen
+to be on top of.
+
 Together these took the unimplemented surface from 80 functions to 71, and faults across
 the whole corpus from 4 to 1 — `CallSheep` doing real work means the loops that poll for
-its effects now terminate.
+its effects now terminate. With the six above, `check-scenes` reports that every function
+the scene files and their action files call is implemented.
+
+## Writing them, and compiling them
+
+The reader has an inverse. `SheepScriptWriter` puts a `SheepScriptFile` back in the
+container, and that is the only way to check the container is understood: a format
+half-read reads the game's own files perfectly well and produces something nothing else
+can open.
+
+All 224 shipped scripts survive being written out and read again — the imports and their
+signatures, the string pool at the offsets the bytecode names, the variables, the function
+offsets and the code. `sheep` reports it.
+
+The section header is worth writing down because the reader skips most of it. Twelve bytes
+of name, then **the header's own size written twice**, then the size of the body, then the
+number of entries, then their offsets. Every section of every shipped script declares
+`12 + 16 + 4 × entries` in both size fields. The file header is `28 + 4 × sections`, and
+that is what every section offset is measured from.
+
+A section with nothing in it is **left out** rather than written empty: 206 scripts declare
+no variables and carry four sections, and the 17 that do carry five. One script — the odd
+one out — carries only `StringConsts`.
+
+And there is a compiler now, which is P4's headline deliverable. See `sheep-compiler.md`.
+
+## The API surface, closed
+
+`SHEEP ENGINE.DOC` specifies 359 function entries, of which 305 parse cleanly: 174
+`DEVELOPMENT`, 81 `IMMEDIATE`, 49 `WAIT`. The conformance surface for *completing the game*
+is the last two — 130 functions — and the game's own scripts call 139, which is neither a
+subset nor a superset of it.
+
+Both are now covered. Of the 139 the game calls, 90 are performed and 49 are recorded; none
+is unanswered. All 130 of the specification's gameplay functions are answered.
+
+The distinction matters more for questions than for instructions. An unperformed
+instruction is a moment that does not happen; an **unanswered question** is a script
+branching on a silent zero and everything after it being wrong for a reason nothing
+records. `DoesActorExist`, `DoesModelExist`, `IsCameraGlideEnabled` and `GetChatCountInt`
+were all in the second class.
+
+`Call` was the largest single gap at 190 uses. It calls a function of the script that is
+already running, and the host is handed a name with no context — so the context is the
+machine's: `SheepVirtualMachine.Current` is the thread being stepped, and it knows which
+script it belongs to. ARM202P cuts between `Gabe_CU$`, `Mose_CU$`, `TwoShot$` and
+`Overview$` that way, so leaving it recorded was a scene playing with its camera never
+moving.

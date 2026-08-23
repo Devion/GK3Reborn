@@ -54,6 +54,10 @@ public sealed unsafe class VulkanTexture : IDisposable
     /// <param name="source">The image to upload.</param>
     /// <param name="mipmaps">Whether to build a mip chain.</param>
     /// <param name="addressMode">How coordinates outside the image behave.</param>
+    /// <param name="linear">
+    /// True for data rather than colour — a normal map, a roughness map — so the hardware
+    /// does not apply the sRGB curve to numbers that are not brightnesses.
+    /// </param>
     /// <returns>The texture.</returns>
     /// <remarks>
     /// A packed atlas must pass <paramref name="mipmaps"/> as false: each coarser level
@@ -64,15 +68,20 @@ public sealed unsafe class VulkanTexture : IDisposable
         VulkanContext context,
         DecodedImage source,
         bool mipmaps = true,
-        SamplerAddressMode addressMode = SamplerAddressMode.Repeat)
+        SamplerAddressMode addressMode = SamplerAddressMode.Repeat,
+        bool linear = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(source.Pixels);
 
-        // The pipeline shades in linear space, so the texture is declared sRGB and the
+        // The pipeline shades in linear space, so a colour texture is declared sRGB and the
         // hardware converts on read. Doing it in the shader instead is a common source of
         // double-corrected, washed-out output.
-        const Format TextureFormat = Format.R8G8B8A8Srgb;
+        //
+        // A normal map is not a colour. Its channels are a direction, and putting one
+        // through the sRGB path bends every normal towards flat — which reads as a weak,
+        // waxy surface rather than as the colour-space bug it is.
+        Format TextureFormat = linear ? Format.R8G8B8A8Unorm : Format.R8G8B8A8Srgb;
 
         uint mips = mipmaps
             ? (uint)(Math.Floor(Math.Log2(Math.Max(source.Width, source.Height))) + 1)
@@ -85,6 +94,457 @@ public sealed unsafe class VulkanTexture : IDisposable
         Sampler sampler = CreateSampler(context, mips, addressMode);
 
         return new VulkanTexture(context, image, memory, view, sampler, mips);
+    }
+
+    /// <summary>
+    /// Uploads a texture that is already in a block format.
+    /// </summary>
+    /// <param name="context">Device context.</param>
+    /// <param name="source">The compressed levels, as the file holds them.</param>
+    /// <param name="addressMode">How the sampler behaves outside 0..1.</param>
+    /// <returns>The texture.</returns>
+    /// <remarks>
+    /// The cheap path, and the one worth taking wherever the content pipeline has produced
+    /// a file for. Nothing is decoded, nothing is filtered, and a quarter of the memory is
+    /// asked for: the blocks go from the file to the staging buffer to the image exactly as
+    /// they are, one copy region per level, and the chain the compressor built is uploaded
+    /// rather than blitted level by level on the device.
+    /// </remarks>
+    public static VulkanTexture Create(
+        VulkanContext context,
+        CompressedImage source,
+        SamplerAddressMode addressMode = SamplerAddressMode.Repeat)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ObjectDisposedException.ThrowIf(source.Blocks.IsEmpty, typeof(CompressedImage));
+
+        Format format = source.Format switch
+        {
+            BlockFormat.Bc7Srgb => Format.BC7SrgbBlock,
+            BlockFormat.Bc7Unorm => Format.BC7UnormBlock,
+            BlockFormat.Bc5Unorm => Format.BC5UnormBlock,
+            BlockFormat.Bc4Unorm => Format.BC4UnormBlock,
+            _ => throw new VulkanException($"No Vulkan format for {source.Format}."),
+        };
+
+        uint mips = (uint)source.Mips;
+
+        (Image image, DeviceMemory memory) =
+            CreateImage(context, source.Width, source.Height, mips, format);
+
+        UploadBlocks(context, image, source, mips);
+
+        ImageView view = CreateView(context, image, format, mips);
+        Sampler sampler = CreateSampler(context, mips, addressMode);
+
+        return new VulkanTexture(context, image, memory, view, sampler, mips);
+    }
+
+    /// <summary>
+    /// Writes new pixels into a texture that already exists.
+    /// </summary>
+    /// <param name="pixels">The image, four bytes a pixel, tightly packed, top row first.</param>
+    /// <param name="width">Its width, which must be the width it was created at.</param>
+    /// <param name="height">Its height, likewise.</param>
+    /// <remarks>
+    /// <para>
+    /// For a moving picture. Creating a texture a frame would work and would allocate and
+    /// free device memory thirty times a second, and it would have to keep every frame
+    /// alive until the frames in flight that read it were done with it.
+    /// </para>
+    /// <para>
+    /// One submission and one wait, per frame. That is a device stall, and it is the right
+    /// trade here and nowhere else: a movie has the screen to itself, so there is nothing
+    /// else in flight for the stall to hold up, and the alternative is a ring of staging
+    /// buffers and a fence to go with them.
+    /// </para>
+    /// <para>
+    /// Only for a texture with one level. A mip chain would have to be rebuilt from the new
+    /// pixels, and a movie has no use for one.
+    /// </para>
+    /// </remarks>
+    public void Refresh(ReadOnlySpan<byte> pixels, int width, int height)
+    {
+        int wanted = width * height * 4;
+
+        if (MipLevels != 1 || pixels.Length < wanted || wanted <= 0)
+        {
+            return;
+        }
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = (ulong)wanted,
+            Usage = BufferUsageFlags.TransferSrcBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        _context.Api.CreateBuffer(_context.Device, in bufferInfo, null, out Buffer staging);
+        _context.Api.GetBufferMemoryRequirements(
+            _context.Device, staging, out MemoryRequirements requirements);
+
+        DeviceMemory stagingMemory = _context.Allocate(
+            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        _context.Api.BindBufferMemory(_context.Device, staging, stagingMemory, 0);
+
+        try
+        {
+            void* mapped;
+            _context.Api.MapMemory(_context.Device, stagingMemory, 0, (ulong)wanted, 0, &mapped);
+            pixels[..wanted].CopyTo(new Span<byte>(mapped, wanted));
+            _context.Api.UnmapMemory(_context.Device, stagingMemory);
+
+            CommandBuffer command = _context.BeginOneShot();
+
+            // From whatever the shader last read it as. Undefined rather than
+            // ShaderReadOnly because the contents are about to be replaced entirely, and
+            // saying so lets the driver skip preserving them.
+            TransitionRange(
+                _context, command, Image, 0, 1,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+            var region = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                },
+                ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+            };
+
+            _context.Api.CmdCopyBufferToImage(
+                command, staging, Image, ImageLayout.TransferDstOptimal, 1, in region);
+
+            TransitionRange(
+                _context, command, Image, 0, 1,
+                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+
+            _context.EndOneShot(command);
+        }
+        finally
+        {
+            _context.Api.DestroyBuffer(_context.Device, staging, null);
+            _context.Api.FreeMemory(_context.Device, stagingMemory, null);
+        }
+    }
+
+    private static void UploadBlocks(
+        VulkanContext context, Image image, CompressedImage source, uint mips)
+    {
+        ulong size = (ulong)source.Blocks.Length;
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = size,
+            Usage = BufferUsageFlags.TransferSrcBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        context.Api.CreateBuffer(context.Device, in bufferInfo, null, out Buffer staging);
+        context.Api.GetBufferMemoryRequirements(
+            context.Device, staging, out MemoryRequirements requirements);
+
+        DeviceMemory stagingMemory = context.Allocate(
+            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
+
+        try
+        {
+            void* mapped;
+            context.Api.MapMemory(context.Device, stagingMemory, 0, size, 0, &mapped);
+            source.Blocks.Span.CopyTo(new Span<byte>(mapped, source.Blocks.Length));
+            context.Api.UnmapMemory(context.Device, stagingMemory);
+
+            CommandBuffer command = context.BeginOneShot();
+
+            TransitionRange(context, command, image, 0, mips,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+            // One region a level. The extent is in pixels even though the data is in
+            // blocks, which is what the copy expects — a level narrower than four pixels
+            // still occupies a whole block, and the driver reads only the part it needs.
+            BufferImageCopy* regions = stackalloc BufferImageCopy[(int)mips];
+
+            for (uint level = 0; level < mips; level++)
+            {
+                (int offset, _, int width, int height) = source.Level((int)level);
+
+                regions[level] = new BufferImageCopy
+                {
+                    BufferOffset = (ulong)offset,
+                    ImageSubresource = new ImageSubresourceLayers
+                    {
+                        AspectMask = ImageAspectFlags.ColorBit,
+                        MipLevel = level,
+                        BaseArrayLayer = 0,
+                        LayerCount = 1,
+                    },
+                    ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+                };
+            }
+
+            context.Api.CmdCopyBufferToImage(
+                command, staging, image, ImageLayout.TransferDstOptimal, mips, regions);
+
+            TransitionRange(context, command, image, 0, mips,
+                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+
+            context.EndOneShot(command);
+        }
+        finally
+        {
+            context.Api.DestroyBuffer(context.Device, staging, null);
+            context.Api.FreeMemory(context.Device, stagingMemory, null);
+        }
+    }
+
+    /// <summary>
+    /// Uploads six images as a cube map.
+    /// </summary>
+    /// <param name="context">Device context.</param>
+    /// <param name="faces">
+    /// The six sides, in the order the hardware expects them: +X, -X, +Y, -Y, +Z, -Z. For
+    /// GK3 that is right, left, up, down, front, back.
+    /// </param>
+    /// <returns>The texture.</returns>
+    /// <remarks>
+    /// <para>
+    /// A sky is sampled by direction rather than by coordinate, which is why this is a cube
+    /// map and not six quads: the hardware's own convention decides which face a direction
+    /// lands on and which way up it is, so there is no chance of a face coming out mirrored
+    /// or a quarter turn out. Six quads with hand-written coordinates is the version that
+    /// looks almost right.
+    /// </para>
+    /// <para>
+    /// No mip chain. A sky is always at the far plane and never minified, and generating one
+    /// would blend across the face boundaries, which is exactly where a skybox shows its
+    /// seams.
+    /// </para>
+    /// </remarks>
+    public static VulkanTexture CreateCube(
+        VulkanContext context, IReadOnlyList<DecodedImage> faces)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(faces);
+
+        if (faces.Count != 6)
+        {
+            throw new ArgumentException("A cube map needs exactly six faces.", nameof(faces));
+        }
+
+        const Format TextureFormat = Format.R8G8B8A8Srgb;
+
+        int size = faces[0].Width;
+
+        foreach (DecodedImage face in faces)
+        {
+            if (face.Width != size || face.Height != size)
+            {
+                throw new ArgumentException(
+                    "A cube map's faces must all be square and the same size.", nameof(faces));
+            }
+        }
+
+        (Image image, DeviceMemory memory) = CreateCubeImage(context, size, TextureFormat);
+
+        UploadCube(context, image, faces);
+
+        ImageView view = CreateCubeView(context, image, TextureFormat);
+        Sampler sampler = CreateSampler(context, 1, SamplerAddressMode.ClampToEdge);
+
+        return new VulkanTexture(context, image, memory, view, sampler, 1);
+    }
+
+    private static (Image, DeviceMemory) CreateCubeImage(
+        VulkanContext context, int size, Format format)
+    {
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+
+            // Without this flag the image cannot be viewed as a cube, however it is laid out.
+            Flags = ImageCreateFlags.CreateCubeCompatibleBit,
+            ImageType = ImageType.Type2D,
+            Format = format,
+            Extent = new Extent3D((uint)size, (uint)size, 1),
+            MipLevels = 1,
+            ArrayLayers = 6,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+            Usage = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+            InitialLayout = ImageLayout.Undefined,
+        };
+
+        if (context.Api.CreateImage(context.Device, in imageInfo, null, out Image image) != Result.Success)
+        {
+            throw new VulkanException("Could not create a cube map image.");
+        }
+
+        context.Api.GetImageMemoryRequirements(context.Device, image, out MemoryRequirements requirements);
+        DeviceMemory memory = context.Allocate(requirements, MemoryPropertyFlags.DeviceLocalBit);
+        context.Api.BindImageMemory(context.Device, image, memory, 0);
+
+        return (image, memory);
+    }
+
+    private static unsafe void UploadCube(
+        VulkanContext context, Image image, IReadOnlyList<DecodedImage> faces)
+    {
+        int each = faces[0].Pixels.Length;
+        ulong size = (ulong)(each * 6);
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = size,
+            Usage = BufferUsageFlags.TransferSrcBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        if (context.Api.CreateBuffer(context.Device, in bufferInfo, null, out Buffer staging) != Result.Success)
+        {
+            throw new VulkanException("Could not create a cube map staging buffer.");
+        }
+
+        context.Api.GetBufferMemoryRequirements(context.Device, staging, out MemoryRequirements requirements);
+
+        DeviceMemory stagingMemory = context.Allocate(
+            requirements,
+            MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
+
+        try
+        {
+            void* mapped;
+            context.Api.MapMemory(context.Device, stagingMemory, 0, size, 0, &mapped);
+
+            // All six laid end to end, so one copy command per face reads its own slice.
+            for (int face = 0; face < 6; face++)
+            {
+                faces[face].Pixels.AsSpan().CopyTo(
+                    new Span<byte>((byte*)mapped + (face * each), each));
+            }
+
+            context.Api.UnmapMemory(context.Device, stagingMemory);
+
+            CommandBuffer command = context.BeginOneShot();
+
+            TransitionCube(
+                context, command, image, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+            BufferImageCopy* regions = stackalloc BufferImageCopy[6];
+
+            for (int face = 0; face < 6; face++)
+            {
+                regions[face] = new BufferImageCopy
+                {
+                    BufferOffset = (ulong)(face * each),
+                    ImageSubresource = new ImageSubresourceLayers
+                    {
+                        AspectMask = ImageAspectFlags.ColorBit,
+                        MipLevel = 0,
+                        BaseArrayLayer = (uint)face,
+                        LayerCount = 1,
+                    },
+                    ImageExtent = new Extent3D(
+                        (uint)faces[face].Width, (uint)faces[face].Height, 1),
+                };
+            }
+
+            context.Api.CmdCopyBufferToImage(
+                command, staging, image, ImageLayout.TransferDstOptimal, 6, regions);
+
+            TransitionCube(
+                context,
+                command,
+                image,
+                ImageLayout.TransferDstOptimal,
+                ImageLayout.ShaderReadOnlyOptimal);
+
+            context.EndOneShot(command);
+        }
+        finally
+        {
+            context.Api.DestroyBuffer(context.Device, staging, null);
+            context.Api.FreeMemory(context.Device, stagingMemory, null);
+        }
+    }
+
+    private static void TransitionCube(
+        VulkanContext context, CommandBuffer command, Image image, ImageLayout from, ImageLayout to)
+    {
+        var barrier = new ImageMemoryBarrier
+        {
+            SType = StructureType.ImageMemoryBarrier,
+            OldLayout = from,
+            NewLayout = to,
+            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            Image = image,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 6,
+            },
+            SrcAccessMask = from == ImageLayout.Undefined
+                ? AccessFlags.None
+                : AccessFlags.TransferWriteBit,
+            DstAccessMask = to == ImageLayout.ShaderReadOnlyOptimal
+                ? AccessFlags.ShaderReadBit
+                : AccessFlags.TransferWriteBit,
+        };
+
+        context.Api.CmdPipelineBarrier(
+            command,
+            from == ImageLayout.Undefined
+                ? PipelineStageFlags.TopOfPipeBit
+                : PipelineStageFlags.TransferBit,
+            to == ImageLayout.ShaderReadOnlyOptimal
+                ? PipelineStageFlags.FragmentShaderBit
+                : PipelineStageFlags.TransferBit,
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            in barrier);
+    }
+
+    private static ImageView CreateCubeView(VulkanContext context, Image image, Format format)
+    {
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = image,
+            ViewType = ImageViewType.TypeCube,
+            Format = format,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 6,
+            },
+        };
+
+        if (context.Api.CreateImageView(context.Device, in viewInfo, null, out ImageView view)
+            != Result.Success)
+        {
+            throw new VulkanException("Could not create a cube map view.");
+        }
+
+        return view;
     }
 
     /// <inheritdoc/>

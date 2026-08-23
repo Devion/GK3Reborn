@@ -4,6 +4,7 @@ using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Foundation.Diagnostics;
+using GK3Reborn.Game.Actors;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Vulkan;
 
@@ -43,6 +44,7 @@ public sealed class ModelRenderStage
     /// <param name="outputPath">Where to write the PNG.</param>
     /// <param name="width">Image width.</param>
     /// <param name="height">Image height.</param>
+    /// <param name="heads">How far to subdivide a character's head; zero draws it as authored.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -51,6 +53,7 @@ public sealed class ModelRenderStage
         string outputPath,
         int width,
         int height,
+        int heads,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -73,8 +76,19 @@ public sealed class ModelRenderStage
             return false;
         }
 
-        ModFile model = ModFile.Parse(modelBytes, wanted);
-        _log($"{wanted}: {model.Meshes.Count} meshes, {model.TriangleCount} triangles");
+        ModFile parsed = ModFile.Parse(modelBytes, wanted);
+        _log($"{wanted}: {parsed.Meshes.Count} meshes, {parsed.TriangleCount} triangles");
+
+        // The same call the game makes, so what is rendered here is what a player sees
+        // rather than a second implementation that could drift from it.
+        (ModFile model, HeadRig? rig) = HeadRefinement.Apply(parsed, heads);
+
+        if (rig is not null)
+        {
+            _log(string.Create(CultureInfo.InvariantCulture,
+                $"head: mesh {rig.Mesh}, {rig.Span:F1} units across, refined {heads} " +
+                $"level(s) to {model.TriangleCount} triangles"));
+        }
 
         using VulkanContext context = VulkanContext.CreateHeadless();
         _log($"device: {context.DeviceName}");
