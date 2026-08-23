@@ -202,7 +202,91 @@ who has turned that down to one has turned this off with it.
 A walk a **script** asked for never does. Their timings were written against the pace the game
 walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
+## 5. The fingerprint kit awards no points, so thirteen objectives cannot complete
+
+**Reported:** 2026-08-23, by `check-story`. **Not fixed.** Reproduce with
+
+    GK3Reborn.Tools check-story --source <GK3>/Data
+
+and read the `GK3R3404` warnings.
+
+Every `*_fingerprint_kit_*` score in the game is awarded by the original's own fingerprint
+screen rather than from data — hardcoded in `FingerprintScreen.cpp` the way the score table
+and the starting inventory are hardcoded elsewhere. **Nothing about the shipped data is
+wrong and no script is missing**; what is missing is the screen on this side.
+`ScreenKind.Fingerprint` exists as a name and nothing draws it.
+
+Thirteen scores, across 210A, 212P, 202P, 205P, 302A, 303P and 312P — the mirror, the gun,
+the cigarette box, the suitcase, the book, the bottles, the envelope and the three
+manuscripts. Six journal objectives are measured partly or wholly by them and cannot tick
+off, and the points are unreachable.
+
+**What it needs:** the fingerprint screen — a surface to brush, a place the print appears,
+and the tape that lifts it — plus the score name per object, which is the one part already
+written down: the list is in the reference and in `StoryCheckStage.ByTheFingerprintKit`.
+
 ## Closed
+
+### The player arrived at somebody else's spot — fixed 2026-08-23
+
+Reported as Gabriel's position resetting on the way into the phone room and the kitchen: he
+appeared somewhere wrong, filling the screen, and a moment later the room's own script moved
+him to the door.
+
+The loader placed the player at the first entry of the scene's `[POSITIONS]` whenever nothing
+else said where. In the phone room that is `EMILIO_HERE_1` — a spot authored for a different
+character, a metre in front of the arrival camera. **22 of the game's scene files reach that
+fallback**, and exactly one of the 102 that place a player defines a `START` at all, so the
+guess was doing nearly all of the work and doing it wrongly.
+
+The artists' own convention answers it instead. A room names the spot you arrive at for each
+door into it, after where you came from: `FR_LBY` is where you stand having come from the
+lobby, and there are **308 of them across 80 scenes**. The room's enter script picks one by
+hand a frame later; making the same choice at load is what stops the player ever seeing the
+wrong one. Failing that, nothing — an unplaced player stands at the origin until a script
+moves them, which is what the reference does and is better than standing where somebody else
+was meant to.
+
+### Every line of dialogue talked over itself — fixed 2026-08-23
+
+Reported as voices being cut off, and worse the longer the recording.
+
+The four dialogue calls are marked waitable, and `SecondsFor` had no case for any of them, so
+they fell through to nought. A waited block containing one finished in the frame it began:
+the script ran straight on to the next statement, and starting a line abandons whatever is
+being said. Longer recordings lost more, which is exactly how it was reported.
+
+`StartDialogue` and `StartDialogueNoFidgets` now go through the same reckoning
+`StartVoiceOver` does — they take the same licence plate and line count. A continuation names
+no plate at all, only how many more lines, so it asks whatever is speaking: that is the one
+duration the script host cannot work out for itself.
+
+### Inspect won every click — fixed 2026-08-23
+
+The close-up is offered for nearly every noun in the game, and it sorted ahead of everything
+else, so it was what a left click did — a click meant to cross the room leaned in at a
+doorframe instead. It is on the **middle button** now. The left button takes the first verb
+that actually does something, and where a thing answers to nothing else it means what a click
+on the floor means and the player walks over.
+
+### The inventory strip is gone — done 2026-08-23
+
+It listed the same items the right-click menu already offers, and it lay across the foot of
+the screen — exactly where the floor at the player's feet is drawn, so every click on the
+ground in front of you was tested against it first and a good many were swallowed. The
+pockets are a key away and a screen of their own, which is where a list of twelve things
+belongs.
+
+The layout is kept rather than deleted, in case a strip is ever wanted as something the
+player can turn on.
+
+### An inventory item offered to be picked up again — fixed 2026-08-23
+
+An item and the object it was picked up from are the same noun, so the close-up of the marker
+in Gabriel's pocket resolved the same rules as the marker on the desk and offered `PICKUP`.
+The action files cannot tell the difference and are not wrong to — the rule exists for the
+desk. The verbs that only mean something for a thing still in the room are filtered out of an
+item's own menu.
 
 ### The camera could get stuck in the geometry — fixed 2026-08-23
 

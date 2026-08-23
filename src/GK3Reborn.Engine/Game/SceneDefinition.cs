@@ -174,8 +174,37 @@ public sealed class SceneDefinition
     }
 
     /// <summary>Where the player starts.</summary>
-    public ScenePosition? StartPosition() =>
-        PositionNamed("START") ?? (Positions() is [ScenePosition first, ..] ? first : null);
+    /// <summary>
+    /// Where the player stands on walking into this room.
+    /// </summary>
+    /// <param name="from">The location they came from, or null.</param>
+    /// <returns>The spot, or null when the scene names none and nothing should be guessed.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Never an arbitrary one.</b> This used to fall back to the first entry of
+    /// <c>[POSITIONS]</c>, which put Gabriel wherever the file happened to list first — in
+    /// the phone room that is <c>EMILIO_HERE_1</c>, a spot authored for somebody else and
+    /// directly in front of the camera, so walking in filled the screen with the back of his
+    /// head until the room's enter script moved him. 22 of the game's scene files reach this,
+    /// and exactly one of the 102 that place a player defines a <c>START</c> at all, so the
+    /// guess was doing nearly all of the work and doing it wrongly.
+    /// </para>
+    /// <para>
+    /// <b>The artists' own convention answers it instead.</b> A room names the spot you
+    /// arrive at for each door into it, after where you came from: <c>FR_LBY</c> is where you
+    /// stand having come from the lobby. 308 of them across 80 scenes. The room's enter
+    /// script picks one by hand, and this is the same choice made a frame earlier, so the
+    /// player never sees the wrong one.
+    /// </para>
+    /// <para>
+    /// Failing all that, nothing. An unplaced player stands at the origin until a script
+    /// moves them, which is what the reference does and is a great deal better than standing
+    /// somewhere the artists meant for a different person.
+    /// </para>
+    /// </remarks>
+    public ScenePosition? StartPosition(string? from = null) =>
+        (from is { Length: > 0 } ? PositionNamed("FR_" + from) : null)
+        ?? PositionNamed("START");
 
     /// <summary>A named spot, or null if neither file defines one under that name.</summary>
     /// <param name="name">The spot's name.</param>

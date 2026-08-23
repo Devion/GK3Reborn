@@ -6,6 +6,7 @@
 
 using System.Numerics;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Story;
 using GK3Reborn.Game.Sidney;
 using GK3Reborn.Rendering;
 
@@ -29,6 +30,10 @@ namespace GK3Reborn.UI;
 /// </param>
 /// <param name="Panorama">What the binoculars can see from here, when they are up.</param>
 /// <param name="Aim">Where the camera is looking, in degrees: heading, then pitch.</param>
+/// <param name="Journal">
+/// The quest log, by day, when that is what is being shown. Read fresh each frame from the
+/// score events the story already records, so nothing here can drift out of step with it.
+/// </param>
 /// <param name="Verbs">
 /// What can be done to whatever the screen is about. Only the close-up of one thing uses
 /// it, and it is what makes the inventory worth opening: 619 of the game's actions are
@@ -47,7 +52,8 @@ public readonly record struct ScreenView(
     Func<string, int>? Pictures = null,
     Panorama? Panorama = null,
     Vector2 Aim = default,
-    IReadOnlyList<string>? Verbs = null);
+    IReadOnlyList<string>? Verbs = null,
+    IReadOnlyList<JournalDay>? Journal = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -181,6 +187,10 @@ public sealed class ScreenPainter
                 Sidney(view, body, top, unit);
                 break;
 
+            case ScreenKind.Journal:
+                JournalPage(view, body, top, unit);
+                break;
+
             default:
                 Overlay.Text("Nothing to show.", body.X + (20 * unit), top, Dim);
                 break;
@@ -242,6 +252,7 @@ public sealed class ScreenPainter
         ScreenKind.Driving => "WHERE TO?",
         ScreenKind.Fingerprint => "FINGERPRINT KIT",
         ScreenKind.Sidney => "SIDNEY",
+        ScreenKind.Journal => "JOURNAL",
         _ => "SCREEN",
     };
 
@@ -292,6 +303,177 @@ public sealed class ScreenPainter
             body.X + (20 * unit),
             body.Y + body.W - Overlay.LineHeight - (12 * unit),
             Dim);
+    }
+
+    /// <summary>
+    /// The quest log.
+    /// </summary>
+    /// <param name="view">What to draw, including the journal itself.</param>
+    /// <param name="body">The panel it goes in.</param>
+    /// <param name="top">Where the chrome ends.</param>
+    /// <param name="unit">The interface's scale.</param>
+    /// <remarks>
+    /// <para>
+    /// By day and then by point in the story, newest last, with the block the player is in
+    /// marked. Finished objectives are kept rather than swept away — the question "what have
+    /// I actually done today" is worth as much as "what now", and a list that only ever
+    /// shrinks tells a player nothing about how far they have come.
+    /// </para>
+    /// <para>
+    /// <b>Nothing here says how.</b> The titles are written to say what, and a player who
+    /// wants more asks for it: every unfinished objective carries a button that reveals one
+    /// line of the walkthrough, and asking again reveals the next. Several of this game's
+    /// puzzles are the best things in it, and printing the answer where nobody asked would
+    /// take them away.
+    /// </para>
+    /// </remarks>
+    private void JournalPage(ScreenView view, Vector4 body, float top, float unit)
+    {
+        IReadOnlyList<JournalDay> days = view.Journal ?? [];
+
+        if (days.Count == 0)
+        {
+            Overlay.Text("Nothing yet.", body.X + (20 * unit), top, Dim);
+
+            return;
+        }
+
+        float x = body.X + (20 * unit);
+        float y = top;
+        float line = Overlay.LineHeight;
+        float bottom = body.Y + body.W - (16 * unit);
+        float width = body.Z - (40 * unit);
+
+        foreach (JournalDay day in days)
+        {
+            foreach (JournalChapter chapter in day.Chapters)
+            {
+                if (y + (line * 2) > bottom)
+                {
+                    Overlay.Text("...", x, y, Dim);
+
+                    return;
+                }
+
+                // The heading carries the tally, because "4 of 11" answers "am I nearly
+                // done here" without the player counting ticks.
+                Overlay.Text(
+                    $"{chapter.Title}{(chapter.Current ? "  \u2014 now" : string.Empty)}",
+                    x,
+                    y,
+                    chapter.Current ? Accent : Ink);
+
+                Overlay.Text(
+                    $"{chapter.Achieved} of {chapter.Total}",
+                    x + width - (90 * unit),
+                    y,
+                    Dim);
+
+                y += line + (4 * unit);
+                Overlay.Rect(x, y, width, 1, Rule);
+                y += 8 * unit;
+
+                foreach (JournalEntry entry in chapter.Entries)
+                {
+                    if (y + line > bottom)
+                    {
+                        Overlay.Text("...", x, y, Dim);
+
+                        return;
+                    }
+
+                    // A box, ticked or not. Drawn from ASCII rather than from a tick and a
+                    // bullet: the interface font has an em dash and not those, so both marks
+                    // came out as blank columns and the list read as unmarked throughout.
+                    //
+                    // Part-finished objectives say so in numbers rather than with a bar. A
+                    // bar two thirds through a conversation is a stranger idea than "2 of 3".
+                    string mark = entry.Done ? "[x]" : "[ ]";
+
+                    Overlay.Text(
+                        $"  {mark}  {entry.Quest.Title}",
+                        x,
+                        y,
+                        entry.Done ? Dim : Ink);
+
+                    if (!entry.Done && entry.Quest.Scores.Count > 1)
+                    {
+                        int of = entry.Quest.Scores.Count;
+                        int done = (int)MathF.Round(entry.Progress * of);
+
+                        Overlay.Text($"{done} of {of}", x + width - (90 * unit), y, Dim);
+                    }
+
+                    // The way to ask for help, offered only where there is help left to give
+                    // and only on something still unfinished.
+                    if (!entry.Done && entry.MoreHints && chapter.Current)
+                    {
+                        var hint = new Vector4(
+                            x + width - (170 * unit), y - (2 * unit), 64 * unit, line + (4 * unit));
+
+                        Overlay.Rect(hint.X, hint.Y, hint.Z, hint.W, PanelLit);
+                        Overlay.Rect(hint.X, hint.Y, hint.Z, 1, Rule);
+                        Overlay.Text("hint", hint.X + (10 * unit), y, Accent);
+
+                        _hits.Add(("hint:" + Journal.Key(entry.Quest), hint));
+                    }
+
+                    y += line + (4 * unit);
+
+                    foreach (string revealed in entry.Hints)
+                    {
+                        foreach (string wrapped in Wrapped(revealed, width - (48 * unit), unit))
+                        {
+                            if (y + line > bottom)
+                            {
+                                return;
+                            }
+
+                            Overlay.Text("      " + wrapped, x, y, Dim);
+                            y += line;
+                        }
+                    }
+                }
+
+                y += 12 * unit;
+            }
+        }
+    }
+
+    /// <summary>Breaks a line of prose to fit a width.</summary>
+    /// <remarks>
+    /// A walkthrough line can run to three sentences and the panel is not that wide. Broken
+    /// on words, and a word longer than the whole width is left to overrun rather than cut
+    /// in half, because there is no such word in the file and inventing a hyphenation rule
+    /// for a case that cannot happen is work spent on nothing.
+    /// </remarks>
+    private static IEnumerable<string> Wrapped(string text, float width, float unit)
+    {
+        float perCharacter = 9f * unit;
+        int fits = Math.Max(16, (int)(width / MathF.Max(perCharacter, 1f)));
+
+        var line = new System.Text.StringBuilder();
+
+        foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.Length > 0 && line.Length + 1 + word.Length > fits)
+            {
+                yield return line.ToString();
+                line.Clear();
+            }
+
+            if (line.Length > 0)
+            {
+                line.Append(' ');
+            }
+
+            line.Append(word);
+        }
+
+        if (line.Length > 0)
+        {
+            yield return line.ToString();
+        }
     }
 
     /// <summary>

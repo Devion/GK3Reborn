@@ -1,4 +1,4 @@
-namespace GK3Reborn.UI;
+﻿namespace GK3Reborn.UI;
 
 /// <summary>The modal screens GK3 puts in front of the room.</summary>
 public enum ScreenKind
@@ -23,6 +23,14 @@ public enum ScreenKind
 
     /// <summary>Sidney, the portable computer.</summary>
     Sidney,
+
+    /// <summary>The quest log: what the player is trying to do, and what they have done.</summary>
+    /// <remarks>
+    /// The port's own, with nothing behind it in the original. A 1999 adventure game will
+    /// let a player wander for an hour with no idea what it wants of them, and
+    /// <c>Plan/03</c> section 3 asks for an interface easier than that one's.
+    /// </remarks>
+    Journal,
 }
 
 /// <summary>One screen, and what it is showing.</summary>

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -49,10 +49,28 @@ public sealed record SavedTimer(string Noun, string Verb, double Seconds);
 public sealed record SaveGame
 {
     /// <summary>The schema this build writes.</summary>
-    public const int CurrentSchema = 1;
+    /// <remarks>
+    /// Two adds the score events earned and the journal's hints. The first of those was
+    /// always missing rather than newly needed: a save has always carried the player's total
+    /// and never which events made it up, so loading one and doing the same thing again
+    /// scored it twice. The journal made that visible, because it reads those events to know
+    /// what has been done.
+    /// </remarks>
+    public const int CurrentSchema = 2;
 
     /// <summary>Which schema this save was written with.</summary>
     public required int SchemaVersion { get; init; }
+
+    /// <summary>Every score event earned.</summary>
+    /// <remarks>
+    /// Empty in a schema-1 save, which never wrote them. <see cref="SaveStore"/>'s migration puts back
+    /// what can honestly be put back and invents nothing.
+    /// </remarks>
+    public IReadOnlyList<string> Scored { get; init; } = [];
+
+    /// <summary>How many hints the player has asked for, per objective.</summary>
+    public IReadOnlyDictionary<string, int> Hints { get; init; } =
+        new Dictionary<string, int>();
 
     /// <summary>Which build wrote it, for a diagnostic that can name a version.</summary>
     public string? Engine { get; init; }

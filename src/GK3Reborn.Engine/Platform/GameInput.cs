@@ -42,6 +42,14 @@ public enum CameraAction
     /// <summary>Look in your own pockets.</summary>
     Inventory,
 
+    /// <summary>Open the quest log.</summary>
+    /// <remarks>
+    /// A key of its own rather than a corner of another screen. Somebody who has lost the
+    /// thread should reach it in one gesture, from anywhere, without first finding the thing
+    /// that opens the thing.
+    /// </remarks>
+    Journal,
+
     /// <summary>Write the game to the quick-save slot.</summary>
     QuickSave,
 
@@ -60,6 +68,15 @@ public enum PointerButton
 
     /// <summary>Ask what the thing under the pointer answers to.</summary>
     Secondary,
+
+    /// <summary>Look closely at the thing under the pointer.</summary>
+    /// <remarks>
+    /// A button of its own because looking closely is not doing something. Given to the left
+    /// button it won every click — the close-up was offered for nearly every noun in the
+    /// game, so it came out ahead of talking, opening and using, and a click meant to cross
+    /// the room leaned in at a doorframe instead.
+    /// </remarks>
+    Middle,
 }
 
 /// <summary>What the player is doing right now.</summary>

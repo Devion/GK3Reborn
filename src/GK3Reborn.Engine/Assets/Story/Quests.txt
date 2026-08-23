@@ -1,0 +1,205 @@
+# The journal's objectives: what the player is trying to do, without saying how.
+#
+# The original game shipped no journal. This is the port's own, and its whole reason for
+# existing is that a 1999 adventure game will let a player wander for an hour with no idea
+# what it wants from them. Plan/03 section 3 asks for an interface that is easier than the
+# original's; this is the part of that which is about knowing where you are in the story.
+#
+# THE RULE FOR TITLES: say what, never how. "Get into the locked rooms" is an objective.
+# "Unlock the dumbwaiters from the hallway while the maid is distracted" is a walkthrough
+# line, and belongs behind the hint button where a player has asked for it. Several of these
+# puzzles are the best things in the game and printing the answer in the journal would take
+# them away from someone who never asked.
+#
+# FORMAT
+#
+#   [110A]                                  a point in the story, in the game's own code
+#   title | condition | hint steps
+#
+#   condition   score:A,B   done when every one of those score events has been earned
+#               any:A,B     done when any one of them has been
+#               story       nothing to detect; done once the story has moved past this
+#                           point. For the beats the game awards nothing for.
+#
+#   hint steps  which lines of Walkthrough.txt, counting from one within this point in
+#               the story, answer "how". Revealed one at a time, only when asked.
+#
+# Every score name here is checked against Scores.txt and every step number against
+# Walkthrough.txt, by JournalTests. An objective that can never complete is worse than no
+# objective at all, so a typo has to fail a build rather than strand a player.
+
+[110A]
+Search your room before you go down | score:e_110a_r25_tape,e_110a_r25_hanger | 1
+Ask Jean about the men who attacked you | score:e_110a_lby_talk_jean_two_men | 3
+Find out who else is staying at the hotel | score:e_110a_lby_read_register | 4
+Telephone Prince James | score:e_110a_pho_phone_prince_james | 5
+Get some coffee! | score:e_110a_din_enter | 6
+Introduce yourself to people | score:e_110a_lby_talk_emilio_introduce,e_110a_lby_talk_emilio_checkin | 7
+Meet the tour leader | score:e_110a_rc1_talk_madeline_checkin,e_110a_rc1_talk_madeline_tour | 8,9
+Ask Jean about the tour | score:e_110a_lby_talk_jean_tour | 10
+Look in at the bookshop | score:e_110a_rc1_look_at_grail_book | 11,12
+Visit the museum and meet its curator | score:e_110a_ms2_talk_girard_introduce,e_110a_ms2_talk_girard_grail,e_110a_ms2_talk_girard_treasure_2nd_time | 13,14,15
+Find out what the two women are discussing | score:e_110a_ms3_hoverhear_howard_estelle,e_110a_ms3_talk_howard_estelle_introduce,e_110a_ms3_talk_howard_estelle_treasure | 16,17
+Return to the hotel | story | 18
+
+[112P]
+Overhear what is being said in the dining room | score:e_112p_lby_overhear_butane_wilkes | 1
+Introduce yourself to Wilkes | score:e_112p_din_talk_wilkes_introduce | 2
+Notice what is happening upstairs | score:e_112p_hal_watch_room_change | 3
+Go to the church | score:e_112p_chu_watch_abbe_buchelli | 4,5
+Introduce yourself to Buchelli | score:e_112p_chu_talk_buchelli_introduce,e_112p_chu_talk_buchelli_checkin,e_112p_chu_talk_buchelli_treasure | 6,7
+Talk to the abbe | score:e_112p_chu_talk_abbe_introduce,e_112p_chu_talk_abbe_church_2nd_time,e_112p_chu_talk_abbe_holy_grail,e_112p_chu_talk_abbe_magdalen_2nd_time,e_112p_chu_talk_abbe_templars | 8,9,10,11
+Discuss the case with Mosely | score:e_112p_r33_talk_mosley_case,e_112p_r33_talk_mosley_grace,e_112p_r33_talk_mosley_shattenjager | 12,13,14,17
+Find out who is listening at the door | score:e_112p_r33_sneak_catch_emilio | 15,16
+Pick up what was left in the hallway | score:e_112p_hal_pickup_emilio_glass | 18,19
+
+[102P]
+Ask about renting a bike | score:e_102p_mop_talk_rent_bike | 1,2,3
+Ask the women why they swapped rooms | score:e_102p_lby_talk_howard_estelle_room_change | 4
+Find something Mosely cannot resist | score:e_102p_lby_pickup_candy,e_102p_hal_candy_table | 5,6,7,8
+Get Mosely's passport | score:e_102p_lby_push_buzzer_r33,e_102p_hal_pickup_mosely_steal_passport | 9
+Borrow Mosely's jacket | score:e_102p_r33_pickup_gold_coat | 10
+Find something to make a moustache from | score:e_102p_cem_pickup_spray_bottle,e_102p_rc3_masking_tape_cat,e_102p_rc3_spray_bottle_cat,e_102p_rc3_pickup_tape | 11,12,13
+Make the moustache stay on | score:e_102p_din_pickup_syrup | 14,15
+Complete the disguise | score:e_102p_ms2_pickup_cap,e_102p_inventory_complete_mosley_disguise | 16,17
+Make the passport match | score:e_102p_lby_pickup_pen,e_102p_inventory_pen_draw_moustache | 18,19
+Get yourself a bike | score:e_102p_mop_disguise_gabe | 20,21
+Follow Wilkes | score:e_102p_map_follow_wilkes | 22,23,24
+Find out what Wilkes is doing out there | score:e_102p_tr2_think_about_arrivals | 25,26
+Follow Madeleine | score:e_102p_map_follow_buthane | 27,28
+Watch Madeleine from a distance | score:e_102p_cd1_zoom_in_madeline | 29
+Ask at the train station about the two men | score:e_102p_tr1_wallet_taxi_driver_2nd_time,e_102p_tr2_talk_marci_train_from_naples,e_102p_tr2_talk_marci_otr_arrivals | 30,31,32,33,34,35
+
+[104P]
+Ask Mosely what he is doing out here | score:e_104p_lhm_talk_mosely_chat_2nd_time | 1,2
+Find out whose the second bike is | score:e_104p_cd1_zoom_in_mosely_buthane_collide | 3,4,5
+Ask Wilkes about the rocks | story | 6,7,8,9
+Overhear the abbe | score:e_104p_cem_overhear_abbe_buthane | 10
+Find Larry Chester | score:e_104p_lhe_knock,e_104p_lhi_talk_larry_grail,e_104p_lhi_talk_larry_rlc,e_104p_lhi_talk_larry_templars_1st_time,e_104p_lhi_talk_larry_templars_2nd_time,e_104p_lhi_talk_larry_treasure_2nd_time | 11,12,13
+
+[106P]
+Write down the last of the bike numbers | story | 1,2
+Talk to the evening receptionist | score:e_106p_lby_talk_simone_checkin,e_106p_lby_talk_simone_two_men_trunk | 3,4
+Overhear Buchelli and Wilkes | score:e_106p_din_overhear_buchelli_wilkes | 5,6
+Find out what Prince James's men want | score:e_106p_cem_hide_behind_tomb | 7,8
+Record the abbe's telephone call | any:e_106p_cem_overhear_abbe_phone,e_105p_cem_tape_recorde_abbe_phone | 9
+Follow the two men | score:e_106p_map_follow_two_men,e_106p_lhe_hide_behind_tree | 10,11,12
+Tell Mosely what you saw | score:e_106p_r25_talk_grace_about_prince_james_men,e_106p_r25_talk_grace_about_abbe,e_106p_r25_handshake_correct | 13,14,15,16,17,18,19
+
+[207A]
+Collect your things | score:e_207a_r25_pickup_fingerprint_kit | 1,2
+Find out what was left outside your door | score:e_207a_hal_pickup_book | 3,4
+Get yourself onto the tour | score:e_207a_din_talk_buthan_tour_group,e_207a_ma3_talk_abbe_introduce | 5,6,7,8,9
+Listen at the Poussin tomb | score:e_207a_pou_madeline_pulls_postcard,e_207a_pou_madeline_mentions_et_in_arcadia_ego | 10,11
+Copy down what Emilio is writing | score:e_207a_pou_sketchpad_emilio_doodle | 12
+Listen at Blanchefort | score:e_207a_cd1_madeline_mentions_chateau_templar,e_207a_cd1_overhear_buthane_wilkes,e_207a_cd1_overhear_howard_estelle | 13,14,15
+Ask the others about what you overheard | score:e_207a_cd1_talk_buthane_serpent_rouge,e_207a_cd1_talk_buthane_t_flirt,e_207a_cd1_talk_mosely_gabriel,e_207a_cd1_talk_mosely_treasure | 16,17
+
+[210A]
+Collect your things | score:e_210a_r25_pickup_fingerprint_kit | 1
+Put what you have into Sidney | score:e_210a_r29_map_drawer,e_210a_r31_parchments_folder | 2,3,4,5,34,35,36
+Get the guests' doors open | score:e_210a_r27_unlock_dumb_waiter,e_210a_r21_unlock_dumb_waiter,e_210a_r23_unlock_dumb_waiter,e_210a_r29_turn_lock,e_210a_r31_turn_lock | 6,7,8,9,10,11
+Search Emilio's room | score:e_210a_r27_enter_from_dumb_waiter,e_210a_r27_search_bed | 12,13,14
+Get down to the kitchen | score:e_210a_lby_talk_jean_food,e_210a_kit_climb_into_dumb_waiter | 15,16,17
+Search Wilkes's room | score:e_210a_r23_enter_from_dumb_waiter,e_210a_r23_inspect_letter | 18,19
+Search Buchelli's room | score:e_210a_r21_enter_from_dumb_waiter,e_210a_r21_open_dresser,e_210a_r21_search_pants,e_210a_r21_fingerprint_kit_suitcase | 20,21,22
+Search Lady Howard's room | score:e_210a_r31_search_bed,e_210a_r31_pickup_parchments,e_210a_r31_fingerprint_kit_mirror,e_210a_r31_pickup_suppuration_h | 23,24,25
+Search Madeleine's room | score:e_210a_r29_move_up_case,e_210a_r29_fingerprint_kit_on_gun,e_210a_r29_pickup_map | 26,27,28,29
+Get into the abbe's office | score:e_210a_suppuration_h_on_window_eeew,e_210a_open_window,e_210a_fingerprint_kit_cigarette_pack,e_210a_pickup_magazine | 30,31,32,33
+Put everything back | story | 37,38,39
+
+[212P]
+Talk to the abbe at the estate | score:e_212p_cs8_chat_abbe | 1
+Find a way into the house | score:e_212p_cse_climb_back_wall,e_212p_cse_climb_vines | 2,3
+Search the attic | score:e_212p_cs3_open_trunk,e_212p_cs3_hide_wardrobe,e_212p_cs3_move_blanket,e_212p_cs3_skethcpad_symbols | 4,5,6,7
+Search the office | score:e_212p_cs2_move_chair_under_protrait,e_212p_cs2_cu_montreaux_eyes,e_212p_cs2_fingerprint_kit_immortals_book,e_212p_cs2_read_immortals_book | 8,9,10,11
+Find the way down | score:e_212p_cs2_flip_hidden_switch,e_212p_cs2_five_heads_into_pentagram,e_212p_cse_open_cellar_doors | 12,13
+See who is down in the cellar | score:e_212p_cs6_enter,e_212p_cs6_talk_old_lady | 14,15,16
+
+[202P]
+Listen at the guests' doors | score:e_202p_hal_glass_madelines_door,e_202p_hal_glass_howards_door | 1,2
+Record Buchelli's telephone call | score:e_202p_pho_overhear_buchelli,e_202p_pho_tape_recorder_buchelli | 3
+Ask around about the murder | score:e_202p_lby_chat_wilkes,e_202p_ma3_talk_abbe_dead_guys | 4,5,6
+Examine the murder scene | score:e_202p_vgr_look_tire_tracks,e_202p_vg1_enter,e_202p_vg1_notepad_copy_tires,e_202p_arm_think_dead_faces,e_202p_arm_find_pool_o_blood,e_202p_arm_vision_vampires_1,e_202p_arm_vision_vampires_2 | 7,8,9,11,12,13
+Give Mosely your answer | score:e_202p_arm_talk_mosely,e_202p_arm_vampire_answer | 10
+Report to Prince James | score:e_202p_pho_call_prince_james | 14
+Press Larry Chester on the freemasons | score:e_202p_lhi_talk_larry_dead_guys_2nd_time,e_202p_lhi_talk_larry_dead_guys_3rd_time,e_202p_lhi_talk_larry_freemason | 15
+Find out when Larry is leaving | score:e_202p_lhe_hanger_window | 16
+Talk it over with Grace | score:e_202p_r25_talk_grace_grail,e_202p_r25_talk_grace_abbe,e_202p_r25_talk_grace_priory,e_202p_r25_talk_grace_treasure,e_202p_r25_talk_grace_bloodline_2nd_time | 17,18
+Collect the guests' fingerprints | score:e_202p_r25_fingerprint_kit_soda_bottle,e_202p_lby_fingerprint_kit_wilke_glass,e_202p_lby_fingerprint_kit_buchelli_glass | 19,20,22
+Arrange to be woken in the night | score:e_202p_lby_jean_wakeup_call | 21
+Follow Estelle | score:e_202p_map_follow_howard,e_202p_wod_talk_estelle_howard,e_202p_wod_talk_estelle_site_2nd_time | 23,24
+Get in to see Montreaux | score:e_202p_cse_reporter_montreaux,e_202p_cse_tire_tread_match,e_202p_cse_talk_montreaux_grail,e_202p_cse_talk_montreaux_murder,e_202p_cse_talk_montreaux_viticulture_2nd_time,e_202p_cse_talk_montreaux_viticulture_3rd_time | 25,26,27,28
+
+[205P]
+Work through what Gabriel brought back | story | 1,2,3,4,5
+Pick up what was left in the hallway | score:e_205p_hal_pickup_howard_glass | 6
+Listen in downstairs | score:e_205p_din_overhear_gabe_mosely,e_205p_lby_enter_gabe_moseley_leave,e_205p_lby_enter_bridge_start_scene | 7,8,9,19,24
+Collect what was left at the museum | score:e_205p_rc2_pickup_envelope,e_205p_inventory_fingerprint_kit_envelope | 10,11
+Follow the first verse | score:e_205p_chu_pickup_pamphlet,e_205p_off_talk_abbe_sunrise_line,e_205p_off_talk_abbe_magdalen | 12,13,14,15,16
+Follow the verses that come after | story | 17,18,20,21,22,23
+Trace what is above the church door | score:e_205p_chu_trace_statue | 25,26,27
+Work out the last of the verses | story | 28,29,30
+
+[302A]
+Watch what Larry Chester does at night | score:e_302a_lhe_hide_behind_tree | 1,2,3
+Recover what he buried | score:e_302a_lhb_shovel_dirt,e_302a_inventory_fingerprint_kit_manuscript | 4,5
+Follow the car | score:e_302a_plo_harley_black_sedan | 6,7
+Find Mosely | score:e_302a_lhm_talk_mosely | 8,9
+
+[307A]
+Read what Gabriel left you | score:e_307a_read_manuscript,e_307a_pickup_keys | 1,2,3
+Get the paintings into Sidney | score:e_307a_ms2_wallet_postcard1,e_307a_ms2_wallet_postcard2,e_307a_ms2_wallet_postcard3 | 4,5,6
+Find what is hidden in the paintings | story | 7,8,9,10,11,12,13,14
+Search Mosely's room | score:e_307a_rmosely_room_key_r33,e_307a_r33_move_clothes | 15,16
+Borrow a pair of binoculars | score:e_307a_mop_pickup_binocs | 17,18,19,20
+Find the first of the marked places | score:e_307a_ler_pickup_note_in_cave,e_307a_ler_coordinate_device_mark_x,e_307a_ler_shovel_dig_x | 21,22,23
+Work out what the painting is pointing at | score:e_307a_ler_use_tenier,e_307a_ler_click_point_up | 24
+Ask the others what they know | score:e_307a_lhm_chat_buthane,e_307a_din_chat_buchelli | 25,26,27
+Draw the rest of the diagram | story | 28,29,30,31
+
+[310A]
+Find out what has happened to Wilkes | score:e_310a_hal_overhear_jean_roxanne,e_310a_hal_enter_r23_see_jean_roxanne,e_310a_clo_roxanne_open_r23,e_310a_lby_talk_jean_wilkes | 1,2,3,4
+Ask Mosely about Grace | score:e_310a_r33_talk_mosely_grace | 5
+Ask Larry Chester about Montreaux | score:e_310a_lhi_talk_montreaux,e_310a_lhi_talk_rlc,e_310a_lhi_talk_throne | 6
+Call on the others at their sites | score:e_310a_pou_talk_emilio | 7,8,9
+Find Wilkes | score:e_310a_lhm_look_footprint,e_310a_wdb_enter,e_310a_wdb_pickup_letter,e_310a_wdb_look_blood_pool,e_310a_wdb_look_knee_indents | 12,13,14
+Find out who has been in the rooms | score:e_310a_hal_see_mosely_sneak_from_r25,e_310a_hal_see_madeline_exit_r33 | 10,11,15
+Tell Grace what you have found | score:e_310a_r25_talk_grace_grail,e_310a_r25_talk_grace_prince_james,e_310a_r25_talk_grace_throne,e_310a_r25_talk_grace_bloodline | 16,17
+
+[312P]
+Work through the last of the verses | story | 1,2,3,4,5,6
+See who has been in Madeleine's room | score:e_312p_hal_see_buchelli_sneak | 7
+Overhear the Englishwomen | score:e_312p_din_overhear_howard_estelle | 8
+Find the south-west point | score:e_312p_bec_pickup_handkerchief,e_312p_bec_coordinate_device_find_cave,e_312p_bec_shovel_cave,e_312p_bec_pickup_note_from_cave | 9,10,11
+Find the north-east point | score:e_312p_mcb_pickup_note | 12
+Find the centre | score:e_312p_mcf_coordinate_device_mark_x,e_312p_mcf_shovel_dig,e_312p_mcf_pickup_note | 13,14,15,16
+Find out where Buchelli has gone | score:e_312p_cd1_binoc_see_buchelli_bike | 17
+Recover the manuscript | score:e_312p_bmb_shovel_dig,e_312p_bmb_pickup_manuscript,e_312p_bmb_fingerprint_kit_manuscript1,e_312p_bmb_fingerprint_kit_manuscript2,e_312p_bmb_fingerprint_kit_manuscript3 | 18,19
+Ask the others about the treasure | score:e_312p_wod_talk_howard_treasure | 20,21
+Find out who took it | score:e_312p_lby_overhear_prince_james_jean | 22,23,24
+
+[303P]
+Say who took the manuscript | score:e_303p_din_answer_1st_theif_mosely,e_303p_din_answer_1st_theif_buthane,e_303p_din_answer_1st_theif_buchelli,e_303p_din_answer_buried,e_303p_din_manuscript_prints,e_303p_din_manuscript_no_prints,e_303p_din_seen_buchellis_collar_and_stub | 1
+Return the manuscript to Prince James | score:e_303p_bet_enter,e_303p_bet_talk_prince_james_bloodline,e_303p_bet_talk_prince_james_negociations,e_303p_bet_talk_prince_james_viticulture | 2,3
+Press the abbe on what he knows | score:e_303p_ma3_talk_abbe_treasure,e_303p_ma3_talk_abbe_montreaux,e_303p_ma3_talk_abbe_excavations,e_303p_ma3_talk_abbe_throne | 4
+Get Estelle's fingerprints | score:e_303p_wod_fingerprint_kit_water_bottle | 5,6
+Get inside the estate | score:e_303p_cse_climb_gate | 7
+See what is in the garage | score:e_303p_cse_open_garage_door,e_303p_gri_inspect_bats | 8,9,10
+
+[306P]
+Follow Emilio | score:e_303p_cem_hide_watch_emilio_mesmi | 1
+Match the last of the fingerprints | story | 2,3
+Ask Estelle about the folder | score:e_303p_lby_talk_estelle_serpent_rouge,e_303p_lby_talk_estelle_egyption_artifacts,e_303p_r31_take_vampire_cup_photo | 4
+Get Emilio to talk | score:e_303p_hal_knock_r27 | 5
+
+[309P]
+Cross the chessboard | story | 1
+Reach the far side of the pendulum | story | 2
+Weigh the three virtues | story | 3
+Ask Grace to read the writings | story | 4
+Get the gold out of the bowl | story | 5
+Choose in front of the mirrors | story | 6,7
+Open the way onward | story | 8
+Cross the chasm | story | 9
+Deal with what is waiting | story | 10

@@ -31,16 +31,39 @@ public readonly record struct Hover(
 
     /// <summary>The verb a plain click performs.</summary>
     /// <remarks>
+    /// <para>
     /// The scene's own default when it names one — a door says <c>OPEN</c> — and otherwise
     /// the first verb the resolver offers, which is the order the action files put them in.
     /// Choosing for the player is the point: <c>docs/screens.md</c> and the brief both ask
     /// for one click to do the obvious thing, with the full list a right-click away, rather
     /// than the original's two-step through a verb ring.
+    /// </para>
+    /// <para>
+    /// <b>Never the close-up.</b> Looking at a thing is not doing something to it, and the
+    /// close-up is offered for nearly every noun in the game — so while it counted, it won
+    /// every click, coming out ahead of talking, opening and using. That is on the middle
+    /// button now. Where a thing answers to nothing else, a left click means the same as a
+    /// click on the floor and the player walks over.
+    /// </para>
     /// </remarks>
     public string? Default =>
-        Pick?.Verb is { Length: > 0 } named
+        Pick?.Verb is { Length: > 0 } named && !IsCloseUp(named)
             ? named
-            : Actions.Count > 0 ? Actions[0].LocalizedVerb : null;
+            : Actions.FirstOrDefault(a => !IsCloseUp(a.LocalizedVerb))?.LocalizedVerb;
+
+    /// <summary>The verb the middle button performs.</summary>
+    /// <remarks>
+    /// Whichever of the two close-up verbs is on offer — into a close-up, or back out of one.
+    /// Null where the thing cannot be looked at closely, which leaves the button doing
+    /// nothing rather than doing something else.
+    /// </remarks>
+    public string? Closer =>
+        Actions.FirstOrDefault(a => IsCloseUp(a.LocalizedVerb))?.LocalizedVerb;
+
+    /// <summary>Whether a verb is one of the two close-up verbs.</summary>
+    private static bool IsCloseUp(string verb) =>
+        verb.Equals("INSPECT", StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals("INSPECT_UNDO", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>

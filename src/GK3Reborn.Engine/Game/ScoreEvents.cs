@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -86,23 +86,58 @@ public sealed class ScoreEvents
 
             if (line.Length == 0 ||
                 line.StartsWith("//", StringComparison.Ordinal) ||
-                line.StartsWith('[') ||
-                line.IndexOf('=') is not (> 0 and { } equals))
+                line.StartsWith('['))
             {
                 continue;
             }
 
-            if (int.TryParse(
-                    line[(equals + 1)..].Trim(),
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out int points))
+            // A line may carry more than one event, separated by a comma: four of them do,
+            // and reading the line as a single pair threw all four away — the value came out
+            // as "4, e_212p_cse_open_cellar_doors = 2", which is not a number, so the whole
+            // line was skipped and two events simply did not exist. Nothing said so: a
+            // missing event scores nothing and is indistinguishable from one the player has
+            // not earned. The journal is what found it, by naming one of them.
+            foreach (string pair in line.Split(','))
             {
-                events._worth[line[..equals].Trim()] = points;
+                if (pair.IndexOf('=') is not (> 0 and { } equals))
+                {
+                    continue;
+                }
+
+                if (int.TryParse(
+                        pair[(equals + 1)..].Trim(),
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int points))
+                {
+                    events._worth[pair[..equals].Trim()] = points;
+                }
             }
         }
 
         return events;
+    }
+
+    /// <summary>
+    /// Which point in the story an event belongs to, from its name.
+    /// </summary>
+    /// <param name="name">The event, such as <c>e_110a_lby_read_register</c>.</param>
+    /// <returns>The timeblock, or null when the name does not carry one.</returns>
+    /// <remarks>
+    /// Every event but a handful is named for the timeblock it can be earned in, which makes
+    /// the name the only index of the story these events have. Used to work out what an old
+    /// save must already have achieved — see <c>SaveStore</c> — and to check the journal's
+    /// own table files each objective under the right day.
+    /// </remarks>
+    public static Timeblock? TimeblockOf(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        string[] parts = name.Split('_');
+
+        return parts.Length >= 2 && Timeblock.TryParse(parts[1], out Timeblock when)
+            ? when
+            : null;
     }
 
     /// <summary>What an event is worth, or null when the table has no such event.</summary>

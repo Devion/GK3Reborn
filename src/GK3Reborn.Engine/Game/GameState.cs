@@ -624,6 +624,37 @@ public sealed class GameState
 
     private readonly HashSet<string> _scored = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, int> _hints = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How many hints the player has asked for about one objective.</summary>
+    /// <param name="objective">What it is filed under.</param>
+    /// <returns>The count, nought when they have never asked.</returns>
+    /// <remarks>
+    /// The journal's one piece of state. Everything else it shows is read from the score
+    /// events the story already records, so it cannot drift out of step with the game — but
+    /// how much of the answer somebody has asked to be told is theirs, and it has to survive
+    /// closing the game or the hint button starts again from the top every session.
+    /// </remarks>
+    public int HintsAsked(string objective)
+    {
+        ArgumentNullException.ThrowIfNull(objective);
+
+        return _hints.GetValueOrDefault(objective);
+    }
+
+    /// <summary>Records that the player asked for one more hint.</summary>
+    /// <param name="objective">What it is filed under.</param>
+    public void AskedForHint(string objective)
+    {
+        ArgumentNullException.ThrowIfNull(objective);
+
+        _hints[objective] = _hints.GetValueOrDefault(objective) + 1;
+    }
+
+    /// <summary>Every hint asked for, in a stable order.</summary>
+    public IReadOnlyDictionary<string, int> Hints =>
+        new Dictionary<string, int>(_hints);
+
     /// <summary>Whether a file has been gathered in Sidney.</summary>
     /// <param name="file">The file's name.</param>
     /// <returns>True when the player has it.</returns>
@@ -687,6 +718,8 @@ public sealed class GameState
             ChatCounts = new Dictionary<string, int>(_chatCounts),
             LocationCounts = new Dictionary<string, int>(_locationCounts),
             ActorLocations = new Dictionary<string, string>(_actorLocations),
+            Scored = [.. _scored.OrderBy(e => e, StringComparer.Ordinal)],
+            Hints = new Dictionary<string, int>(_hints),
             SidneyFiles = [.. _sidneyFiles.OrderBy(f => f, StringComparer.Ordinal)],
             SidneyScans = [.. _sidneyScans.OrderBy(s => s, StringComparer.Ordinal)],
             BlockedHitTests = [.. BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)],
@@ -729,6 +762,8 @@ public sealed class GameState
         _chatCounts.Clear();
         _sidneyFiles.Clear();
         _sidneyScans.Clear();
+        _scored.Clear();
+        _hints.Clear();
         BlockedHitTests.Clear();
         Timers.Clear();
         Inventory.Clear();
@@ -786,6 +821,20 @@ public sealed class GameState
         foreach (string scan in save.SidneyScans)
         {
             _sidneyScans.Add(Key(scan));
+        }
+
+        // Which score events have been earned. A save written before the journal existed has
+        // none of these, and there is no honest way to work out which of 382 events a player
+        // had — so they are taken from where they are recoverable and guessed nowhere. See
+        // SaveGame.Recovered.
+        foreach (string earned in save.Scored)
+        {
+            _scored.Add(earned);
+        }
+
+        foreach ((string objective, int asked) in save.Hints)
+        {
+            _hints[objective] = asked;
         }
 
         foreach (string hit in save.BlockedHitTests)

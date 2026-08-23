@@ -149,8 +149,13 @@ public sealed class GameHud
         _slots.Clear();
     }
 
-    /// <summary>How tall the inventory strip is.</summary>
-    public float InventoryHeight => Overlay.LineHeight + (14f * Scale);
+    /// <summary>How much of the foot of the screen the interface takes.</summary>
+    /// <remarks>
+    /// Nothing, now that the inventory strip is gone. Kept as a name because the captions
+    /// sit above it and would otherwise have to learn that there is no longer an "it" — and
+    /// because a strip may yet come back as something the player can turn on.
+    /// </remarks>
+    public static float InventoryHeight => 0f;
 
     /// <summary>Lays the interface out.</summary>
     /// <param name="state">What to show.</param>
@@ -163,7 +168,13 @@ public sealed class GameHud
         _slots.Clear();
 
         Where(state, width);
-        Inventory(state, width, height);
+        // The bar of what the player is carrying used to live along the foot of the screen.
+        // It is gone: the right-click menu already says which of your things a noun will
+        // take, so the strip listed the same items a second time and did it across exactly
+        // the part of the screen where the floor at the player's feet is drawn — every click
+        // there had to be tested against it first. The pockets are a key away and a screen of
+        // their own, which is where a list of twelve things belongs.
+        _strip = default;
         Captions(state, width, height);
 
         // Last, so it is over everything: it is attached to the pointer and the pointer is
@@ -592,12 +603,20 @@ public sealed class GameHud
         verb == UseRow ? "Use..." : Pretty(verb);
 
     /// <summary>
-    /// The strip along the bottom.
+    /// The strip along the bottom, which is no longer drawn.
     /// </summary>
     /// <remarks>
-    /// Always there, never a screen of its own. The original put the inventory behind a
-    /// mode change, which meant checking what you were carrying cost you the view of the
-    /// room you were carrying it in.
+    /// <para>
+    /// It duplicated the right-click menu, which already says which of the player's things a
+    /// noun will take, and it lay across the foot of the screen — exactly where the floor at
+    /// the player's feet is drawn, so every click on the ground in front of you had to be
+    /// tested against it first and a good many were swallowed.
+    /// </para>
+    /// <para>
+    /// Kept rather than deleted. It is the layout for a strip if one is ever wanted as
+    /// something the player can turn on, and deleting it to write it again would be the
+    /// worse trade.
+    /// </para>
     /// </remarks>
     private void Inventory(HudState state, int width, int height)
     {

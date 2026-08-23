@@ -1,4 +1,4 @@
-Location	Action	Points
+﻿Location	Action	Points
 
 Day 1: 10 AM - 12 PM
 
@@ -341,7 +341,7 @@ Room 25	When you try to open your door, you'll see Madeleine coming out from Mos
 Ask Grace about the manuscript (2)(2)(2)(2) and tell her about Wilkes. Gabriel will realize that Mosley has taken the manuscript out of her room.	8/686
 Prince James will arrive at the village.
 
-Day 1: 12 PM - 3 PM (Grace)
+Day 3: 12 PM - 3 PM (Grace)
 
 Room 25	Scorpio: Read and think about the verse.
 Activate Sidney. You'll receive a new email. Read it. Read it (2). It's about The Temple of Solomon.	2/688

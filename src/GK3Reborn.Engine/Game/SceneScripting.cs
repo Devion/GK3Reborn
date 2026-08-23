@@ -687,6 +687,9 @@ public static class SceneScripting
             });
         }
 
+        // How long a continuation is worth, which only the thing speaking can say.
+        api.ContinuedSeconds = audio.SecondsOfNext;
+
         foreach (string more in new[] { "ContinueDialogue", "ContinueDialogueNoFidgets" })
         {
             api.Register(more, arguments =>

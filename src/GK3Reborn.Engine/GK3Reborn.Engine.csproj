@@ -22,6 +22,8 @@
          into its executable and no barn holds it, so the engine carries it; adapted from
          G-Engine, GPL-3, see NOTICE. -->
     <EmbeddedResource Include="Assets/Story/Pockets.txt" />
+    <EmbeddedResource Include="Assets/Story/Quests.txt" />
+    <EmbeddedResource Include="Assets/Story/Walkthrough.txt" />
     <EmbeddedResource Include="Assets/Story/Scores.txt" />
 
     <!-- When a point in the story is over. One function per timeblock, a run of conditions

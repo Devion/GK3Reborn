@@ -1178,12 +1178,16 @@ public static class Application
             console.Knows(api.FunctionNames);
             console.Calls = api.Perform;
 
+            // The quest log. Built per room like everything else here, and holding nothing
+            // of its own: what is done is read from the score events the story records.
+            var journal = new Game.Story.Journal(api.State);
+
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
                 new SceneInteraction(scene, api) { Strings = strings, Watcher = update },
                 room, movies, hud, Cut, api, screens, sidney,
                 map, binoculars, api.State, console,
-                front, pages, Apply, args, strings);
+                front, pages, Apply, args, strings, journal);
 
             result = exit.Code;
 
@@ -1922,6 +1926,7 @@ public static class Application
     /// <param name="strings">
     /// What the game calls places and times, for the corner of the screen.
     /// </param>
+    /// <param name="journal">The quest log, which the journal screen draws and the hint button asks.</param>
     /// <returns>Why the room was left, and where for.</returns>
     /// <remarks>
     /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
@@ -1952,9 +1957,11 @@ public static class Application
         MenuPage? pages,
         Action<Settings> apply,
         string[] options,
-        GameStrings strings)
+        GameStrings strings,
+        Game.Story.Journal journal)
     {
         ArgumentNullException.ThrowIfNull(console);
+        ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(cut);
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
@@ -2230,6 +2237,22 @@ public static class Application
                 }
             }
 
+            // The quest log. Reachable wherever the inventory is, and for the same reason:
+            // a player who has lost the thread needs it most in the room where they lost it.
+            if (!typing &&
+                window.WasPressed(Platform.CameraAction.Journal) &&
+                story.Screens.InventoryReachable)
+            {
+                if (story.Screens.IsOnTop(ScreenKind.Journal))
+                {
+                    story.Screens.Back();
+                }
+                else
+                {
+                    story.Screens.Show(new Screen(ScreenKind.Journal));
+                }
+            }
+
             if (!typing && window.WasPressed(Platform.CameraAction.QuickSave))
             {
                 bool wrote = api.Saves?.Write(
@@ -2421,7 +2444,24 @@ public static class Application
                 {
                     // Leaning in is a camera and, often, another room, so it is handled
                     // here where both are in reach rather than in OnScreen.
-                    if (chose.StartsWith("sidney:shape:", StringComparison.Ordinal) &&
+                    // Asking for help. One line of the walkthrough per press, always the
+                    // next one, and never a word of it unasked — a player a little stuck
+                    // needs the first, which says where to go, and the one that gives a
+                    // puzzle away is further down.
+                    if (chose.StartsWith("hint:", StringComparison.Ordinal))
+                    {
+                        string wanted = chose[5..];
+
+                        if (journal.Find(wanted) is { } asking)
+                        {
+                            string? given = journal.Reveal(asking);
+
+                            Console.WriteLine(given is { Length: > 0 }
+                                ? $"journal: {asking.Title} — {given}"
+                                : $"journal: no more hints for {asking.Title}");
+                        }
+                    }
+                    else if (chose.StartsWith("sidney:shape:", StringComparison.Ordinal) &&
                         sidney is not null &&
                         Enum.TryParse(chose[13..], ignoreCase: true, out Game.Sidney.MapShape picked))
                     {
@@ -2524,7 +2564,8 @@ public static class Application
                         renderer.OverlayPicture,
                         seen,
                         camera.Aim,
-                        ItemVerbs(panel, scene, story)),
+                        ItemVerbs(panel, scene, story),
+                        panel.Kind == ScreenKind.Journal ? journal.Read() : null),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -2582,6 +2623,20 @@ public static class Application
                 //
                 // Not while a menu is open, and not on the interface: those clicks already
                 // mean something, and a conversation is not a reason to take them away.
+            }
+            // Leaning in, on a button of its own. Looking closely at a thing is not doing
+            // something to it, and while it shared the left button it won every click:
+            // the close-up is offered for nearly every noun in the game, so a click meant
+            // to cross the room leaned in at a doorframe instead.
+            else if (!console.Open &&
+                     window.WasClicked(Platform.PointerButton.Middle) &&
+                     menu is null &&
+                     hud?.OverInterface(pointer) != true)
+            {
+                if (interaction.Do(hover, hover.Closer) is { } looked)
+                {
+                    Console.WriteLine($"Did: {looked.Noun}:{looked.Verb}");
+                }
             }
             else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
             {
@@ -3437,8 +3492,25 @@ public static class Application
 
         return [.. actions
             .Resolve(item, story.Ego, story.Inventory.ItemsOf(story.Ego))
-            .Select(a => a.LocalizedVerb)];
+            .Select(a => a.LocalizedVerb)
+            .Where(v => !IsAboutTheRoom(v))];
     }
+
+    /// <summary>Whether a verb only means anything for a thing still in the room.</summary>
+    /// <param name="verb">The verb an action file wrote.</param>
+    /// <returns>True when it has no meaning for something already in a pocket.</returns>
+    /// <remarks>
+    /// An inventory item and the object it was picked up from are the same noun, so the
+    /// close-up of the marker in Gabriel's pocket resolved the same rules as the marker on
+    /// the desk — and offered to pick it up again. The action files cannot tell the
+    /// difference and are not wrong to: the rule exists for the desk.
+    /// </remarks>
+    private static bool IsAboutTheRoom(string verb) =>
+        verb.Equals("PICKUP", StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals("TAKE", StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals("OPEN", StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals("CLOSE", StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals("ENTER", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a verb is a thing in the bag rather than something to do.</summary>
     /// <param name="verb">The verb an action file wrote.</param>

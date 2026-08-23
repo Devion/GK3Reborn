@@ -368,6 +368,33 @@ public sealed class SceneAudio
     public bool Talking => Saying is { Length: > 0 };
 
     /// <summary>
+    /// How long the next lines of the run in progress take.
+    /// </summary>
+    /// <param name="lines">How many more.</param>
+    /// <returns>Seconds, or nought when nothing has been started.</returns>
+    /// <remarks>
+    /// What a waited <c>ContinueDialogue</c> is worth. The run's licence plate was given
+    /// once, when it started, and this is the only thing that still knows it — so the script
+    /// host asks rather than working it out, and a continuation of nothing answers nought.
+    /// </remarks>
+    public double SecondsOfNext(int lines)
+    {
+        if (_stem is not { Length: > 0 } stem)
+        {
+            return 0;
+        }
+
+        double total = 0;
+
+        for (int i = 0; i < Math.Max(1, lines); i++)
+        {
+            total += _animations.SecondsOf(stem + Digit(_next + i));
+        }
+
+        return total;
+    }
+
+    /// <summary>
     /// Cuts the line being spoken short and starts the next one.
     /// </summary>
     /// <returns>True when there was a line to cut short.</returns>

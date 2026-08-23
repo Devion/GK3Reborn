@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -87,13 +87,55 @@ public sealed class SaveStore
     private readonly string _directory;
 
     /// <summary>Opens the store.</summary>
-    /// <param name="directory">Where saves live, or null for this user's own.</param>
+    /// <param name="directory">Where saves live, or null for beside the game.</param>
     public SaveStore(string? directory = null) =>
         _directory = directory ?? DefaultDirectory;
 
-    /// <summary>Where saves live for this user.</summary>
-    public static string DefaultDirectory => Path.Combine(
-        Path.GetDirectoryName(Settings.DefaultPath) ?? ".", "saves");
+    /// <summary>Where saves live.</summary>
+    /// <remarks>
+    /// <para>
+    /// A <c>saves</c> folder beside the game, rather than buried in the player's profile
+    /// where the settings live. Saves are something a player copies, backs up and sends to
+    /// somebody else; a preferences file is not, and the two do not want the same home.
+    /// </para>
+    /// <para>
+    /// Falls back to the profile when the game is somewhere it cannot write — a read-only
+    /// install, or a folder needing a prompt nobody is there to answer. Refusing to save at
+    /// all because of where the game was put would be the worse failure.
+    /// </para>
+    /// </remarks>
+    public static string DefaultDirectory
+    {
+        get
+        {
+            string beside = Path.Combine(AppContext.BaseDirectory, "saves");
+
+            return Writable(beside)
+                ? beside
+                : Path.Combine(Path.GetDirectoryName(Settings.DefaultPath) ?? ".", "saves");
+        }
+    }
+
+    /// <summary>Whether a folder can be created and written to.</summary>
+    private static bool Writable(string directory)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(directory);
+
+            string probe = Path.Combine(directory, ".writable");
+
+            File.WriteAllText(probe, string.Empty);
+            File.Delete(probe);
+
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or
+                                      NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>Where this store keeps its files.</summary>
     public string Directory => _directory;
@@ -277,12 +319,55 @@ public sealed class SaveStore
     /// <param name="save">The save as read.</param>
     /// <returns>The save this build understands.</returns>
     /// <remarks>
-    /// One schema exists, so this does nothing yet and is here anyway: the alternative is
-    /// discovering at the first schema change that every save in the wild is unreadable,
-    /// and the shape of the fix is much harder to add then than now. Each future step reads
-    /// a version and returns the next one.
+    /// Each step reads a version and returns the next one, so a save two versions behind
+    /// goes through both. The alternative — discovering at the first schema change that
+    /// every save in the wild is unreadable — is much harder to fix then than now.
     /// </remarks>
-    private static SaveGame Migrate(SaveGame save) => save;
+    private static SaveGame Migrate(SaveGame save) =>
+        save.SchemaVersion < 2 ? ToSchema2(save) : save;
+
+    /// <summary>
+    /// Works out what an older save can honestly be said to have achieved.
+    /// </summary>
+    /// <param name="save">A save written before score events were recorded.</param>
+    /// <returns>The same save, with what is recoverable recovered.</returns>
+    /// <remarks>
+    /// <para>
+    /// Schema 1 wrote the player's total and never which events made it up. That was always
+    /// a defect — loading such a save and doing the same thing again scored it twice — and
+    /// the journal is what made it visible, because it reads those events to know what has
+    /// been done.
+    /// </para>
+    /// <para>
+    /// <b>What is recoverable is everything belonging to a point in the story the player is
+    /// past.</b> The story cannot advance out of a timeblock until its own rules are
+    /// satisfied, so a save sitting in Day 2 has been through the whole of Day 1. Marking
+    /// those events earned is also strictly protective: it is what stops the player being
+    /// paid twice for them.
+    /// </para>
+    /// <para>
+    /// <b>What is not recoverable is the block they are standing in</b>, and nothing is
+    /// invented about it. Those objectives show as unfinished until the player does them
+    /// again, which costs them a little repetition and never a wrong answer — and the score
+    /// itself is the number the save recorded, not one recomputed from this.
+    /// </para>
+    /// </remarks>
+    private static SaveGame ToSchema2(SaveGame save)
+    {
+        var reached = new Timeblock(save.Day, save.Hour, save.Afternoon);
+
+        List<string> earned =
+        [
+            .. ScoreEvents.Open().Names
+                .Where(name => ScoreEvents.TimeblockOf(name) is { } when && when < reached),
+        ];
+
+        return save with
+        {
+            SchemaVersion = 2,
+            Scored = earned,
+        };
+    }
 
     private string PathOf(string slot) => Path.Combine(_directory, slot + ".json");
 }

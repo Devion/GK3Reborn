@@ -71,18 +71,23 @@ public sealed class GameHudTests
         Assert.NotEmpty(hud.Overlay.Quads);
     }
 
+    /// <summary>The foot of the screen is the room, now that nothing is drawn over it.</summary>
+    /// <remarks>
+    /// The inventory strip used to be an opaque bar across the bottom, and it lay over
+    /// exactly the part of the picture where the floor at the player's feet is drawn — so
+    /// every click on the ground in front of you was tested against it first and a good many
+    /// were swallowed. It duplicated the right-click menu, which already says which of your
+    /// things a noun will take, so it went.
+    /// </remarks>
     [Fact]
-    public void The_inventory_strip_is_interface_rather_than_room()
+    public void The_foot_of_the_screen_is_the_room()
     {
-        // It is an opaque bar across the foot of the screen and it is always there. A click
-        // on it that went through would find the floor at the player's feet and walk them,
-        // so putting the pointer on the interface would move the game.
         GameHud hud = Hud();
         hud.Build(State(), 800, 600);
 
-        Assert.True(
+        Assert.False(
             hud.OverInterface(new Vector2(400, 599)),
-            "the foot of the screen is the inventory strip");
+            "the floor at the player's feet is the room, not the interface");
 
         Assert.False(
             hud.OverInterface(new Vector2(400, 300)),
@@ -334,16 +339,21 @@ public sealed class GameHudTests
         Assert.Null(hud.RowNamed(2));
     }
 
+    /// <summary>Nothing along the bottom answers to a click any more.</summary>
+    /// <remarks>
+    /// The pockets are a key away and a screen of their own, which is where a list of twelve
+    /// things belongs. What this guards is that the strip is gone from the click path as well
+    /// as from the picture — a bar that is invisible and still takes clicks would be the
+    /// worst of both.
+    /// </remarks>
     [Fact]
-    public void An_inventory_slot_can_be_clicked_where_it_was_drawn()
+    public void No_inventory_slot_takes_a_click_along_the_bottom()
     {
-        // It was drawn and never asked about: nothing called ItemAt, so the strip along the
-        // foot of the screen was a picture of an inventory rather than one.
         GameHud hud = Hud();
 
         hud.Build(State(carrying: ["WALLET", "BINOCULARS"]), 800, 600);
 
-        Assert.Equal("WALLET", hud.ItemAt(hud.SlotMiddle("WALLET")));
-        Assert.Equal("BINOCULARS", hud.ItemAt(hud.SlotMiddle("BINOCULARS")));
+        Assert.Null(hud.ItemAt(new Vector2(40, 592)));
+        Assert.Null(hud.ItemAt(new Vector2(400, 599)));
     }
 }

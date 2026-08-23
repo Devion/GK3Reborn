@@ -91,6 +91,9 @@ public static class Program
             case "check-scenes":
                 return CheckScenes(options, diagnostics);
 
+            case "check-story":
+                return CheckStory(options, diagnostics);
+
             case "import-textures":
                 return ImportTextures(options, diagnostics);
 
@@ -266,6 +269,20 @@ public static class Program
 
         bool ok = new SceneCheckStage(Console.WriteLine).Run(
             options.Source, options.Model, options.Deep, diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
+    }
+
+    private static int CheckStory(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null)
+        {
+            Console.Error.WriteLine("check-story requires --source.");
+            return 2;
+        }
+
+        bool ok = new StoryCheckStage(Console.WriteLine).Run(options.Source, diagnostics);
 
         Report(diagnostics);
         return ok ? 0 : 3;
@@ -660,6 +677,8 @@ public static class Program
               actions           Read the noun/verb/case files and resolve against them.
               render-model      Render one model from the archives to a PNG.
               render-scene      Render a scene, its props and its lighting, to a PNG.
+              check-story       Walk the story from the first morning to the last
+                                night and report whether it can be finished.
               check-scenes      Load every scene at every point in the story and
                                 report what came out. --model limits it to one
                                 location.

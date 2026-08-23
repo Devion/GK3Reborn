@@ -374,7 +374,8 @@ public sealed class SceneLoader
         ReportDisputedVisibility(init, diagnostics);
 
         List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
-        placed.AddRange(PlaceActors(geometry, init, diagnostics));
+        placed.AddRange(
+            PlaceActors(geometry, init, diagnostics, request.State?.LastLocation));
         _log?.Invoke(
             $"models: {placed.Count} placed, textures: {geometry.TextureCount}" +
             (_enhancedUsed > 0 ? $", {_enhancedUsed} of them enhanced" : string.Empty));
@@ -928,7 +929,10 @@ public sealed class SceneLoader
     /// </para>
     /// </remarks>
     private List<PlacedModel> PlaceActors(
-        ISceneSink geometry, SceneDefinition init, DiagnosticBag diagnostics)
+        ISceneSink geometry,
+        SceneDefinition init,
+        DiagnosticBag diagnostics,
+        string? from = null)
     {
         List<PlacedModel> placed = [];
 
@@ -937,7 +941,7 @@ public sealed class SceneLoader
             // Ego arrives at the scene's entry point; everyone else stands where their own
             // line says.
             ScenePosition? spot = actor.IsEgo
-                ? init.PositionNamed(actor.Position) ?? init.StartPosition()
+                ? init.PositionNamed(actor.Position) ?? init.StartPosition(from)
                 : init.PositionNamed(actor.Position);
 
             if (spot is null && actor.Position is { Length: > 0 })
@@ -963,9 +967,10 @@ public sealed class SceneLoader
             {
                 diagnostics.Add(new Diagnostic(
                     "SCENE011",
-                    DiagnosticSeverity.Warning,
-                    $"{actor.Name} is the player and the scene defines no START; they " +
-                    "stand at the origin."));
+                    DiagnosticSeverity.Info,
+                    $"{actor.Name} is the player and this scene names no spot to arrive at " +
+                    $"from {(from is { Length: > 0 } ? from : "nowhere in particular")}; " +
+                    "they stand at the origin until the room's own script places them."));
             }
 
             byte[]? bytes = _archives.Read(actor.Name + ".MOD");

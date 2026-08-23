@@ -157,6 +157,15 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <inheritdoc/>
     public bool IsWaitable(string name) => _waitable.Contains(name);
 
+    /// <summary>How long the next lines of the conversation in progress take.</summary>
+    /// <remarks>
+    /// <c>ContinueDialogue(2)</c> means the next two of a run whose licence plate was given
+    /// once, several statements ago, so only the thing doing the speaking knows which
+    /// recordings those are. Null where nothing is speaking, which answers nought and is
+    /// right: a continuation of nothing says nothing and takes no time.
+    /// </remarks>
+    public Func<int, double>? ContinuedSeconds { get; set; }
+
     /// <summary>
     /// What sends an actor across the room, when there is a room to cross.
     /// </summary>
@@ -266,8 +275,22 @@ public sealed class Gk3SheepApi : ISheepApi
 
             // A licence plate and a line count, not an asset name. The library works out
             // which animations those are.
-            "STARTVOICEOVER" => Animations?.SecondsOfVoiceOver(
-                first, arguments.Count > 1 ? arguments[1].AsInt() : 1) ?? 0,
+            //
+            // A conversation is the same thing under four more names, and they were all
+            // answering nought. Marked waitable and worth no time, a waited StartDialogue
+            // let the block finish in the frame it began — so the script ran straight on to
+            // the next line, and starting a line abandons whatever is being said. Every
+            // exchange in the game was cut off mid-sentence, and the longer the recording
+            // the more of it was lost, which is exactly how it was reported.
+            "STARTVOICEOVER" or "STARTDIALOGUE" or "STARTDIALOGUENOFIDGETS" =>
+                Animations?.SecondsOfVoiceOver(
+                    first, arguments.Count > 1 ? arguments[1].AsInt() : 1) ?? 0,
+
+            // A continuation names no plate at all — only how many more lines — because the
+            // run it belongs to is remembered by whatever is speaking. So this is the one
+            // duration the API cannot work out on its own, and it asks.
+            "CONTINUEDIALOGUE" or "CONTINUEDIALOGUENOFIDGETS" =>
+                ContinuedSeconds?.Invoke(arguments.Count > 0 ? arguments[0].AsInt() : 1) ?? 0,
 
             // StartYak names one animation outright, where StartVoiceOver names a run of
             // them, so the same asset is reached two different ways.

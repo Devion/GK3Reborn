@@ -57,6 +57,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         // The original made the inventory a small target to click at the edge of the
         // screen. A key is what a player reaches for.
         [CameraAction.Inventory] = [Key.I],
+        [CameraAction.Journal] = [Key.J],
 
         // Where every adventure game has put them for thirty years.
         [CameraAction.QuickSave] = [Key.F5],
@@ -253,6 +254,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
         _mouse.IsButtonPressed(button switch
         {
             PointerButton.Secondary => MouseButton.Right,
+            PointerButton.Middle => MouseButton.Middle,
             _ => MouseButton.Left,
         });
 
@@ -348,6 +350,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
                 {
                     MouseButton.Left => PointerButton.Primary,
                     MouseButton.Right => PointerButton.Secondary,
+                    MouseButton.Middle => PointerButton.Middle,
                     _ => null,
                 };
 
