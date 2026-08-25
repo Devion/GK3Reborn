@@ -359,10 +359,42 @@ public sealed class FrontEnd
             });
         }
 
+        // Everything else the store holds, which is how a save the player did not write
+        // gets on the page at all. The rows above are a fixed fourteen — quick, auto and
+        // twelve numbered — so a save filed under any other name was invisible however
+        // readable it was: three games imported from the 1999 original sat in the saves
+        // folder, were listed by the store, restored perfectly when asked for by name, and
+        // could not be reached from the menu.
+        //
+        // Reading only. These are not slots to write into: the numbered twelve are what a
+        // player saves to, and overwriting an import would throw away the thing it was
+        // brought across for.
+        if (!writing)
+        {
+            foreach (SaveSlot save in Saves)
+            {
+                if (Reserved.Contains(save.Slot, StringComparer.OrdinalIgnoreCase) ||
+                    IsNumbered(save.Slot))
+                {
+                    continue;
+                }
+
+                rows.Add(MenuItem.Button("slot:" + save.Slot, Described(save.Slot)) with
+                {
+                    Picture = Illustrations?.Invoke(save.Slot) ?? 0,
+                });
+            }
+        }
+
         rows.Add(MenuItem.Button("back", "Back"));
 
         return rows;
     }
+
+    /// <summary>Whether a slot is one of the twelve the player saves into.</summary>
+    private static bool IsNumbered(string slot) =>
+        int.TryParse(slot, NumberStyles.None, CultureInfo.InvariantCulture, out int at) &&
+        at >= 1 && at <= SaveStore.NumberedSlots;
 
     /// <summary>The two slots the game writes for itself.</summary>
     private static readonly string[] Reserved = [SaveStore.QuickSlot, SaveStore.AutoSlot];
@@ -382,7 +414,15 @@ public sealed class FrontEnd
         {
             SaveStore.QuickSlot => "Quick save",
             SaveStore.AutoSlot => "Autosave",
-            _ => "Slot " + slot.TrimStart('0'),
+            _ when IsNumbered(slot) => "Slot " + slot.TrimStart('0'),
+
+            // A game the 1999 original wrote, brought across under its own file name.
+            // Saying so is worth a word: it is why the row is there and not numbered.
+            _ when slot.StartsWith("gk3-", StringComparison.OrdinalIgnoreCase) =>
+                "Original save",
+
+            // Anything else somebody has put in the folder, under whatever they called it.
+            _ => slot,
         };
 
         if (Written(slot) is not { } save)

@@ -111,6 +111,54 @@ public sealed class OriginalSaveTests
     }
 
     /// <summary>An import restores the story position, the implied past, and the pockets.</summary>
+    /// <summary>A <c>.gk3</c> dropped into the game's own saves folder is brought across.</summary>
+    /// <remarks>
+    /// The fault this pins: the importer was pointed at the 1999 install root and at the
+    /// "Save Games" folder beside it, and never at the folder the port keeps its own games
+    /// in. Somebody with three <c>.gk3</c> files and no original install — or a deployed
+    /// build with them copied in beside its saves — had nothing happen at all. It is the
+    /// first place to look, not the last.
+    /// </remarks>
+    [Fact]
+    public void A_save_dropped_into_the_stores_own_folder_is_imported()
+    {
+        string saves = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(saves);
+
+        try
+        {
+            // The file and the store are the same directory, which is the whole point.
+            File.WriteAllBytes(
+                Path.Combine(saves, "save0009.gk3"),
+                Retail("Mosely Clothes", "rc1", "102p", 40));
+
+            var store = new SaveStore(saves);
+
+            Assert.Equal(1, OriginalSaves.Import(store.Directory, store, ScoreEvents.Open()));
+
+            SaveGame? save = store.Read("gk3-save0009", out SaveFault fault);
+
+            Assert.Equal(SaveFault.None, fault);
+            Assert.NotNull(save);
+            Assert.Equal("RC1", save.Location);
+
+            // And it is offered by the store, which is what the restore page reads.
+            Assert.Contains(store.List(), slot => slot.Slot == "gk3-save0009");
+
+            // The original is left where it was. Deleting an import is how somebody asks
+            // for it again, so the file it came from has to still be there.
+            Assert.True(File.Exists(Path.Combine(saves, "save0009.gk3")));
+
+            // Idempotent against its own output: a second launch imports nothing and does
+            // not trip over the .json it wrote beside the .gk3 last time.
+            Assert.Equal(0, OriginalSaves.Import(store.Directory, store, ScoreEvents.Open()));
+        }
+        finally
+        {
+            Directory.Delete(saves, recursive: true);
+        }
+    }
+
     [Fact]
     public void An_import_carries_the_story_position_and_what_it_implies()
     {

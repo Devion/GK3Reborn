@@ -20,9 +20,66 @@ public sealed class SaveMenuTests
     [
         new(SaveStore.QuickSlot, "Quick save", "Hotel Lobby", DateTimeOffset.UnixEpoch, 2),
         new("03", "Before the cat", "Rennes-le-Chateau", DateTimeOffset.UnixEpoch, 2),
+
+        // A game the 1999 original wrote, brought across by OriginalSaves under the file
+        // name it had there. It is a perfectly good save and it is not one of the fourteen
+        // slots the page used to draw.
+        new("gk3-save0009", "Mosely Clothes", "Rennes-le-Chateau", DateTimeOffset.UnixEpoch, 2),
     ];
 
+    private static IEnumerable<string> OfferedSlots(FrontEnd front) =>
+        front.Items
+            .Where(i => i.Id.StartsWith("slot:", StringComparison.Ordinal))
+            .Select(i => i.Id["slot:".Length..]);
+
     private static MenuAction Chose(string id) => new(id);
+
+    /// <summary>A save the player did not write is still a save they can load.</summary>
+    /// <remarks>
+    /// The restore page used to draw a fixed fourteen rows — quick, auto and twelve numbered
+    /// — so a save filed under any other name was invisible however readable it was. Three
+    /// games imported from the 1999 original sat in the saves folder, were listed by the
+    /// store, restored perfectly when asked for by name, and could not be reached from the
+    /// menu at all.
+    /// </remarks>
+    [Fact]
+    public void Restoring_offers_a_save_that_is_not_one_of_the_numbered_slots()
+    {
+        FrontEnd front = Paused();
+        front.Choose(Chose("load"));
+
+        Assert.Equal(FrontEndPage.Load, front.Page);
+        Assert.Contains("gk3-save0009", OfferedSlots(front));
+    }
+
+    [Fact]
+    public void An_imported_save_is_offered_once_and_reads_as_what_it_is()
+    {
+        FrontEnd front = Paused();
+        front.Choose(Chose("load"));
+
+        Assert.Single(OfferedSlots(front), s => s == "gk3-save0009");
+
+        MenuItem row = front.Items.Single(i => i.Id == "slot:gk3-save0009");
+
+        // Not "Slot gk3-save0009", which is what the numbered naming would have made of it.
+        Assert.Contains("Original save", row.Text);
+        Assert.Contains("Mosely Clothes", row.Text);
+    }
+
+    /// <summary>And it cannot be written over.</summary>
+    /// <remarks>
+    /// The numbered twelve are what a player saves into. Overwriting an import would throw
+    /// away the thing it was brought across for, and it is the one copy there is.
+    /// </remarks>
+    [Fact]
+    public void Saving_never_offers_an_imported_save()
+    {
+        FrontEnd front = Paused();
+        front.Choose(Chose("save"));
+
+        Assert.DoesNotContain("gk3-save0009", OfferedSlots(front));
+    }
 
     [Fact]
     public void The_pause_menu_offers_saving_and_restoring()

@@ -319,25 +319,44 @@ public static class Application
         // through the same door the interface does.
         api.Saves = new Game.SaveStore();
 
-        // The saves the 1999 game wrote, brought across once each. They live in the
-        // original's install root, which is the parent of the Data directory this engine
-        // was pointed at — and a save file this engine has already imported is left alone,
-        // so deleting an import is how somebody asks for it again.
+        // The saves the 1999 game wrote, brought across once each. A save file this engine
+        // has already imported is left alone, so deleting an import is how somebody asks
+        // for it again, and the original .gk3 is never touched or moved.
+        //
+        // The game's own saves folder is searched first and always, whatever else is on
+        // the command line. That is where somebody with a .gk3 file and no 1999 install
+        // will put it, and it is the folder a deployed build keeps its games in — three
+        // .gk3 files sitting beside the game's own saves is the obvious thing to expect to
+        // work, and until this it was the one place nobody looked.
+        var searched = new List<string> { api.Saves.Directory };
+
+        // And the application's own, when the store has been put somewhere else: a
+        // read-only install sends saves to the profile, and the .gk3 files would still be
+        // beside the executable where they were dropped.
+        string beside = Path.Combine(AppContext.BaseDirectory, "saves");
+
+        if (!searched.Contains(beside, StringComparer.OrdinalIgnoreCase))
+        {
+            searched.Add(beside);
+        }
+
+        // Then both places the original itself wrote to: its install root, which is the
+        // parent of the Data directory this engine was pointed at, and the "Save Games"
+        // folder beside it that later installs used.
         if (Path.GetDirectoryName(Path.GetFullPath(
                 Option(args, "--data") ?? DefaultDataDirectory())) is { Length: > 0 } installRoot)
         {
-            // Both places the original wrote to: its install root, and the "Save Games"
-            // folder beside the Data directory that later installs used.
-            int broughtAcross =
-                Game.OriginalSaves.Import(installRoot, api.Saves, api.Scores) +
-                Game.OriginalSaves.Import(
-                    Path.Combine(installRoot, "Save Games"), api.Saves, api.Scores);
+            searched.Add(installRoot);
+            searched.Add(Path.Combine(installRoot, "Save Games"));
+        }
 
-            if (broughtAcross > 0)
-            {
-                Console.WriteLine(
-                    $"Imported {broughtAcross} save(s) from the original game in {installRoot}");
-            }
+        int broughtAcross = searched.Sum(
+            where => Game.OriginalSaves.Import(where, api.Saves, api.Scores));
+
+        if (broughtAcross > 0)
+        {
+            Console.WriteLine(
+                $"Imported {broughtAcross} save(s) written by the original game");
         }
 
         if (request.State is not null)

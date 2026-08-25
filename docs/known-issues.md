@@ -203,6 +203,53 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### A .gk3 in the game's own saves folder was never imported — fixed 2026-08-25
+
+**Reported** as three GK3 saves in a deployed build's `saves` folder that the game does not
+pick up.
+
+The importer was pointed at two places, both belonging to the 1999 install: its root, taken
+as the parent of the `--data` directory, and the `Save Games` folder beside it. It was never
+pointed at the folder the port keeps its own games in — which is the first place somebody
+with a `.gk3` file and no original install will put one, and the only place a deployed build
+has at all.
+
+The application's `saves` folder is now searched **first and always**, whatever else is on
+the command line, followed by the store's own directory when a read-only install has sent
+saves to the profile instead, and then the two original locations as before. Import stays
+idempotent by slot name, so the first of those to hold a given file wins and a second launch
+brings nothing across twice.
+
+The `.gk3` is read and left exactly where it is. Deleting the `.json` it produced is still
+how somebody asks for it to be brought across again.
+
+Measured on three retail saves dropped into a saves folder: three imported, `RC1` day 1 2pm,
+`TR1` day 1 4pm and `POU` day 2 7am, all reading back with no fault; a second run imported
+none; all three `.gk3` files still present.
+
+
+### Saves imported from the original game could not be reached — fixed 2026-08-25
+
+**Reported** as three GK3 saves sitting in the saves folder that the game does not pick up.
+Everything picked them up except the one thing that mattered.
+
+`OriginalSaves.Import` had brought them across correctly, filed under the file names they
+had in the 1999 install — `gk3-save0009`, `gk3-save0015`, `gk3-save0024`. `SaveStore.List`
+returned all three. `SaveStore.Read` restored any of them perfectly when asked for by name.
+
+The restore **page** drew a fixed fourteen rows: quick, autosave, and slots 01 to 12. A save
+filed under any other name had no row, so there was no way to point at it. The import was
+working and invisible.
+
+The page now draws a row for anything else the store holds, on the restore side only — the
+numbered twelve are what a player saves into, and overwriting an import would throw away the
+one copy of the thing it was brought across for. An imported row reads *Original save* and
+its title rather than "Slot gk3-save0009", which is what the numbered naming made of it.
+
+Three tests hold it: that a non-numbered save is offered when restoring, that it is offered
+once and reads as what it is, and that saving never offers it.
+
+
 ### Restoring a save from the pause menu closed the game — fixed 2026-08-25
 
 **Reported** as a crash on restoring while in-game, and it is not a crash: the game shuts
