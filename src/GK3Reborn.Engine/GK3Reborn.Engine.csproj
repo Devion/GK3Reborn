@@ -30,7 +30,6 @@
     <!-- When a point in the story is over. One function per timeblock, a run of conditions
          each; the original kept these rules in its executable and no shipped script holds
          them. Adapted from G-Engine, GPL-3, see NOTICE. Compiled at startup. -->
-    <EmbeddedResource Include="Assets/Story/Timeblocks.shp" />
   </ItemGroup>
 
   <ItemGroup>
