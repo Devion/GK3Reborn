@@ -1,6 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="../Website/GK3Reborn.Website/GK3Reborn.Website.csproj" />
     <Project Path="src/GK3Reborn.Engine/GK3Reborn.Engine.csproj" />
     <Project Path="src/GK3Reborn.Host/GK3Reborn.Host.csproj" />
   </Folder>
