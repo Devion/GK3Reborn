@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Template. The @TOKENS@ are substituted by build/package-macos.sh, which writes the result
+  beside the component package and hands it to productbuild. Edit this file, not that copy.
+
+  The two constraints are worth stating rather than leaving to the bundle's Info.plist:
+  productbuild does not read LSMinimumSystemVersion or LSArchitecturePriority, so without
+  them the installer would happily put an arm64-only application on an Intel Mac running an
+  operating system too old for it, and fail at launch instead of at install.
+-->
+<installer-gui-script minSpecVersion="2">
+    <title>@TITLE@</title>
+    <organization>org.gk3reborn</organization>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64" />
+
+    <welcome file="welcome.html" mime-type="text/html" />
+    <license file="license.txt" mime-type="text/plain" />
+
+    <allowed-os-versions>
+        <os-version min="@MINIMUM_SYSTEM@" />
+    </allowed-os-versions>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="@IDENTIFIER@" />
+        </line>
+    </choices-outline>
+
+    <choice id="default" />
+    <choice id="@IDENTIFIER@" visible="false">
+        <pkg-ref id="@IDENTIFIER@" />
+    </choice>
+
+    <pkg-ref id="@IDENTIFIER@" version="@VERSION@" onConclusion="none">@COMPONENT@</pkg-ref>
+</installer-gui-script>

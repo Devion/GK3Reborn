@@ -72,7 +72,7 @@ public sealed unsafe class OffscreenRenderer : IDisposable
         // then have to undo.
         const Format Target = Format.R8G8B8A8Unorm;
 
-        using var compiler = new ShaderCompiler(Path.Combine(AppContext.BaseDirectory, "shader-cache"));
+        using var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory);
         using TrianglePipeline pipeline = TrianglePipeline.Create(_vk, _device, Target, compiler);
 
         (Image image, DeviceMemory imageMemory) = CreateImage(width, height, Target);

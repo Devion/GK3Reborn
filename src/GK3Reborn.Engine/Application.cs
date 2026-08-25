@@ -4654,6 +4654,12 @@ public static class Application
         string[] candidates =
         [
             AppContext.BaseDirectory,
+            // A macOS .app carries its pack in Contents/Resources, which is the only place
+            // inside a bundle that a signed, read-only install can put shipped data.
+            InstallPaths.BundleResources ?? string.Empty,
+            // And the user's own directory, which is where somebody with a read-only
+            // install drops a pack they downloaded separately.
+            InstallPaths.UserData,
             Option(args, "--workspace") is { Length: > 0 } workspace ? workspace : string.Empty,
             DefaultWorkspaceDirectory(),
         ];
@@ -4755,9 +4761,19 @@ public static class Application
         [
             Path.Combine(beside, "Data"),
             beside,
+            // A read-only install cannot be filled in place, so the same Data directory is
+            // looked for under the user's own: that is what a macOS .app in /Applications
+            // asks a player to make, and it is a sensible place on any platform for
+            // somebody who does not own the install directory.
+            Path.Combine(InstallPaths.UserData, "Data"),
+            InstallPaths.BundleResources is { Length: > 0 } resources
+                ? Path.Combine(resources, "Data")
+                : string.Empty,
             Path.GetFullPath(Path.Combine(
                 beside, "..", "..", "..", "..", "..", "..", "GK3", "Data")),
         ];
+
+        candidates = [.. candidates.Where(candidate => candidate.Length > 0)];
 
         foreach (string candidate in candidates)
         {
@@ -4770,7 +4786,11 @@ public static class Application
 
         // Nothing anywhere: name the place a player is meant to fill rather than the one a
         // developer's checkout happens to have, because that is the message they will read.
-        return candidates[0];
+        // On a read-only install that place is not beside the executable - a player cannot
+        // put anything inside a signed .app - so name the directory they can actually use.
+        return InstallPaths.CanWrite(beside)
+            ? candidates[0]
+            : Path.Combine(InstallPaths.UserData, "Data");
     }
 
     /// <summary>
@@ -4786,7 +4806,11 @@ public static class Application
         using Rendering.Vulkan.OffscreenRenderer renderer = Rendering.Vulkan.OffscreenRenderer.Create();
 
         Formats.Bitmaps.DecodedImage image = renderer.RenderTriangle(640, 360, (0.05f, 0.06f, 0.09f));
-        string path = Path.Combine(AppContext.BaseDirectory, "offscreen.png");
+
+        // Beside the executable, where somebody running the smoke test will look for it -
+        // unless the executable is inside a read-only .app bundle, where writing there
+        // would fail the test for a reason that has nothing to do with what it proves.
+        string path = Path.Combine(InstallPaths.WritableRoot, "offscreen.png");
         File.WriteAllBytes(path, Formats.Bitmaps.PngWriter.Encode(image));
 
         Console.WriteLine($"Rendered {image.Width}x{image.Height} on {renderer.DeviceName}");

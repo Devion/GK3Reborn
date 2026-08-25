@@ -104,38 +104,7 @@ public sealed class SaveStore
     /// all because of where the game was put would be the worse failure.
     /// </para>
     /// </remarks>
-    public static string DefaultDirectory
-    {
-        get
-        {
-            string beside = Path.Combine(AppContext.BaseDirectory, "saves");
-
-            return Writable(beside)
-                ? beside
-                : Path.Combine(Path.GetDirectoryName(Settings.DefaultPath) ?? ".", "saves");
-        }
-    }
-
-    /// <summary>Whether a folder can be created and written to.</summary>
-    private static bool Writable(string directory)
-    {
-        try
-        {
-            System.IO.Directory.CreateDirectory(directory);
-
-            string probe = Path.Combine(directory, ".writable");
-
-            File.WriteAllText(probe, string.Empty);
-            File.Delete(probe);
-
-            return true;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or
-                                      NotSupportedException or ArgumentException)
-        {
-            return false;
-        }
-    }
+    public static string DefaultDirectory => InstallPaths.WritableDirectory("saves");
 
     /// <summary>Where this store keeps its files.</summary>
     public string Directory => _directory;

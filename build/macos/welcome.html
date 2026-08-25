@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>GK3Reborn</title>
+<style>
+  body { font: 13px -apple-system, "Helvetica Neue", sans-serif; margin: 0; color: #1d1d1f; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  p { margin: 0 0 10px; line-height: 1.45; }
+  code { font: 12px ui-monospace, Menlo, monospace; background: #f0f0f2; padding: 1px 4px; border-radius: 3px; }
+  ul { margin: 0 0 10px; padding-left: 18px; }
+  li { margin-bottom: 3px; }
+</style>
+</head>
+<body>
+<h2>GK3Reborn</h2>
+
+<p>A modern engine for <i>Gabriel Knight 3: Blood of the Sacred, Blood of the Damned</i>.
+This installer places <code>GK3Reborn.app</code> in your Applications folder.</p>
+
+<p><b>It contains no game data.</b> GK3Reborn plays the game from an installation you
+already own, which it reads and never modifies. After installing, copy the eight archives
+from your installation's <code>Data</code> folder into:</p>
+
+<p><code>~/Library/Application&nbsp;Support/GK3Reborn/Data</code></p>
+
+<ul>
+  <li>ambient.brn, common.brn, core.brn, day1.brn</li>
+  <li>day123.brn, day2.brn, day23.brn, day3.brn</li>
+</ul>
+
+<p>Nothing else from the original is needed. The same folder is where the game keeps your
+saved games and settings, and where a downloaded <code>.rebarn</code> content pack goes.</p>
+
+<p><b>Requires Apple silicon</b> and macOS 13 or later. Graphics go through MoltenVK; if
+the game reports no Vulkan device, install the Vulkan SDK for macOS.</p>
+</body>
+</html>

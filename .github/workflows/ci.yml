@@ -16,8 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux is a target from day one, not a late port. See Plan/04 P1.
-        os: [windows-latest, ubuntu-latest]
+        # Linux is a target from day one, not a late port. See Plan/04 P1. macos-latest is
+        # Apple silicon, which is the only Mac the game supports; the tests that need a
+        # Vulkan device skip themselves there as they do on any runner without one.
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +37,21 @@ jobs:
       - name: Test
         shell: bash
         run: ./build/run-tests.sh Release
+
+      # The bundle is file layout and an XML file, so every runner can produce one and a
+      # break in that target is caught wherever it happens rather than only on a Mac. The
+      # .pkg is not built here: it needs signing, and signing needs a key this has not got.
+      - name: Publish the macOS application bundle
+        shell: bash
+        run: |
+          dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfileMac --nologo
+          bundle=src/GK3Reborn.Host/publishmac/GK3Reborn.app
+          for expected in Contents/Info.plist Contents/PkgInfo Contents/MacOS/GK3Reborn; do
+            if [ ! -f "$bundle/$expected" ]; then
+              echo "::error::$bundle is missing $expected"
+              exit 1
+            fi
+          done
 
       - name: Check for committed game data
         shell: bash

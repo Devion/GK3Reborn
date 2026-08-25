@@ -60,16 +60,44 @@ public sealed class ShaderCompiler : IDisposable
     private readonly Shaderc _shaderc;
     private readonly string? _cacheDirectory;
 
+    /// <summary>
+    /// Where compiled SPIR-V is cached when nobody has said otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Beside the executable, so an unpacked install stays self-contained and carries its
+    /// warm cache when it is moved. On a macOS <c>.app</c> in <c>/Applications</c> nothing
+    /// can be written beside the executable at all - the bundle is read-only, and writing
+    /// into a signed one would invalidate the signature even where the permissions allow
+    /// it - so the cache moves to the user's own directory instead. See
+    /// <see cref="InstallPaths.WritableDirectory"/>.
+    /// </remarks>
+    public static string DefaultCacheDirectory => InstallPaths.WritableDirectory("shader-cache");
+
     /// <summary>Creates a compiler.</summary>
     /// <param name="cacheDirectory">Where to cache compiled SPIR-V, or null to not cache.</param>
+    /// <remarks>
+    /// A cache that cannot be created is not an error: every shader still compiles, just
+    /// not once. Refusing to start the renderer because a directory is read-only would
+    /// turn a slower first frame into no frame at all.
+    /// </remarks>
     public ShaderCompiler(string? cacheDirectory = null)
     {
         _shaderc = Shaderc.GetApi();
         _cacheDirectory = cacheDirectory;
 
-        if (_cacheDirectory is not null)
+        if (_cacheDirectory is null)
+        {
+            return;
+        }
+
+        try
         {
             Directory.CreateDirectory(_cacheDirectory);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+                                                       NotSupportedException or ArgumentException)
+        {
+            _cacheDirectory = null;
         }
     }
 

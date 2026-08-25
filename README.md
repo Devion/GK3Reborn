@@ -26,7 +26,7 @@ clickable, no script drives a scene, and there is no audio or UI. See
 | | |
 |---|---|
 | SDK | .NET 10 (pinned in `global.json`) |
-| Platforms | Windows x64; Linux x64 designed in from day one. macOS is out of scope. |
+| Platforms | Windows x64 and Linux x64, designed in from day one; macOS on Apple silicon |
 | Import tools | FFmpeg and ffprobe on `PATH`, or `--ffmpeg-dir` |
 | Game data | A legally obtained GK3 installation |
 
@@ -145,6 +145,9 @@ tests/
   GK3Reborn.Tests/             one test assembly, mirroring the engine's areas
 docs/adr/                      architecture decision records
 build/
+  run-tests.sh, run-tests.ps1  the test suite
+  package-macos.sh             GK3Reborn.app -> GK3Reborn.pkg; needs a Mac
+  macos/                       Info.plist, entitlements, installer text, the icon
 ```
 
 Areas are directories and namespaces rather than separate projects — see
@@ -198,6 +201,9 @@ GK3Reborn.exe          every managed assembly, bundled by single-file publishing
 libs/win-x64/          glfw3, soft_oal, shaderc_shared, and FFmpeg if it is present
 ```
 
+macOS is the one that is not a folder of files. See
+[the macOS installer package](#the-macos-installer-package) below.
+
 ### Running on macOS
 
 Apple silicon only; an Intel Mac would run the same build under Rosetta at a cost
@@ -224,9 +230,75 @@ There is no ray tracing on this hardware: MoltenVK offers no acceleration
 structures, so the tier is not reached and the raster path runs, which is what
 the tier model is for.
 
+### The macOS installer package
+
+A Mac does not install a folder of files. `FolderProfileMac` therefore publishes a
+bundle rather than a directory — `publishmac/GK3Reborn.app`, with `PublishDir`
+pointed straight into `Contents/MacOS` so the executable and `libs/osx-arm64/` land
+where they belong without being moved afterwards. `AppContext.BaseDirectory` is then
+`Contents/MacOS`, which is what every path the game derives is relative to, exactly as
+on the other two platforms. `RebornWriteMacAppBundle` in `GK3Reborn.Host.csproj` adds
+the rest of what makes a directory an application: `Info.plist` from
+[build/macos/Info.plist](build/macos/Info.plist), `PkgInfo`, and the icon.
+
+That half runs anywhere. The installer package does not:
+
+```console
+./build/package-macos.sh --publish
+```
+
+`codesign`, `pkgbuild`, `productbuild`, `sips` and `iconutil` are part of macOS and
+have no equivalent elsewhere, so the script refuses to run on anything else and says
+so. Publish the bundle wherever you like, copy it to a Mac as an archive, and point
+the script at it with `--app`. What comes out is `artifacts/macos/GK3Reborn-<version>.pkg`,
+which installs the bundle into `/Applications`.
+
+**Signing is not optional on Apple silicon.** An arm64 executable with no signature at
+all is killed by the kernel on launch, so a bundle published from Windows or Linux does
+not run until the script has signed it once. The default is an ad-hoc signature, which
+is enough for the machine that made it. Giving the package to anybody else needs a real
+Developer ID and notarisation:
+
+```console
+./build/package-macos.sh --publish \
+    --sign-app "Developer ID Application: ..." \
+    --sign-pkg "Developer ID Installer: ..." \
+    --notarize my-keychain-profile
+```
+
+The entitlements that go with a hardened-runtime signature are in
+[build/macos/entitlements.plist](build/macos/entitlements.plist), and each is there
+because of how .NET and Silk.NET work rather than as a precaution — the CLR needs
+`allow-jit`, and the unsigned libraries in `libs/osx-arm64` need
+`disable-library-validation`.
+
+### Where a read-only install keeps things
+
+Windows and Linux keep saves, the shader cache and the archives beside the executable,
+because that is a directory somebody unpacked and owns. An installed `.app` is not:
+it is read-only, and writing into a signed one would break the signature even where
+the permissions allow it. So `Foundation/InstallPaths.cs` gives two roots instead of
+one — the bundle's own `Contents/Resources` to read from, and
+`~/Library/Application Support/GK3Reborn` to write to — and everything falls back to
+the second only when it cannot use the first. Nothing about that is macOS-only in
+effect; the fallback simply stops being hypothetical on a Mac.
+
+For a player that means the archives go here:
+
+```text
+~/Library/Application Support/GK3Reborn/Data/     the eight .brn files
+~/Library/Application Support/GK3Reborn/          a .rebarn pack, saves, settings.json
+```
+
+`--data <dir>` still overrides it, and a bundle that *is* writable — one sitting in a
+folder you own rather than in `/Applications` — keeps its saves and shader cache
+inside itself as usual. The installer says all of this on its welcome page, which is
+[build/macos/welcome.html](build/macos/welcome.html).
+
 ### Filling a published tree
 
-The build ships no game content. Two things go in beside the executable:
+The build ships no game content. Two things go in beside the executable — or, on a
+macOS install that cannot be written to, in `~/Library/Application Support/GK3Reborn`:
 
 ```text
 Data/                  the original game's archives, copied from your installation

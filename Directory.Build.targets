@@ -1,0 +1,29 @@
+<Project>
+
+  <!-- Imported after each project's own body, which is what this file needs and
+       Directory.Build.props cannot have: OutputType is declared in the project and is not
+       set yet when the props are read. -->
+
+  <PropertyGroup>
+    <!-- PlatformTarget alone forces 64-bit codegen, and it is wanted on the things that
+         are a process. Declaring <Platforms>x64</Platforms> as well would add a platform
+         dimension the solution has no configuration for, which leaves Visual Studio unable
+         to map "Any CPU" onto any project - the projects then cannot be built or started
+         from the IDE.
+
+         Libraries are deliberately left as Any CPU. An executable published for an arm64
+         RuntimeIdentifier is compiled as arm64 - the SDK refuses a publish whose
+         PlatformTarget and RuntimeIdentifier disagree, with NETSDK1032 - and a library
+         pinned to x64 could then not be referenced from it at all: CS8012, "targets a
+         different processor". Any CPU is what lets one library serve both architectures,
+         which is the whole reason the macOS bundle can be built from a Windows machine.
+
+         An arm64 RuntimeIdentifier moves an executable's target here when the RID is known
+         this early. The entry project of a publish learns its RID from a publish profile,
+         which is imported after this file, so those profiles set PlatformTarget
+         themselves; assigning it there overrides whatever this leaves. -->
+    <PlatformTarget Condition="'$(PlatformTarget)' == '' and '$(OutputType)' == 'Exe' and $([System.String]::Copy('$(RuntimeIdentifier)').EndsWith('-arm64'))">arm64</PlatformTarget>
+    <PlatformTarget Condition="'$(PlatformTarget)' == '' and '$(OutputType)' == 'Exe'">x64</PlatformTarget>
+  </PropertyGroup>
+
+</Project>

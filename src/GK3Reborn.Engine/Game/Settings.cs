@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using GK3Reborn.Audio;
+using GK3Reborn.Foundation;
 using GK3Reborn.Rendering;
 
 namespace GK3Reborn.Game;
@@ -153,16 +154,12 @@ public sealed record Settings
 
     /// <summary>Where the settings live for this user.</summary>
     /// <remarks>
-    /// <c>%AppData%\GK3Reborn\settings.json</c> on Windows and
-    /// <c>~/.config/GK3Reborn/settings.json</c> on Linux, which is what
-    /// <see cref="Environment.SpecialFolder.ApplicationData"/> gives on each.
+    /// <c>%AppData%\GK3Reborn</c> on Windows, <c>~/.config/GK3Reborn</c> on Linux and
+    /// <c>~/Library/Application Support/GK3Reborn</c> on macOS. See
+    /// <see cref="InstallPaths.UserData"/> for why the last of those is named rather than
+    /// left to the BCL.
     /// </remarks>
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData,
-            Environment.SpecialFolderOption.DoNotVerify),
-        "GK3Reborn",
-        "settings.json");
+    public static string DefaultPath => Path.Combine(InstallPaths.UserData, "settings.json");
 
     /// <summary>The ray-tracing level this picture quality asks for.</summary>
     public RayTracingQuality Quality => Picture switch

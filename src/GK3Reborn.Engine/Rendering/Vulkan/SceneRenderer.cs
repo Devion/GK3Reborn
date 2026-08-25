@@ -115,7 +115,7 @@ public sealed unsafe class SceneRenderer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var compiler = new ShaderCompiler(Path.Combine(AppContext.BaseDirectory, "shader-cache"));
+        var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory);
 
         try
         {

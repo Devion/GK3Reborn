@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What the hardened runtime has to be asked to allow. Every one of these is here because
+  of how .NET and Silk.NET work, not as a precaution:
+
+  - allow-jit and allow-unsigned-executable-memory: the CLR compiles IL to machine code at
+    run time and writes it into pages it then executes. The hardened runtime forbids that
+    outright unless it is asked for.
+  - disable-library-validation: libs/osx-arm64 holds MoltenVK, GLFW, OpenAL Soft, shaderc
+    and an FFmpeg build, none of them signed by the same team as the game. Without this the
+    loader refuses every one of them and the game cannot open a window.
+  - allow-dyld-environment-variables: the Vulkan loader is configured through VK_ICD_FILENAMES
+    and DYLD_LIBRARY_PATH, which is how a player points the game at a Vulkan SDK they have
+    installed rather than at the copy inside the bundle.
+
+  Only meaningful when the bundle is signed with a real Developer ID, which is when the
+  hardened runtime is switched on; an ad-hoc signature is not subject to any of it.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>

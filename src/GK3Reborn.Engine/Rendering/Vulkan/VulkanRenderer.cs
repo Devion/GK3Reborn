@@ -1785,9 +1785,10 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     private void CreatePipelines()
     {
-        // Compiled shaders are cached beside the executable, so the compiler runs only
-        // when a shader actually changes.
-        _shaderCompiler = new ShaderCompiler(Path.Combine(AppContext.BaseDirectory, "shader-cache"));
+        // Compiled shaders are cached beside the executable - or under the user's own
+        // directory when the install is read-only - so the compiler runs only when a
+        // shader actually changes.
+        _shaderCompiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory);
 
         if (_bringUp)
         {

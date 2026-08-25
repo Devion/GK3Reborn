@@ -132,4 +132,111 @@
              Text="GK3Reborn: no native payload found under $(RebornRoot)libs\. The published game will have no video decoder; see docs/formats/video.md." />
   </Target>
 
+  <!-- ==================================================================================
+       macOS application bundle. See README, "The macOS installer package".
+
+       A Mac does not install a directory of files; it installs a GK3Reborn.app, and an
+       installer package is a bundle wrapped in one. The bundle is not assembled after the
+       publish - FolderProfileMac points PublishDir straight into Contents/MacOS, so the
+       executable and the libs/<rid> tree the targets above build land in the right place
+       to begin with, and AppContext.BaseDirectory is Contents/MacOS either way. All that
+       is left is the metadata that makes the directory an application rather than a
+       directory: Info.plist, PkgInfo, and the icon.
+
+       Cross-platform on purpose. Assembling the bundle is file layout and an XML file, so
+       a Windows machine can produce one; only signing and the .pkg need a Mac, and those
+       are build/package-macos.sh.
+       ================================================================================== -->
+
+  <!-- WriteLinesToFile ends every line with Environment.NewLine, so the same source would
+       give a CRLF file on Windows and an LF one on Linux. That matters here and nowhere
+       else in the build: codesign hashes the bytes of every file in a bundle, so a
+       host-dependent newline is a host-dependent signature, and this repository asks for
+       builds that do not depend on which machine made them - see .gitattributes, and
+       Deterministic in Directory.Build.props. Writing the text verbatim is the whole job. -->
+  <UsingTask TaskName="RebornWriteText"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Path ParameterType="System.String" Required="true" />
+      <Text ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
+        System.IO.File.WriteAllText(Path, Text, new System.Text.UTF8Encoding(false));
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="RebornWriteMacAppBundle"
+          AfterTargets="Publish"
+          Condition="'$(RebornMacAppBundle)' == 'true'">
+
+    <Error Condition="'$(RebornMacBundleRoot)' == ''"
+           Text="RebornMacAppBundle needs RebornMacBundleRoot, the path of the .app. FolderProfileMac sets both." />
+
+    <!-- Defaulted inside the target rather than in a PropertyGroup of their own: the
+         switch that turns any of this on comes from a publish profile, and a profile is
+         imported long after this file's body is evaluated. A conditional PropertyGroup out
+         here would be read before the profile had said anything and would silently do
+         nothing. A target's body is evaluated when the target runs, by which time
+         everything has been read. -->
+    <PropertyGroup>
+      <RebornMacBundleIdentifier Condition="'$(RebornMacBundleIdentifier)' == ''">org.gk3reborn.game</RebornMacBundleIdentifier>
+      <RebornMacBundleDisplayName Condition="'$(RebornMacBundleDisplayName)' == ''">GK3Reborn</RebornMacBundleDisplayName>
+      <!-- MoltenVK's floor, and .NET 10's: neither runs on anything older. -->
+      <RebornMacMinimumSystem Condition="'$(RebornMacMinimumSystem)' == ''">13.0</RebornMacMinimumSystem>
+      <RebornMacIconSource Condition="'$(RebornMacIconSource)' == ''">$(RebornRoot)build\macos\AppIcon.png</RebornMacIconSource>
+      <RebornMacPlistTemplate Condition="'$(RebornMacPlistTemplate)' == ''">$(RebornRoot)build\macos\Info.plist</RebornMacPlistTemplate>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <_RebornBundleContents>$([MSBuild]::NormalizeDirectory('$(RebornMacBundleRoot)', 'Contents'))</_RebornBundleContents>
+      <_RebornBundleResources>$([MSBuild]::NormalizeDirectory('$(_RebornBundleContents)', 'Resources'))</_RebornBundleResources>
+
+      <!-- CFBundleShortVersionString is what the Finder shows and what an installer
+           compares, and it accepts at most three integers - a fourth component makes the
+           whole key invalid rather than being ignored, so an assembly version is trimmed
+           to three here. -->
+      <_RebornShortVersion>$(Version)</_RebornShortVersion>
+      <_RebornShortVersion Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(Version)', '^\d+\.\d+\.\d+\.\d+$'))">$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '\.\d+$', ''))</_RebornShortVersion>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <_RebornPlist>$([System.IO.File]::ReadAllText('$(RebornMacPlistTemplate)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@EXECUTABLE@', '$(AssemblyName)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@IDENTIFIER@', '$(RebornMacBundleIdentifier)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@NAME@', '$(AssemblyName)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@DISPLAY_NAME@', '$(RebornMacBundleDisplayName)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@SHORT_VERSION@', '$(_RebornShortVersion)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@VERSION@', '$(Version)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@MINIMUM_SYSTEM@', '$(RebornMacMinimumSystem)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@COPYRIGHT@', '$(Copyright)'))</_RebornPlist>
+      <_RebornPlist>$(_RebornPlist.Replace('@ICON@', 'AppIcon'))</_RebornPlist>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_RebornBundleResources)" />
+
+    <RebornWriteText Path="$(_RebornBundleContents)Info.plist" Text="$(_RebornPlist)" />
+
+    <!-- Classic, and still read by Launch Services before the plist is parsed. Eight bytes
+         and no newline, which is the other reason not to use WriteLinesToFile. -->
+    <RebornWriteText Path="$(_RebornBundleContents)PkgInfo" Text="APPL????" />
+
+    <!-- The .icns is built from this PNG by build/package-macos.sh, which has sips and
+         iconutil to do it with. Carrying the source into the bundle means a bundle handed
+         to a Mac already has everything that step needs. A missing icon is not an error:
+         the application runs and shows the generic one. -->
+    <Copy SourceFiles="$(RebornMacIconSource)"
+          DestinationFolder="$(_RebornBundleResources)"
+          Condition="Exists('$(RebornMacIconSource)')"
+          SkipUnchangedFiles="true" />
+
+    <Message Importance="high" Text="GK3Reborn: wrote $(RebornMacBundleRoot)" />
+    <Message Importance="high"
+             Condition="!Exists('$(RebornMacIconSource)')"
+             Text="GK3Reborn: no icon at $(RebornMacIconSource); the bundle will show the generic application icon." />
+  </Target>
+
 </Project>
