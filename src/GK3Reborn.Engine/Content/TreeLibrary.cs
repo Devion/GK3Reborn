@@ -76,8 +76,9 @@ public sealed record TreeSpecies
 /// <para>
 /// A tree in this game is a picture of a tree on one quad, or on two quads crossed. That
 /// was the right call in 1999 and it is the single most obvious thing left in an outdoor
-/// scene: the corpus holds 43,136 of those cards, and the moment the camera moves off the
-/// angle the artist framed, a wood becomes a row of cardboard.
+/// scene: the scene files place 431 of those cards and the rooms draw 5,760 more, and the
+/// moment the camera moves off the angle the artist framed, a wood becomes a row of
+/// cardboard.
 /// </para>
 /// <para>
 /// The trees themselves are grown by <c>tools/blender/grow_trees.py</c> and read from disk

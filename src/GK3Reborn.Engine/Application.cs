@@ -2529,10 +2529,30 @@ public static class Application
                     Console.WriteLine($"Restored {from}: {recovered.Title}");
 
                     // The room the save was written in, which is very likely not this one.
-                    api.Wanted = story.Location;
-
+                    //
+                    // Returned rather than broken out of, and that is the whole of the bug
+                    // this replaces. `break` leaves the frame loop, and the only thing after
+                    // the frame loop is `return new RoomExit(0, null)` — which the room loop
+                    // reads as "the player quit" and shuts the game down. Restoring a save
+                    // from the pause menu closed the game instead of loading the save, which
+                    // from the other side of the screen is indistinguishable from a crash.
+                    // Quick-load never had the fault because it sets Wanted and falls through
+                    // to the handler below, which does exactly this.
+                    api.Wanted = null;
                     renderer.SetOverlay(null);
-                    break;
+
+                    // A save that names no room leaves the player where they are with the
+                    // story restored around them, which is odd but survivable. Returning
+                    // an empty destination would not be: the room loop cannot tell it from
+                    // quitting, which is the fault this whole branch is about.
+                    if (story.Location is not { Length: > 0 } saved)
+                    {
+                        continue;
+                    }
+
+                    update.Cancel();
+
+                    return new RoomExit(0, saved);
                 }
 
                 // The room has been standing still behind the menu and the clock has not.

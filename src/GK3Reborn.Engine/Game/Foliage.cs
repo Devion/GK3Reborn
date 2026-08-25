@@ -197,12 +197,16 @@ public static class Foliage
     /// <returns>One entry per object that is entirely foliage, largest first.</returns>
     /// <remarks>
     /// <para>
-    /// This is where most of the game's foliage actually is. The scene files place 431
-    /// foliage props across the corpus; the rooms themselves hold <b>43,136</b> tree cards,
-    /// and 21,502 of those are inside 55 objects — <c>wod_treeshadowcasters</c>,
-    /// <c>lhm_treeshadowcasters</c>, <c>rc1_pleavesshadowcasters</c> — that contain nothing
-    /// else. Replacing only the props leaves a wood where the near trees are modelled and
-    /// everything behind them is still cardboard.
+    /// The rooms hold <b>5,760</b> drawn foliage cards, 3,790 of them inside 64 objects —
+    /// <c>wod_treeshadowcasters</c>, <c>lhm_treeshadowcasters</c>,
+    /// <c>rc1_pleavesshadowcasters</c> — that contain nothing else.
+    /// </para>
+    /// <para>
+    /// Most of those turn out to be the <em>same</em> trees the scene file places as props,
+    /// drawn a second time, so what this actually adds is small: across the twenty-five
+    /// outdoor scenes measured it is 24 trees, sixteen of them in BAL and two in LHE, where
+    /// the room carries trees no prop does. It is worth having for those and it is not
+    /// where the bulk of the foliage is.
     /// </para>
     /// <para>
     /// <b>Only objects that are nothing but foliage.</b> An object that mixes cards with
@@ -212,10 +216,18 @@ public static class Foliage
     /// with them. 96 objects are mixed like that and they keep their cards.
     /// </para>
     /// <para>
-    /// The clustering is deliberately crude, because the data is: one tree is two or three
-    /// quads crossed at the same spot, so quads that stand over the same patch of ground
-    /// and overlap in height are one tree. It is quadratic over the cards of a single
-    /// object, which is a thousand at the very worst and runs once per room.
+    /// <b>A card is a surface, never a polygon.</b> A room's geometry has been through a BSP
+    /// splitter, and what that leaves is not the faces an artist drew: one 320-unit spruce
+    /// card in LHM arrives as five polygons, sliced across at whatever heights the tree's
+    /// planes happened to cut it. Clustering those directly turns a single tree into half a
+    /// dozen — and a slice taken from between 300 and 378 units up is a tree that grows in
+    /// mid-air, with its own trunk, above the real one. LHM's 1,023 polygons are 190 drawn
+    /// faces, and 190 is the number this works from.
+    /// </para>
+    /// <para>
+    /// The clustering is then simple, because the reconstructed data is: one tree is two or
+    /// three cards crossed at the same spot, and their centres agree to within about three
+    /// units where the trees themselves stand a couple of hundred apart.
     /// </para>
     /// </remarks>
     public static IReadOnlyList<FoliageObject> InGeometry(BspFile scene, TreeLibrary trees)
@@ -228,10 +240,10 @@ public static class Foliage
             return [];
         }
 
-        // Cards by the object that owns them, and only while every one of that object's
-        // surfaces is foliage. A single surface of something else disqualifies the object,
-        // so the check has to see all of them before any of it is used.
-        var cards = new Dictionary<int, List<Card>>();
+        // The drawn face each polygon came off, put back together. Bounds only: what a tree
+        // needs from a card is where it is and how big it was, and the polygons are the
+        // same face however the splitter divided it.
+        var pieces = new Dictionary<int, (Vector3 Least, Vector3 Most)>();
         var refused = new HashSet<int>();
 
         foreach (BspPolygon polygon in scene.Polygons)
@@ -249,10 +261,11 @@ public static class Foliage
                 continue;
             }
 
-            if (trees.For(surface.TextureName) is not { } species)
+            // One surface of something else disqualifies the whole object, and the check has
+            // to see all of them before any of it is used.
+            if (trees.For(surface.TextureName) is null)
             {
                 refused.Add(owner);
-                cards.Remove(owner);
                 continue;
             }
 
@@ -282,10 +295,28 @@ public static class Foliage
                 continue;
             }
 
-            if (!cards.TryGetValue(owner, out List<Card>? owned))
+            pieces[polygon.SurfaceIndex] = pieces.TryGetValue(
+                polygon.SurfaceIndex, out (Vector3 Least, Vector3 Most) already)
+                ? (Vector3.Min(already.Least, least), Vector3.Max(already.Most, most))
+                : (least, most);
+        }
+
+        var cards = new Dictionary<int, List<Card>>();
+
+        foreach ((int index, (Vector3 least, Vector3 most)) in pieces)
+        {
+            BspSurface surface = scene.Surfaces[index];
+
+            if (refused.Contains(surface.ObjectIndex) ||
+                trees.For(surface.TextureName) is not { } species)
+            {
+                continue;
+            }
+
+            if (!cards.TryGetValue(surface.ObjectIndex, out List<Card>? owned))
             {
                 owned = [];
-                cards[owner] = owned;
+                cards[surface.ObjectIndex] = owned;
             }
 
             owned.Add(new Card(species, least, most));
@@ -345,16 +376,17 @@ public static class Foliage
             Vector3 least = first.Least;
             Vector3 most = first.Most;
 
-            // A fifth of the seed card's own width, and no more. Crossed quads share a
-            // trunk, so the cards of one tree sit almost exactly on top of each other; half
-            // a card's width sounds safe and is not, because a wood is planted about one
-            // card apart and half a width swallows the neighbours. WOD's hillside came out
-            // as 34 trees at a half and a hundred and seventy at a fifth, which is what is
-            // actually drawn on it.
+            // A third of the seed card's own width. The cards of one tree are crossed at its
+            // trunk and their centres agree to within about three units, so this is a wide
+            // margin rather than a fine one — and it still cannot reach a neighbour, which
+            // stands a couple of hundred units away.
             float width = MathF.Max(most.X - least.X, most.Z - least.Z);
-            float reach = MathF.Max(width * 0.20f, 2f);
-            float span = MathF.Max(width * 1.5f, 8f);
+            float reach = MathF.Max(width * 0.33f, 8f);
 
+            // Measured from where the seed is and not from where the cluster has got to.
+            // Against a running centre a cluster walks: each card it takes moves the middle
+            // a little, the next one is then in range, and a stand of six spruces becomes
+            // one spruce six trees wide.
             var centre = new Vector2((least.X + most.X) * 0.5f, (least.Z + most.Z) * 0.5f);
 
             for (int other = seed + 1; other < order.Count; other++)
@@ -379,15 +411,6 @@ public static class Foliage
 
                 Vector3 grownLeast = Vector3.Min(least, card.Least);
                 Vector3 grownMost = Vector3.Max(most, card.Most);
-
-                // And no wider than half again the card it started from. Without this the
-                // cluster walks: each card it swallows moves the box out a little, the next
-                // one is then inside it, and a stand of six spruces becomes one spruce six
-                // trees wide. A tree is about as wide as the card it was drawn on.
-                if (MathF.Max(grownMost.X - grownLeast.X, grownMost.Z - grownLeast.Z) > span)
-                {
-                    continue;
-                }
 
                 taken[other] = true;
                 least = grownLeast;

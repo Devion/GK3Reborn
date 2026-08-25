@@ -3,6 +3,7 @@ using System.Text.Json;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Rebarn;
+using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Game;
 using GK3Reborn.Foundation.Diagnostics;
 using Xunit;
@@ -410,6 +411,100 @@ public sealed class FoliageTests : IDisposable
 
         Assert.False(library.IsEmpty);
         Assert.NotNull(library.Read(library.For("PINE2")!.Variants[0]));
+    }
+
+    /// <summary>
+    /// A room holding one upright card, cut into <paramref name="slices"/> polygons the
+    /// way a BSP splitter cuts one.
+    /// </summary>
+    private static BspFile Room(string texture, int slices, float low = 0f, float high = 320f)
+    {
+        List<Vector3> vertices = [];
+        List<ushort> indices = [];
+        List<BspPolygon> polygons = [];
+
+        for (int slice = 0; slice < slices; slice++)
+        {
+            float bottom = low + ((high - low) * slice / slices);
+            float top = low + ((high - low) * (slice + 1) / slices);
+            var corner = (ushort)vertices.Count;
+
+            vertices.Add(new Vector3(-100, bottom, 0));
+            vertices.Add(new Vector3(100, bottom, 0));
+            vertices.Add(new Vector3(100, top, 0));
+            vertices.Add(new Vector3(-100, top, 0));
+
+            polygons.Add(new BspPolygon
+            {
+                VertexIndexOffset = indices.Count,
+                VertexIndexCount = 4,
+                SurfaceIndex = 0,
+            });
+
+            indices.AddRange([corner, (ushort)(corner + 1), (ushort)(corner + 2), (ushort)(corner + 3)]);
+        }
+
+        return BspFile.FromParts(
+            "TEST.BSP",
+            ["test_treeshadowcasters"],
+            [
+                new BspSurface
+                {
+                    ObjectIndex = 0,
+                    TextureName = texture,
+                    LightmapUvOffset = Vector2.Zero,
+                    LightmapUvScale = Vector2.One,
+                    Flags = 0,
+                },
+            ],
+            polygons,
+            [.. vertices],
+            [],
+            [.. indices]);
+    }
+
+    [Fact]
+    public void One_card_is_one_tree_however_the_splitter_cut_it()
+    {
+        // The bug this pins put trees in mid-air. A room's geometry has been through a BSP
+        // splitter, so the polygons in it are not the faces an artist drew: one 320-unit
+        // spruce card in LHM arrives as five, sliced across at whatever heights the tree's
+        // planes happened to cut it. Clustered as if they were cards, each slice became a
+        // tree — and a slice taken from 300 units up is a tree with its own trunk growing
+        // out of the middle of the real one.
+        TreeLibrary library = Library();
+
+        Foliage.FoliageObject whole = Assert.Single(Foliage.InGeometry(Room("PINE2", 1), library));
+        Foliage.FoliageObject cut = Assert.Single(Foliage.InGeometry(Room("PINE2", 5), library));
+
+        Assert.Single(whole.Sites);
+        Assert.Single(cut.Sites);
+        Assert.Equal(whole.Sites[0].Foot, cut.Sites[0].Foot);
+        Assert.Equal(whole.Sites[0].Height, cut.Sites[0].Height);
+    }
+
+    [Fact]
+    public void A_slice_of_a_card_never_becomes_a_tree_of_its_own()
+    {
+        // The same thing said as the symptom rather than as the cause: every tree a room
+        // grows has to stand on the ground the card stood on. A five-way cut of one card
+        // that produced five trees would put four of them at 64, 128, 192 and 256 units up.
+        TreeLibrary library = Library();
+
+        foreach (TreeSite site in Foliage.InGeometry(Room("PINE2", 5), library)[0].Sites)
+        {
+            Assert.Equal(0f, site.Foot.Y);
+        }
+    }
+
+    [Fact]
+    public void An_object_holding_anything_but_foliage_is_left_alone()
+    {
+        // A room is hidden by object name and there is no way to hide half of one, so an
+        // object that draws its leaves on cards and its bole with TRUNK01 has to keep both.
+        TreeLibrary library = Library();
+
+        Assert.Empty(Foliage.InGeometry(Room("TRUNK01", 3), library));
     }
 
     [Fact]

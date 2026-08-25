@@ -1008,13 +1008,15 @@ public sealed class SceneLoader
     /// How many triangles of grown wood one room may be given.
     /// </summary>
     /// <remarks>
-    /// A cap rather than a target, and the reason there is one is arithmetic. LHM draws its
-    /// hillside with 1,023 foliage cards, which cluster into a hundred and sixty trees; at
-    /// four thousand triangles each that is six hundred thousand triangles of scenery behind
-    /// a conversation, in a room that shipped at six thousand. Every stand is grown at the
-    /// far detail first, which is a quarter of the cost, and the budget left over is spent
-    /// raising the tallest trees to full — so what a player stands under is modelled and the
-    /// ridge behind it is suggested.
+    /// A cap rather than a target, and a guard rather than a constraint: no room in the
+    /// corpus comes near it now that a card is counted as the face an artist drew rather
+    /// than as the pieces a BSP splitter left. It is kept because the arithmetic that
+    /// motivated it is still true — a stand of a hundred and sixty trees at four thousand
+    /// triangles each is six hundred thousand triangles of scenery behind a conversation, in
+    /// a room that shipped at six — and because a scene nobody has looked at yet should not
+    /// be able to spend that. Every stand is grown at the far detail first, which is a
+    /// quarter of the cost, and the budget left over is spent raising the tallest trees to
+    /// full.
     /// </remarks>
     private const int WoodBudget = 400_000;
 

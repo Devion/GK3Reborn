@@ -203,6 +203,33 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Restoring a save from the pause menu closed the game — fixed 2026-08-25
+
+**Reported** as a crash on restoring while in-game, and it is not a crash: the game shuts
+down cleanly and instantly, which from the other side of the screen looks the same.
+
+The pause menu's Load branch ended in `break`. That leaves the **frame loop**, and the only
+thing after the frame loop is `return new RoomExit(0, null)` — which the room loop reads as
+"the player quit" and ends the game. The `api.Wanted = story.Location` set two lines above
+it was dead: nothing reads it before the `break`.
+
+It shows in a log as a restore with no room after it:
+
+```
+Restored 01: Gabriel's Room - Day 1, 10am - 12pm
+Presented 236 frames in 3.9s (61 fps)
+```
+
+**Quick-load never had the fault.** F9 sets `api.Wanted` and falls through to the handler at
+the bottom of the frame loop, which cancels the update and returns a `RoomExit` carrying the
+destination. The menu branch now does the same thing, and refuses to return an empty
+destination — a save naming no room leaves the player where they are rather than being
+mistaken for quitting a second time.
+
+Nothing to do with the modelled trees, which landed the same day; the branch dates from the
+commit that added saving.
+
+
 ### A coloured triangle flashed between the intro films — fixed 2026-08-25
 
 **Reported** as a short frame with a colourful pyramid in it between the intros, and guessed

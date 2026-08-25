@@ -31,18 +31,52 @@ enhanced textures. The engine finds it there; `Settings.ModelledTrees` and the v
 | where | how many cards | what happens to them |
 | --- | ---: | --- |
 | Foliage props named by scene files | 431 placements | replaced |
-| Room objects that are **only** foliage | 21,502 in 55 objects, 47 rooms | replaced, budget permitting |
-| Room objects mixing foliage with something else | 40,112 in 96 objects | left flat |
+| Room objects that are **only** foliage | 3,790 in 64 objects | replaced, budget permitting |
+| Room objects mixing foliage with something else | 1,887 | left flat |
 | Background strips — `TREEGROUP01`, `TILEDTREES` | the remainder | left flat |
 
-**43,136 tree cards in all.** The prop count is the number people notice first and it is
-under one per cent of the total: replacing only the props leaves a wood whose near trees
-are modelled and whose hillside is still cardboard. Most of the work is in the rooms.
+**A card is the face an artist drew, not a polygon.** Counting polygons gives 43,136, and
+that number is wrong by seven and a half times: a room has been through a BSP splitter, so
+one 320-unit spruce card in LHM arrives as five polygons, sliced across at whatever heights
+the tree planes happened to cut it. LHM has 1,023 polygons and 190 drawn faces. Everything
+here works from surfaces — see *One card, however it was cut*, which is where getting this
+wrong showed up on screen.
+
+Most of what the rooms draw turns out to be the **same trees the scene files place as
+props**, drawn a second time. So the room pass adds less than its card count suggests:
+across the twenty-five outdoor scenes measured it contributes 24 trees, sixteen of them in
+BAL and two in LHE, where the room carries trees no prop does. Worth having for those, and
+not where the bulk of the foliage is.
 
 A mixed object cannot be touched, and the reason is structural rather than a lack of
 effort: a room is hidden **by object name** and there is no way to hide half of one.
 `wod_dectree01` draws its leaves on cards and its bole with `TRUNK01`, so hiding it to
 replace the leaves would take the trunk with them.
+
+## One card, however it was cut
+
+This is the one mistake in the feature that reached a screenshot, and it is worth writing
+down because the data invites it.
+
+Clustering **polygons** rather than surfaces turns a single tree into half a dozen. Four of
+the six are slices taken from partway up the trunk, so each grows a tree of its own, with
+its own bole, starting in mid-air out of the middle of the real one. WOD reported 87 trees
+where 18 stand; LHM reported 162 where 33 do.
+
+The fix is two pieces of principle:
+
+1. **Rebuild the drawn face first.** Polygons are grouped by `SurfaceIndex` and their bounds
+   unioned. A surface is what the artist drew — it is what carries the texture and the
+   lightmap chart — and the splitter changes neither where it is nor how big it was.
+2. **Measure a cluster from its seed card, never from a running centre.** Against a moving
+   centre a cluster walks: each card it takes shifts the middle a little, the next one is
+   then in range, and a stand of six spruces becomes one spruce six trees wide.
+
+Reconstructed, the clustering barely has to be clever: the cards of one tree are crossed at
+its trunk and their centres agree to within about **three units**, where the trees stand a
+couple of hundred apart. Two tests hold it — one asserting that a card cut five ways gives
+the same single tree as an uncut one, and one asserting that every tree a room grows stands
+on the ground its card stood on.
 
 ## A card is measured, not guessed at
 
@@ -95,9 +129,11 @@ duplicates and turned the wood into a clearing.
 
 ## The budget, and why there are two detail levels
 
-LHM's hillside is 1,023 foliage cards, which cluster into 162 trees. At four thousand
-triangles each that is six hundred thousand triangles of scenery behind a conversation, in
-a room that shipped at 5,853.
+No room in the corpus comes near the budget now that a card is counted properly, so it is a
+guard rather than a constraint. It is kept because the arithmetic behind it is still true —
+a stand of a hundred and sixty trees at four thousand triangles each is six hundred thousand
+triangles of scenery behind a conversation, in a room that shipped at 5,853 — and because a
+scene nobody has looked at yet should not be able to spend that.
 
 So each species is grown twice. The **far** tree keeps the silhouette that says which
 species it is — the count of whorls, the taper of the crown — and gives up the detail
@@ -118,15 +154,16 @@ the only thing in the data that says which tree a room is about. `SceneLoader.Wo
 is 400,000 triangles; what it will not stretch to is said in the log rather than left
 silent, because a silent cap reads as "there was no more foliage" when it is not.
 
-Measured on the reference installation, at 960×540 with everything else enhanced:
+Measured on the reference installation, with everything else enhanced:
 
-| room | cards | trees grown | at full detail | triangles, flat → grown |
-| --- | ---: | ---: | ---: | --- |
-| WOD | 609 | 85 | 67 | 9,561 → 386,421 |
-| LHM | 1,023 | 151 | 61 | 5,853 → 474,227 |
-| CSD | 1,086 | 163 | 45 | 7,177 → 473,639 |
-| RC1 110A | 820 | 123 | 71 | 447,000 → 1,267,655 |
-| BAL | 820 | 131 | 88 | — → 531,053 |
+| room | trees grown | of those, from the room | triangles, flat → grown |
+| --- | ---: | ---: | --- |
+| CSD | 37 | 5 | 7,177 → 200,793 |
+| LHM | 33 | 1 | 5,853 → 156,021 |
+| RC4 | 28 | 0 | — → 148,235 |
+| PL1 | 26 | 0 | — → 128,139 |
+| BAL | 22 | 16 | — → 168,835 |
+| WOD | 18 | 0 | 9,561 → 88,653 |
 
 ## Packing
 
@@ -174,14 +211,14 @@ That has to hold for a *partial* set too, and it is arranged rather than hoped f
   not delivered takes cards away and puts nothing in their place.
 - **A stand whose trees will not parse stays flat, all of it.** A room is hidden by object
   name, so half a stand is not an option; the geometry is read *before* the object is
-  committed to rather than while planting it. Corrupt every spruce in the set and WOD
-  reports `87 left flat; the grown trees for them will not load` and draws 9,561 triangles
-  of cards — the same picture as no trees at all, plus a warning naming each bad file.
+  committed to rather than while planting it. Corrupt every spruce in the set and a room
+  reports how many stands it left flat and draws its cards instead — the same picture as no
+  trees at all, plus a warning naming each bad file.
 - **A prop whose tree will not load** keeps its card, one prop at a time.
 
 Measured: with no packs and no workspace, WOD draws **9,561 triangles**. With a pack
 holding the manifest but no geometry, WOD draws **9,561 triangles**. With the full pack,
-**389,667**.
+**88,653**.
 
 ## The foliage is drawn, and its colour is measured
 
@@ -251,9 +288,9 @@ the player walks up to is whatever the room decided it was.
 acceleration structure, as it always was. The one thing that changed is that a grown
 broadleaf's **bark is opaque**, so its trunk is traced and does cast one.
 
-**The 96 mixed objects and every background strip stay flat**, which is 40,000 cards and
-more than half the corpus. Handling them needs surface-level rather than object-level
-hiding, and that is a change to `AddScene`.
+**The mixed objects and every background strip stay flat** — 1,887 drawn cards, a third of
+what the rooms hold. Handling them needs surface-level rather than object-level hiding, and
+that is a change to `AddScene`.
 
 **Five species is not five species of tree.** It is five silhouettes fitted to eighteen
 sprites. `TREE01` and `TREE02` are drawn as the same broadleaf; nobody has looked at a
