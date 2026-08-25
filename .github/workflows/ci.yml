@@ -36,7 +36,7 @@ jobs:
 
       - name: Test
         shell: bash
-        run: ./build/run-tests.sh Release
+        run: bash ./build/run-tests.sh Release
 
       # The bundle is file layout and an XML file, so every runner can produce one and a
       # break in that target is caught wherever it happens rather than only on a Mac. The
