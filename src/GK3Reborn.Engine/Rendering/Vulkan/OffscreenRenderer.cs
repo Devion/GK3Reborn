@@ -40,7 +40,7 @@ public sealed unsafe class OffscreenRenderer : IDisposable
     /// <exception cref="VulkanException">No usable device exists.</exception>
     public static OffscreenRenderer Create()
     {
-        var renderer = new OffscreenRenderer(Vk.GetApi());
+        var renderer = new OffscreenRenderer(VulkanContext.LoadApi());
 
         try
         {

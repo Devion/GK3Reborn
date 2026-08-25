@@ -265,7 +265,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(surfaceSource);
 
-        var renderer = new VulkanRenderer(Vk.GetApi(), window, surfaceSource, bringUp);
+        var renderer = new VulkanRenderer(VulkanContext.LoadApi(), window, surfaceSource, bringUp);
 
         try
         {

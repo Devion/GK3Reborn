@@ -105,6 +105,31 @@ public sealed unsafe class VulkanContext : IDisposable
         return RayTracingExtensions.All(available.Contains);
     }
 
+    /// <summary>Loads the Vulkan API, reporting a missing loader as a Vulkan failure.</summary>
+    /// <returns>The API.</returns>
+    /// <exception cref="VulkanException">No loader is present.</exception>
+    /// <remarks>
+    /// A machine with no loader at all throws out of Silk.NET's own loading rather than
+    /// returning anything, and what it throws is not a type any caller here would think to
+    /// catch: a headless macOS build agent, which has no MoltenVK, failed a ray-tracing
+    /// test with a FileNotFoundException instead of skipping it. Everything that decides
+    /// "this machine cannot render" keys off <see cref="VulkanException"/>, so an absent
+    /// loader is reported as one. <c>VulkanDeviceSelector.Survey</c> says the same thing in
+    /// its own way, by returning a report rather than throwing.
+    /// </remarks>
+    internal static Vk LoadApi()
+    {
+        try
+        {
+            return Vk.GetApi();
+        }
+        catch (Exception ex)
+            when (ex is DllNotFoundException or EntryPointNotFoundException or FileNotFoundException)
+        {
+            throw new VulkanException("No Vulkan loader is present on this machine.", ex);
+        }
+    }
+
     /// <summary>Creates a headless context, with no surface and no presentation.</summary>
     /// <returns>The context.</returns>
     /// <remarks>
@@ -114,7 +139,7 @@ public sealed unsafe class VulkanContext : IDisposable
     /// </remarks>
     public static VulkanContext CreateHeadless()
     {
-        var context = new VulkanContext(Vk.GetApi());
+        var context = new VulkanContext(LoadApi());
 
         try
         {

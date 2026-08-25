@@ -729,9 +729,18 @@ public sealed class ClipPlaybackTests
         Matrix4x4 here = first.Poses[(0, 0)];
         Matrix4x4 there = second.Poses[(0, 0)] * far;
 
-        Assert.Equal(here.Translation.X, there.Translation.X, 2);
-        Assert.Equal(here.Translation.Y, there.Translation.Y, 2);
-        Assert.Equal(here.Translation.Z, there.Translation.Z, 2);
+        // Compared as a distance with a tolerance rather than to a number of decimal
+        // places. The room's coordinates run to the hundreds, where a float carries about
+        // 6e-5 of precision, and arm64 contracts the multiply-add in a matrix product where
+        // x64 does not. The two answers differed by 3e-5 - correct on both - but straddled a
+        // rounding boundary, so 500.015015 rounded to 500.02 and 500.014984 to 500.01 and
+        // the same right answer passed on one runner and failed on the other. A hundredth of
+        // a unit is far below anything the eye can see and far above that noise.
+        float apart = Vector3.Distance(here.Translation, there.Translation);
+
+        Assert.True(
+            apart < 0.01f,
+            $"{here.Translation} and {there.Translation} are {apart} apart, not the same place.");
     }
 
     [Fact]

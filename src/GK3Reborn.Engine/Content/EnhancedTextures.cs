@@ -60,9 +60,16 @@ public sealed class EnhancedTextures
             return set;
         }
 
-        foreach (string file in System.IO.Directory.EnumerateFiles(directory, "*.png"))
+        // Matched here rather than by a "*.png" search pattern, which is case-sensitive on
+        // Linux and would make R25WALLS.PNG invisible there while finding it on Windows and
+        // macOS. The game's own names are upper case throughout, so generated content
+        // carries that extension as often as not.
+        foreach (string file in System.IO.Directory.EnumerateFiles(directory))
         {
-            set._files[Path.GetFileNameWithoutExtension(file)] = file;
+            if (Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
+            {
+                set._files[Path.GetFileNameWithoutExtension(file)] = file;
+            }
         }
 
         return set;
