@@ -47,3 +47,4 @@ ContentWorkspace/
 # than anyone machine-specific directories.
 motion.raw
 flicker.raw
+/src/GK3Reborn.Host/publishlinux/GK3Reborn.Engine.xml
