@@ -46,6 +46,15 @@ public sealed record PlacedModel(
     /// <summary>The script that drives it on its own, or null.</summary>
     public string? Gas { get; init; }
 
+    /// <summary>Whether the scene gave this actor a spot of its own to stand on.</summary>
+    /// <remarks>
+    /// Which decides what an opening animation is allowed to do to them. An actor with no
+    /// spot is placed <em>by</em> their opening pose and it must apply in full; an actor
+    /// with one is already where the scene wants them, so a pose that is really a
+    /// performance can be left alone. See <c>SceneUpdate.Open</c>.
+    /// </remarks>
+    public bool Spotted { get; init; }
+
     /// <summary>Which way this model is built to face, when its own arrow says.</summary>
     /// <remarks>
     /// From the character's <c>DOR_</c> model — see <see cref="Actors.FacingArrow"/>. Null

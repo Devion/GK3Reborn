@@ -44,6 +44,25 @@ public sealed class SceneAudio
     /// </remarks>
     private const double FadeSeconds = 1.5;
 
+    /// <summary>The soundtracks the room is running, one program each.</summary>
+    private readonly List<SoundtrackProgram> _programs = [];
+
+    /// <summary>Sounds that move with something, and what they move with.</summary>
+    private readonly List<(AudioVoice Voice, string Model)> _following = [];
+
+    /// <summary>Sounds still fading in, with how far through the fade they are.</summary>
+    private readonly List<(AudioVoice Voice, double Length, double Gain, double At)> _rising = [];
+
+    /// <summary>
+    /// Where the waits and the choices are drawn from.
+    /// </summary>
+    /// <remarks>
+    /// Its own generator rather than the game's, so that how often a room creaks does not
+    /// depend on how many times anybody has clicked on anything — and seeded, so that two
+    /// runs of the same scene make the same noises at the same moments. ADR 0004.
+    /// </remarks>
+    private readonly Foundation.DeterministicRandom _chance = new(0x51A7C0DE51A7C0DE);
+
     private AudioVoice _ambience;
     private AudioVoice _line;
 
@@ -233,37 +252,113 @@ public sealed class SceneAudio
         // Whatever was playing is already on its way out — see Leave — so nothing here
         // stops anything. A room that names no soundtrack leaves that fade to finish on
         // its own, which is a room going quiet rather than the sound being cut off.
+        _programs.Clear();
 
-        // In the order the file lists them, not the sorted set: a soundtrack opens with the
-        // sound that establishes the room, and taking them alphabetically starts R25 on its
-        // mood rather than its theme.
+        // All of them, not the first: RC1 at ten in the morning names a fountain, a room
+        // tone and birdsong, and they are meant to be heard together.
         foreach (SoundtrackFile soundtrack in soundtracks)
         {
-            foreach (SoundtrackNode node in soundtrack.Nodes)
-            {
-                foreach (SoundtrackSound sound in node.Sounds)
-                {
-                    // Chosen by whether the archives hold it, which costs a directory
-                    // lookup, rather than by whether it decodes, which costs the decode.
-                    if (_sounds.Has(sound.Name))
-                    {
-                        _waiting = sound.Name;
-                        _nextFadeMs = sound.FadeOutMs;
-                        _where = PlacementOf(sound);
-
-                        // Said now rather than when the decode lands, because the caller
-                        // asks straight away and a soundtrack takes a moment to decode.
-                        AmbienceAt = _where;
-                        _pending = Task.Run(() => _sounds.Read(sound.Name));
-
-                        return sound.Name;
-                    }
-                }
-            }
+            _programs.Add(new SoundtrackProgram(soundtrack, _chance));
         }
 
-        return null;
+        // One step of each, now, so that a room is not silent for the length of its first
+        // wait — and so that the caller has something to report. Time zero rather than a
+        // frame's worth: a wait of a second is a second after the room appears.
+        foreach (SoundtrackProgram program in _programs)
+        {
+            program.Advance(0, sound => Sound(program, sound));
+        }
+
+        return Ambience ?? _waiting;
     }
+
+    /// <summary>Starts one sound of a soundtrack, and says how long it lasts.</summary>
+    /// <param name="program">The soundtrack it belongs to.</param>
+    /// <param name="sound">The sound, as the file describes it.</param>
+    /// <returns>Its length in seconds, or zero when it could not be played.</returns>
+    /// <remarks>
+    /// <para>
+    /// A sound that loops is the room's bed: it is what the room sounds like for as long
+    /// as the player is in it, and it is what the crossfade into the next room fades out.
+    /// It goes through the same decode-off-the-thread path as before, because a bed is
+    /// often a five-minute MP3 and decoding one where the room appears is a quarter of a
+    /// second of nothing happening.
+    /// </para>
+    /// <para>
+    /// Everything else is a moment — a creak, a bell, a car going past — and is played
+    /// outright. Those are short, already decoded by the time a room has been in for a
+    /// minute, and waiting a frame for one would put it after the step that follows it.
+    /// </para>
+    /// </remarks>
+    private double Sound(SoundtrackProgram program, SoundtrackSound sound)
+    {
+        AudioPlacement? at = PlacementOf(sound);
+
+        if (sound.Loop)
+        {
+            if (!_sounds.Has(sound.Name))
+            {
+                return 0;
+            }
+
+            _waiting = sound.Name;
+            _nextFadeMs = sound.FadeOutMs;
+            _where = at;
+            AmbienceAt = at;
+            _pending = Task.Run(() => _sounds.Read(sound.Name));
+
+            return 0;
+        }
+
+        if (_sounds.Read(sound.Name) is not { } wav)
+        {
+            return 0;
+        }
+
+        AudioVoice voice = _backend.Play(wav, Bus(program.Kind), repeat: false, at);
+
+        if (!voice.Exists)
+        {
+            return 0;
+        }
+
+        float gain = Math.Clamp(sound.Volume / 100f, 0f, 1f);
+
+        // A sound that fades in starts at nothing and is brought up by Update. 52 of the
+        // corpus's soundtracks ask for one, and they are the ones where the sound is meant
+        // to arrive rather than to start — weather, a crowd, an engine coming closer.
+        if (sound.FadeInMs > 0)
+        {
+            _backend.SetVoiceGain(voice, 0f);
+            _rising.Add((voice, sound.FadeInMs / 1000.0, gain, 0));
+        }
+        else
+        {
+            _backend.SetVoiceGain(voice, gain);
+        }
+
+        // Kept only while it needs following. Everything else the backend reclaims on its
+        // own, and holding a handle to a sound that has finished is how a list of voices
+        // grows for as long as a room is stood in.
+        if (sound.Follow is { Length: > 0 })
+        {
+            _following.Add((voice, sound.Follow));
+        }
+
+        return wav.Duration;
+    }
+
+    /// <summary>Which bus a soundtrack's sounds are mixed on.</summary>
+    /// <remarks>
+    /// The file says: <c>SoundType=Music</c>, <c>Ambient</c> or <c>SFX</c>, which is which
+    /// of the player's own volume sliders it obeys.
+    /// </remarks>
+    private static AudioBus Bus(SoundtrackKind kind) => kind switch
+    {
+        SoundtrackKind.Music => AudioBus.Music,
+        SoundtrackKind.Effect => AudioBus.Effects,
+        _ => AudioBus.Ambience,
+    };
 
     /// <summary>Where a soundtrack's sound is, if it says.</summary>
     /// <param name="sound">The sound, as its soundtrack describes it.</param>
@@ -484,6 +579,22 @@ public sealed class SceneAudio
 
         Drop();
 
+        // A soundtrack says how its sound stops: play to the end, fade, or cut. Leaving
+        // the room is the forced kind, so even "play to the end" stops — the reference
+        // does the same, and a creak carried into the next room is a creak in the wrong
+        // room. The bed is not stopped here: it is handed to the crossfade below.
+        foreach (SoundtrackProgram program in _programs)
+        {
+            if (program.Sounding is { Loop: false } sounding)
+            {
+                Stop(sounding);
+            }
+        }
+
+        _programs.Clear();
+        _following.Clear();
+        _rising.Clear();
+
         _pending = null;
         _waiting = null;
 
@@ -550,12 +661,223 @@ public sealed class SceneAudio
     }
 
     /// <summary>Stops whatever was fading out.</summary>
+    /// <summary>Stops a soundtrack's sound the way the soundtrack says to.</summary>
+    /// <param name="sound">The sound being stopped.</param>
+    /// <remarks>
+    /// Only the voices this still holds — the ones that follow something. Everything else
+    /// is a moment already over or nearly so, and the backend reclaims it.
+    /// </remarks>
+    private void Stop(SoundtrackSound sound)
+    {
+        for (int i = _following.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(_following[i].Model, sound.Follow, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _backend.Silence(_following[i].Voice);
+            _following.RemoveAt(i);
+        }
+    }
+
     private void Drop()
     {
         if (_leaving.Exists)
         {
             _backend.Silence(_leaving);
             _leaving = AudioVoice.None;
+        }
+    }
+
+    /// <summary>Starts a soundtrack a script named, on top of the room's own.</summary>
+    /// <param name="track">The file.</param>
+    /// <returns>True if it was not already playing.</returns>
+    /// <remarks>
+    /// A script's soundtrack is another program running beside the room's rather than
+    /// instead of it: <c>PlaySoundTrack</c> in the middle of a scene is a car arriving or
+    /// a storm getting up, and the room is still the room underneath it. Playing one
+    /// twice does nothing, which is what the original does — the same list started twice
+    /// would be the same sound at two different points in its own walk.
+    /// </remarks>
+    public bool Play(SoundtrackFile track)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+
+        foreach (SoundtrackProgram running in _programs)
+        {
+            if (running.Track.Name.Equals(track.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        var program = new SoundtrackProgram(track, _chance);
+        _programs.Add(program);
+
+        // One step now, so a soundtrack started by a script is heard on the frame it was
+        // asked for rather than on the next.
+        program.Advance(0, sound => Sound(program, sound));
+
+        return true;
+    }
+
+    /// <summary>Stops one soundtrack, or every soundtrack.</summary>
+    /// <param name="name">Which one, or null for all of them.</param>
+    /// <returns>How many were stopped.</returns>
+    /// <remarks>
+    /// The room's bed is left alone by name and stopped by "all", which is the difference
+    /// between a script ending the storm it started and a script asking for silence.
+    /// </remarks>
+    public int StopSoundtrack(string? name = null)
+    {
+        int stopped = 0;
+
+        for (int i = _programs.Count - 1; i >= 0; i--)
+        {
+            if (name is { Length: > 0 } &&
+                !_programs[i].Track.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
+                !Path.GetFileNameWithoutExtension(_programs[i].Track.Name)
+                    .Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (_programs[i].Sounding is { } sounding)
+            {
+                Stop(sounding);
+
+                // A looping sound is the room's bed, and stopping the soundtrack that owns
+                // it is what silences the room.
+                if (sounding.Loop)
+                {
+                    Loop(null);
+                }
+            }
+
+            _programs.RemoveAt(i);
+            stopped++;
+        }
+
+        return stopped;
+    }
+
+    /// <summary>The soundtracks the room is running, by name.</summary>
+    /// <remarks>
+    /// A room may be running several — RC1 at ten in the morning names a fountain, a room
+    /// tone and birdsong — and most of them are silent at any given moment, because a
+    /// soundtrack is mostly waiting. So this says what is <em>running</em>, where
+    /// <see cref="Ambience"/> says what is sounding.
+    /// </remarks>
+    public IReadOnlyList<string> Running =>
+        [.. _programs.Select(p => p.Track.Name)];
+
+    /// <summary>Where a line is spoken from, or null when it belongs at the head.</summary>
+    /// <param name="line">The line's animation, which names its speaker in its caption.</param>
+    /// <returns>The placement, or null to centre it.</returns>
+    /// <remarks>
+    /// This line's own speaker rather than <see cref="Speaker"/>, which is the last one
+    /// known: an animation with no caption names nobody, and taking the previous line's
+    /// speaker would put an unattributed line wherever the last person to talk is standing.
+    /// </remarks>
+    private AudioPlacement? Placed(AnimationFile line)
+    {
+        if (line.Captions.Count == 0 ||
+            line.Captions[0].Speaker is not { Length: > 0 } speaker ||
+            Routing.Resolve(speaker) == DialogueRouting.Centered)
+        {
+            return null;
+        }
+
+        return Where?.Invoke(speaker) is { } standing
+            ? new AudioPlacement(standing, DialogueNear, DialogueFar)
+            : null;
+    }
+
+    /// <summary>How near a speaker has to be before their voice stops getting louder.</summary>
+    /// <remarks>
+    /// A person talking is not a fountain: the useful range is a conversation's worth of
+    /// room rather than a square's, so a line placed in the world is at full level for the
+    /// few feet a conversation is held across and falls away beyond that. Wider than the
+    /// game's own default for a sound, because a line the player cannot make out is worse
+    /// than a line that is not quite placed right.
+    /// </remarks>
+    private const float DialogueNear = 300f;
+
+    /// <summary>And how far away it is as quiet as it gets.</summary>
+    private const float DialogueFar = 2000f;
+
+    /// <summary>Which speakers are centred and which are placed in the room.</summary>
+    /// <remarks>
+    /// Gabriel by default, and everybody when the player turns on centred dialogue — which
+    /// is an accessibility option, not a mixing preference (Plan/03 section 8).
+    /// </remarks>
+    public DialogueRoutingOptions Routing { get; set; } = new();
+
+    /// <summary>Reads a soundtrack by name, for the calls that name one.</summary>
+    /// <remarks>
+    /// A hook rather than an archive reference: a <c>.STK</c> is text in a barn, and the
+    /// audio layer knowing how to open one would put the archives behind the mixer.
+    /// </remarks>
+    public Func<string, SoundtrackFile?>? Soundtracks { get; set; }
+
+    /// <summary>Where a model in the room is, for a sound that moves with it.</summary>
+    /// <remarks>
+    /// <c>Follow=blk_sedan</c> on a soundtrack's sound means the emitter travels with that
+    /// model. Where the model is at any moment is the room's business rather than the
+    /// audio's, so this is a hook: without one, a following sound stays where the file
+    /// authored it, which is where the model starts.
+    /// </remarks>
+    public Func<string, Vector3?>? Where { get; set; }
+
+    /// <summary>Brings the sounds that are fading in up to their own level.</summary>
+    /// <remarks>
+    /// Straight-line in gain, like the room-to-room crossfade beside it. A sound whose
+    /// fade has finished is dropped from the list rather than kept and set to the same
+    /// level every frame for as long as it plays.
+    /// </remarks>
+    private void Rising(double seconds)
+    {
+        for (int i = _rising.Count - 1; i >= 0; i--)
+        {
+            (AudioVoice voice, double length, double gain, double at) = _rising[i];
+
+            at += seconds;
+
+            if (at >= length || length <= 0)
+            {
+                _backend.SetVoiceGain(voice, (float)gain);
+                _rising.RemoveAt(i);
+                continue;
+            }
+
+            _backend.SetVoiceGain(voice, (float)(gain * (at / length)));
+            _rising[i] = (voice, length, gain, at);
+        }
+    }
+
+    /// <summary>Moves the sounds that travel with something.</summary>
+    /// <remarks>
+    /// Voices that have finished are dropped here rather than kept, because a room stood
+    /// in for ten minutes starts a great many sounds and only a handful of them follow
+    /// anything.
+    /// </remarks>
+    private void Following()
+    {
+        for (int i = _following.Count - 1; i >= 0; i--)
+        {
+            (AudioVoice voice, string model) = _following[i];
+
+            if (!_backend.IsPlaying(voice))
+            {
+                _following.RemoveAt(i);
+                continue;
+            }
+
+            if (Where?.Invoke(model) is { } position)
+            {
+                _backend.Move(voice, position);
+            }
         }
     }
 
@@ -570,6 +892,17 @@ public sealed class SceneAudio
         _backend.Update();
 
         Crossfade(seconds);
+
+        // The room's own soundtracks, each a list being walked. Before the decode below
+        // rather than after it, so a bed a program asks for this frame is picked up this
+        // frame rather than the next.
+        foreach (SoundtrackProgram program in _programs)
+        {
+            program.Advance(seconds, sound => Sound(program, sound));
+        }
+
+        Following();
+        Rising(seconds);
 
         // A soundtrack is a five-minute MP3 and decoding one is a quarter of a second, which
         // used to sit between a room being ready and the player seeing it. It is decoded
@@ -639,7 +972,20 @@ public sealed class SceneAudio
                     continue;
                 }
 
-                _line = _backend.Play(sound, AudioBus.DialogueCentered);
+                // Where the line is heard from. Gabriel is always centred — the player is
+                // him, and a voice that swings across the room every time the camera cuts
+                // is the one voice that must not — and everybody else is placed where they
+                // are standing, unless the player has asked for all dialogue centred. The
+                // policy has existed since the audio layer was written with nothing
+                // reading it, so every line in the game came out of the middle.
+                _line = Placed(animation) is { } placed
+                    ? _backend.Play(sound, AudioBus.DialogueInWorld, repeat: false, placed)
+                    : AudioVoice.None;
+
+                if (!_line.Exists)
+                {
+                    _line = _backend.Play(sound, AudioBus.DialogueCentered);
+                }
 
                 if (_line.Exists)
                 {

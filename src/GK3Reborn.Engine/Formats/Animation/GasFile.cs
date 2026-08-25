@@ -279,8 +279,19 @@ public sealed record GasFile
             case "WHENNOLONGERNEAR" when parts.Length >= 4:
                 return Watching(GasAction.WhenNoLongerNear, parts);
 
-            case "WHENINVIEW" when parts.Length >= 3:
-                return new GasStep(GasAction.WhenInView, parts[1], 0) { Other = parts[2] };
+            // WHENINVIEW <who>, <angle>, <label> [, percent] — the angle is how wide this
+            // actor's own sight is, in degrees, not a distance. Mosely notices Gabriel
+            // within 90 degrees of the way he is facing and insults him; Gabriel's test
+            // idle yawns when Emilio comes within 70 of his. Both of the corpus's two
+            // uses carry the angle in the third field, and reading the label from there
+            // is a jump to a label named "90".
+            case "WHENINVIEW" when parts.Length >= 4:
+                return new GasStep(GasAction.WhenInView, parts[1], 0)
+                {
+                    Value = (int)(Number(parts, 2) ?? 0),
+                    Other = parts[3],
+                    Chance = Percent(parts, 4),
+                };
 
             default:
                 return null;

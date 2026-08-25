@@ -125,10 +125,12 @@ face is the same surface with a different picture on it, and its bumps have not 
 * The eyes. `FACES.TXT` describes sub-pixel eye placement, a field of view per eye and a
   jitter frequency, none of which is read into anything that moves. Eyes are part of the
   face bitmap and do not track the player.
-* The `[LISTENERS]` section, which names talk and listen scripts **per conversation**
-  rather than per actor. The actor's own three are run — see `behaviour-scripts.md` — so a
-  character gestures while they speak; what is missing is a conversation overriding that
-  with something written for it.
+* ~~The `[LISTENERS]` section.~~ Done. A scene names talk and listen scripts **per
+  conversation** rather than per actor, along with an animation to enter the conversation
+  and one to leave it — 237 lines across 75 rooms. `SetConversation` hands the named
+  actors those scripts and plays the enter animation; `EndConversation` plays the exit and
+  gives them their own scripts back. The pair matters: without the exit, Mosely is still
+  leaning on the Armorer's counter for the rest of the afternoon.
 * Enhanced face bitmaps. Compositing reads the original archives, so a character whose
   face had a higher-resolution replacement would lose it while talking. None of the
   pilot set has one, so nothing does today.

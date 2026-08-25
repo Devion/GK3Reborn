@@ -102,6 +102,10 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private Camera? _camera;
 
     private bool _rayTracingEnabled;
+
+    /// <summary>What the device offered of what was asked for, as the device was made.</summary>
+    private DeviceCapabilities _capabilities =
+        new(BlockCompression: true, AnisotropicFiltering: true, AstcCompression: false, Etc2Compression: false);
     private ShadowDenoiser? _denoiser;
     private CompositePipeline? _composite;
     private bool _composed;
@@ -836,7 +840,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
             ApiVersion = Vk.Version13,
         };
 
-        string[] extensions = [.. _surfaceSource.RequiredInstanceExtensions];
+        // The window's own extensions, plus the one that lets a portability driver be
+        // enumerated at all. Without it there is no device to find on macOS.
+        string[] extensions = VulkanPortability.InstanceExtensions(
+            _vk, _surfaceSource.RequiredInstanceExtensions, out InstanceCreateFlags flags);
+
         nint extensionNames = SilkMarshal.StringArrayToPtr(extensions);
         nint layerNames = 0;
 
@@ -844,6 +852,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         {
             SType = StructureType.InstanceCreateInfo,
             PApplicationInfo = &applicationInfo,
+            Flags = flags,
             EnabledExtensionCount = (uint)extensions.Length,
             PpEnabledExtensionNames = (byte**)extensionNames,
         };
@@ -1007,9 +1016,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
         // quality setting changes — would mean rebuilding every resource with it.
         _rayTracingEnabled = VulkanContext.CanRayTrace(_vk, _physicalDevice);
 
-        string[] names = _rayTracingEnabled
+        string[] wanted = _rayTracingEnabled
             ? [KhrSwapchain.ExtensionName, .. VulkanContext.RayTracingExtensions]
             : [KhrSwapchain.ExtensionName];
+
+        // A portability driver requires its subset extension to be enabled wherever it is
+        // advertised, and no driver that is not one advertises it.
+        string[] names = VulkanPortability.DeviceExtensions(_vk, _physicalDevice, wanted);
 
         nint extensionNames = SilkMarshal.StringArrayToPtr(names);
 
@@ -1047,14 +1060,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
             dynamicRendering.PNext = &addresses;
         }
 
-        // TextureCompressionBC is what makes a BC5 or BC7 image legal to create. Every
-        // desktop driver has it; asking for it is what the specification requires before
-        // the content pipeline's DDS textures may be uploaded at all.
-        var features = new PhysicalDeviceFeatures
-        {
-            SamplerAnisotropy = true,
-            TextureCompressionBC = true,
-        };
+        // TextureCompressionBC is what makes a BC5 or BC7 image legal to create, and
+        // Apple silicon has none of it. Asking for a feature the device does not have
+        // fails device creation outright, so only what is offered is asked for and the
+        // texture path reads back which way it went.
+        _capabilities = VulkanPortability.Query(_vk, _physicalDevice);
+        PhysicalDeviceFeatures features = _capabilities.Requested();
 
         try
         {
@@ -1785,7 +1796,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         _context = VulkanContext.Adopt(
             _vk, _instance, _physicalDevice, _device, _graphicsQueue, _graphicsFamily,
-            _commandPool, DeviceName, _rayTracingEnabled);
+            _commandPool, DeviceName, _rayTracingEnabled, _capabilities);
 
         _meshPipeline = MeshPipeline.Create(
             _context, _format, SceneRenderer.DepthFormat, _shaderCompiler);

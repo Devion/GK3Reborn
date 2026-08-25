@@ -118,12 +118,18 @@ public sealed unsafe class VulkanTexture : IDisposable
         ArgumentNullException.ThrowIfNull(context);
         ObjectDisposedException.ThrowIf(source.Blocks.IsEmpty, typeof(CompressedImage));
 
+        // A device with no block compression — Apple silicon, through MoltenVK — cannot
+        // be given these blocks at all, so they are expanded on the host and uploaded as
+        // ordinary pixels. The chain the compressor built is kept either way: what
+        // changes is the format of each level, not how many there are.
+        bool expand = !context.Capabilities.BlockCompression;
+
         Format format = source.Format switch
         {
-            BlockFormat.Bc7Srgb => Format.BC7SrgbBlock,
-            BlockFormat.Bc7Unorm => Format.BC7UnormBlock,
-            BlockFormat.Bc5Unorm => Format.BC5UnormBlock,
-            BlockFormat.Bc4Unorm => Format.BC4UnormBlock,
+            BlockFormat.Bc7Srgb => expand ? Format.R8G8B8A8Srgb : Format.BC7SrgbBlock,
+            BlockFormat.Bc7Unorm => expand ? Format.R8G8B8A8Unorm : Format.BC7UnormBlock,
+            BlockFormat.Bc5Unorm => expand ? Format.R8G8B8A8Unorm : Format.BC5UnormBlock,
+            BlockFormat.Bc4Unorm => expand ? Format.R8G8B8A8Unorm : Format.BC4UnormBlock,
             _ => throw new VulkanException($"No Vulkan format for {source.Format}."),
         };
 
@@ -132,7 +138,14 @@ public sealed unsafe class VulkanTexture : IDisposable
         (Image image, DeviceMemory memory) =
             CreateImage(context, source.Width, source.Height, mips, format);
 
-        UploadBlocks(context, image, source, mips);
+        if (expand)
+        {
+            UploadExpanded(context, image, source, mips);
+        }
+        else
+        {
+            UploadBlocks(context, image, source, mips);
+        }
 
         ImageView view = CreateView(context, image, format, mips);
         Sampler sampler = CreateSampler(context, mips, addressMode);
@@ -277,6 +290,113 @@ public sealed unsafe class VulkanTexture : IDisposable
                 regions[level] = new BufferImageCopy
                 {
                     BufferOffset = (ulong)offset,
+                    ImageSubresource = new ImageSubresourceLayers
+                    {
+                        AspectMask = ImageAspectFlags.ColorBit,
+                        MipLevel = level,
+                        BaseArrayLayer = 0,
+                        LayerCount = 1,
+                    },
+                    ImageExtent = new Extent3D((uint)width, (uint)height, 1),
+                };
+            }
+
+            context.Api.CmdCopyBufferToImage(
+                command, staging, image, ImageLayout.TransferDstOptimal, mips, regions);
+
+            TransitionRange(context, command, image, 0, mips,
+                ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+
+            context.EndOneShot(command);
+        }
+        finally
+        {
+            context.Api.DestroyBuffer(context.Device, staging, null);
+            context.Api.FreeMemory(context.Device, stagingMemory, null);
+        }
+    }
+
+    /// <summary>Uploads a block-compressed image with its blocks expanded on the host.</summary>
+    /// <param name="context">Device context.</param>
+    /// <param name="image">The image to fill.</param>
+    /// <param name="source">The compressed levels.</param>
+    /// <param name="mips">How many levels there are.</param>
+    /// <remarks>
+    /// <para>
+    /// Every level is decoded into one staging buffer and copied in one submission, the
+    /// same shape as the block path: a level is not blitted from the one above it, because
+    /// the compressor's own chain is better than a box filter of its own first level and
+    /// because a BC5 normal map minified by blitting is a normal map of the wrong length.
+    /// </para>
+    /// <para>
+    /// This costs four times the staging memory of the block path. It is bounded by the
+    /// largest texture rather than by the scene, since the buffer is freed as soon as the
+    /// copy is done.
+    /// </para>
+    /// </remarks>
+    private static void UploadExpanded(
+        VulkanContext context, Image image, CompressedImage source, uint mips)
+    {
+        int[] offsets = new int[mips];
+        int total = 0;
+
+        for (uint level = 0; level < mips; level++)
+        {
+            (_, _, int width, int height) = source.Level((int)level);
+            offsets[level] = total;
+            total += BlockDecoder.DecodedLength(width, height);
+        }
+
+        var bufferInfo = new BufferCreateInfo
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = (ulong)total,
+            Usage = BufferUsageFlags.TransferSrcBit,
+            SharingMode = SharingMode.Exclusive,
+        };
+
+        context.Api.CreateBuffer(context.Device, in bufferInfo, null, out Buffer staging);
+        context.Api.GetBufferMemoryRequirements(
+            context.Device, staging, out MemoryRequirements requirements);
+
+        DeviceMemory stagingMemory = context.Allocate(
+            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+        context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
+
+        try
+        {
+            void* mapped;
+            context.Api.MapMemory(context.Device, stagingMemory, 0, (ulong)total, 0, &mapped);
+
+            var destination = new Span<byte>(mapped, total);
+
+            for (uint level = 0; level < mips; level++)
+            {
+                (_, _, int width, int height) = source.Level((int)level);
+
+                BlockDecoder.DecodeLevel(
+                    source,
+                    (int)level,
+                    destination.Slice(offsets[level], BlockDecoder.DecodedLength(width, height)));
+            }
+
+            context.Api.UnmapMemory(context.Device, stagingMemory);
+
+            CommandBuffer command = context.BeginOneShot();
+
+            TransitionRange(context, command, image, 0, mips,
+                ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+            BufferImageCopy* regions = stackalloc BufferImageCopy[(int)mips];
+
+            for (uint level = 0; level < mips; level++)
+            {
+                (_, _, int width, int height) = source.Level((int)level);
+
+                regions[level] = new BufferImageCopy
+                {
+                    BufferOffset = (ulong)offsets[level],
                     ImageSubresource = new ImageSubresourceLayers
                     {
                         AspectMask = ImageAspectFlags.ColorBit,
@@ -767,8 +887,12 @@ public sealed unsafe class VulkanTexture : IDisposable
             AddressModeU = addressMode,
             AddressModeV = addressMode,
             AddressModeW = addressMode,
-            AnisotropyEnable = true,
-            MaxAnisotropy = Math.Min(16f, properties.Limits.MaxSamplerAnisotropy),
+            // Asking for anisotropy the device did not enable is invalid rather than
+            // ignored, so this follows what the device offered rather than assuming it.
+            AnisotropyEnable = context.Capabilities.AnisotropicFiltering,
+            MaxAnisotropy = context.Capabilities.AnisotropicFiltering
+                ? Math.Min(16f, properties.Limits.MaxSamplerAnisotropy)
+                : 1f,
             MipmapMode = SamplerMipmapMode.Linear,
             MaxLod = mips,
         };

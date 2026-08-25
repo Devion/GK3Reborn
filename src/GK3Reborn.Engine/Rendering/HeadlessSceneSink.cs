@@ -247,7 +247,8 @@ public sealed class HeadlessSceneSink : ISceneSink
         BspFile scene,
         MulFile? lightmaps = null,
         IReadOnlySet<string>? hiddenObjects = null,
-        string? floorObject = null)
+        string? floorObject = null,
+        IReadOnlySet<int>? hiddenSurfaces = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
 

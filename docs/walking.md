@@ -157,6 +157,41 @@ Only the player, and only a walk they asked for. A script that sends somebody so
 means all the way there — the museum's eavesdrop ends by walking Gabriel into the very
 rectangle that started it.
 
+## Stopping where you can see the thing
+
+`WalkToSee` is 2,120 of the corpus's 3,617 approaches — by a distance the commonest thing
+anybody in the game does — and it means *walk until you can see it*, not *walk to it*. The
+difference shows wherever the thing is behind something: walking to a painting on the far
+side of a counter puts Gabriel through the counter, and walking to a door he is already
+looking at makes him cross the room for no reason.
+
+Three rules, all the reference's own (`Walker::WalkToSee`):
+
+1. **Already in view is not a walk.** Turn to face it where you stand, and only if it is
+   more than about thirty-five degrees off your current facing.
+2. **Otherwise walk towards it, and stop where it comes into view.** The planned route is
+   sampled at every corner and at three points along each leg — a doorway is usually
+   crossed between two corners — and cut one corner *past* the first place the thing can
+   be seen, because stopping on the exact frame a sliver of it appears round a corner
+   reads as noticing something impossible.
+3. **A route that never sees it is walked in full**, which is the old behaviour and the
+   right fallback: the thing may be inside the cupboard the walk was meant to end at.
+
+Seeing is `SceneSight`: six rays from the walker's head height — the character's own
+`WalkerHeight` — to the middle of each face of the thing's box, against the room's own
+triangles. Six rather than one because the middle of a bookcase, a car or a bed is inside
+it and visible from nowhere. Nothing can be seen beyond **200 units** whatever the line of
+sight, which is the reference's figure and is what stops "walk until you can see it" from
+meaning "do not walk" in an open room.
+
+Props and characters do not block sight. A walk is planned once before anybody sets off,
+and a route that depended on where somebody was standing would be a different route every
+time the story moved them.
+
+The room's triangles are bucketed by where they stand on the ground plan and a ray visits
+only the buckets it crosses; a room is ten to twenty thousand triangles and a walk asks
+about thirty positions.
+
 ## Between the recorded frames
 
 The stride is a clip like any other and is played like one: `ActFile.PoseAt` mixes the poses

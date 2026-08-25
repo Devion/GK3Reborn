@@ -499,8 +499,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     Grow(Vector3.Transform(submesh.Positions[i], meshToWorld));
                 }
 
-                RecordTraceable(
-                    submesh.TextureName, local, submesh.Indices, _placements.Count);
+                // What this group is painted with, or what it is *coloured* when the
+                // artists gave it no texture at all. See Painted.
+                string painted = Painted(submesh);
+
+                RecordTraceable(painted, local, submesh.Indices, _placements.Count);
 
                 if (!batches.TryGetValue(index, out List<int>? owned))
                 {
@@ -517,7 +520,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     IndexType.Uint16,
                     (uint)submesh.Indices.Length,
                     meshToWorld,
-                    submesh.TextureName,
+                    painted,
                     useLightmap: false,
                     selfLit: false,
                     local: meshToLocal,
@@ -927,6 +930,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">The scene's baked lightmaps, in surface order, if any.</param>
     /// <param name="hiddenObjects">Names of objects inside it that must not be drawn.</param>
+    /// <param name="hiddenSurfaces">Individual surfaces that must not be drawn, by index.</param>
     /// <param name="floorObject">
     /// The object the scene calls its floor, whose surfaces may have their relief cut into
     /// the geometry rather than only sampled by the shader, or null to displace nothing.
@@ -949,7 +953,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         BspFile scene,
         MulFile? lightmaps = null,
         IReadOnlySet<string>? hiddenObjects = null,
-        string? floorObject = null)
+        string? floorObject = null,
+        IReadOnlySet<int>? hiddenSurfaces = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
@@ -1028,9 +1033,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // declares hit-test volumes and things the story brings out later that way, and
             // dropping their triangles is the mistake this file has made twice before:
             // there is no showing something that was never read.
-            bool hidden = hiddenObjects is { Count: > 0 } &&
-                          owner.Length > 0 &&
-                          hiddenObjects.Contains(owner);
+            bool hidden =
+                (hiddenObjects is { Count: > 0 } &&
+                 owner.Length > 0 &&
+                 hiddenObjects.Contains(owner)) ||
+
+                // Or this one surface on its own. An object can be two trees and a painted
+                // strip of distant hillside, and hiding it by name takes the hillside with
+                // the trees.
+                (hiddenSurfaces is { Count: > 0 } &&
+                 hiddenSurfaces.Contains(polygon.SurfaceIndex));
 
             Vector4 region = _lightmapRegions is not null && polygon.SurfaceIndex < _lightmapRegions.Count
                 ? _lightmapRegions[polygon.SurfaceIndex]
@@ -1699,6 +1711,52 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// A wrong-looking texture is better than a silently black one: the first is a bug you
     /// can see, and the second is a room that merely looks badly lit.
     /// </remarks>
+    /// <summary>
+    /// What a group of triangles is painted with, which is not always a texture.
+    /// </summary>
+    /// <param name="submesh">The group.</param>
+    /// <returns>A texture name, which may be one made up for a colour.</returns>
+    /// <remarks>
+    /// <para>
+    /// A <c>.MOD</c> group carries a texture name <em>and</em> a colour, and a handful of
+    /// the game's models use the second instead of the first: <c>BINO1</c> and
+    /// <c>ABEBINOCS</c> — the tour's binoculars — name no texture anywhere in the file and
+    /// are a dark teal body and near-black rubber, stored as the two groups' colours.
+    /// </para>
+    /// <para>
+    /// Without this they took the missing-texture fallback, which is a <b>magenta
+    /// chequerboard</b>, and the binoculars turned up as a loud purple object. That
+    /// fallback is a good thing and it stays: a texture that is <em>named</em> and not
+    /// found is a real fault and should be impossible to miss. A group that names none was
+    /// never asking for one.
+    /// </para>
+    /// <para>
+    /// One texel, under a name made from the colour, so that every group of the same colour
+    /// shares one texture and the batch key keeps working exactly as it did.
+    /// </para>
+    /// </remarks>
+    private string Painted(ModSubmesh submesh)
+    {
+        if (submesh.TextureName.Length > 0)
+        {
+            return submesh.TextureName;
+        }
+
+        (byte red, byte green, byte blue) = submesh.Color;
+        string name = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"#colour{red:X2}{green:X2}{blue:X2}");
+
+        if (!HasTexture(name))
+        {
+            AddTexture(
+                name,
+                new DecodedImage(1, 1, [red, green, blue, 255], HasAlpha: false, name));
+        }
+
+        return name;
+    }
+
     internal static DecodedImage CheckerBoard()
     {
         const int Size = 64;

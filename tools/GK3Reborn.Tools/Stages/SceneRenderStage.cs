@@ -841,6 +841,14 @@ public sealed class SceneRenderStage
             ? $"  takes {outcome.Seconds:0.0}s of the player's time"
             : "  is over as soon as it starts");
 
+        // The approach is time the action costs that none of its statements accounts for,
+        // and it is the half of an action that a walk to see something can change: the
+        // walk stops where the thing comes into view rather than at the thing.
+        if (outcome.Approaching > 0)
+        {
+            _log($"  {outcome.Approaching:0.0}s of that is getting there");
+        }
+
         if (host.CallStackTrace.Count > 0)
         {
             _log($"  entered {string.Join(", ", host.CallStackTrace.Take(8))}" +

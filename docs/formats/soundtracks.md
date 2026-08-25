@@ -71,10 +71,8 @@ spelling.
 
 ## What plays
 
-The first sound of the first track, looped, and placed in the room where the file places
-it. A soundtrack is a *program* — pick one of these, wait four to nine seconds, repeat —
-and running it properly is a scheduler of its own; this is the simple half of it, and a
-room that hums is much closer to right than a room that is silent.
+Every sound the program reaches, where the file places it. See "Running one" below for how
+the list is walked; what follows here is what happens to the room's bed at a door.
 
 **`FadeOutMS` is used, and it is the artists' own number.** Leaving a room does not stop
 its bed; it starts it on its way out while the next room's comes up underneath, and how
@@ -82,11 +80,32 @@ long that takes is what the outgoing sound's own soundtrack asks for — three s
 R25's theme. A soundtrack that leaves the key out gets a second and a half, which is about
 how long walking through a door takes. See `SceneAudio.Leave`.
 
+## Running one
+
+`SoundtrackProgram` walks the list: a `WAIT` holds it up for its own time or a random one
+inside its range, a `SOUND` starts a sound and the list goes on when the sound is over, and
+a run of `PRS` sections is **one** step with one of its sounds picked. Each node's `Repeat`
+is spent whether or not the node did anything, so a node that fails its `Random` still uses
+up a turn — which is what makes "play this twice and then never again" mean what it says.
+
+**A looping sound is the end of the walk.** There is no length that would take the list past
+it, so everything after it in the file is unreachable; that is the original's behaviour and
+it is how a soundtrack meant to be continuous is written. 83 of the 269 files have one, and
+that sound is the room's *bed* — the thing that crossfades into the next room. The other 186
+are programs of occasional sounds with silence between them, which is what a hotel room
+actually sounds like.
+
+The draws come from the audio layer's own seeded generator rather than the game's, so how
+often a room creaks does not depend on how much the player has clicked, and two runs of the
+same scene make the same noises at the same moments (ADR 0004).
+
+All of a scene's soundtracks run, not the first: RC1 at ten in the morning names a fountain,
+a room tone and birdsong, and they are meant to be heard together. `PlaySoundTrack` starts
+another beside them — its argument is a `.STK`, which is why looping it as though it were a
+sound found nothing — and `StopSoundTrack` and `StopAllSoundTracks` take them away again.
+
 ## What is not here
 
-The program itself: no waits, no `Random`, no `Repeat` counts, and nothing after the first
-looping sound. `StopMethod` is read and not acted on other than through the crossfade, and
-`FadeInMs` is not used at all.
-
-`PlaySoundTrack`, `StopSoundTrack` and `StopAllSoundTracks` are still recorded rather than
-performed.
+`FadeOutMs` is applied through the room-to-room crossfade and to sounds the layer still
+holds; a one-shot that has already ended has nothing to fade. Nothing reads `SoundType` for
+anything but which bus to mix on.

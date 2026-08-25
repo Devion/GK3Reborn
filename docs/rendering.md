@@ -50,6 +50,64 @@ Validation layers are not installed here. They ship with the Vulkan SDK and are 
 developer prerequisite for the renderer work proper, per the shader toolchain entry in
 `Plan/01-architecture.md` section 1.
 
+## Portability drivers, and devices with no block compression
+
+Vulkan on macOS is MoltenVK translating to Metal, which the specification calls a
+*portability* driver rather than a conformant one. Two things follow, and both are
+refusals rather than degradations if they are missed:
+
+- an instance has to pass `VK_KHR_portability_enumeration` and the flag that goes with
+  it, or **no device is enumerated at all** — the survey reports an empty machine;
+- a device advertising `VK_KHR_portability_subset` must have it in the enabled extension
+  list, or `vkCreateDevice` fails.
+
+`VulkanPortability` decides both, for every instance the engine creates — the game's, the
+headless context's and the device survey's. Neither is behind an operating-system check:
+the extensions are simply absent on Windows and Linux drivers, so the same path runs
+everywhere and a Linux build exercises it.
+
+The same class also queries the device's features rather than asking for what would be
+convenient. **A feature the device lacks fails device creation outright**, so
+`SamplerAnisotropy` and `TextureCompressionBC` are requested only where they are offered,
+and what the device answered is carried on `VulkanContext.Capabilities` for the texture
+path to read.
+
+### The blocks
+
+Apple silicon has **no BC formats whatsoever** — Metal offers ASTC and ETC2 instead — so
+the content pipeline's BC7, BC5 and BC4 textures cannot be created there at all. They are
+expanded on the host instead: `BlockDecoder` turns each level into eight-bit pixels and
+`VulkanTexture` uploads the whole chain as `R8G8B8A8_SRGB` or `R8G8B8A8_UNORM`. The
+compressor's own mip chain is kept rather than regenerated, because a BC5 normal map
+minified by blitting is a normal map of the wrong length.
+
+It costs **four times the video memory** for every enhanced texture in the scene, which is
+the price of the format not existing on that device. Shipping ASTC alongside BC in the
+packs would remove that cost and is the obvious follow-up; it needs an encoder the content
+pipeline does not have yet, since encoding is `texconv` and `texconv` is Windows-only.
+
+**`--expand-blocks` makes a machine that has the formats take that path**, which is the
+only way to exercise it without a Mac. `render-scene` takes it too, and that is what the
+path was checked with:
+
+| what | against | result |
+|---|---|---|
+| 240 of the pipeline's own textures decoded | the pictures they were encoded from | 40.6–61.2 dB, i.e. the compressor's own error |
+| a 1024×960 BC5 normal map decoded | `texconv -f R8G8B8A8_UNORM` | **byte-identical**, all four channels |
+| R25 202P `TO_BATH` rendered with `--expand-blocks` | the same frame from the blocks | 0.224% of bytes differ, worst 12 of 255 |
+
+The last row is not a decode error, which is what the row above it establishes. It is the
+GPU filtering BC5 at more than eight bits of intermediate precision before it interpolates
+— hardware is allowed to, and this one does. The difference only appears through the
+normal map, where a fraction of a step of tilt reaches the lighting; the same comparison
+for BC7 and BC4 is byte-identical.
+
+**The ramp is rounded, not truncated.** BC4 and BC5 write a channel as two endpoints and
+six or four values between them, and the specification writes those as fractions. Dividing
+by seven in integers instead is one less over about a fifth of the ramp: invisible in a
+colour texture, and worth 0.6% of a lit frame through a normal map. That was the first
+version of this decoder, and the comparison above is what found it.
+
 ## Unsafe code
 
 Vulkan is a pointer-based API and Silk.NET surfaces it as one, so `AllowUnsafeBlocks` is

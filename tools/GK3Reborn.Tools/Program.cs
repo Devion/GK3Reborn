@@ -86,6 +86,11 @@ public static class Program
 
             case "render-model":
             case "render-scene":
+
+                // A Mac cannot read the pipeline's blocks, so it expands them on the
+                // host. This is how that path is compared against the device's, from a
+                // machine that has the formats.
+                GK3Reborn.Rendering.Vulkan.VulkanPortability.ForceHostExpansion = options.ExpandBlocks;
                 return Render(options, diagnostics);
 
             case "check-scenes":
@@ -820,6 +825,9 @@ public static class Program
         /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
         public bool Trees { get; init; } = true;
 
+        /// <summary>Expand block-compressed textures on the host, as a Mac has to.</summary>
+        public bool ExpandBlocks { get; init; }
+
         public string? Tool { get; init; }
 
         public string? Enhanced { get; init; }
@@ -853,6 +861,7 @@ public static class Program
             int heads = 0;
             bool relief = true;
             bool trees = true;
+            bool expandBlocks = false;
             string? tool = null;
             string? enhanced = null;
             bool force = false;
@@ -882,6 +891,9 @@ public static class Program
                         break;
                     case "--no-trees":
                         trees = false;
+                        break;
+                    case "--expand-blocks":
+                        expandBlocks = true;
                         break;
 
                     case "--force":
@@ -994,6 +1006,7 @@ public static class Program
                 Heads = heads,
                 Relief = relief,
                 Trees = trees,
+                ExpandBlocks = expandBlocks,
                 Tool = tool,
                 Enhanced = enhanced,
             };

@@ -641,6 +641,31 @@ public sealed class SceneUpdate
                 continue;
             }
 
+            // A performance is not a pose, and an actor the scene has already stood
+            // somewhere does not need one.
+            //
+            // POU's second morning is the case this is about. The eight people on the tour
+            // are given marks to stand on and `initanim=VanPouIN`, which is the van
+            // arriving: two hundred frames, an engine, a door, and a soundtrack under it.
+            // Sampling its first frame put every one of them in the pose they hold *inside
+            // the van* — seated, thighs horizontal — while standing upright on their marks,
+            // and nothing afterwards put them back. Their idle scripts then animated the
+            // upper body only, so the top of each of them stood and talked while the legs
+            // stayed in the van. It reads as characters cut off at the hip.
+            //
+            // Told apart by the soundtrack. It is the one thing in an animation file that
+            // only something happening has, and across the whole corpus it picks out
+            // **nine actor declarations**: these eight and Lady Howard's driver getting out
+            // of the car at LHE. Everything else keeps the behaviour exactly — Madeline
+            // stood by the van at RC1, Emilio sat in the lobby, and every prop placed by
+            // its own opening animation, none of which carry one.
+            if (model.Kind == PlacedModelKind.Actor &&
+                model.Spotted &&
+                animation.IsPerformance)
+            {
+                continue;
+            }
+
             // Whatever the pose says about what is drawn, before the pose itself — but
             // only about this model, for the same reason the clips below are filtered.
             Reveal(animation.Visibility
@@ -1032,6 +1057,128 @@ public sealed class SceneUpdate
         }
     }
 
+    /// <summary>Which conversation is being held, or null between them.</summary>
+    public string? Conversation { get; private set; }
+
+    /// <summary>What each actor's own scripts were before a conversation replaced them.</summary>
+    private readonly Dictionary<string, (Formats.Animation.GasFile? Talk, Formats.Animation.GasFile? Listen)> _lent =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Hands the actors in a conversation the scripts written for that conversation.
+    /// </summary>
+    /// <param name="name">The conversation, as <c>SetConversation</c> names it.</param>
+    /// <returns>How long the actors take to get into it, in seconds.</returns>
+    /// <remarks>
+    /// <para>
+    /// A scene's <c>[LISTENERS]</c> section says what each participant does while speaking
+    /// and while listening <em>in this conversation</em>, which is not what they do in
+    /// general: Mosely leans on the counter of the Armorer's for two of its conversations
+    /// and stands straight for the rest of the afternoon. 237 lines across 75 rooms say so.
+    /// </para>
+    /// <para>
+    /// The enter animation is what puts them into that pose, and its exit undoes it — so
+    /// they are a pair and both have to run, or a character stays leaning on a counter for
+    /// the rest of the day. What the actor had before is kept here rather than looked up
+    /// again afterwards, because a second conversation may have replaced it in between.
+    /// </para>
+    /// </remarks>
+    public double EnterConversation(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        // One at a time. Setting a second without ending the first leaves the first
+        // conversation's poses on everybody it named.
+        LeaveConversation();
+
+        Conversation = name;
+
+        double longest = 0;
+
+        foreach (SceneConversation setting in _scene.Definition.Conversations())
+        {
+            if (!setting.Conversation.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+                ModelNamed(setting.Actor) is not { } model)
+            {
+                continue;
+            }
+
+            _lent[model.Name] = (model.Talk, model.Listen);
+
+            if (setting.Talk is { Length: > 0 } talk)
+            {
+                model.Talk = Behaviours?.Invoke(talk) ?? model.Talk;
+            }
+
+            if (setting.Listen is { Length: > 0 } listen)
+            {
+                model.Listen = Behaviours?.Invoke(listen) ?? model.Listen;
+            }
+
+            if (setting.Enter is { Length: > 0 } entering)
+            {
+                longest = Math.Max(longest, Play(entering));
+            }
+
+            Restart(model);
+        }
+
+        return longest;
+    }
+
+    /// <summary>Gives the actors their own scripts back, and undoes the poses.</summary>
+    /// <returns>How long the actors take to come out of it, in seconds.</returns>
+    public double LeaveConversation()
+    {
+        if (Conversation is not { Length: > 0 } name)
+        {
+            return 0;
+        }
+
+        double longest = 0;
+
+        foreach (SceneConversation setting in _scene.Definition.Conversations())
+        {
+            if (!setting.Conversation.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+                ModelNamed(setting.Actor) is not { } model)
+            {
+                continue;
+            }
+
+            if (setting.Exit is { Length: > 0 } leaving)
+            {
+                longest = Math.Max(longest, Play(leaving));
+            }
+
+            if (_lent.Remove(model.Name, out (Formats.Animation.GasFile? Talk, Formats.Animation.GasFile? Listen) theirs))
+            {
+                model.Talk = theirs.Talk;
+                model.Listen = theirs.Listen;
+            }
+
+            Restart(model);
+        }
+
+        _lent.Clear();
+        Conversation = null;
+
+        return longest;
+    }
+
+    /// <summary>Starts an actor's fidget again, so a replaced script takes effect.</summary>
+    /// <remarks>
+    /// Swapping the file on the model changes what the <em>next</em> mode change runs, and
+    /// a character already listening would go on running the script they were handed
+    /// before the conversation began until somebody else spoke.
+    /// </remarks>
+    private void Restart(PlacedModel model)
+    {
+        if (_fidgets.TryGetValue(model.Name, out Fidget? fidget) && fidget.Mode is { } mode)
+        {
+            fidget.Enter(mode, model);
+        }
+    }
+
     /// <summary>
     /// Makes the noise a foot landing makes.
     /// </summary>
@@ -1307,8 +1454,38 @@ public sealed class SceneUpdate
                     _api.State.SetActorLocation(who.Noun ?? who.Name, moved);
                     break;
 
-                // Everything else is parsed and not run: the perception layer, which adds
-                // ways for a script to be interrupted rather than deciding what it does.
+                // A line, said by whoever the script drives. Two of Mosely's are the whole
+                // of what he says when he notices Gabriel in the lobby, and a fidget that
+                // speaks has to wait the line out — a script that runs on takes the model
+                // back mid-sentence.
+                case GasAction.Speak when step.Name is { Length: > 0 } plate:
+                    running.Remaining += Say(plate);
+                    break;
+
+                // An expression worn until something takes it off. The Sheep function is
+                // where the pairing of an "on" animation with its "off" lives, and a
+                // second implementation here would be a second answer to which one is on.
+                case GasAction.SetMood when step.Name is { Length: > 0 } mood &&
+                                            running.Owner is { } wearer:
+                    _api.Invoke(
+                        "SetMood",
+                        [
+                            Sheep.SheepValue.FromString(wearer.Noun ?? wearer.Name),
+                            Sheep.SheepValue.FromString(mood),
+                        ]);
+
+                    break;
+
+                // Back to where the scene put them. Three scripts end with it, and what
+                // they have in common is a character who wanders — Mosely round the lobby,
+                // Vittorio round the chapel — and must not have drifted by the time the
+                // story next wants them somewhere in particular.
+                case GasAction.ResetPosition when running.Owner is { } strayed:
+                    Restore(strayed);
+                    break;
+
+                // Everything else is parsed and not run: labels and declarations, which
+                // are read where they are needed rather than stepped through.
                 default:
                     break;
             }
@@ -1349,8 +1526,9 @@ public sealed class SceneUpdate
             Formats.Animation.GasStep step = steps[index];
 
             bool watching = step.Action is GasAction.WhenNear or GasAction.WhenNoLongerNear;
+            bool seeing = step.Action == GasAction.WhenInView;
 
-            if (!watching ||
+            if ((!watching && !seeing) ||
                 step.Name is not { Length: > 0 } noun ||
                 step.Other is not { Length: > 0 } label ||
                 running.Owner is not { } owner)
@@ -1363,18 +1541,31 @@ public sealed class SceneUpdate
             // so the pair notice him together.
             string from = step.Between is { Length: > 0 } other ? other : owner.Name;
 
-            bool near = Where(from) is { } here &&
-                        Where(noun) is { } them &&
-                        Flat(here - them) < step.Value * (float)step.Value;
+            bool met;
 
-            bool met = step.Action == GasAction.WhenNear ? near : !near;
+            if (seeing)
+            {
+                met = Sees(owner.Name, noun, step.Value);
+            }
+            else
+            {
+                bool near = Where(from) is { } here &&
+                            Where(noun) is { } them &&
+                            Flat(here - them) < step.Value * (float)step.Value;
+
+                met = step.Action == GasAction.WhenNear ? near : !near;
+            }
+
             bool was = running.Noticed.Contains(index);
 
             if (met && !was)
             {
                 running.Noticed.Add(index);
 
-                if (running.Script.LabelAt(label) is { } at)
+                // The chance is spent when the condition fires rather than tested every
+                // frame, which is the difference between "sometimes notices" and "notices
+                // after a random number of frames of standing there".
+                if (Draws(step.Chance) && running.Script.LabelAt(label) is { } at)
                 {
                     running.Position = at;
                     running.Remaining = 0;
@@ -1385,6 +1576,99 @@ public sealed class SceneUpdate
                 running.Noticed.Remove(index);
             }
         }
+    }
+
+    /// <summary>Whether one actor has another in front of them.</summary>
+    /// <param name="looker">Whose sight, by either of their names.</param>
+    /// <param name="seen">Who they might see.</param>
+    /// <param name="degrees">How wide their sight is, in degrees, as the script states it.</param>
+    /// <returns>True when the second is inside the first's field of view.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>WHENINVIEW Gabriel, 90, INSULT</c>: Mosely insults Gabriel when Gabriel comes
+    /// into his view. The number is an angle rather than a distance — the two conditions
+    /// that are about distance carry one, and these carry 90 and 70, which are fields of
+    /// view and not room-sized radii.
+    /// </para>
+    /// <para>
+    /// Read as the <em>whole</em> field rather than a half-angle, so 90 means 45 degrees
+    /// either side of the way the actor is facing. Both readings are defensible from the
+    /// data and neither corpus use is load-bearing — Mosely's insult and Gabriel's yawn —
+    /// so this takes the reading that matches what a field of view usually means.
+    /// </para>
+    /// <para>
+    /// Flat, like every other sight line here: a character looking across a room is not
+    /// looking up or down, and heights the floor disagrees with would answer "behind me"
+    /// about somebody standing on a step.
+    /// </para>
+    /// </remarks>
+    private bool Sees(string looker, string seen, int degrees)
+    {
+        if (degrees <= 0 ||
+            Where(looker) is not { } here ||
+            Where(seen) is not { } them ||
+            Looking(looker) is not { } gaze)
+        {
+            return false;
+        }
+
+        var ahead = new Vector2(gaze.X, gaze.Z);
+        var towards = new Vector2(them.X - here.X, them.Z - here.Z);
+
+        if (ahead.LengthSquared() <= 0 || towards.LengthSquared() <= 0)
+        {
+            return false;
+        }
+
+        float cosine = Vector2.Dot(
+            Vector2.Normalize(ahead), Vector2.Normalize(towards));
+
+        return cosine >= MathF.Cos(float.DegreesToRadians(degrees) / 2f);
+    }
+
+    /// <summary>Says one line, and answers how long it lasts.</summary>
+    /// <param name="plate">The licence plate the line is filed under.</param>
+    /// <returns>Seconds the line takes, or zero when nothing can play it.</returns>
+    /// <remarks>
+    /// Through the same API a script uses, rather than through the animation library
+    /// directly: a line is a run of animations, a caption and a voice, and which of those
+    /// happen is the dialogue layer's business and not a behaviour script's.
+    /// </remarks>
+    private double Say(string plate)
+    {
+        Sheep.SheepValue[] arguments =
+        [
+            Sheep.SheepValue.FromString(plate),
+            Sheep.SheepValue.FromInt(1),
+        ];
+
+        _api.Invoke("StartVoiceOver", arguments);
+
+        return _api.SecondsFor("StartVoiceOver", arguments);
+    }
+
+    /// <summary>Puts an actor back where the scene placed them.</summary>
+    /// <param name="actor">The model to move.</param>
+    /// <remarks>
+    /// The authored transform, which the record still carries: moving a model writes the
+    /// geometry rather than the placement, so what the scene said is never lost and this
+    /// restores the facing as well as the spot. Whatever they were doing stops, because
+    /// they are not where they were doing it any more.
+    /// </remarks>
+    private void Restore(PlacedModel actor)
+    {
+        _walking.Remove(actor.Name);
+
+        if (actor.Noun is { Length: > 0 } noun)
+        {
+            _walking.Remove(noun);
+        }
+
+        StopAnimating(actor.Name);
+
+        _geometry.MoveModel(actor.Placement, actor.Transform);
+
+        Follow(actor.Name, actor.Transform.Translation);
     }
 
     /// <summary>A distance squared, measured across the ground plan.</summary>
@@ -1811,6 +2095,11 @@ public sealed class SceneUpdate
     /// for and false for one a script asked for, because a script's timings assume the pace
     /// the game was authored at and this would run out from under them.
     /// </param>
+    /// <param name="untilSeen">
+    /// The bounds of what the walk is to see, or null for an ordinary walk. Given one,
+    /// the walk stops where the thing comes into view rather than where it was aimed —
+    /// which is what <c>WalkToSee</c> means, and 2,120 of the corpus's approaches are one.
+    /// </param>
     /// <returns>How long the walk will take, or zero when there is no walking to do.</returns>
     /// <remarks>
     /// <para>
@@ -1830,7 +2119,8 @@ public sealed class SceneUpdate
         float? arriveFacing = null,
         Vector3? arriveLookingAt = null,
         bool hurry = false,
-        bool mayRun = false)
+        bool mayRun = false,
+        (Vector3 Minimum, Vector3 Maximum)? untilSeen = null)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
@@ -1850,6 +2140,16 @@ public sealed class SceneUpdate
             ? already.Walker.Facing
             : Walker.HeadingOf(placed.Transform);
 
+        // Already able to see it is not a walk at all — turn where you stand and look. The
+        // whole of what "walk to see" asks for is a line of sight, and somebody who has one
+        // crossing the room to get a better one is the behaviour this replaces.
+        if (untilSeen is { } wanted &&
+            Sight is { } sight &&
+            sight.InView(from + (Vector3.UnitY * Eyes(placed)), wanted.Minimum, wanted.Maximum))
+        {
+            return Turn(actor, (wanted.Minimum + wanted.Maximum) * 0.5f);
+        }
+
         WalkRoute route = _scene.Walkable is { } boundary
             ? WalkPath.Find(boundary, from, destination)
 
@@ -1859,6 +2159,12 @@ public sealed class SceneUpdate
         // A walk the player asked for stops where it walks onto something that acts on
         // whoever stands there, rather than crossing it and carrying on.
         route = ShortenedAtTrigger(actor, route);
+
+        // And a walk to see something stops where it can see it.
+        if (untilSeen is { } thing)
+        {
+            route = ShortenedWhenSeen(route, placed, thing);
+        }
 
         // Asked for at once rather than walked. The route is still found, because where the
         // walk would have *ended* is where the player belongs — the boundary may stop it
@@ -1940,6 +2246,92 @@ public sealed class SceneUpdate
 
         _walking[actor] = new Walking(placed, walker, stride);
         return walker.Seconds;
+    }
+
+    /// <summary>The room's sight tester, built the first time anybody asks.</summary>
+    /// <remarks>
+    /// Lazily, because most scenes are loaded without anybody walking to see anything in
+    /// them — a corpus sweep loads all 143 — and building it walks every triangle of the
+    /// room.
+    /// </remarks>
+    private SceneSight? Sight => _sight ??= SceneSight.For(_scene.Geometry);
+
+    private SceneSight? _sight;
+
+    /// <summary>How high an actor's eyes are above their feet.</summary>
+    /// <param name="actor">The model.</param>
+    /// <returns>The character's own height, or the walker's default.</returns>
+    private float Eyes(PlacedModel actor) =>
+        Characters?.Of(actor.Name)?.WalkerHeight is { } height && height > 0
+            ? height
+            : Walker.StandOff;
+
+    /// <summary>
+    /// Cuts a walk short at the point where what it is going to look at comes into view.
+    /// </summary>
+    /// <param name="route">The route as the boundary found it.</param>
+    /// <param name="actor">Who is walking, for how tall they are.</param>
+    /// <param name="thing">The bounds of what they are walking to see.</param>
+    /// <returns>The route, cut where the thing is first visible.</returns>
+    /// <remarks>
+    /// <para>
+    /// Each corner is tested, and three points along the leg leading to it, because a
+    /// doorway is often crossed between two corners and testing only the corners walks the
+    /// actor a whole leg past the moment they could see. That is the reference's own
+    /// sampling.
+    /// </para>
+    /// <para>
+    /// Then one corner further, also as the reference has it: stopping on the exact frame a
+    /// sliver of the thing appears round a corner reads as a character noticing something
+    /// impossible, where a step or two more puts them in the open looking at it.
+    /// </para>
+    /// <para>
+    /// A route that never sees it is walked in full. That is the old behaviour, and it is
+    /// the right fallback: the thing may be inside a cupboard the walk is meant to end at.
+    /// </para>
+    /// </remarks>
+    private WalkRoute ShortenedWhenSeen(
+        WalkRoute route, PlacedModel actor, (Vector3 Minimum, Vector3 Maximum) thing)
+    {
+        if (Sight is not { } sight || route.Points.Count == 0)
+        {
+            return route;
+        }
+
+        float eyes = Eyes(actor);
+
+        for (int i = 0; i < route.Points.Count; i++)
+        {
+            Vector3 corner = route.Points[i];
+
+            bool seen = sight.InView(corner + (Vector3.UnitY * eyes), thing.Minimum, thing.Maximum);
+
+            if (!seen && i > 0)
+            {
+                Vector3 previous = route.Points[i - 1];
+
+                for (float along = 0.25f; along < 1f && !seen; along += 0.25f)
+                {
+                    Vector3 between = Vector3.Lerp(previous, corner, along);
+
+                    seen = sight.InView(
+                        between + (Vector3.UnitY * eyes), thing.Minimum, thing.Maximum);
+                }
+            }
+
+            if (!seen)
+            {
+                continue;
+            }
+
+            int stop = Math.Min(i + 1, route.Points.Count - 1);
+
+            return stop >= route.Points.Count - 1
+                ? route
+                : new WalkRoute(false, [.. route.Points.Take(stop + 1)]);
+        }
+
+        return route;
     }
 
     /// <summary>Drops a point onto the room's floor, when the room has one.</summary>

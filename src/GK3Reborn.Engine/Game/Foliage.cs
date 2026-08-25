@@ -33,6 +33,32 @@ public readonly record struct TreeSite(
 /// </remarks>
 public static class Foliage
 {
+    /// <summary>
+    /// Foliage bitmaps that are a hillside rather than a tree.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Painted strips of distant woodland, whole ridges of it on one quad. There is no
+    /// single tree in one to measure and nothing sensible to put in its place, so they are
+    /// left drawn — but they must not stop the <em>real</em> trees beside them being
+    /// replaced, which is what they were doing: an object holding two trees and one of
+    /// these was refused whole, and nineteen objects across the corpus are shaped that way.
+    /// </para>
+    /// <para>
+    /// Named here rather than in the tree manifest because this is a fact about the 1999
+    /// corpus and not about anything that has been grown. A species says which sprites it
+    /// stands in for; this says which sprites are nobody's job.
+    /// </para>
+    /// </remarks>
+    private static readonly HashSet<string> Backdrops = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "TREEGROUP01", "TREEGROUP02", "TREEGROUP03",
+        "TILEDTREES",
+        "FULLTREE01", "FULLTREE01ENDS", "FULLTREE02", "FULLTREE02ENDS",
+        "COUMETREES", "HOMMETREES", "HOMMETREES2", "MORTTREES",
+        "RC1TREES2", "RC2TREESA", "RC2TREESB", "RC2TREESC", "ARMTREEFLD",
+    };
+
     /// <summary>The smallest card worth replacing, in scene units.</summary>
     /// <remarks>
     /// Gabriel is 76 units tall. Anything under half of him is a shrub or a scrap of
@@ -184,10 +210,22 @@ public static class Foliage
     /// </summary>
     /// <param name="Named">The object name, as the geometry file records it.</param>
     /// <param name="Sites">One site per tree found in it.</param>
-    /// <param name="Cards">How many quads it was drawn with.</param>
+    /// <param name="Cards">How many drawn faces those trees were made of.</param>
     /// <param name="Triangles">What growing every one of those sites would cost.</param>
+    /// <param name="Surfaces">
+    /// Which surfaces of the room these trees replace, and so which must stop being drawn.
+    /// </param>
+    /// <remarks>
+    /// By surface rather than by name, because an object is not always all foliage.
+    /// <c>pou_trees01</c> is two trees and a painted strip of distant hillside; the trees
+    /// are replaced and the strip is left exactly where it is.
+    /// </remarks>
     public readonly record struct FoliageObject(
-        string Named, IReadOnlyList<TreeSite> Sites, int Cards, int Triangles);
+        string Named,
+        IReadOnlyList<TreeSite> Sites,
+        int Cards,
+        int Triangles,
+        IReadOnlyList<int> Surfaces);
 
     /// <summary>
     /// Finds the trees in a room's own geometry.
@@ -262,10 +300,17 @@ public static class Foliage
             }
 
             // One surface of something else disqualifies the whole object, and the check has
-            // to see all of them before any of it is used.
+            // to see all of them before any of it is used. A backdrop strip is not
+            // "something else": it stays drawn where it is and says nothing about whether
+            // the trees beside it can be replaced.
             if (trees.For(surface.TextureName) is null)
             {
-                refused.Add(owner);
+                if (!Backdrops.Contains(
+                        Path.GetFileNameWithoutExtension(surface.TextureName)))
+                {
+                    refused.Add(owner);
+                }
+
                 continue;
             }
 
@@ -319,7 +364,7 @@ public static class Foliage
                 cards[surface.ObjectIndex] = owned;
             }
 
-            owned.Add(new Card(species, least, most));
+            owned.Add(new Card(species, least, most, index));
         }
 
         List<FoliageObject> found = [];
@@ -339,7 +384,8 @@ public static class Foliage
                     scene.ObjectNames[owner],
                     sites,
                     owned.Count,
-                    sites.Sum(s => TreeLibrary.Variant(s.Species, s.Seed).Triangles)));
+                    sites.Sum(s => TreeLibrary.Variant(s.Species, s.Seed).Triangles),
+                    [.. owned.Select(c => c.Surface).Distinct()]));
             }
         }
 
@@ -348,8 +394,9 @@ public static class Foliage
         return [.. found.OrderByDescending(f => f.Cards)];
     }
 
-    /// <summary>One quad of a room's foliage, before its tree is known.</summary>
-    private readonly record struct Card(TreeSpecies Species, Vector3 Least, Vector3 Most);
+    /// <summary>One drawn face of a room's foliage, before its tree is known.</summary>
+    private readonly record struct Card(
+        TreeSpecies Species, Vector3 Least, Vector3 Most, int Surface);
 
     /// <summary>Gathers cards that stand over the same ground into one tree each.</summary>
     private static List<TreeSite> Cluster(List<Card> cards)

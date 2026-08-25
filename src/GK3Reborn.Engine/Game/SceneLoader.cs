@@ -178,6 +178,64 @@ public sealed record LoadedScene(
         return any ? (minimum + maximum) / 2 : null;
     }
 
+    /// <summary>
+    /// How far a named part of the room's own geometry reaches.
+    /// </summary>
+    /// <param name="objectName">The object's name in the BSP.</param>
+    /// <returns>Its corners, or null when the room has no object of that name.</returns>
+    /// <remarks>
+    /// For deciding whether somebody can see it, which a single point cannot answer: a
+    /// door is a wide flat thing and its middle is inside the wall it is set into.
+    /// </remarks>
+    public (Vector3 Minimum, Vector3 Maximum)? ExtentOf(string objectName)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        if (Geometry is not { } bsp)
+        {
+            return null;
+        }
+
+        int index = -1;
+
+        for (int i = 0; i < bsp.ObjectNames.Count; i++)
+        {
+            if (string.Equals(bsp.ObjectNames[i], objectName, StringComparison.OrdinalIgnoreCase))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+        {
+            return null;
+        }
+
+        var minimum = new Vector3(float.MaxValue);
+        var maximum = new Vector3(float.MinValue);
+        bool any = false;
+
+        foreach (BspPolygon polygon in bsp.Polygons)
+        {
+            if (polygon.SurfaceIndex < 0 ||
+                polygon.SurfaceIndex >= bsp.Surfaces.Count ||
+                bsp.Surfaces[polygon.SurfaceIndex].ObjectIndex != index)
+            {
+                continue;
+            }
+
+            foreach ((ushort a, ushort b, ushort c) in bsp.Triangulate(polygon))
+            {
+                minimum = Vector3.Min(minimum, Vector3.Min(bsp.Vertices[a], Vector3.Min(bsp.Vertices[b], bsp.Vertices[c])));
+                maximum = Vector3.Max(maximum, Vector3.Max(bsp.Vertices[a], Vector3.Max(bsp.Vertices[b], bsp.Vertices[c])));
+                any = true;
+            }
+        }
+
+        return any ? (minimum, maximum) : null;
+    }
+
     /// <summary>The soundtracks the scene plays, never null.</summary>
     public IReadOnlyList<string> Ambient => Soundtracks ?? [];
 
@@ -415,14 +473,13 @@ public sealed class SceneLoader
         // Decided before the room is added, because growing a wood means not drawing the
         // cards it replaces, and the cards are hidden by naming them here.
         List<Foliage.FoliageObject> woods = GrowWoods(bsp, diagnostics);
-        HashSet<string> hidden = HiddenObjects(init);
 
-        foreach (Foliage.FoliageObject wood in woods)
-        {
-            hidden.Add(wood.Named);
-        }
+        // The cards the grown trees stand in for, by surface. Not by object: an object can
+        // be two trees and a painted strip of distant hillside, and hiding it by name takes
+        // the hillside away with the trees.
+        HashSet<int> replaced = [.. woods.SelectMany(w => w.Surfaces)];
 
-        geometry.AddScene(bsp, lightmaps, hidden, floorObject);
+        geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject, replaced);
 
         // 177 of the game's 229 scene assets name a sky, and which one is already decided
         // by the time of day the timeblock chose.
@@ -475,13 +532,69 @@ public sealed class SceneLoader
             Bounds = (geometry.Minimum, geometry.Maximum),
             // The state's own clock where there is one; the asset suffix is only "A"
             // for seven different mornings and afternoons, and names no hour.
-            Sun = asset is { Skybox.IsEmpty: false } &&
-                  (request.State?.Timeblock
-                      ?? (Timeblock.TryParse(timeblock, out Timeblock parsed)
-                          ? parsed
-                          : (Timeblock?)null)) is { } when
-                ? Sunlight.For(when, (geometry.Minimum + geometry.Maximum) / 2f)
+            Sun = asset is { Skybox.IsEmpty: false }
+                ? Sunlight.For(
+                    Daylight(request, timeblock, asset),
+                    (geometry.Minimum + geometry.Maximum) / 2f)
                 : null,
+        };
+    }
+
+    /// <summary>
+    /// What hour to put the sun at for a room that has a sky over it.
+    /// </summary>
+    /// <param name="request">What was asked for, which usually carries the story's clock.</param>
+    /// <param name="timeblock">The timeblock or asset suffix the caller named, if any.</param>
+    /// <param name="asset">The scene asset that was chosen.</param>
+    /// <returns>The hour to light the room at.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A sky means a sun.</b> There is always an answer here, and that is the point: the
+    /// rule used to be "a sky <em>and</em> a timeblock", so a room entered without one was
+    /// lit flat, cast no shadows at all, and looked like a bug in the renderer rather than
+    /// a missing argument. Whether the hour has a sun in it is
+    /// <see cref="Sunlight.For(Timeblock, System.Numerics.Vector3)"/>'s business — it
+    /// answers null at night, which is a sun's absence for a reason.
+    /// </para>
+    /// <para>
+    /// The story's own clock first. Then whatever the caller named, which is how a
+    /// headless render asks for a particular hour. Then the <em>asset's own suffix</em>,
+    /// which is the artists saying what time of day the room was baked for: <c>_M</c>
+    /// morning, <c>_A</c> afternoon, <c>_E</c> evening, <c>_N</c> night. That is a real
+    /// answer and not a guess — it is the same letter that chose the lightmaps the room is
+    /// already lit by, so the sun agrees with the bake by construction.
+    /// </para>
+    /// <para>
+    /// And mid-morning when even that is silent, because a room with a sky and no other
+    /// evidence is a daylit room.
+    /// </para>
+    /// </remarks>
+    private static Timeblock Daylight(
+        SceneRequest request, string? timeblock, SceneAssetFile? asset)
+    {
+        if (request.State?.Timeblock is { } known)
+        {
+            return known;
+        }
+
+        if (Timeblock.TryParse(timeblock, out Timeblock named))
+        {
+            return named;
+        }
+
+        // The suffix of whichever asset was chosen — pou_m, cem_a_e, wod_n — falling back
+        // to what the caller named when the asset has no name of its own.
+        string baked = Path.GetFileNameWithoutExtension(
+            asset?.Name ?? timeblock ?? string.Empty);
+        int underscore = baked.LastIndexOf('_');
+
+        return (underscore >= 0 ? baked[(underscore + 1)..] : baked).ToUpperInvariant() switch
+        {
+            "M" => new Timeblock(1, 10, IsAfternoon: false),
+            "A" => new Timeblock(1, 2, IsAfternoon: true),
+            "E" => new Timeblock(1, 6, IsAfternoon: true),
+            "N" => new Timeblock(1, 10, IsAfternoon: true),
+            _ => new Timeblock(1, 10, IsAfternoon: false),
         };
     }
 
@@ -1414,6 +1527,10 @@ public sealed class SceneLoader
                 // exist. It is a statement about where they are rather than something that
                 // happens, so it is sampled and not played; see SceneUpdate.Open.
                 InitialAnimation = actor.InitialAnimation,
+
+                // Whether the scene put them somewhere itself, which decides how much of
+                // that opening animation is allowed to reach them.
+                Spotted = spot is not null,
 
                 Visible = !actor.Hidden,
             });

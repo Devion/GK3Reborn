@@ -328,9 +328,26 @@ public interface ISceneSink
     /// The object the scene calls its floor, whose surfaces may have their relief cut into
     /// the geometry rather than only sampled by the shader, or null to displace nothing.
     /// </param>
+    /// <param name="hiddenSurfaces">
+    /// Individual surfaces that must not be drawn, by their index in the geometry.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// Hiding by surface exists because hiding by name is too coarse for the thing that
+    /// needed it. <c>pou_trees01</c> is two trees and a painted strip of distant hillside in
+    /// one object: the trees can be replaced by modelled ones and the strip cannot, and
+    /// there was no way to say so. Nineteen objects across the corpus are shaped like that,
+    /// and each of them kept its flat trees because one surface in it was a backdrop.
+    /// </para>
+    /// <para>
+    /// Indices rather than names because a surface has no name — the name belongs to the
+    /// object it is part of, which is exactly the granularity this is escaping.
+    /// </para>
+    /// </remarks>
     void AddScene(
         BspFile scene,
         MulFile? lightmaps = null,
         IReadOnlySet<string>? hiddenObjects = null,
-        string? floorObject = null);
+        string? floorObject = null,
+        IReadOnlySet<int>? hiddenSurfaces = null);
 }

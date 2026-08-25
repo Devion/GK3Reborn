@@ -102,14 +102,31 @@ conversation in the game.
 
 ## What is not
 
-**The perception layer**: `WHENNEAR`, `WHENNOLONGERNEAR` and `WHENINVIEW`. They are
-standing conditions rather than instructions — from here on, jump to that label whenever
-this becomes true — so they need the player to test them between steps rather than to
-execute them. They are parsed and skipped, which loses a cue and nothing else: 25 uses
-across the corpus, the chicken in RC1 being the liveliest.
+Everything the language has is now run. What each of the less obvious ones means:
 
-**`DLG`, `SETMOOD`, `LOCATION` and `RESETIPOS`**, for the same reason and with less at
-stake: 17 uses between them.
+**The perception layer** — `WHENNEAR`, `WHENNOLONGERNEAR` and `WHENINVIEW` — is a set of
+standing conditions rather than instructions: from here on, jump to that label whenever
+this becomes true, wherever execution happens to be, including the middle of a wait. They
+are tested between steps and fire on the edge, as `GasPlayer::CheckDistanceConditions`
+does — level-triggered, a `WHENNEAR` would restart its label's animation sixty times a
+second for as long as anybody stood in the circle.
 
-**Cleanups are declared and not yet spent.** `GasFile.CleanupFor` answers what to play when
-an animation is cut short; nothing interrupts one yet, so nothing asks.
+`WHENINVIEW`'s number is an **angle**, not a distance: `WHENINVIEW Gabriel, 90, INSULT` is
+Mosely noticing Gabriel within ninety degrees of the way he is facing. Read as the whole
+field of view rather than a half-angle, so ninety means forty-five degrees either side.
+Both readings fit the data and neither of the corpus's two uses is load-bearing — Mosely's
+insult and Gabriel's yawn — so it takes the reading that matches what a field of view
+usually means. The optional trailing number is a percentage chance, spent when the
+condition fires rather than tested every frame.
+
+**`DLG`** says a line through the same call a script uses, and the step waits it out: a
+fidget that runs on takes the model back mid-sentence. **`SETMOOD`** goes through the Sheep
+function of the same name, so the pairing of a mood's "on" animation with its "off" lives
+in one place. **`LOCATION`** sets the actor's location outright. **`RESETIPOS`** puts them
+back where the scene placed them, facing as it placed them — three scripts end with it, and
+what they have in common is a character who wanders and must not have drifted by the time
+the story next wants them somewhere.
+
+**Cleanups are spent.** `GasFile.CleanupFor` answers what to play when an animation is cut
+short, and `Tidy` plays it when the story takes a character over — 328 of the corpus's 341
+`USE` lines are these.

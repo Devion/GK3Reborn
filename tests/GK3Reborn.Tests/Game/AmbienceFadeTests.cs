@@ -124,13 +124,20 @@ public sealed class AmbienceFadeTests
         return new SoundLibrary(name => held.Contains(name) ? wav : null, held.Contains);
     }
 
-    /// <summary>A soundtrack naming one sound, with the fade its room asks for.</summary>
+    /// <summary>A soundtrack naming one looping sound, with the fade its room asks for.</summary>
+    /// <remarks>
+    /// <c>Loop=1</c> is what makes a sound the room's <em>bed</em> — the thing that plays
+    /// for as long as the player is in the room and that the next room's bed crossfades
+    /// with. 83 of the corpus's 269 soundtracks have one; the rest are programs of
+    /// occasional sounds and have nothing to crossfade, which is what these tests are not
+    /// about. See <c>SoundtrackProgramTests</c> for those.
+    /// </remarks>
     private static SoundtrackFile Track(string sound, int fadeMs = 3000) => SoundtrackFile.Parse(
         $"""
         [SOUND]
         Name={sound}
         Volume=80.0
-        Repeat=1
+        Loop=1
         StopMethod=1
         FadeOutMS={fadeMs}
         """,
@@ -243,5 +250,60 @@ public sealed class AmbienceFadeTests
         audio.Update(after);
 
         Assert.Equal(over, device.Stopped.Contains(device.Voice("R25THEME")));
+    }
+
+    [Fact]
+    public void A_rooms_soundtrack_plays_its_moods_rather_than_one_sound_for_ever()
+    {
+        // R25's afternoon, as the game ships it: a wait, the room's theme once, then
+        // moods with gaps between them. What this pins is that the whole list is walked —
+        // before it was, the hotel room played R25Theme1 on a loop for the length of the
+        // afternoon and none of its four moods at all.
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, "R25THEME1", "R25MOOD1", "R25MOOD2");
+
+        SoundtrackFile track = SoundtrackFile.Parse(
+            """
+            [WAIT]
+            MinWaitMS=1000
+            Repeat=1
+
+            [SOUND]
+            Name=R25Theme1
+            Volume=80.0
+            Repeat=1
+
+            [WAIT]
+            MinWaitMS=2000
+            MaxWaitMS=4000
+
+            [SOUND]
+            Name=R25Mood1
+
+            [WAIT]
+            MinWaitMS=1000
+            MaxWaitMS=2000
+
+            [SOUND]
+            Name=R25Mood2
+            """,
+            "R25SNDTRKL.STK",
+            new DiagnosticBag());
+
+        audio.StartAmbience([track]);
+
+        Assert.Equal(["R25SNDTRKL.STK"], audio.Running);
+
+        // A minute of room, a twentieth of a second at a time.
+        for (int i = 0; i < 1200; i++)
+        {
+            audio.Update(0.05);
+        }
+
+        Assert.True(device.Started.Count >= 4, $"{device.Started.Count} sound(s) in a minute");
+
+        // The theme once, because its node says Repeat=1, and the moods over and over.
+        Assert.Equal(1, device.Started.Count(s => s.Name.Equals("R25THEME1", StringComparison.OrdinalIgnoreCase)));
+        Assert.True(device.Started.Count(s => s.Name.Equals("R25MOOD2", StringComparison.OrdinalIgnoreCase)) > 1);
     }
 }

@@ -91,7 +91,27 @@ public sealed class SceneDefinition
     public IReadOnlyList<SceneModel> Models() => MergeModels();
 
     /// <summary>The actors the scene places.</summary>
-    public IReadOnlyList<SceneActor> Actors() => Join(_general?.Actors(), _specific?.Actors());
+    /// <remarks>
+    /// <para>
+    /// Joined, but the ego is <em>replaced</em> rather than added to. A location's general
+    /// file names the person whose game it usually is, and a timeblock file names the person
+    /// whose game it is now: POU declares Gabriel and <c>POU207A</c> declares Grace, because
+    /// on the second morning the tour is hers and he is somewhere else entirely.
+    /// </para>
+    /// <para>
+    /// Joining them outright put both in the room. Grace stood where the scene said and
+    /// Gabriel stood at the origin with no spot of his own, in a scene he has no lines in
+    /// and no business being in — and the room had two egos, which is one more than anything
+    /// downstream expects. It is not a quirk of one scene: <b>157 scene and timeblock pairs
+    /// across the corpus</b> name Gabriel generally and Grace specifically, which is every
+    /// Grace timeblock in every location she visits.
+    /// </para>
+    /// <para>
+    /// The same person is never placed twice either, for the reason the models are not: two
+    /// copies of one character standing in one room is a worse answer than either of them.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<SceneActor> Actors() => MergeActors();
 
     /// <summary>The spots the scene defines.</summary>
     public IReadOnlyList<ScenePosition> Positions() =>
@@ -118,6 +138,15 @@ public sealed class SceneDefinition
     /// <summary>The soundtracks the scene plays, general file first.</summary>
     public IReadOnlyList<string> Soundtracks() =>
         Join(_general?.Soundtracks(), _specific?.Soundtracks());
+
+    /// <summary>What actors do during each named conversation.</summary>
+    /// <returns>The settings, general file first.</returns>
+    /// <remarks>
+    /// Joined rather than overridden, the same as triggers: a timeblock file naming a
+    /// conversation means "and this one as well". 237 lines across 75 rooms.
+    /// </remarks>
+    public IReadOnlyList<SceneConversation> Conversations() =>
+        Join(_general?.Conversations(), _specific?.Conversations());
 
     /// <summary>The cameras a conversation cuts between.</summary>
     /// <summary>Every camera the scene names, whatever kind it is.</summary>
@@ -290,6 +319,44 @@ public sealed class SceneDefinition
     /// them a model is hidden only where every declaration agrees. See
     /// <see cref="SceneInitFile.Models"/> for why the two cases differ.
     /// </remarks>
+    /// <summary>Joins the two files' casts, with the timeblock's ego replacing the general one.</summary>
+    private IReadOnlyList<SceneActor> MergeActors()
+    {
+        IReadOnlyList<SceneActor> general = _general?.Actors() ?? [];
+        IReadOnlyList<SceneActor> specific = _specific?.Actors() ?? [];
+
+        if (general.Count == 0 || specific.Count == 0)
+        {
+            return Dedupe(general.Count == 0 ? specific : general);
+        }
+
+        // Only when the timeblock names one. A file that names no ego is saying nothing
+        // about who the player is, and the location's own answer stands.
+        bool replaces = specific.Any(a => a.IsEgo);
+
+        return Dedupe(
+            [.. general.Where(a => !replaces || !a.IsEgo), .. specific]);
+    }
+
+    /// <summary>One entry per person, the later declaration winning.</summary>
+    private static IReadOnlyList<SceneActor> Dedupe(IReadOnlyList<SceneActor> actors)
+    {
+        Dictionary<string, SceneActor> merged = new(StringComparer.OrdinalIgnoreCase);
+        List<string> order = [];
+
+        foreach (SceneActor actor in actors)
+        {
+            if (!merged.ContainsKey(actor.Name))
+            {
+                order.Add(actor.Name);
+            }
+
+            merged[actor.Name] = actor;
+        }
+
+        return [.. order.Select(n => merged[n])];
+    }
+
     private IReadOnlyList<SceneModel> MergeModels()
     {
         IReadOnlyList<SceneModel> general = _general?.Models() ?? [];

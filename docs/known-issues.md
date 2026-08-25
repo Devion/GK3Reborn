@@ -203,6 +203,103 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### The tour at Poussin's tomb was cut off at the hips — fixed 2026-08-25
+
+**Reported** as legs missing on the second morning, and correctly re-diagnosed by the
+reporter as a sitting pose mixed with a standing one.
+
+The eight people on the tour are given marks to stand on *and* `initanim=VanPouIN`, which is
+the van arriving: two hundred frames, an engine, a door slam and a soundtrack under it. An
+opening pose is **sampled at its first frame** rather than played — which is right, and is
+what stands Madeline by the van at RC1 and sits Emilio in the lobby. The first frame of
+`VanPouIN` is all eight of them *inside the van*.
+
+So they were posed seated — thighs horizontal, shins hanging — while standing upright on
+their marks, and nothing afterwards put them back. Their idle scripts then animated the upper
+body only, so the top of each of them stood and talked while the legs stayed in the van. The
+clips are not at fault: every mesh of `gra_VanPouIN`, `wi2_VanPouIN`, `est_VanPouIN`,
+`mos_VanPouIN` and `vit_VanPouIN` has a frame-zero transform and a full-count vertex shape.
+
+**A performance is not a pose**, and an actor the scene has already stood somewhere does not
+need one. The two are told apart by the soundtrack — the one thing in an animation file that
+only something happening has. Across the corpus that picks out **nine actor declarations**:
+these eight and Lady Howard's driver getting out of the car at LHE.
+
+The alternatives were measured and rejected. 758 `initanim` references across 385 animations;
+156 run longer than sixty frames and 259 carry sound effects, so neither length nor sound
+separates a pose from a performance. Of the 47 actors given both a mark and an opening pose,
+26 use an animation that drives more than one model — including `MadRc1FigM`, which is a pose
+and must stay one.
+
+### Untextured models came out magenta — fixed 2026-08-25
+
+**Reported** as objects floating in front of Gabriel, "mostly untextured (purple)".
+
+A `.MOD` group carries a texture name **and** a colour, and a few of the game's models use
+the second instead of the first. `BINO1` and `ABEBINOCS` — the tour's binoculars — name no
+texture anywhere in the file; they are a dark teal body and near-black rubber, stored as the
+two groups' colours, which nothing read.
+
+With no texture name they took the missing-texture fallback, which is a magenta chequerboard,
+and turned up as a loud purple object. A group that names no texture now draws its own colour
+from a single texel. The chequerboard stays for a texture that is *named* and not found —
+that is a real fault and should be impossible to miss.
+
+
+### Gabriel stood in every scene that was Grace's — fixed 2026-08-25
+
+**Reported** at Poussin's tomb on the second morning: Gabriel visible in a scene he is not
+in, while Grace is the one taking the tour.
+
+A location's general file names the person whose game it usually is, and a timeblock file
+names the person whose game it is now. `POU.SIF` declares Gabriel as ego; `POU207A.SIF`
+declares Grace. The two casts were **joined**, so both were placed — Grace where the scene
+said, Gabriel at the origin with no spot of his own, and the room had two egos, which is one
+more than anything downstream expects.
+
+It is not one scene. **157 scene and timeblock pairs across the corpus** name Gabriel
+generally and Grace specifically: every Grace timeblock in every location she visits.
+
+The timeblock's ego now replaces the general file's rather than adding to it, and the same
+person is never placed twice. `check-scenes` reports the same four diagnostics as before and
+153 fewer nouns, which is Gabriel no longer being in 157 rooms he was never in.
+
+### A room with a sky could still have no sun — fixed 2026-08-25
+
+**Reported** as an outdoor scene with no sun, no shadows, and odd self-shadowing.
+
+The rule was "a sky **and** a timeblock". The sky says the room is outdoors and the timeblock
+says where the sun stands, and a room entered without the second was lit flat and cast
+nothing — which looks like a bug in the renderer rather than a missing argument.
+
+A sky now always means a sun, and *whether that hour has one* is `Sunlight.For`'s business:
+it answers null at night, which is a sun's absence for a reason rather than by accident. The
+hour is the story's clock, then whatever the caller named, then **the asset's own suffix** —
+`_M` morning, `_A` afternoon, `_E` evening, `_N` night. That last one is a real answer and
+not a guess: it is the same letter that chose the lightmaps the room is already lit by, so
+the sun agrees with the bake by construction. Mid-morning when even that is silent.
+
+Measured: `POU` at 207A gets a low morning sun; `POU` with no timeblock at all gets the
+afternoon one its default asset is baked for; `CEM` and `WOD` at night get none.
+
+### Two trees and a painted hillside in one object kept all three flat — fixed 2026-08-25
+
+**Reported** as sprite trees at Poussin's tomb where the modelled ones were expected.
+
+`pou_trees01` is two trees and a strip of distant woodland painted on one quad. The trees
+can be replaced and the strip cannot, and a room is hidden **by object name** — so the whole
+object was refused and its trees stayed flat.
+
+`AddScene` now takes surfaces to hide as well as objects, and an object is refused only for a
+texture that is neither a species nor a known backdrop strip. **Nineteen objects** across the
+corpus are shaped that way — `background_trees`, `pl2_trees`, `pou_trees01`, `vgr_bushes` —
+and every one of them now grows its trees and keeps its backdrop.
+
+The line is drawn deliberately short of the dangerous case. An object carrying `NEWBRANCH`
+or `TRUNK01` is still refused whole, because those are the branch cards of a tree that is
+already modelled, and growing a tree from them puts a second trunk through the first.
+
+
 ### A .gk3 in the game's own saves folder was never imported — fixed 2026-08-25
 
 **Reported** as three GK3 saves in a deployed build's `saves` folder that the game does not

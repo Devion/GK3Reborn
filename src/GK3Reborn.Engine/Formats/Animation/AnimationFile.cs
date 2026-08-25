@@ -240,6 +240,25 @@ public sealed class AnimationFile
     /// <summary>The sounds it plays, in file order.</summary>
     public IReadOnlyList<AnimationSound> Sounds { get; }
 
+    /// <summary>Whether the animation puts a soundtrack under itself.</summary>
+    /// <remarks>
+    /// The sharpest signal in an animation file that it is a <em>scene</em> — something
+    /// with music and engine noise that happens over time — rather than a statement about
+    /// where something rests. Nine actor declarations in the corpus open with one, and all
+    /// nine are somebody arriving in a vehicle.
+    /// </remarks>
+    public bool StartsSoundtrack { get; init; }
+
+    /// <summary>
+    /// Whether this animation is something that happens rather than a pose.
+    /// </summary>
+    /// <remarks>
+    /// A pose says where a thing rests and is sampled at its first frame; a performance is
+    /// played. Told apart by the soundtrack, because that is the one thing in the file that
+    /// only a performance has.
+    /// </remarks>
+    public bool IsPerformance => StartsSoundtrack;
+
     /// <summary>The lines it speaks, in file order.</summary>
     public IReadOnlyList<AnimationCaption> Captions { get; }
 
@@ -283,6 +302,7 @@ public sealed class AnimationFile
         List<AnimationMouth> mouths = [];
         List<AnimationFace> faces = [];
         List<AnimationVisibility> visibility = [];
+        bool soundtrack = false;
         List<AnimationStep> steps = [];
         List<AnimationTexture> textures = [];
         int rate = FramesPerSecond;
@@ -363,6 +383,17 @@ public sealed class AnimationFile
 
                 case "GK3":
                     Spoken(section, captions, mouths, faces, steps);
+
+                    // Whether it puts music under itself. Not played from here — the
+                    // soundtrack machinery is elsewhere — but recorded, because it is the
+                    // sharpest thing in an animation file that says "this is a scene that
+                    // happens" rather than "this is where a thing rests". See
+                    // <see cref="IsPerformance"/>.
+                    soundtrack = soundtrack || section.Lines.Any(
+                        l => l.Entries.Count > 1 &&
+                             l.Entries[1].Key.Equals(
+                                 "PlaySoundTrack", StringComparison.OrdinalIgnoreCase));
+
                     break;
 
                 default:
@@ -382,7 +413,10 @@ public sealed class AnimationFile
 
         return new AnimationFile(
             name, Math.Max(0, frames), actions, sounds, captions, mouths, faces,
-            visibility, steps, textures, rate);
+            visibility, steps, textures, rate)
+        {
+            StartsSoundtrack = soundtrack,
+        };
     }
 
     /// <summary>Reads an on/off field.</summary>

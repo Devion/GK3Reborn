@@ -143,8 +143,9 @@ public sealed class HeadPlaybackTests
             BspFile scene,
             MulFile? lightmaps = null,
             IReadOnlySet<string>? hiddenObjects = null,
-            string? floorObject = null) =>
-            _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject);
+            string? floorObject = null,
+            IReadOnlySet<int>? hiddenSurfaces = null) =>
+            _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject, hiddenSurfaces);
     }
 
     /// <summary>A head: eight corners, enough to fix a rotation and to subdivide.</summary>

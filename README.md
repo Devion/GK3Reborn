@@ -188,13 +188,41 @@ Native resolution goes through an absolute-path resolver; the global `PATH` is
 never modified.
 
 ```console
-dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile
+dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile      # win-x64
+dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile1     # linux-x64
+dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfileMac   # osx-arm64
 ```
 
 ```text
 GK3Reborn.exe          every managed assembly, bundled by single-file publishing
 libs/win-x64/          glfw3, soft_oal, shaderc_shared, and FFmpeg if it is present
 ```
+
+### Running on macOS
+
+Apple silicon only; an Intel Mac would run the same build under Rosetta at a cost
+the renderer cannot afford.
+
+**Vulkan on a Mac is MoltenVK**, which translates to Metal. Either install the
+Vulkan SDK for macOS, or drop `libMoltenVK.dylib` into `libs/osx-arm64/` beside
+the executable — Silk.NET looks for `libvulkan.dylib` and `libMoltenVK.dylib`,
+and the native resolver adds that directory to its search.
+
+Two consequences, both handled rather than worked around:
+
+- **It is a portability driver.** The instance opts in to enumerating one and the
+  device enables `VK_KHR_portability_subset`. Without either, the machine reports
+  no Vulkan devices at all.
+- **Metal has no BC texture formats.** The packs are BC7, BC5 and BC4, so on this
+  hardware they are expanded to eight-bit pixels on the host as they are loaded.
+  The picture is the same; it costs four times the video memory. See
+  `docs/rendering.md`, "Portability drivers, and devices with no block
+  compression", for how that path is checked — and for `--expand-blocks`, which
+  makes a Windows or Linux machine take it.
+
+There is no ray tracing on this hardware: MoltenVK offers no acceleration
+structures, so the tier is not reached and the raster path runs, which is what
+the tier model is for.
 
 ### Filling a published tree
 

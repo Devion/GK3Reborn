@@ -139,8 +139,9 @@ public sealed class ClipPlaybackTests
             BspFile scene,
             MulFile? lightmaps = null,
             IReadOnlySet<string>? hiddenObjects = null,
-            string? floorObject = null) =>
-            _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject);
+            string? floorObject = null,
+            IReadOnlySet<int>? hiddenSurfaces = null) =>
+            _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject, hiddenSurfaces);
     }
 
     /// <summary>A one-mesh clip whose mesh moves along X, a unit a frame.</summary>

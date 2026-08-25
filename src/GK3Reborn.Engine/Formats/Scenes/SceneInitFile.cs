@@ -146,6 +146,29 @@ public readonly record struct SceneRect(float MinX, float MinZ, float MaxX, floa
 /// </remarks>
 public sealed record SceneTrigger(string Noun, SceneRect Rect);
 
+/// <summary>
+/// What one actor does while a named conversation is going on.
+/// </summary>
+/// <param name="Conversation">The conversation's name, as <c>SetConversation</c> names it.</param>
+/// <param name="Actor">Whose behaviour it changes, by noun.</param>
+/// <param name="Talk">The script to run while they are speaking, or null to keep theirs.</param>
+/// <param name="Listen">The script to run while somebody else is, or null to keep theirs.</param>
+/// <param name="Enter">An animation to play on joining the conversation, or null.</param>
+/// <param name="Exit">One to play on leaving it, or null.</param>
+/// <remarks>
+/// The <c>[LISTENERS]</c> section, which the game's own header calls CONVERSATIONS. An
+/// actor's own <c>talk</c> and <c>listen</c> are what they do in any conversation; these
+/// are what they do in <em>this</em> one, and they are how a scene writes a character
+/// leaning on a counter for one exchange and standing straight for the next.
+/// </remarks>
+public sealed record SceneConversation(
+    string Conversation,
+    string Actor,
+    string? Talk,
+    string? Listen,
+    string? Enter,
+    string? Exit);
+
 /// <summary>A spot in the scene the player or an actor can stand.</summary>
 /// <param name="Name">Its name.</param>
 /// <param name="Position">Where it is, in scene space.</param>
@@ -517,6 +540,25 @@ public sealed class SceneInitFile
     /// </remarks>
     public IReadOnlyList<string> Soundtracks(bool includeConditional = true) =>
         [.. NamesIn("AMBIENT", includeConditional)];
+
+    /// <summary>What actors do during each named conversation.</summary>
+    /// <param name="includeConditional">Whether to include conditional sections.</param>
+    /// <returns>The settings, in file order.</returns>
+    /// <remarks>
+    /// One line per actor per conversation, so a conversation with three people in it is
+    /// three lines naming the same <c>dialogue</c>.
+    /// </remarks>
+    public IReadOnlyList<SceneConversation> Conversations(bool includeConditional = true) =>
+        _document.LinesOf("LISTENERS", Applies(includeConditional))
+            .Where(l => l.Value("dialogue") is { Length: > 0 } && l.Value("actor") is { Length: > 0 })
+            .Select(l => new SceneConversation(
+                l.Value("dialogue")!,
+                l.Value("actor")!,
+                l.Value("talk"),
+                l.Value("listen"),
+                l.Value("enter"),
+                l.Value("exit")))
+            .ToList();
 
     /// <summary>Bare file names listed one per line in a section.</summary>
     private IEnumerable<string> NamesIn(string section, bool includeConditional) =>

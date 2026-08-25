@@ -48,6 +48,12 @@ public static class Application
 
         Console.WriteLine();
 
+        // --expand-blocks makes a machine that has BC formats behave like one that does
+        // not, which is the only way to exercise the Mac's texture path anywhere else.
+        // Set before anything creates a device, because a device is where it is read.
+        Rendering.Vulkan.VulkanPortability.ForceHostExpansion =
+            args.Contains("--expand-blocks", StringComparer.OrdinalIgnoreCase);
+
         // --rt says what the picture costs and outranks the player's own setting, which
         // is what a flag is for. Without one the settings decide, because nobody starting
         // the game to play it passes a ray-tracing level on a command line.
@@ -1222,6 +1228,24 @@ public static class Application
             if (room is not null)
             {
                 room.Speaking = moving.Say;
+
+                // Whether a line comes from where its speaker stands or from the middle.
+                room.Routing = new Audio.DialogueRoutingOptions
+                {
+                    CenterAllDialogue = settings.CenterAllDialogue,
+                };
+
+                // Where a sound that follows something has got to. A soundtrack may say
+                // Follow=blk_sedan, meaning the emitter travels with that model, and where
+                // the model is at any moment is the room's answer rather than the file's.
+                room.Where = named => update.Where(named);
+
+                // What PlaySoundTrack names: a .STK in the archives, which the audio layer
+                // has no way to open on its own.
+                room.Soundtracks = named =>
+                    archives.ReadText(named) is { } text
+                        ? Formats.Audio.SoundtrackFile.Parse(text, named, new DiagnosticBag())
+                        : null;
             }
 
             // The pose everything opens in, before anything runs. A door that starts open,
@@ -1289,17 +1313,22 @@ public static class Application
                 Console.WriteLine($"entered: SCENE:ENTER [{entering.Case}]");
             }
 
-            // What the room sounds like when nothing is happening in it.
-            if (room?.StartAmbience(scene.AmbienceRead) is { } bed)
+            // What the room sounds like when nothing is happening in it. A soundtrack is a
+            // list being walked rather than a sound being held, so what is worth saying is
+            // which lists are running and what, if anything, is audible this moment.
+            string? bed = room?.StartAmbience(scene.AmbienceRead);
+
+            if (room is { Running.Count: > 0 })
             {
                 Console.WriteLine(
-                    $"Ambience: {bed}" +
+                    $"Ambience: {string.Join(", ", room.Running)}" +
+                    (bed is { Length: > 0 } ? $", opening with {bed}" : ", opening with a wait") +
                     (room.AmbienceAt is { } at
                         ? string.Create(
                             CultureInfo.InvariantCulture,
                             $" at {at.Position:F0}, full within {at.Minimum:F0} units and " +
                             $"as quiet as it gets past {at.Maximum:F0}")
-                        : ", at the listener"));
+                        : string.Empty));
             }
 
             if (first)

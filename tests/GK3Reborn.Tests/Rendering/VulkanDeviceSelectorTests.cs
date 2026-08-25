@@ -10,9 +10,11 @@ public sealed class VulkanDeviceSelectorTests
         string name,
         RenderCapabilityTier tiers,
         string kind = "Discrete",
-        ulong memory = 8UL * 1024 * 1024 * 1024) => new()
+        ulong memory = 8UL * 1024 * 1024 * 1024,
+        bool blockCompression = true) => new()
         {
             Name = name,
+            BlockCompression = blockCompression,
             Kind = kind,
             ApiVersion = "1.3.0",
             DriverVersion = "1.0.0",

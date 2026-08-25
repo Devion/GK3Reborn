@@ -109,6 +109,17 @@ public sealed record Settings
     public bool Captions { get; init; } = true;
 
     /// <summary>
+    /// Whether every voice comes from the middle rather than from where its speaker stands.
+    /// </summary>
+    /// <remarks>
+    /// An accessibility option — Plan/03 section 8 — and not a mixing preference: a line
+    /// placed across a room is harder to make out, and somebody who needs the words has to
+    /// be able to ask for them plainly. Gabriel is centred either way, because the player
+    /// is him.
+    /// </remarks>
+    public bool CenterAllDialogue { get; init; }
+
+    /// <summary>
     /// How much faster a double-click sends Gabriel.
     /// </summary>
     /// <remarks>

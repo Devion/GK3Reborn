@@ -65,6 +65,7 @@ public static class SceneScripting
             Stand(api, scene, world);
             Animating(api, world);
             Showing(api, scene, world);
+            Conversing(api, world);
 
             if (behaviours is not null)
             {
@@ -132,6 +133,40 @@ public static class SceneScripting
     /// having missed its cue.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Makes a conversation change what its participants do while it lasts.
+    /// </summary>
+    /// <param name="api">The host, which keeps the story's own record of it.</param>
+    /// <param name="world">The room, which owns the actors and their scripts.</param>
+    /// <remarks>
+    /// Registered over the state-only pair on the host, rather than instead of them: a
+    /// console, a tool or a save being replayed still has to be able to say a conversation
+    /// is on without a room to hold it in. What this adds is the room's half — the
+    /// <c>[LISTENERS]</c> scripts and the poses that go with them.
+    /// </remarks>
+    private static void Conversing(Gk3SheepApi api, SceneUpdate world)
+    {
+        api.Register("SetConversation", a =>
+        {
+            string name = a.Count > 0 ? a[0].AsString() : string.Empty;
+
+            api.State.Conversation = name;
+            world.EnterConversation(name);
+
+            return SheepValue.FromInt(0);
+        });
+
+        api.Register("EndConversation", _ =>
+        {
+            world.LeaveConversation();
+
+            api.State.Conversation = null;
+            api.State.Talking = false;
+
+            return SheepValue.FromInt(0);
+        });
+    }
+
     private static void AttachCameras(Gk3SheepApi api, LoadedScene scene)
     {
         api.Register("CutToCameraAngle", arguments =>
@@ -498,6 +533,40 @@ public static class SceneScripting
         return minimum.X > maximum.X ? standing.Translation : (minimum + maximum) * 0.5f;
     }
 
+    /// <summary>How far a placed model reaches, where it is now standing.</summary>
+    /// <param name="placed">The model.</param>
+    /// <returns>Its corners, or null when it has no geometry at all.</returns>
+    /// <remarks>
+    /// The same walk as <see cref="Middle"/>, kept beside it: seeing something is a
+    /// question about the whole of it rather than about its centre, which for a car, a
+    /// bookcase or a bed is inside the thing and never visible from anywhere.
+    /// </remarks>
+    private static (Vector3 Minimum, Vector3 Maximum)? Extent(PlacedModel placed)
+    {
+        var minimum = new Vector3(float.MaxValue);
+        var maximum = new Vector3(float.MinValue);
+
+        Matrix4x4 standing = placed.Standing;
+
+        for (int index = 0; index < placed.Model.Meshes.Count; index++)
+        {
+            ModMesh mesh = placed.Model.Meshes[index];
+            Matrix4x4 toWorld = placed.PoseOf(index) * standing;
+
+            foreach (ModSubmesh submesh in mesh.Submeshes)
+            {
+                foreach (Vector3 position in submesh.Positions)
+                {
+                    Vector3 world = Vector3.Transform(position, toWorld);
+                    minimum = Vector3.Min(minimum, world);
+                    maximum = Vector3.Max(maximum, world);
+                }
+            }
+        }
+
+        return minimum.X > maximum.X ? null : (minimum, maximum);
+    }
+
     private static PlacedModel? Placed(LoadedScene scene, string name)
     {
         foreach (PlacedModel placed in scene.Models)
@@ -723,26 +792,31 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
+        // The argument is a soundtrack — a list of sounds and waits — rather than a sound,
+        // which is why looping it by name played the file's own name as though it were an
+        // audio asset and found nothing. Read through a hook because a .STK lives in the
+        // archives and the audio layer has no idea where those are.
         api.Register("PlaySoundTrack", arguments =>
         {
-            if (arguments.Count > 0)
+            if (arguments.Count > 0 &&
+                audio.Soundtracks?.Invoke(arguments[0].AsString()) is { } track)
             {
-                audio.Loop(arguments[0].AsString());
+                audio.Play(track);
             }
 
             return SheepValue.FromInt(0);
         });
 
-        api.Register("StopSoundTrack", _ =>
+        api.Register("StopSoundTrack", arguments =>
         {
-            audio.Loop(null);
+            audio.StopSoundtrack(arguments.Count > 0 ? arguments[0].AsString() : null);
             return SheepValue.FromInt(0);
         });
 
         // One of the two functions the corpus called that nothing answered.
         api.Register("StopAllSoundTracks", _ =>
         {
-            audio.Loop(null);
+            audio.StopSoundtrack();
             return SheepValue.FromInt(0);
         });
 
@@ -892,7 +966,8 @@ public static class SceneScripting
         api.Walks = (actor, place, how, hurry, mayRun) => Send(
             scene, world, actor, place, how != Approaching.Walk, how == Approaching.Turn,
             hurry,
-            mayRun);
+            mayRun,
+            seeing: how == Approaching.WalkToSee);
 
         api.Register("WalkTo", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
@@ -906,7 +981,7 @@ public static class SceneScripting
             (int)ToAnimationStart(scene, world, Actor(api, a, 0), Name(a, 1), hurry: false)));
 
         api.Register("WalkToSeeModel", a => SheepValue.FromInt(
-            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true)));
+            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true, seeing: true)));
 
         api.Register("TurnToModel", a => SheepValue.FromInt(
             (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true, turnOnly: true)));
@@ -1036,7 +1111,8 @@ public static class SceneScripting
         bool toModel,
         bool turnOnly = false,
         bool hurry = false,
-        bool mayRun = false)
+        bool mayRun = false,
+        bool seeing = false)
     {
         if (Aim(scene, place, toModel) is not { } aim)
         {
@@ -1051,7 +1127,13 @@ public static class SceneScripting
         // A named spot says which way to stand. A thing says to look at it — from wherever
         // the walk actually ends, which the boundary decides, not from where it was aimed.
         return world.Walk(
-            actor, Approach(world, actor, aim), aim.Heading, aim.Look, hurry, mayRun);
+            actor,
+            Approach(world, actor, aim),
+            aim.Heading,
+            aim.Look,
+            hurry,
+            mayRun,
+            seeing ? aim.Bounds : null);
     }
 
     /// <summary>
@@ -1569,7 +1651,15 @@ public static class SceneScripting
     /// <param name="Destination">The spot on the floor to stand on.</param>
     /// <param name="Heading">The authored heading of a named spot, if it is one.</param>
     /// <param name="Look">What to look at, if the target is a thing rather than a spot.</param>
-    private readonly record struct Aiming(Vector3 Destination, float? Heading, Vector3? Look);
+    /// <param name="Bounds">
+    /// How far that thing reaches, for deciding when it can be seen. Null for a named
+    /// spot, which is a point on the floor and not a thing anybody looks at.
+    /// </param>
+    private readonly record struct Aiming(
+        Vector3 Destination,
+        float? Heading,
+        Vector3? Look,
+        (Vector3 Minimum, Vector3 Maximum)? Bounds = null);
 
     /// <summary>Where a walking call is pointing.</summary>
     /// <remarks>
@@ -1596,7 +1686,7 @@ public static class SceneScripting
             {
                 Vector3 middle = Middle(placed);
 
-                return new Aiming(middle, null, middle);
+                return new Aiming(middle, null, middle, Extent(placed));
             }
         }
 
@@ -1608,7 +1698,7 @@ public static class SceneScripting
         // Most of what a script points at is part of the room rather than something
         // standing in it — a door, a rack, a noticeboard.
         return scene.MiddleOf(place) is { } middleOf
-            ? new Aiming(middleOf, null, middleOf)
+            ? new Aiming(middleOf, null, middleOf, scene.ExtentOf(place))
             : null;
     }
 

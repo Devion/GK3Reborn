@@ -160,10 +160,18 @@ public sealed class VulkanDeviceSelector
             ApiVersion = Vk.Version13,
         };
 
+        // Portability drivers are not enumerated unless the instance says it accepts one,
+        // so a survey without this reports no devices at all on macOS.
+        string[] extensions = VulkanPortability.InstanceExtensions(vk, [], out InstanceCreateFlags flags);
+        nint extensionNames = extensions.Length > 0 ? SilkMarshal.StringArrayToPtr(extensions) : 0;
+
         var createInfo = new InstanceCreateInfo
         {
             SType = StructureType.InstanceCreateInfo,
             PApplicationInfo = &applicationInfo,
+            Flags = flags,
+            EnabledExtensionCount = (uint)extensions.Length,
+            PpEnabledExtensionNames = (byte**)extensionNames,
         };
 
         nint layers = 0;
@@ -191,6 +199,11 @@ public sealed class VulkanDeviceSelector
             if (layers != 0)
             {
                 SilkMarshal.Free(layers);
+            }
+
+            if (extensionNames != 0)
+            {
+                SilkMarshal.Free(extensionNames);
             }
         }
     }
@@ -321,8 +334,16 @@ public sealed class VulkanDeviceSelector
 
         string[] notable = [.. interesting.Where(extensions.Contains)];
 
+        DeviceCapabilities capabilities = VulkanPortability.Query(vk, device);
+
+        if (!capabilities.BlockCompression)
+        {
+            notes.Add("no BC formats: the pipeline's textures are expanded on the host, at four times the memory");
+        }
+
         return new VulkanDeviceInfo
         {
+            BlockCompression = capabilities.BlockCompression,
             Name = SilkMarshal.PtrToString((nint)properties.DeviceName) ?? "unknown",
             Kind = properties.DeviceType switch
             {

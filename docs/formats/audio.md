@@ -118,14 +118,35 @@ opening a device fails at runtime rather than at build.
 
 No device is a warning and a quiet game, never a refusal to start.
 
+### Which voices come from where
+
+Gabriel's lines are centred and everybody else's are placed where they are standing. The
+policy is `DialogueRoutingOptions` and it had existed since the audio layer was written
+with nothing reading it, so every line in the game came out of the middle — including the
+person standing beside you and the person across the courtyard.
+
+Gabriel is centred because the player is him: a voice that swings across the field every
+time the camera cuts is the one voice that must not. **Centre all dialogue** turns that on
+for everybody, and it is an accessibility option rather than a mixing preference — a line
+placed across a room is harder to make out, and somebody who needs the words has to be
+able to ask for them plainly.
+
+A placed line is full level within 300 units and as quiet as it gets past 2,000, which is
+wider than a sound's own default: a conversation is held across a room, and a line the
+player cannot make out is worse than a line that is not quite placed right. A line whose
+speaker the room cannot find — an unattributed caption, somebody not in this scene — is
+centred rather than dropped.
+
 ## What is not done
 
-- **Soundtracks are a program**, not a file: pick one of these, wait four to nine seconds,
-  repeat twice. The first sound of the first track is looped, which gives a room its tone
-  but not its variety.
-- **A sound that follows something stays where it started.** `Follow=blk_sedan` means the
-  emitter moves with a model, and `Move` exists for it, but nothing asks the room where that
-  model has got to.
-- **One soundtrack a room.** A scene may list several — RC1 at ten in the morning names a
-  fountain, a room tone and birdsong — and only the first sound of the first one is played.
-- **No fades, no `StopMethod`**, both of which the `.STK` files specify.
+- **The stop method is honoured for the room's bed and for anything following**, which is
+  everything the audio layer still holds a handle to. A one-shot that has already finished
+  is nothing to stop, and the backend reclaims it; a "play to the end" sound is stopped
+  anyway when the room is left, as the reference does, because a creak carried through a
+  door is a creak in the wrong room.
+- **Only mono sounds can be placed**, which is OpenAL's rule rather than a decision here.
+  Every ambience in the game is mono.
+
+Done since: soundtracks now run as the programs they are (`soundtracks.md`), all of a
+room's soundtracks run rather than the first, `Follow=` emitters move with their model, and
+`FadeInMs` is applied.

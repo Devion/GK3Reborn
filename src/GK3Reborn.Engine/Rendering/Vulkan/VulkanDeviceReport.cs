@@ -26,6 +26,13 @@ public sealed record VulkanDeviceInfo
     /// <summary>Tiers this device satisfies.</summary>
     public required RenderCapabilityTier Tiers { get; init; }
 
+    /// <summary>Whether the content pipeline's block-compressed textures can be uploaded as they are.</summary>
+    /// <remarks>
+    /// False on Apple silicon, where they are expanded on the host instead. It is worth
+    /// reporting because it is invisible on screen and costs four times the video memory.
+    /// </remarks>
+    public required bool BlockCompression { get; init; }
+
     /// <summary>Extensions relevant to the tier decision that the device advertises.</summary>
     public required IReadOnlyList<string> NotableExtensions { get; init; }
 

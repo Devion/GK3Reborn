@@ -57,6 +57,14 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <summary>Whether acceleration structures and ray queries are available.</summary>
     public bool SupportsRayTracing { get; private set; }
 
+    /// <summary>What this device offers of what the renderer would like to use.</summary>
+    /// <remarks>
+    /// Read by the texture path, which uploads the content pipeline's blocks as they are
+    /// where the device has BC and expands them on the host where it does not.
+    /// </remarks>
+    public DeviceCapabilities Capabilities { get; private set; } =
+        new(BlockCompression: true, AnisotropicFiltering: true, AstcCompression: false, Etc2Compression: false);
+
     /// <summary>The extensions ray tracing needs, in the order they must be requested.</summary>
     /// <remarks>
     /// Ray query itself has no host-side functions — it exists only inside shaders — so
@@ -133,6 +141,9 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <param name="commandPool">A pool for one-shot work on that queue.</param>
     /// <param name="deviceName">Name of the device, for logs.</param>
     /// <param name="rayTracing">Whether the caller enabled the ray-tracing extensions.</param>
+    /// <param name="capabilities">
+    /// What the caller enabled, where it knows. Read from the device where it does not.
+    /// </param>
     /// <returns>The context.</returns>
     /// <remarks>
     /// The windowed renderer creates its own device because it has to match the surface.
@@ -149,12 +160,14 @@ public sealed unsafe class VulkanContext : IDisposable
         uint queueFamily,
         CommandPool commandPool,
         string deviceName = "unknown",
-        bool rayTracing = false)
+        bool rayTracing = false,
+        DeviceCapabilities? capabilities = null)
     {
         ArgumentNullException.ThrowIfNull(api);
 
         return new VulkanContext(api, owned: false)
         {
+            Capabilities = capabilities ?? VulkanPortability.Query(api, physicalDevice),
             Instance = instance,
             PhysicalDevice = physicalDevice,
             Device = device,
@@ -347,10 +360,18 @@ public sealed unsafe class VulkanContext : IDisposable
             ApiVersion = Vk.Version13,
         };
 
+        // A portability driver — MoltenVK, and nothing else so far — is not enumerated at
+        // all unless the instance says it will accept one.
+        string[] extensions = VulkanPortability.InstanceExtensions(Api, [], out InstanceCreateFlags flags);
+        nint extensionNames = extensions.Length > 0 ? SilkMarshal.StringArrayToPtr(extensions) : 0;
+
         var createInfo = new InstanceCreateInfo
         {
             SType = StructureType.InstanceCreateInfo,
             PApplicationInfo = &applicationInfo,
+            Flags = flags,
+            EnabledExtensionCount = (uint)extensions.Length,
+            PpEnabledExtensionNames = (byte**)extensionNames,
         };
 
         try
@@ -365,6 +386,11 @@ public sealed unsafe class VulkanContext : IDisposable
         finally
         {
             SilkMarshal.Free((nint)applicationInfo.PApplicationName);
+
+            if (extensionNames != 0)
+            {
+                SilkMarshal.Free(extensionNames);
+            }
         }
     }
 
@@ -471,13 +497,11 @@ public sealed unsafe class VulkanContext : IDisposable
         // Anisotropic filtering matters for GK3's textures: they are small and viewed at
         // grazing angles across floors and walls, where trilinear alone smears badly.
         // TextureCompressionBC is what makes a BC5 or BC7 image legal to create. Every
-        // desktop driver has it; asking for it is what the specification requires before
-        // the content pipeline's DDS textures may be uploaded at all.
-        var features = new PhysicalDeviceFeatures
-        {
-            SamplerAnisotropy = true,
-            TextureCompressionBC = true,
-        };
+        // desktop driver has it and Apple silicon has none of it, so both are asked for
+        // only where they are offered: a feature the device lacks fails device creation
+        // outright rather than being quietly dropped.
+        Capabilities = VulkanPortability.Query(Api, PhysicalDevice);
+        PhysicalDeviceFeatures features = Capabilities.Requested();
 
         var createInfo = new DeviceCreateInfo
         {
@@ -488,15 +512,18 @@ public sealed unsafe class VulkanContext : IDisposable
             PEnabledFeatures = &features,
         };
 
-        nint extensions = SupportsRayTracing
-            ? SilkMarshal.StringArrayToPtr(RayTracingExtensions.ToArray())
-            : 0;
+        // A portability driver requires its subset extension to be enabled wherever it is
+        // advertised, so the list is never simply the ray-tracing one.
+        string[] names = VulkanPortability.DeviceExtensions(
+            Api, PhysicalDevice, SupportsRayTracing ? RayTracingExtensions : []);
+
+        nint extensions = names.Length > 0 ? SilkMarshal.StringArrayToPtr(names) : 0;
 
         try
         {
-            if (SupportsRayTracing)
+            if (names.Length > 0)
             {
-                createInfo.EnabledExtensionCount = (uint)RayTracingExtensions.Count;
+                createInfo.EnabledExtensionCount = (uint)names.Length;
                 createInfo.PpEnabledExtensionNames = (byte**)extensions;
             }
 
