@@ -2,6 +2,7 @@
 bin/
 obj/
 artifacts/
+dist/
 publish/
 publishlinux/
 publishmac/

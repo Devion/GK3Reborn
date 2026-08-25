@@ -51,7 +51,7 @@ Third-party components
 ------------------------------------------------------------------------------
 
 Redistributed third-party components and their licenses are listed in
-licenses/THIRD-PARTY.md, generated as part of the release process.
+licenses/THIRD-PARTY.md, which travels in every published archive.
 
 The interface's typeface is Noto Serif Regular (version 1.07), Copyright 2012
 Google Inc., licensed under the SIL Open Font License, Version 1.1. It is
@@ -67,10 +67,25 @@ None of GK3's own fonts are redistributed. They are read from the player's
 installation like every other original asset, and are still what the interface
 falls back to when no outline font can be read.
 
-FFmpeg is a runtime dependency rather than a redistributed component: the
-cutscenes are decoded through FFMediaToolkit (MIT) over FFmpeg's own shared
-libraries, which are located at run time from libs/<rid> or from the system
-and are not part of this source tree. A build of FFmpeg placed there must be
-an LGPL one, and its own licence and source-offer obligations travel with it
-rather than with this project. A machine with no FFmpeg runs the game without
-its cutscenes.
+FFmpeg decodes the cutscenes, through FFMediaToolkit (MIT) over FFmpeg's own
+shared libraries. It is not part of this source tree - the libraries are found
+at run time in libs/<rid> or on the system, and a machine with no FFmpeg runs
+the game without its cutscenes - but the binary releases published from this
+repository do carry it, so its terms travel with them.
+
+What they carry is an unmodified LGPL shared build of FFmpeg 7.1, licensed
+under the GNU Lesser General Public License version 2.1 or later. Nothing is
+statically linked and nothing has been altered: the libraries are loaded at run
+time, and any other build of the same generation - avcodec 61, avformat 61,
+avutil 59, swscale 8, swresample 5 - can replace them by being dropped in.
+build/fetch-native.sh records the exact upstream release these are taken from
+and the SHA-256 of each archive. The corresponding source is FFmpeg itself at
+tag n7.1, https://github.com/FFmpeg/FFmpeg, and the recipe that produced the
+binaries is https://github.com/BtbN/FFmpeg-Builds - both offering the same
+access as the release the binaries themselves come from.
+
+MoltenVK travels in the macOS bundle, as libs/osx-arm64/libMoltenVK.dylib. It
+is Vulkan over Metal and it is the only Vulkan an Apple silicon Mac has, so a
+bundle without it renders nothing at all. Version 1.4.2, unmodified, Copyright
+2015 The Brenwill Workshop Ltd., licensed under the Apache License 2.0. See
+https://github.com/KhronosGroup/MoltenVK.

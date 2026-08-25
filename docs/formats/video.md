@@ -42,10 +42,23 @@ beside it. Failing that, whatever the system has, which is how a Linux box with 
 distribution's FFmpeg works with nothing copied anywhere.
 
 ```bash
-# Windows: an LGPL shared build, unzipped into the gitignored libs directory.
-#   ffmpeg-n7.1-*-win64-lgpl-shared-7.1.zip  ->  libs/win-x64/*.dll
-# Linux: libs/linux-x64, or the distribution's own FFmpeg 7.1.
+build/fetch-native.sh win-x64      # libs/win-x64/av*.dll, sw*.dll
+build/fetch-native.sh linux-x64    # libs/linux-x64/libav*.so.NN, libsw*.so.N
+build/fetch-native.sh osx-arm64    # MoltenVK only; see below
 ```
+
+That is the same script CI runs, so a development tree and a published archive are
+populated from the same pinned build. It downloads an **LGPL shared build**, verifies the
+SHA-256 of the archive against a hash recorded in the script rather than one fetched
+alongside it, and copies out only the libraries the binding needs. Running it again when
+they are already there does nothing. A Linux machine with the distribution's own FFmpeg
+7.1 needs none of it.
+
+The pin is an archived BtbN autobuild rather than their rolling `latest`, which has moved
+on to 8.1 and 9.0 — different library names, so not substitutes. **There is no FFmpeg for
+Apple silicon**: nobody publishes a 7.1 shared build for it, so a Mac plays the game
+without its cutscenes unless the machine has its own. `fetch-native.sh osx-arm64` fetches
+MoltenVK, which is a different problem — without it a Mac has no Vulkan at all.
 
 **Not having it is not an error.** A machine with no FFmpeg plays the whole game without its
 cutscenes, and says so once (`GK3R1160`). Refusing to start over a missing cutscene would be

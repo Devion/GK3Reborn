@@ -191,14 +191,21 @@ Native resolution goes through an absolute-path resolver; the global `PATH` is
 never modified.
 
 ```console
+build/fetch-native.sh win-x64                                          # once per rid
 dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile      # win-x64
 dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile1     # linux-x64
 dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfileMac   # osx-arm64
 ```
 
+`build/fetch-native.sh <rid>` fetches the half of `libs/<rid>/` that is not on
+NuGet — FFmpeg, and MoltenVK on a Mac — from a pinned upstream release whose
+SHA-256 it verifies. CI runs the same script, so a published archive and a
+development tree are populated identically. Running it twice does nothing.
+
 ```text
 GK3Reborn.exe          every managed assembly, bundled by single-file publishing
 libs/win-x64/          glfw3, soft_oal, shaderc_shared, and FFmpeg if it is present
+licenses/              THIRD-PARTY.md, what is redistributed and under what terms
 ```
 
 macOS is the one that is not a folder of files. See
@@ -209,10 +216,12 @@ macOS is the one that is not a folder of files. See
 Apple silicon only; an Intel Mac would run the same build under Rosetta at a cost
 the renderer cannot afford.
 
-**Vulkan on a Mac is MoltenVK**, which translates to Metal. Either install the
-Vulkan SDK for macOS, or drop `libMoltenVK.dylib` into `libs/osx-arm64/` beside
-the executable — Silk.NET looks for `libvulkan.dylib` and `libMoltenVK.dylib`,
-and the native resolver adds that directory to its search.
+**Vulkan on a Mac is MoltenVK**, which translates to Metal. A downloaded release
+already carries it. Building one yourself, run `build/fetch-native.sh osx-arm64`,
+or install the Vulkan SDK for macOS, or drop `libMoltenVK.dylib` into
+`libs/osx-arm64/` beside the executable by hand — Silk.NET looks for
+`libvulkan.dylib` and `libMoltenVK.dylib`, and the native resolver adds that
+directory to its search.
 
 Two consequences, both handled rather than worked around:
 

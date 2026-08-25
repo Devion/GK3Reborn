@@ -678,7 +678,14 @@ public sealed class ClipPlaybackTests
         update.Play("Ride");
         update.Advance(0.5);
 
-        Assert.Equal(Away + 7.5f, sink.Poses[(0, 0)].Translation.X, 3);
+        // A tolerance rather than a number of decimal places, for the reason given in full
+        // by An_absolute_clip_lands_in_the_room_wherever_its_model_is_standing: the clip is
+        // authored out at Away, and three decimal places of a number in the hundreds leaves
+        // about eight ulps of a float to absorb the difference between how two
+        // architectures contract a multiply-add. That one straddled a rounding boundary on
+        // arm64 and this one is the only other assertion in the file with the same little
+        // headroom, so it gets the same hundredth of a unit.
+        Assert.Equal(Away + 7.5f, sink.Poses[(0, 0)].Translation.X, 0.01f);
     }
 
     [Fact]
