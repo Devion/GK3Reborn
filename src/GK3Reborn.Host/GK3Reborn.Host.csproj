@@ -45,10 +45,10 @@
 
          - runtimes/<rid>/native/ from the Silk.NET packages - glfw3, soft_oal,
            shaderc_shared. Relocated below.
-         - libs/<rid>/ beside the solution, where an FFmpeg shared build is dropped by
-           hand because no package carries an LGPL one (docs/formats/video.md). That
-           directory is gitignored, so a checkout without it publishes fine and simply
-           ships without a video decoder.
+         - libs/<rid>/ beside the solution, where build/fetch-native.sh drops what is
+           not on NuGet - MoltenVK on a Mac. That directory is gitignored, so a checkout
+           without it publishes fine. The cutscenes need nothing here: the engine decodes
+           H.264 and AAC itself (docs/formats/video.md).
 
        Set RebornCleanPublishLayout=false to publish the stock flat layout instead, which
        is worth having when bisecting a native-loading failure.

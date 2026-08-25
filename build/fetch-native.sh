@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Fetches the hand-dropped half of libs/<rid>.
 #
-# Two things are not on NuGet and so cannot arrive with a restore. FFmpeg decodes the
-# cutscenes, and MoltenVK is the only Vulkan there is on a Mac. Everything else under
-# libs/<rid> - glfw3, soft_oal, shaderc_shared and their peers - comes from the Silk.NET
-# native packages and is put there by the targets in GK3Reborn.Host.csproj.
+# One thing is not on NuGet and so cannot arrive with a restore: MoltenVK, the only Vulkan
+# there is on a Mac. Everything else under libs/<rid> - glfw3, soft_oal, shaderc_shared and
+# their peers - comes from the Silk.NET native packages and is put there by the targets in
+# GK3Reborn.Host.csproj. Windows and Linux have nothing to fetch at all: the cutscenes are
+# decoded by the engine's own H.264 and AAC code, so the FFmpeg build this script used to
+# download is no longer needed anywhere (docs/formats/video.md).
 #
 # CI runs this so that a downloadable build is a complete one, and it is the same command
 # a contributor runs, so a development tree and a release are populated the same way.
@@ -18,29 +20,12 @@ cd "$(dirname "$0")/.."
 
 rid="${1:-}"
 
-# FFmpeg is a versioned dependency, not "whatever is current". The binding is written
-# against 7.1 and looks for that generation by name - avcodec-61, avformat-61, avutil-59,
-# swscale-8, swresample-5. BtbN's rolling "latest" tag has moved on to 8.1 and 9.0, whose
-# libraries are called something else, so the pin is an archived autobuild rather than a
-# moving target. See docs/formats/video.md.
-ffmpeg_tag=autobuild-2024-09-30-15-36
-ffmpeg_base=https://github.com/BtbN/FFmpeg-Builds/releases/download/$ffmpeg_tag
-
 case "$rid" in
-    win-x64)
-        url=$ffmpeg_base/ffmpeg-n7.1-win64-lgpl-shared-7.1.zip
-        sha=8d465b17e2ac84b529b584dd1f8c9bd06b49a221231af38e7e4d4b7d23aec222
-        want="avcodec-61.dll avdevice-61.dll avfilter-10.dll avformat-61.dll avutil-59.dll swresample-5.dll swscale-8.dll"
-        ;;
-    linux-x64)
-        url=$ffmpeg_base/ffmpeg-n7.1-linux64-lgpl-shared-7.1.tar.xz
-        sha=c9e8b980a81b693f2186a9b3d38d69318773ca0f8955fadd8e3557c9f4ca5ba3
-        want="libavcodec.so.61 libavdevice.so.61 libavfilter.so.10 libavformat.so.61 libavutil.so.59 libswresample.so.5 libswscale.so.8"
+    win-x64|linux-x64)
+        echo "libs/$rid needs nothing beyond what NuGet provides."
+        exit 0
         ;;
     osx-arm64)
-        # No FFmpeg: nobody publishes a 7.1 shared build for Apple silicon, so a Mac plays
-        # the game without its cutscenes unless the machine has its own. That is a
-        # supported state - see GK3R1160 - rather than a failure.
         url=https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
         sha=f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
         want="libMoltenVK.dylib"
@@ -93,17 +78,15 @@ esac
 
 # Searched for by name rather than read from a known path inside the archive, so that a
 # publisher rearranging their layout is a loud failure below rather than an empty
-# directory that only shows up as a cutscene not playing.
+# directory that only shows up as a missing library.
 mkdir -p "$target"
 failed=0
 for name in $want; do
     found="$(find "$work/x" -type f -name "$name" | head -1)"
 
     if [ -z "$found" ]; then
-        # A Linux build ships the soname as a symlink to a fully versioned file -
-        # libavcodec.so.61 pointing at libavcodec.so.61.19.100 - and a filesystem without
-        # symlinks cannot unpack that at all. Take the real file and give it the name the
-        # loader looks for, which is the soname either way and is what ends up shipped.
+        # A versioned file behind a symlinked soname cannot unpack on a filesystem without
+        # symlinks; take the real file and give it the name the loader looks for.
         found="$(find "$work/x" -type f -name "$name.*" | sort | tail -1)"
     fi
 

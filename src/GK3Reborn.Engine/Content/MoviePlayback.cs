@@ -1,148 +1,19 @@
+using System.Buffers;
 using System.Globalization;
-using System.Runtime.InteropServices;
-using FFMediaToolkit;
-using FFMediaToolkit.Decoding;
-using FFMediaToolkit.Graphics;
+using GK3Reborn.Formats;
 using GK3Reborn.Formats.Audio;
+using GK3Reborn.Formats.Video;
+using GK3Reborn.Formats.Video.Aac;
+using GK3Reborn.Formats.Video.H264;
+using GK3Reborn.Formats.Video.Mp4;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Content;
 
-/// <summary>
-/// Finding the decoder, once per process.
-/// </summary>
-/// <remarks>
-/// <para>
-/// FFmpeg is a runtime dependency rather than a bundled one, and a versioned one: the
-/// binding is written against <b>FFmpeg 7.1</b> and looks for that generation's shared
-/// libraries by name — <c>avcodec-61</c>, <c>avformat-61</c>, <c>avutil-59</c>. A newer
-/// FFmpeg on the machine is not a substitute, because its libraries are called something
-/// else; that is a property of how FFmpeg versions its ABI rather than a choice made here.
-/// </para>
-/// <para>
-/// Looked for in <c>libs/&lt;rid&gt;</c> first, which is where <c>Plan/01</c> puts native
-/// libraries and where <c>NativeLibraryLocator</c> already resolves everything else from.
-/// Failing that, the system's own — which is how a Linux box with the distribution's
-/// FFmpeg works without anybody copying anything.
-/// </para>
-/// <para>
-/// <b>Not having it is not an error.</b> A machine with no FFmpeg plays the whole game
-/// without the cutscenes, which is far better than refusing to start; the diagnostic says
-/// what is missing and where to put it, and is said once.
-/// </para>
-/// </remarks>
-public static class MoviePlayback
-{
-    private static readonly Lock Gate = new();
-    private static bool _tried;
-    private static string? _from;
-
-    /// <summary>Whether a decoder was found.</summary>
-    public static bool Available { get; private set; }
-
-    /// <summary>Where it was found, or null.</summary>
-    public static string? LoadedFrom => _from;
-
-    /// <summary>
-    /// Finds the decoder, at most once.
-    /// </summary>
-    /// <param name="nativeRoot">
-    /// The run's <c>libs/&lt;rid&gt;</c>, or null to use only what the system has.
-    /// </param>
-    /// <param name="diagnostics">Receives a diagnostic when there is no decoder.</param>
-    /// <returns>True when movies can be played.</returns>
-    public static bool Prepare(string? nativeRoot, DiagnosticBag? diagnostics = null)
-    {
-        lock (Gate)
-        {
-            if (_tried)
-            {
-                return Available;
-            }
-
-            _tried = true;
-
-            foreach (string? where in Places(nativeRoot))
-            {
-                if (TryLoad(where))
-                {
-                    Available = true;
-                    _from = where ?? "the system";
-                    return true;
-                }
-            }
-
-            diagnostics?.Add(new Diagnostic(
-                "GK3R1160",
-                DiagnosticSeverity.Warning,
-                "No FFmpeg 7.1 libraries, so the game runs without its cutscenes.",
-                "video",
-                null,
-                "avcodec-61, avformat-61, avutil-59, swscale-8 and swresample-5",
-                nativeRoot is { Length: > 0 } ? $"nothing usable in {nativeRoot} or on the system" : "nothing on the system",
-                "Put an FFmpeg 7.1 shared build in libs/<rid>, or install one. A newer " +
-                "FFmpeg will not do: its libraries carry different names."));
-
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Where to look, in order.
-    /// </summary>
-    /// <remarks>
-    /// Beside the executable is where an installation keeps it. A development tree keeps it
-    /// at the root of the checkout instead, several directories above whichever
-    /// <c>bin/Debug</c> is running, and copying sixty megabytes into every project's output
-    /// to save walking up a few directories would be the wrong trade. The walk stops as
-    /// soon as it finds one, and at the top of the tree if it does not.
-    /// </remarks>
-    private static IEnumerable<string?> Places(string? nativeRoot)
-    {
-        if (nativeRoot is { Length: > 0 })
-        {
-            yield return nativeRoot;
-        }
-
-        string rid = RuntimeInformation.RuntimeIdentifier;
-
-        for (DirectoryInfo? at = new(AppContext.BaseDirectory); at is not null; at = at.Parent)
-        {
-            yield return Path.Combine(at.FullName, "libs", rid);
-        }
-
-        // And whatever the loader finds on its own, which on Linux is the distribution's.
-        yield return null;
-    }
-
-    private static bool TryLoad(string? where)
-    {
-        if (where is { Length: > 0 } && !Directory.Exists(where))
-        {
-            return false;
-        }
-
-        try
-        {
-            FFmpegLoader.FFmpegPath = where ?? string.Empty;
-            FFmpegLoader.LoadFFmpeg();
-            return true;
-        }
-        catch (Exception error) when (error is DllNotFoundException
-                                          or FileNotFoundException
-                                          or DirectoryNotFoundException
-                                          or BadImageFormatException
-                                          or InvalidOperationException)
-        {
-            return false;
-        }
-    }
-}
-
 /// <summary>What one frame of a movie is.</summary>
 /// <param name="Width">Its width in pixels.</param>
 /// <param name="Height">Its height in pixels.</param>
-/// <param name="Rgba">Its pixels, four bytes each, top row first.</param>
+/// <param name="Rgba">Its pixels, four bytes each, top row first. Valid until the next frame is read.</param>
 public readonly record struct MovieFrame(int Width, int Height, ReadOnlyMemory<byte> Rgba);
 
 /// <summary>
@@ -150,47 +21,86 @@ public readonly record struct MovieFrame(int Width, int Height, ReadOnlyMemory<b
 /// </summary>
 /// <remarks>
 /// <para>
-/// Video is pulled frame by frame as the clock asks for it; the sound is decoded whole
-/// when the movie opens. The two are treated differently because they are used
-/// differently: a frame is wanted once and thrown away, and the sound has to be handed to
-/// the audio device as one buffer for the device to be the clock. GK3's longest movie is
-/// three and a half minutes, which is forty megabytes of PCM — worth spending to have the
-/// picture follow the sound rather than the other way round.
+/// Decoded by the engine's own H.264 and AAC decoders, so a movie plays wherever the
+/// engine runs — Windows, Linux, a Mac — with nothing installed beside the executable and
+/// nothing to version. FFmpeg used to do this; it was sixty megabytes of shared libraries
+/// per platform, a different set of names for every generation, and no build at all for
+/// Apple silicon. The managed decoders are compared sample for sample against FFmpeg's in
+/// the tests, so what is lost is speed, not pictures.
 /// </para>
 /// <para>
-/// The originals are 320x240 at thirty frames a second. Decoding one is about eighty times
-/// faster than watching it, so nothing here is on a critical path.
+/// Video is decoded ahead of the clock on its own thread and pulled frame by frame as the
+/// clock asks; the sound is decoded whole when the movie opens. The two are treated
+/// differently because they are used differently: a frame is wanted once and thrown away,
+/// and the sound has to be handed to the audio device as one buffer for the device to be
+/// the clock. GK3's longest movie is three and a half minutes, which is forty megabytes of
+/// PCM — worth spending to have the picture follow the sound rather than the other way
+/// round.
+/// </para>
+/// <para>
+/// The decode thread runs a few frames ahead and no further, so a 320x240 movie costs
+/// nothing to speak of and a 1440x1080 one keeps one core busy without piling up frames it
+/// will never show. A frame that is not ready when the clock reaches it is skipped, which
+/// the player treats as leaving the last one on screen.
 /// </para>
 /// </remarks>
 public sealed class Movie : IDisposable
 {
-    private readonly MediaFile _file;
-    private readonly Stream _stream;
+    /// <summary>How many decoded frames are kept ahead of the clock.</summary>
+    private const int Lookahead = 6;
 
-    private Movie(MediaFile file, Stream stream, string name)
+    private readonly Mp4File _file;
+    private readonly Stream _stream;
+    private readonly Mp4Track _video;
+    private readonly Mp4Track? _audio;
+    private readonly H264Decoder _decoder;
+    private readonly Queue<(double Seconds, byte[] Rgba)> _ready = new();
+    private readonly object _gate = new();
+    private readonly Thread _thread;
+    private readonly CancellationTokenSource _stop = new();
+    private byte[]? _current;
+    private bool _finished;
+    private Exception? _failure;
+
+    private Movie(Mp4File file, Stream stream, Mp4Track video, Mp4Track? audio, H264Decoder decoder, string name)
     {
         _file = file;
         _stream = stream;
+        _video = video;
+        _audio = audio;
+        _decoder = decoder;
         Name = name;
+        Width = decoder.Width;
+        Height = decoder.Height;
+        Duration = file.Duration > TimeSpan.Zero ? file.Duration : TimeSpan.FromSeconds(video.Seconds(video.Duration));
+        FrameRate = Duration > TimeSpan.Zero ? video.Samples.Count / Duration.TotalSeconds : 0;
+
+        _thread = new Thread(DecodeAhead)
+        {
+            Name = $"Movie {name}",
+            IsBackground = true,
+            Priority = ThreadPriority.BelowNormal,
+        };
+        _thread.Start();
     }
 
     /// <summary>The name it was asked for by.</summary>
     public string Name { get; }
 
     /// <summary>Its width in pixels.</summary>
-    public int Width => _file.Video.Info.FrameSize.Width;
+    public int Width { get; }
 
     /// <summary>Its height in pixels.</summary>
-    public int Height => _file.Video.Info.FrameSize.Height;
+    public int Height { get; }
 
     /// <summary>How long it runs.</summary>
-    public TimeSpan Duration => _file.Video.Info.Duration;
+    public TimeSpan Duration { get; }
 
     /// <summary>How many frames a second it was recorded at.</summary>
-    public double FrameRate => _file.Video.Info.AvgFrameRate;
+    public double FrameRate { get; }
 
     /// <summary>Whether it carries sound.</summary>
-    public bool HasAudio => _file.HasAudio;
+    public bool HasAudio => _audio is not null;
 
     /// <summary>
     /// Opens a movie.
@@ -204,11 +114,6 @@ public sealed class Movie : IDisposable
     {
         ArgumentNullException.ThrowIfNull(videos);
         ArgumentNullException.ThrowIfNull(name);
-
-        if (!MoviePlayback.Available)
-        {
-            return null;
-        }
 
         Stream? stream = videos.Open(name);
 
@@ -225,25 +130,45 @@ public sealed class Movie : IDisposable
 
         try
         {
-            // RGBA because that is what a texture upload wants, and letting the decoder
-            // convert is letting the one piece of code that knows the source format do it.
-            MediaFile file = MediaFile.Open(stream, new MediaOptions
-            {
-                StreamsToLoad = MediaMode.AudioVideo,
-                VideoPixelFormat = ImagePixelFormat.Rgba32,
-            });
+            var file = Mp4File.Open(stream, name);
+            Mp4Track? video = file.Tracks.Find(t => t.Kind == Mp4TrackKind.Video && t.Codec is "avc1" or "avc3");
 
-            return new Movie(file, stream, name);
+            if (video is null || video.SequenceParameterSets.Count == 0 || video.Samples.Count == 0)
+            {
+                throw new FormatParseException("no H.264 video track");
+            }
+
+            Mp4Track? audio = file.Tracks.Find(t => t.Kind == Mp4TrackKind.Audio && t.Codec == "mp4a" && t.AudioSpecificConfig.Length > 0);
+
+            if (audio is not null && !AacDecoder.TryParseConfig(audio.AudioSpecificConfig, out _, out _, out _))
+            {
+                audio = null;
+            }
+            else if (audio is not null && audio.Samples.Count == 0)
+            {
+                audio = null;
+            }
+
+            var decoder = new H264Decoder();
+            decoder.Configure(video.SequenceParameterSets, video.PictureParameterSets);
+
+            if (decoder.Width <= 0 || decoder.Height <= 0)
+            {
+                throw new FormatParseException("the video track's parameter sets do not describe a picture");
+            }
+
+            return new Movie(file, stream, video, audio, decoder, name);
         }
-        catch (Exception error)
+        catch (Exception error) when (error is FormatParseException or NotSupportedException or IOException or InvalidDataException)
         {
             stream.Dispose();
 
             diagnostics?.Add(new Diagnostic(
                 "GK3R1162", DiagnosticSeverity.Warning,
                 "A movie would not open, so it is skipped.",
-                name, null, "a readable video stream", error.Message,
-                "The file may be truncated, or in a container the decoder does not know."));
+                name, null, "an MP4 with H.264 video the engine can decode", error.Message,
+                "The file may be truncated, or use a coding tool the decoder does not support " +
+                "(interlacing, 4:2:2, high bit depth). Re-import it with the standard settings."));
 
             return null;
         }
@@ -252,10 +177,11 @@ public sealed class Movie : IDisposable
     /// <summary>Reads the frame that should be on screen at a moment.</summary>
     /// <param name="at">How far into the movie the clock is.</param>
     /// <param name="frame">The frame.</param>
-    /// <returns>True while there is still a picture; false once it has run out.</returns>
+    /// <returns>True when there is a new picture for that moment; false when there is none yet, or the movie has run out.</returns>
     /// <remarks>
     /// By time rather than by count, so a dropped frame is a frame skipped rather than the
-    /// picture drifting behind the sound for the rest of the movie.
+    /// picture drifting behind the sound for the rest of the movie. The frame handed back
+    /// is the latest one whose time has come; earlier ones still waiting are discarded.
     /// </remarks>
     public bool TryReadFrame(TimeSpan at, out MovieFrame frame)
     {
@@ -266,20 +192,40 @@ public sealed class Movie : IDisposable
             return false;
         }
 
-        try
+        byte[]? chosen = null;
+
+        lock (_gate)
         {
-            if (!_file.Video.TryGetFrame(at, out ImageData image))
+            while (_ready.Count > 0 && _ready.Peek().Seconds <= at.TotalSeconds)
             {
-                return false;
+                if (chosen is not null)
+                {
+                    ArrayPool<byte>.Shared.Return(chosen);
+                }
+
+                chosen = _ready.Dequeue().Rgba;
             }
 
-            frame = new MovieFrame(image.ImageSize.Width, image.ImageSize.Height, Copy(image));
-            return true;
+            if (chosen is not null)
+            {
+                if (_current is not null)
+                {
+                    ArrayPool<byte>.Shared.Return(_current);
+                }
+
+                _current = chosen;
+            }
+
+            Monitor.PulseAll(_gate);
         }
-        catch (Exception error) when (error is not OutOfMemoryException)
+
+        if (chosen is null)
         {
             return false;
         }
+
+        frame = new MovieFrame(Width, Height, chosen.AsMemory(0, Width * Height * 4));
+        return true;
     }
 
     /// <summary>Decodes the whole soundtrack.</summary>
@@ -287,63 +233,87 @@ public sealed class Movie : IDisposable
     /// <remarks>
     /// Whole rather than streamed, so that it can be handed to the audio device as one
     /// buffer and the device can be the clock the picture follows. The import resamples
-    /// every movie to the mixer's own rate, so nothing here has to.
+    /// every movie to the mixer's own rate, so nothing here has to. The encoder's priming
+    /// delay, which the file records as an edit, is trimmed so that the first sample is the
+    /// first sample of the movie rather than a thousand samples of warm-up.
     /// </remarks>
     public WavFile? ReadSound()
     {
-        if (!_file.HasAudio)
+        if (_audio is null)
         {
             return null;
         }
-
-        int channels = _file.Audio.Info.NumChannels;
-        int rate = _file.Audio.Info.SampleRate;
-
-        if (channels <= 0 || rate <= 0)
-        {
-            return null;
-        }
-
-        var samples = new List<short>(
-            (int)Math.Min(int.MaxValue / 2, (long)(Duration.TotalSeconds * rate * channels) + 1024));
 
         try
         {
-            while (_file.Audio.TryGetNextFrame(out var audio))
+            var decoder = new AacDecoder(_audio.AudioSpecificConfig);
+            int channels = decoder.Channels;
+            int rate = decoder.SampleRate;
+            int perFrame = decoder.FrameSamples * channels;
+            long skip = Math.Max(0, _audio.EditOffset) * channels;
+            var samples = new List<short>(checked(_audio.Samples.Count * perFrame));
+            var pcm = new short[perFrame];
+            byte[] buffer = [];
+
+            foreach (Mp4Sample sample in _audio.Samples)
             {
-                float[][] planes = audio.GetSampleData();
-
-                for (int sample = 0; sample < audio.NumSamples; sample++)
+                if (buffer.Length < sample.Size)
                 {
-                    for (int channel = 0; channel < channels; channel++)
-                    {
-                        float[] plane = planes[Math.Min(channel, planes.Length - 1)];
+                    buffer = new byte[Math.Max(sample.Size, buffer.Length * 2)];
+                }
 
-                        // Sixteen bits, which is what the mixer takes, with the clip that
-                        // a float track can ask for and an integer one cannot hold.
-                        samples.Add((short)Math.Clamp(
-                            plane[sample] * short.MaxValue, short.MinValue, short.MaxValue));
-                    }
+                lock (_stream)
+                {
+                    _file.Read(sample, buffer);
+                }
+
+                int count;
+
+                try
+                {
+                    count = decoder.Decode(buffer.AsSpan(0, sample.Size), pcm) * channels;
+                }
+                catch (FormatParseException)
+                {
+                    // One bad access unit is a click; the rest of the track still plays.
+                    decoder.Reset();
+                    Array.Clear(pcm);
+                    count = perFrame;
+                }
+
+                int from = 0;
+
+                if (skip > 0)
+                {
+                    int take = (int)Math.Min(skip, count);
+                    from = take;
+                    skip -= take;
+                }
+
+                for (int i = from; i < count; i++)
+                {
+                    samples.Add(pcm[i]);
                 }
             }
-        }
-        catch (Exception error) when (error is not OutOfMemoryException)
-        {
-            return samples.Count > 0 ? Build(samples, channels, rate) : null;
-        }
 
-        return samples.Count > 0 ? Build(samples, channels, rate) : null;
+            return samples.Count > 0 ? WavFile.FromSamples(Name, [.. samples], channels, rate) : null;
+        }
+        catch (Exception error) when (error is FormatParseException or NotSupportedException or IOException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Says what it is, for a log line.</summary>
     /// <returns>The description.</returns>
     public string Describe()
     {
-        string sound = HasAudio
-            ? string.Create(
-                CultureInfo.InvariantCulture,
-                $", sound {_file.Audio.Info.SampleRate} Hz {_file.Audio.Info.NumChannels} ch")
-            : ", silent";
+        string sound = ", silent";
+
+        if (_audio is not null && AacDecoder.TryParseConfig(_audio.AudioSpecificConfig, out int rate, out int channels, out _))
+        {
+            sound = string.Create(CultureInfo.InvariantCulture, $", sound {rate} Hz {channels} ch");
+        }
 
         return string.Create(
             CultureInfo.InvariantCulture,
@@ -353,30 +323,129 @@ public sealed class Movie : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        _file.Dispose();
-        _stream.Dispose();
-    }
+        _stop.Cancel();
 
-    private WavFile Build(List<short> samples, int channels, int rate) =>
-        WavFile.FromSamples(Name, [.. samples], channels, rate);
-
-    /// <summary>The decoder reuses its buffer, so a frame has to be taken away from it.</summary>
-    private static byte[] Copy(ImageData image)
-    {
-        int width = image.ImageSize.Width;
-        int height = image.ImageSize.Height;
-        var pixels = new byte[width * height * 4];
-
-        ReadOnlySpan<byte> source = image.Data;
-
-        // Row by row, because a decoded frame's rows are padded to whatever alignment the
-        // decoder felt like and a texture upload wants them tight.
-        for (int row = 0; row < height; row++)
+        lock (_gate)
         {
-            source.Slice(row * image.Stride, width * 4)
-                .CopyTo(pixels.AsSpan(row * width * 4));
+            Monitor.PulseAll(_gate);
         }
 
-        return pixels;
+        if (_thread.IsAlive && Thread.CurrentThread != _thread)
+        {
+            _thread.Join(TimeSpan.FromSeconds(5));
+        }
+
+        lock (_gate)
+        {
+            while (_ready.Count > 0)
+            {
+                ArrayPool<byte>.Shared.Return(_ready.Dequeue().Rgba);
+            }
+
+            if (_current is not null)
+            {
+                ArrayPool<byte>.Shared.Return(_current);
+                _current = null;
+            }
+        }
+
+        _file.Dispose();
+        _stream.Dispose();
+        _stop.Dispose();
+    }
+
+    /// <summary>The decode thread: keeps a few frames ahead of whatever the clock asks for.</summary>
+    private void DecodeAhead()
+    {
+        CancellationToken stop = _stop.Token;
+        byte[] buffer = new byte[64 * 1024];
+        int frameBytes = Width * Height * 4;
+
+        try
+        {
+            foreach (Mp4Sample sample in _video.Samples)
+            {
+                if (stop.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (buffer.Length < sample.Size)
+                {
+                    buffer = new byte[Math.Max(sample.Size, buffer.Length * 2)];
+                }
+
+                lock (_stream)
+                {
+                    _file.Read(sample, buffer);
+                }
+
+                _decoder.Decode(buffer.AsMemory(0, sample.Size), _video.NalLengthSize, sample.PresentationTime);
+
+                if (!Deliver(frameBytes, stop))
+                {
+                    return;
+                }
+            }
+
+            _decoder.Flush();
+            Deliver(frameBytes, stop);
+        }
+        catch (Exception error) when (error is FormatParseException or NotSupportedException or IOException or IndexOutOfRangeException)
+        {
+            // A damaged movie stops where the damage is; the player then holds the last
+            // picture until the sound ends, which is the least wrong thing to show.
+            _failure = error;
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _finished = true;
+                Monitor.PulseAll(_gate);
+            }
+        }
+    }
+
+    /// <summary>Converts and queues every frame the decoder has ready, waiting while the queue is full.</summary>
+    private bool Deliver(int frameBytes, CancellationToken stop)
+    {
+        while (_decoder.TryGetFrame(out DecodedFrame decoded))
+        {
+            double seconds = _video.Seconds(decoded.Tag - _video.EditOffset);
+            byte[] rgba = ArrayPool<byte>.Shared.Rent(frameBytes);
+            YuvConverter.ToRgba(decoded, rgba);
+            decoded.Release();
+
+            lock (_gate)
+            {
+                while (_ready.Count >= Lookahead && !stop.IsCancellationRequested)
+                {
+                    Monitor.Wait(_gate);
+                }
+
+                if (stop.IsCancellationRequested)
+                {
+                    ArrayPool<byte>.Shared.Return(rgba);
+                    return false;
+                }
+
+                _ready.Enqueue((seconds, rgba));
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether the decoder has stopped, and why if it failed.</summary>
+    internal (bool Finished, Exception? Failure) Status
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return (_finished, _failure);
+            }
+        }
     }
 }

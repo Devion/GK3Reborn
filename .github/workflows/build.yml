@@ -48,9 +48,9 @@ jobs:
           path: libs
           key: native-${{ runner.os }}-${{ hashFiles('build/fetch-native.sh') }}
 
-      # The half of libs/<rid> that is not on NuGet: FFmpeg, and MoltenVK on a Mac. Without
-      # this a downloaded build has no cutscenes, and on macOS no Vulkan at all. It has to
-      # run before anything publishes, because that is when libs/<rid> is copied.
+      # The half of libs/<rid> that is not on NuGet: MoltenVK on a Mac. Without it macOS
+      # has no Vulkan at all; Windows and Linux have nothing to fetch. It has to run before
+      # anything publishes, because that is when libs/<rid> is copied.
       - name: Fetch the native payload
         shell: bash
         run: |

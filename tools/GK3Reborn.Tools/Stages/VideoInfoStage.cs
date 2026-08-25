@@ -67,13 +67,7 @@ public sealed class VideoInfoStage
         _log($"loose: {(loose.Length > 0 ? loose : "(not read)")}, {videos.LooseCount} movie(s)");
         _log($"{videos.Count} movie(s) in all; a loose file wins where both have one");
 
-        if (!MoviePlayback.Prepare(null, diagnostics))
-        {
-            _log("no decoder, so nothing below could be played");
-            return false;
-        }
-
-        _log($"decoder: FFmpeg from {MoviePlayback.LoadedFrom}");
+        _log("decoder: the engine's own H.264 and AAC, in process");
         _log(string.Empty);
 
         IReadOnlyList<string> wanted = only is { Length: > 0 }

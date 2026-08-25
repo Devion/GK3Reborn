@@ -7,8 +7,8 @@
   - allow-jit and allow-unsigned-executable-memory: the CLR compiles IL to machine code at
     run time and writes it into pages it then executes. The hardened runtime forbids that
     outright unless it is asked for.
-  - disable-library-validation: libs/osx-arm64 holds MoltenVK, GLFW, OpenAL Soft, shaderc
-    and an FFmpeg build, none of them signed by the same team as the game. Without this the
+  - disable-library-validation: libs/osx-arm64 holds MoltenVK, GLFW, OpenAL Soft and
+    shaderc, none of them signed by the same team as the game. Without this the
     loader refuses every one of them and the game cannot open a window.
   - allow-dyld-environment-variables: the Vulkan loader is configured through VK_ICD_FILENAMES
     and DYLD_LIBRARY_PATH, which is how a player points the game at a Vulkan SDK they have

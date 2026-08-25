@@ -25,44 +25,38 @@ because the framework has none over `ReadOnlyMemory<byte>`.
 
 ## What plays them
 
-`FFMediaToolkit`, over FFmpeg. Decoding H.264 is not something to write, and the two
-alternatives were worse: Media Foundation is Windows only and the platform scope is Windows
-*and* Linux, and re-encoding to something the engine could already read costs four to five
-times the disk to avoid a dependency the content pipeline already has.
+The engine's own decoders, in managed code: `Formats/Video/Mp4` reads the container,
+`Formats/Video/H264` the pictures, `Formats/Video/Aac` the sound, and `Content/Movie`
+puts them together. Nothing native, nothing to install, nothing to version — a movie plays
+on Windows, Linux and a Mac alike, with the same bytes. [ADR 0010](../adr/0010-decode-cinematics-in-managed-code.md)
+says why that replaced FFmpeg; the short form is that FFmpeg was sixty megabytes of
+per-platform, per-generation shared libraries with no build at all for Apple silicon.
 
-**It is a versioned dependency.** The binding is written against **FFmpeg 7.1** and looks for
-that generation's shared libraries by name — `avcodec-61`, `avformat-61`, `avutil-59`,
-`swscale-8`, `swresample-5`. A newer FFmpeg is not a substitute, because its libraries are
-called something else; that is how FFmpeg versions its ABI rather than a choice made here.
+**Correct means "matches FFmpeg".** The H.264 decoder is compared to FFmpeg sample for
+sample over every converted clip — all 34 are bit-exact, 57,000 frames — and the AAC
+decoder to within 5e-7 of FFmpeg's float output. Tiny x264 streams with FFmpeg's CRCs
+are embedded in the tests so the comparison holds in CI without either FFmpeg or the
+clips; `H264DecoderTests` and `AacDecoderTests` run the full comparison wherever both
+exist.
 
-Looked for in `libs/<rid>` first — where `Plan/01` puts native libraries and where
-`NativeLibraryLocator` resolves everything else from — walking up from the executable, so a
-development tree finds the one at the root of the checkout and an installation finds the one
-beside it. Failing that, whatever the system has, which is how a Linux box with the
-distribution's FFmpeg works with nothing copied anywhere.
+What the H.264 decoder does: progressive 8-bit 4:2:0, 4:4:4 and monochrome; CAVLC and
+CABAC; I, P and B slices with every intra mode, 8x8 transforms, scaling matrices,
+weighted (explicit and implicit), spatial and temporal direct prediction, multiple
+reference frames, long-term references, and the deblocking filter. What it refuses, by
+name, at parse time: interlaced coding (fields and MBAFF), 4:2:2, high bit depth, slice
+groups, data partitioning, SP/SI slices and lossless transform bypass — none of which the
+import can produce. The AAC decoder is AAC-LC with all of its tools; SBR signalling is
+accepted and the core is played at the core rate.
 
-```bash
-build/fetch-native.sh win-x64      # libs/win-x64/av*.dll, sw*.dll
-build/fetch-native.sh linux-x64    # libs/linux-x64/libav*.so.NN, libsw*.so.N
-build/fetch-native.sh osx-arm64    # MoltenVK only; see below
-```
+**Speed.** Single-threaded: 320x240 at roughly 900 frames a second, 1440x1080 at 40–50
+against a 30 fps requirement. Decoding runs ahead of the clock on its own thread, a few
+frames deep, so the render loop only ever picks up a finished frame; one that is not ready
+when its time comes is skipped and the last stays on screen, which is invisible where a
+late frame would be a stutter.
 
-That is the same script CI runs, so a development tree and a published archive are
-populated from the same pinned build. It downloads an **LGPL shared build**, verifies the
-SHA-256 of the archive against a hash recorded in the script rather than one fetched
-alongside it, and copies out only the libraries the binding needs. Running it again when
-they are already there does nothing. A Linux machine with the distribution's own FFmpeg
-7.1 needs none of it.
-
-The pin is an archived BtbN autobuild rather than their rolling `latest`, which has moved
-on to 8.1 and 9.0 — different library names, so not substitutes. **There is no FFmpeg for
-Apple silicon**: nobody publishes a 7.1 shared build for it, so a Mac plays the game
-without its cutscenes unless the machine has its own. `fetch-native.sh osx-arm64` fetches
-MoltenVK, which is a different problem — without it a Mac has no Vulkan at all.
-
-**Not having it is not an error.** A machine with no FFmpeg plays the whole game without its
-cutscenes, and says so once (`GK3R1160`). Refusing to start over a missing cutscene would be
-far worse than missing the cutscene.
+**A movie that will not open is skipped, and says so** (`GK3R1162`): the file is damaged,
+or uses a coding tool the decoder refuses, and the fix is to re-import it with the
+standard settings. There is no longer a "no decoder" state: the decoder is always there.
 
 ## What the scripts ask for
 

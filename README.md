@@ -198,13 +198,15 @@ dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfileMac   # osx-arm
 ```
 
 `build/fetch-native.sh <rid>` fetches the half of `libs/<rid>/` that is not on
-NuGet — FFmpeg, and MoltenVK on a Mac — from a pinned upstream release whose
-SHA-256 it verifies. CI runs the same script, so a published archive and a
-development tree are populated identically. Running it twice does nothing.
+NuGet — MoltenVK, on a Mac; Windows and Linux have nothing to fetch — from a
+pinned upstream release whose SHA-256 it verifies. CI runs the same script, so a
+published archive and a development tree are populated identically. Running it
+twice does nothing. The cutscenes need no native library at all: the engine
+decodes H.264 and AAC itself ([docs/formats/video.md](docs/formats/video.md)).
 
 ```text
 GK3Reborn.exe          every managed assembly, bundled by single-file publishing
-libs/win-x64/          glfw3, soft_oal, shaderc_shared, and FFmpeg if it is present
+libs/win-x64/          glfw3, soft_oal, shaderc_shared
 licenses/              THIRD-PARTY.md, what is redistributed and under what terms
 ```
 
@@ -337,9 +339,8 @@ The managed assemblies go *into* the executable rather than into `libs/`;
 relocating them would need a probing-path fallback that bundling makes
 unnecessary. The native libraries are moved out of the `runtimes/<rid>/native`
 tree by targets in `GK3Reborn.Host.csproj`, which also copy in whatever the
-gitignored `libs/<rid>/` beside this file holds — that is where an FFmpeg shared
-build is dropped by hand ([docs/formats/video.md](docs/formats/video.md)). A
-checkout without one publishes fine and ships without a video decoder.
+gitignored `libs/<rid>/` beside this file holds — MoltenVK on a Mac, put there by
+`build/fetch-native.sh`. A checkout without it publishes fine.
 
 Two loaders have to agree about `libs/<rid>`: the BCL's, hooked with
 `NativeLibrary.SetDllImportResolver`, and Silk.NET's, which does its own

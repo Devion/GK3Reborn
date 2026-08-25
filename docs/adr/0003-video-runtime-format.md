@@ -1,6 +1,6 @@
 # ADR 0003: Convert cinematics to MP4 / H.264 + AAC at import time
 
-- Status: accepted
+- Status: accepted; the runtime-decoder half amended by [ADR 0010](0010-decode-cinematics-in-managed-code.md)
 - Date: 2026-08-18
 
 ## Context

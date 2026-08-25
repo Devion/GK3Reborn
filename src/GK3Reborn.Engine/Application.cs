@@ -401,24 +401,11 @@ public static class Application
 
         if (videos.Count > 0)
         {
-            // Null: the search walks up from the executable to find libs/<rid> on its
-            // own, which is the only thing this could pass it anyway.
-            bool decoder = Content.MoviePlayback.Prepare(null, diagnostics);
-
+            // The decoders are the engine's own, so there is nothing to find and nothing
+            // that can be missing.
             Console.WriteLine(
                 $"Movies: {videos.Count} available ({videos.LooseCount} loose, " +
-                $"{videos.PackedCount} packed)" +
-                (decoder
-                    ? $", decoded by FFmpeg from {Content.MoviePlayback.LoadedFrom}"
-                    : ", but there is no decoder"));
-
-            foreach (Diagnostic diagnostic in diagnostics.Items)
-            {
-                if (diagnostic.Code == "GK3R1160")
-                {
-                    Console.Error.WriteLine(diagnostic);
-                }
-            }
+                $"{videos.PackedCount} packed), decoded in process");
         }
 
         // The host outlives the room. Its scripts and its registrations belong to the
