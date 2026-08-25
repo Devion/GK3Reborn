@@ -391,6 +391,91 @@ public sealed class ClipPlaybackTests
     }
 
     [Fact]
+    public void A_story_animation_stops_a_characters_idle_rather_than_pausing_it()
+    {
+        // The rule above is a prop's. A character's is the other one: GKActor::StartAnimation
+        // calls StopFidget on the way in to anything that did not come from the behaviour
+        // script, and nothing on the way out turns it back on — the script does, by hand,
+        // once it has finished with them. PourCoffee$ ends with StartIdleFidget("Gabriel")
+        // for exactly that reason.
+        //
+        // Pausing instead leaves a gap between every pair of clips in a sequence and the
+        // idle fires into it. A breath is a clip that gives back the ground it covered, so
+        // Gabriel walked to the kitchen for coffee and snapped back to the dining table
+        // between clips, and Estelle was dragged back against Lady Howard after each of
+        // hers in the museum.
+        (SceneUpdate update, Sink sink) = Fidgeting();
+
+        update.Advance(0.1);
+        Assert.True(Along(sink) > Elsewhere, "the idle should be driving them to start with");
+
+        Assert.True(update.Play("WrdbOpen") > 0);
+
+        // Long enough for the story's clip to be over more than twice, and for the idle to
+        // have come round again several times.
+        for (int frame = 0; frame < 600; frame++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.True(
+            Along(sink) < Elsewhere,
+            "nothing should have moved them since the story's clip ended");
+
+        // Until the script says so.
+        update.StartFidget("gab", FidgetKind.Idle);
+        update.Advance(0.2);
+
+        Assert.True(Along(sink) > Elsewhere, "the idle starts again when it is asked to");
+    }
+
+    /// <summary>A character running an idle, over the same two clips as <see cref="Idling"/>.</summary>
+    private static (SceneUpdate Update, Sink Sink) Fidgeting()
+    {
+        var sink = new Sink();
+        sink.Add(Model());
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse(
+                "[ROOM_CAMERAS]\nA, angle={0,0}, pos={0,0,0}, Default", "T.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Placed:
+            [
+                new PlacedModel(
+                    "gab", "GABRIEL", null, Model(), Matrix4x4.Identity,
+                    PlacedModelKind.Actor, new ModelPlacement(0)),
+            ]);
+
+        var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
+        {
+            Animations = new AnimationLibrary(n => n.ToUpperInvariant() switch
+            {
+                "FIDGET.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,gab_Fidget,0,0,0,0,0,0,0,0\n",
+                "WRDBOPEN.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,gab_WrdbOpen,0,0,0,0,0,0,0,0\n",
+                _ => null,
+            }),
+
+            Clips = new ClipLibrary(n => n.ToUpperInvariant() switch
+            {
+                "GAB_FIDGET.ACT" => Clip("gab", 31, from: Elsewhere),
+                "GAB_WRDBOPEN.ACT" => Clip("gab", 31),
+                _ => null,
+            })
+            { KeepVertices = true },
+        };
+
+        update.SetBehaviour(
+            "GABRIEL",
+            FidgetKind.Idle,
+            GK3Reborn.Formats.Animation.GasFile.Parse(Encoding.Latin1.GetBytes("ANIM Fidget\nloop\n")));
+
+        return (update, sink);
+    }
+
+    [Fact]
     public void A_second_clip_on_one_model_replaces_the_first()
     {
         // GK3 gives a model one animator, and VertexAnimator::Start stops whatever it was

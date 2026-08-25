@@ -1,4 +1,4 @@
-# ADR 0009: Cut a floor's relief on a lattice in texture space
+﻿# ADR 0009: Cut a floor's relief on a lattice in texture space
 
 - Status: accepted
 - Date: 2026-08-23
@@ -72,3 +72,41 @@ one step for both, so its cells are not the same size in world on each.
 **Neutral.** Nothing about this is specific to floors; it is a way of subdividing
 textured geometry. What restricts it to floors is where the payoff is and where
 the budget goes, not the method.
+
+## Amendment, 2026-08-24
+
+The decision stands; three parts of it were wrong in a way that made the village
+come out flat, and the "bad" list above understated the last of them badly.
+
+**Where the lattice is not shared is a geometric question.** It was written as
+"an edge no second displaced triangle shares", which is a count, and the count is
+not the thing. GK3's ground is laid as separate flat patches that abut without
+being welded, and a stitch of stairs or a doorway leaves a long edge with a vertex
+partway along it; both are used once from either side and neither is a boundary.
+2,201 of RC1's 2,674 once-used edges have more floor of the same texture lying
+against them. An edge used once is now tested by looking a little way past it for
+another triangle of the same texture, in a grid built for the purpose. Nothing has
+to be welded for that to be safe: the lattice is what makes the two sides agree,
+and it is laid out in texture space, so two triangles carrying the same texture put
+vertices at the same coordinates along the line they meet on whether or not they
+share a single vertex.
+
+**"A texture stretched differently on two neighbouring surfaces gets one step for
+both" was not neutral-bad, it was fatal.** The step came from the *mean* rate, and
+a handful of triangles with all but collapsed coordinates took `rc1Coblston`'s from
+120 units to 42,641. Every cobble then asked for a lattice a thousand times too
+fine and was refused. It is the area-weighted **median** now, and a triangle still
+more than three times from it is left uncut with its neighbours held against it.
+
+**The estimate was not accurate enough for the budget to mean anything.** RC1 came
+to 1,107,726 triangles against an estimate of 392,407. The area term used the
+texture's average stretch rather than each triangle's own, and the ragged-edge term
+was a perimeter over the cell size, which is half the answer for a triangle lying
+across the lattice rather than square to it. Counted per triangle in texture space
+the estimate lands within about 15% across the corpus, and — since a triangle
+refused at one cell size is cut into everything it asked for at the next — the cost
+is now monotonic in the cell size, which is what makes the solve valid at all.
+
+With those three, the budget was raised from 400,000 to a million: the village
+moves 1.23 units typically where it moved 0.32, at 4.4 units a cell instead of 7.5,
+for about a second of that room's load and no measurable frame time.

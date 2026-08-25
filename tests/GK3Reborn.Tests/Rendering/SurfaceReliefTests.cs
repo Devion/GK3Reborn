@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering;
@@ -130,6 +130,170 @@ public sealed class SurfaceReliefTests
         }
 
         return pieces;
+    }
+
+    /// <summary>How far the floor moved, over every vertex of every piece.</summary>
+    private static (float Most, float Typical) Moved(
+        BspFile room, ReliefPlan plan, HeightField field, float depth)
+    {
+        float most = 0f;
+        double total = 0;
+        int count = 0;
+
+        foreach ((List<ReliefVertex> vertices, _) in Cut(room, plan, field, depth))
+        {
+            foreach (ReliefVertex vertex in vertices)
+            {
+                float moved = MathF.Abs(vertex.Position.Y);
+
+                most = MathF.Max(most, moved);
+                total += moved;
+                count++;
+            }
+        }
+
+        return (most, count > 0 ? (float)(total / count) : 0f);
+    }
+
+    [Fact]
+    public void Two_patches_that_abut_without_sharing_a_vertex_both_move()
+    {
+        // GK3's ground is laid as separate flat patches that touch and are not welded, so
+        // every edge along the join is used once and looks like the end of the floor. Held
+        // down, they take the relief with them: the village moved 0.32 units where it should
+        // have moved 1.42, and read as a painted plane at every angle anybody looks at a
+        // street from.
+        //
+        // Two slabs whose join is at x=100, cut in different places along it so that not one
+        // vertex is shared.
+        BspFile split = Room(
+            Slab(0, 100, 0, 200),
+            Slab(100, 200, 0, 60),
+            Slab(100, 200, 60, 200));
+
+        BspFile whole = Room(Slab(0, 200, 0, 200));
+
+        ReliefPlan apart = ReliefPlan.For(split, "the_floor", _ => true, 200_000)!;
+        ReliefPlan together = ReliefPlan.For(whole, "the_floor", _ => true, 200_000)!;
+
+        (float _, float typicalApart) = Moved(split, apart, Field(), 4f);
+        (float _, float typicalTogether) = Moved(whole, together, Field(), 4f);
+
+        Assert.True(apart.Boundary.Continued > 0, "no edge was found to carry on");
+
+        // Within a fifth of the floor that was one piece to begin with. Not equal: the join
+        // still holds its own corners, and one patch has an edge the other does not.
+        Assert.InRange(typicalApart, typicalTogether * 0.8f, typicalTogether * 1.2f);
+    }
+
+    [Fact]
+    public void Where_the_floor_really_stops_is_still_held_down()
+    {
+        // The other half of it. An edge with nothing against it is the floor meeting a wall,
+        // and lifting it opens a gap under the skirting board.
+        BspFile room = Room(Slab(0, 100, 0, 100));
+        ReliefPlan plan = ReliefPlan.For(room, "the_floor", _ => true, 200_000)!;
+
+        Assert.Equal(0, plan.Boundary.Continued);
+        Assert.True(plan.Boundary.Pinned >= 4, $"only {plan.Boundary.Pinned} edges were held");
+
+        foreach ((List<ReliefVertex> vertices, _) in Cut(room, plan, Field(), 4f))
+        {
+            foreach (ReliefVertex vertex in vertices)
+            {
+                bool onTheEdge =
+                    vertex.Position.X <= 0.01f || vertex.Position.X >= 99.99f ||
+                    vertex.Position.Z <= 0.01f || vertex.Position.Z >= 99.99f;
+
+                if (onTheEdge)
+                {
+                    Assert.InRange(vertex.Position.Y, -1e-3f, 1e-3f);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void One_triangle_with_collapsed_coordinates_does_not_decide_the_lattice()
+    {
+        // The step is one number for a whole texture, and it used to be the mean of the
+        // triangles' own rates. `rc1Coblston` is laid at a clean 120 units to the texture
+        // across the village square and a handful of triangles whose coordinates are all but
+        // collapsed took that mean to 42,641 — so every cobble asked for a lattice a
+        // thousand times too fine, was refused as impossible, and came out flat.
+        //
+        // Here: nine tiles of ordinary floor and one whose texture is squeezed into a
+        // thousandth of the coordinate space, which is a rate a thousand times the rest.
+        (Vector3[] corners, Vector2[] _) = Slab(300, 400, 0, 100);
+
+        BspFile poisoned = Room(
+            Slab(0, 100, 0, 100), Slab(100, 200, 0, 100), Slab(200, 300, 0, 100),
+            Slab(0, 100, 100, 200), Slab(100, 200, 100, 200), Slab(200, 300, 100, 200),
+            Slab(0, 100, 200, 300), Slab(100, 200, 200, 300), Slab(200, 300, 200, 300),
+            (corners,
+            [
+                new Vector2(3.0f, 0f),
+                new Vector2(3.0f, 0.001f),
+                new Vector2(3.001f, 0.001f),
+                new Vector2(3.001f, 0f),
+            ]));
+
+        BspFile clean = Room(
+            Slab(0, 100, 0, 100), Slab(100, 200, 0, 100), Slab(200, 300, 0, 100),
+            Slab(0, 100, 100, 200), Slab(100, 200, 100, 200), Slab(200, 300, 100, 200),
+            Slab(0, 100, 200, 300), Slab(100, 200, 200, 300), Slab(200, 300, 200, 300));
+
+        ReliefPlan spoiled = ReliefPlan.For(poisoned, "the_floor", _ => true, 200_000)!;
+        ReliefPlan plain = ReliefPlan.For(clean, "the_floor", _ => true, 200_000)!;
+
+        // The nine ordinary tiles get the cell they would have got on their own, and the odd
+        // one out is set aside rather than allowed to ask for a lattice nobody can afford —
+        // two triangles of it, since a quad is two.
+        Assert.InRange(spoiled.Cell, plain.Cell * 0.9f, plain.Cell * 1.1f);
+        Assert.Equal(2, spoiled.SetApart);
+        Assert.Equal(0, plain.SetApart);
+    }
+
+    [Fact]
+    public void The_floor_says_how_far_it_moved()
+    {
+        // Every other number a displaced floor prints reads the same whether it moved or not,
+        // which is how this shipped flat twice.
+        BspFile room = Room(Slab(0, 400, 0, 400));
+        ReliefPlan plan = ReliefPlan.For(room, "the_floor", _ => true, 200_000)!;
+
+        Assert.Equal(0f, plan.Moved);
+
+        Cut(room, plan, Field(), 4f);
+
+        Assert.True(plan.Moved > 0.5f, $"{plan.Moved} is not a floor that moved");
+        Assert.True(plan.MovedTypically > 0.1f, $"{plan.MovedTypically} typically is not either");
+        Assert.True(plan.Moved <= 4f + 1e-3f, $"{plan.Moved} is past the depth it was given");
+    }
+
+    [Fact]
+    public void A_floor_cut_finer_does_not_cost_less()
+    {
+        // The budget is solved by walking the cell coarser until the estimate fits, which is
+        // only valid if the cost falls as it goes. It used to rise: a triangle asking for
+        // more cells than the per-triangle cap was left whole, and one asking for slightly
+        // fewer was cut into all of them, so the village came out at seven million triangles
+        // at a 263-unit cell having been under a million at seven.
+        BspFile room = Room(Slab(0, 400, 0, 400), Slab(400, 800, 0, 400));
+
+        int coarser = 0;
+
+        for (int budget = 400_000; budget >= 1_000; budget /= 2)
+        {
+            ReliefPlan plan = ReliefPlan.For(room, "the_floor", _ => true, budget)!;
+            int made = Cut(room, plan, Field(), 4f).Sum(p => p.Indices.Count / 3);
+
+            Assert.True(
+                coarser == 0 || made <= coarser,
+                $"a budget of {budget} cut {made} triangles, against {coarser} for twice it");
+
+            coarser = made;
+        }
     }
 
     [Fact]

@@ -193,10 +193,19 @@ fans — six degrees a recorded pose, ninety a second — are the clearest case 
 So a moment between two recorded poses is the two of them mixed, which is what
 `ActFile.PoseAt` and `ShapeAt` are for. Three things about that are worth writing down.
 
-**The mix is of the recorded poses either side, not of consecutive frame numbers.** A mesh
-that does not move is not written again; reading a held pose as a keyframe would make a
-mesh that moves once every ten frames drift the whole way instead of waiting and then
-moving.
+**Only two poses recorded on consecutive frames are ever mixed.** A mesh that does not move
+is not written again, so a gap in the recording is a pose *held* for the length of the gap
+and there is nothing to head towards until it ends. That is `VertexAnimationPose::GetForTime`
+in the reference, whose own comment says it: if the next pose is not for the next frame, use
+the current pose with no interpolation. Mixing across a gap instead makes a mesh that moves
+once every ten frames drift the whole way rather than waiting and then moving — which is what
+took Gabriel's right shoe off his ankle for the planted half of every stride.
+
+The same rule decides the wrap of a clip that cycles: the frame after the last is the first,
+so it is mixed only where the last recorded pose is on the clip's last frame. A fan's blades
+are recorded on every frame, so the wrap is a step of one frame like any other; a shoe that
+stops being recorded at frame 15 of 21 holds where it was put instead of setting off towards
+the opening pose a whole stride away.
 
 **Every basis in the corpus is mirrored.** GK3's world is left-handed and its mesh
 transforms carry a determinant of −1. `Matrix4x4.Decompose` deals with that by picking an

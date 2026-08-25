@@ -109,6 +109,25 @@ public sealed record Settings
     /// <summary>Whether the intro plays on starting.</summary>
     public bool PlayIntro { get; init; } = true;
 
+    /// <summary>
+    /// Whether the game's easter-egg content is switched on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>EGG</c> is one of the built-in cases an action file may be written against, and
+    /// the original hard-codes it false with a note saying it should return true when
+    /// easter eggs are enabled — the switch itself never shipped, so nothing behind the
+    /// case has ever been reachable in a playing game. This is that switch. It sets the
+    /// story's <c>EGG</c> flag, which is what the case reads and what Sidney's sixth email
+    /// is written against.
+    /// </para>
+    /// <para>
+    /// Off by default, because the game as it shipped is the game as it shipped, and
+    /// somebody playing GK3 for the first time should meet it that way.
+    /// </para>
+    /// </remarks>
+    public bool EasterEggs { get; init; }
+
     /// <summary>Where the settings live for this user.</summary>
     /// <remarks>
     /// <c>%AppData%\GK3Reborn\settings.json</c> on Windows and

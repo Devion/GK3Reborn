@@ -269,7 +269,10 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     public bool WasPressed(CameraAction action) => _pressed.Contains(action);
 
     /// <inheritdoc/>
-    public void EndFrame()
+    public void EndFrame() => Forget();
+
+    /// <inheritdoc/>
+    public void Forget()
     {
         _pressed.Clear();
         _clicked.Clear();

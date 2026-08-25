@@ -97,6 +97,20 @@ destinations, and there are no others in the file.
 | Let the story move the camera | `GameState.CinematicsEnabled` |
 | Write out what is said | whether the caption reaches the interface at all |
 | Play the intro on starting | the two films below |
+| Easter eggs | `GameState.EasterEggs`, which is the story's `EGG` flag: the built-in `EGG` action case and Sidney's sixth email |
+
+**Easter eggs are the game's own switch, finished.** `EGG` is one of the built-in cases an
+action file may be written against, and the original hard-codes it false with a note saying
+it should return true when easter eggs are enabled — the switch never shipped, so the nine
+rules written behind it have never been reachable in a playing game. They are hidden verbs
+on things: Jean does a backflip, Grace stretches, the chicken meows, and the fridge in the
+kitchen has a snack in it. Turning this on sets the story's `EGG` flag, which is what the
+case reads and what Sidney's sixth email is written against.
+
+Off by default, because the game as it shipped is the game as it shipped. And it is a
+preference rather than a fact about the story, so it wins over a save: loading somebody
+else's game does not turn it on, and loading a game saved before it was turned on does not
+turn it off.
 
 The five volumes reach nine buses because there are nine and only five sliders. A bus
 left out is a sound nobody can turn down, and **which** one that would be depends on

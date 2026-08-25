@@ -291,6 +291,32 @@ public sealed class ScenePickerTests
     }
 
     [Fact]
+    public void Showing_every_hotspot_leaves_out_what_is_not_there()
+    {
+        // Reported as an item still having a hotspot after it had been picked up. Taking
+        // something takes its model out of the room, so a click already stopped finding it
+        // — and the list of every hotspot at once went on listing it, which is a label for
+        // something that is not there.
+        PlacedModel taken = Model("cap", "RED_CAP", 60f, PlacedModelKind.Prop);
+
+        var picker = new ScenePicker(Scene(
+            Room(("wall", 300f)),
+            "model=lamp, noun=LAMP, type=prop" + Newline + "model=cap, noun=RED_CAP, type=prop",
+            Model("lamp", "LAMP", 120f, PlacedModelKind.Prop),
+            taken));
+
+        Assert.Contains(picker.Interactive(), spot => spot.Noun == "RED_CAP");
+
+        taken.Visible = false;
+
+        Assert.DoesNotContain(picker.Interactive(), spot => spot.Noun == "RED_CAP");
+        Assert.Contains(picker.Interactive(), spot => spot.Noun == "LAMP");
+    }
+
+    /// <summary>A line break, spelled out so no editor can eat it.</summary>
+    private const string Newline = "\n";
+
+    [Fact]
     public void An_actor_who_walks_takes_their_noun_with_them()
     {
         // The bug this exists for: the picker gathers a model's triangles once, and an

@@ -294,6 +294,20 @@ public sealed class SceneCheckStage
             tally.CameraShells.Add(shell);
         }
 
+        // The patches of floor that act on whoever walks onto them. Counted rather than
+        // exercised — whether one fires is a question about where the player is standing —
+        // but a rectangle whose noun no action file writes about can never do anything, and
+        // that is worth naming.
+        foreach (SceneTrigger trigger in definition.Triggers())
+        {
+            tally.Triggers++;
+
+            if (loaded.Actions?.Find(trigger.Noun, "WALK") is null)
+            {
+                tally.TriggersUnwritten++;
+            }
+        }
+
         if (loaded.Ambient.Count > 0)
         {
             tally.Soundtracks++;
@@ -465,6 +479,10 @@ public sealed class SceneCheckStage
                  string.Join(", ", tally.MissingCameraShells.Order(StringComparer.Ordinal)));
         }
 
+        _log($"  {tally.Triggers} patches of floor act on whoever walks onto them, " +
+             $"{tally.Triggers - tally.TriggersUnwritten} of them with something to run " +
+             $"at that point in the story");
+
         _log($"  {tally.Soundtracks} name a soundtrack: {tally.SoundtracksRead.Count} distinct " +
              $"files read, {tally.SoundtrackSteps} steps, {tally.Sounds.Count} distinct sounds");
 
@@ -589,6 +607,12 @@ public sealed class SceneCheckStage
         public long WalkableTexels { get; set; }
 
         public int Soundtracks { get; set; }
+
+        /// <summary>Trigger rectangles across the corpus.</summary>
+        public int Triggers { get; set; }
+
+        /// <summary>Those whose noun nothing writes a <c>WALK</c> for at that moment.</summary>
+        public int TriggersUnwritten { get; set; }
 
         /// <summary>Behaviour scripts the scenes name, by name.</summary>
         public HashSet<string> Behaviours { get; } = new(StringComparer.OrdinalIgnoreCase);

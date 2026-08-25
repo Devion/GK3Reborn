@@ -97,6 +97,16 @@ public sealed class SceneDefinition
     public IReadOnlyList<ScenePosition> Positions() =>
         Join(_general?.Positions(), _specific?.Positions());
 
+    /// <summary>The patches of floor that act on whoever walks onto them.</summary>
+    /// <returns>The triggers, general file first.</returns>
+    /// <remarks>
+    /// Joined rather than overridden, as the reference does in
+    /// <c>SceneData::AddTriggerBlocks</c>: a timeblock file that declares one means "and
+    /// this one as well". Only two locations declare any in their general file at all.
+    /// </remarks>
+    public IReadOnlyList<SceneTrigger> Triggers() =>
+        Join(_general?.Triggers(), _specific?.Triggers());
+
     /// <summary>The cameras the player's view can occupy.</summary>
     public IReadOnlyList<SceneCamera> RoomCameras() =>
         Join(_general?.RoomCameras(), _specific?.RoomCameras());

@@ -168,14 +168,13 @@ revisiting once there is a real tone mapper rather than an implicit clip at whit
 
 ---
 
-## 4. An exterior has no sun, so nothing standing in one casts a contact shadow
+## 4. An exterior has no sun, so nothing standing in one casts a contact shadow (done 2026-08-23)
 
-**Reported:** 2026-08-23, out of the fix below. **Not fixed.** Reproduce with
-
-    GK3Reborn.Tools render-scene --model RC1 --timeblock 110A --rt high --output rc1.png
-
-and look at the ground under the woman by the van: she meets it with no shadow at all,
-while the same build gives a character in `LBY` a shadow on the wall behind him.
+**Reported:** 2026-08-23, out of the fix below. **Done the same day**, in `Game/Sunlight.cs`
+— a sun synthesised for any scene whose asset names a skybox, from the timeblock's hour,
+added to the rig at load rather than to the shader. RC1 now reports `Sun: elevation 51°, the
+rig's other 6 lights kept` at 110A and the woman by the van has a shadow. What follows is the
+diagnosis, kept because it is the reason the light exists at all.
 
 **It is the rig, not the tracing.** `rc1_a_m.SCN` ships **seven** authored lights for the
 whole town, against `LBY`'s forty-one, and four of them cast. Outdoors the artists left
@@ -204,29 +203,345 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
-### Round things are rounded, and the village ground gained its relief — done 2026-08-23
+### Gabriel's right shoe came off his ankle every stride — fixed 2026-08-25
+
+**Reported** after the walk was made to interpolate: his right shoe lags behind, comes away
+from the leg for a few units, and corrects itself.
+
+**Interpolating between the two *recorded* poses either side of a moment is not the rule.**
+The reference mixes an entry only with one recorded on the frame *after* it —
+`VertexAnimationPose::GetForTime`, whose own comment says so: if the next pose is not for the
+next frame, use the current pose with no interpolation. A gap in the recording means the mesh
+does not move, because a mesh that does not move is not written again. The port mixed across
+gaps however long, which sets a mesh off the moment its hold begins and lands it as the hold
+ends — the whole gap spent somewhere it never was.
+
+**A walk is the clip that holds most, because a planted foot does not move.** `GAB_GABWALK`
+records his right shoe on frames 0 and 4 to 15, and his left on 0 to 5 and 14 to 20; the gaps
+are the half of each stride that foot spends on the ground. Eleven of the model's thirteen
+meshes are recorded on every frame there is, so everything except the two shoes was being
+mixed correctly, and the shoes were the only things that could part company with the rest.
+
+**Why the right and not the left.** The left shoe's gap is in the middle of the clip and the
+poses either side of it are a quarter of a unit apart, so mixing across it was invisible. The
+right shoe's hold runs off the end of the clip, so what it mixed towards was the *opening*
+pose, a whole stride's travel away: **fifty units of it, over the last six frames of every
+loop**. The body crept with it — the forward travel taken out of the walk is the mean of all
+thirteen meshes, so a shoe fifty units adrift moved the mean by three.
+
+The wrap is a step of one frame like any other now, and only happens where the last recorded
+pose is on the clip's last frame. The lobby's fans still come round: their blades are
+recorded on every frame, which is what the wrap needs and what the shoes do not have.
+
+### An item kept its hotspot after being picked up — fixed 2026-08-24
+
+Taking something takes its model out of the room, so a click already stopped finding it —
+`ScenePicker.Pick` skips anything that is not being drawn, and has since the moped waiting
+for its scripted ride past RC1 first caught the pointer on empty air. `Interactive`, which
+is what holding **Alt** asks for every hotspot at once, made only the other of the two
+refusals: it skipped what a script had switched off and not what was no longer drawn. So the
+red cap kept a label on the shelf it had been lifted from.
+
+Both lists make both refusals now. The visibility test also goes *before* the one that keeps
+each noun once, so an invisible copy of something no longer claims the noun and hides a
+visible one behind it.
+
+
+### The walk was the one animation that did not interpolate — fixed 2026-08-24
+
+**Reported** as the walking legs feeling choppy while the rest of a character did not.
+
+Every clip in the game is played through `ActFile.PoseAt`, which mixes the two *recorded*
+poses either side of the moment — a spherical blend for the rotation, since mixing two
+rotation matrices shrinks whatever is between them — and `ShapeAt`, which does the same for
+the vertex shapes. The stride went through neither. `WalkCycle.Step` truncated to a whole
+frame and asked for `PoseOf` and `ShapeOf`, so a walk recorded at fifteen poses a second and
+drawn at a hundred and forty showed each pose nine times over. It was the only thing left in
+the game still playing at 1999 rates, which is exactly how it was reported: the legs, and
+nothing else.
+
+The forward travel is taken out at the same fractional moment that poses the meshes. Taking
+it from a whole frame while the legs are mixed between two is the difference between a walk
+and a skate.
+
+**What still measures whole frames, deliberately.** How far the stride travels — which sets
+the pace the feet have to match — and whether the last frame closes back onto the first are
+questions *about* the clip rather than moments *in* it, and a mix bends them towards a wrap
+that has not happened. Those keep `PoseOf`. So do the footsteps: a footstep is an event on a
+numbered frame, and asking for it twice because a moment landed either side of one is a
+doubled sound.
+
+### The clock moved on and nothing said so — fixed 2026-08-24
+
+**Reported:** there is no real indication when the hour switches; it should be made
+apparent.
+
+**The original has a screen for this and the port had a console line.** A timeblock ending
+dissolved one room, built another, and two hours of story had gone by with nothing said
+about it. `TimeblockScreen` in the reference shows a painting for the point in the story with
+its name lettered over it, and every one of those paintings is in the archives —
+`TBT110A.BMP` and its sixteen siblings — along with `D110A_01` to `_15`, the lettering, as a
+sprite series.
+
+So the card is back, in the place the original puts it: after the timeblock's closing film
+and before the next room is built, which is the only place it can go — after that the player
+is already standing somewhere new.
+
+**The painting is kept and the lettering is not**, which is the division the title screen
+already makes: the picture is art and the words are a widget. The original draws the name as
+a fifteen-frame sprite animation whose position it *hard-codes per timeblock* because the
+artists placed each one differently — its own comment calls that sloppy. The name is already
+in `ESTRINGS.TXT` as `Day110a = Day 1, 10am - 12pm`, and setting it in the port's own face
+costs nothing, is legible at any window size, and is what the corner of the screen already
+says. It is drawn at a fifteenth of the screen height, which is two to four times the size
+the sheets were cut at.
+
+It stands for four seconds, or until a click, Enter or Escape. The original's has no timer
+and waits for Continue; this ends by itself as well, because a card that must be dismissed is
+a card that can be missed by somebody who has walked away. Per-frame input is forgotten on
+the way in and on the way out, so the click that opened the door does not dismiss the card
+and the click that dismisses it does not act on the next room.
+
+An installation whose archives have no painting gets the words over black, which still says
+what time it is.
+
+
+### An idle dragged a character back between the clips of a scene — fixed 2026-08-24
+
+**Reported** twice over: Gabriel resets to the coffee table partway through fetching coffee
+from the kitchen in the dining room, and Lady Howard and Estelle reset after some of their
+animations in the museum. One cause.
+
+A scripted sequence is a run of clips one after another — the dining room's is
+`GabDinStart2Kitch`, `GabDinCoffeeget`, `GabDinCoffeeget2` to `5`, `GabDinCfeRtrn` — and
+between each pair there is a gap of a few frames while the script's wait comes back round.
+The port **paused** a character's behaviour script for the length of a clip and gave it back
+the moment the clip ended, so the idle fired into every one of those gaps. A breath is not a
+move animation, so it gives back all the ground it covered: `GabBreath1` put Gabriel back at
+(90, 279) by the table, having just been carried to (168, 425) in the kitchen. Traced frame
+by frame, he ping-ponged between the two for the whole sequence.
+
+**The reference does not pause it, it stops it.** `GKActor::StartAnimation` calls
+`StopFidget` on the way in to any animation that did not come from the behaviour script
+itself, and `OnVertexAnimationStop` does nothing to turn it back on. What turns it back on is
+the script, by hand, once it has finished with the character — `PourCoffee$` ends with
+`StartIdleFidget("Gabriel")`, and that line is there for exactly this reason.
+
+The pause was right for its own case and was kept: a **walk** pauses an idle and gives it
+back on arrival, which is what `Walker::OnWalkToFinished` does. A **story animation** is the
+other rule. Props keep the pause too — nothing in the port would ever restart a prop's own
+script, so a stop there would freeze every ceiling fan the story ever touched.
+
+Verified both ways round in both rooms. In the dining room Gabriel now walks to the kitchen,
+stays there through `Coffeeget2` to `5`, and returns under `GabDinCfeRtrn`. In the museum the
+before-and-after is visible in one frame: without the fix Estelle is jammed against Lady
+Howard by the display case, and with it she has turned and stepped to her own mark.
+
+
+### A click went through the door with the player — fixed 2026-08-24
+
+**Reported:** clicking the stairs down in the hallway arrived in the lobby and immediately
+played the voice-over of Gabriel looking at himself. The click had been acted on twice —
+once on the stairs, and once more in the next room, at the same screen position, which in
+the lobby is where Gabriel is standing.
+
+A click is gathered on `MouseUp` and lives in the window's per-frame state until
+`EndFrame` throws it away. **A room is left in the middle of a frame**: the click sets a
+new location, the room loop notices the story has moved and returns out of itself to let
+the next room load — and that return is above the `EndFrame` at the bottom of the loop, so
+the frame it belonged to never ended. Eight hundred milliseconds of scene loading later
+the next room's first frame reads the same buttons, still pressed, and does whatever the
+pointer is now over.
+
+Which is not a leak with one exit: **a door, a load, the pause menu and the end of a film**
+each leave the loop the same way. So the input is thrown away on the way *in* rather than
+at each way out — a room begins with nothing having been clicked on in it. `IGameWindow`
+gained `Forget` for it, which is the clearing `EndFrame` already did under a name that says
+why rather than when, and `EndFrame` now calls it.
+
+Worth noting what made this one nasty to see: the second click lands wherever the pointer
+happens to be, so what it does depends entirely on which two rooms are involved and where
+the player was aiming. Between the hallway and the lobby it is a voice-over. Somewhere
+else it could be a door.
+
+
+### The label knew everybody's name — fixed 2026-08-24
+
+**Reported** as a question: is it right that Gabriel already knows the woman outside by the
+bus is called Buthane, without having met her?
+
+No. It is the same leak the second-floor doors had, one room earlier and about a person.
+A scene names its people by their surnames — `BUTHANE`, `BUCHELLI`, `WILKES` — and the
+hover label read them straight back, so pointing at anybody named them. Worth saying that
+the original has nothing to be unfaithful to here: it draws no label at all, only a cursor.
+The label is the port's, so the leak is the port's.
+
+**What the label says instead is what can be seen**: "Woman" or "Man", taken from the
+character's own `ShoeType` in `CHARACTERS.TXT` — `Female Leather`, `Male Boot` — which is
+there to decide what a footstep sounds like and is also the only thing in the shipped data
+that says which of the game's forty-five characters is which. No table of descriptions kept
+by hand, for the same reason the hotel doors take their number out of the model name.
+
+**When somebody has been introduced is the game's own question, and it already answers it.**
+The action files ask it constantly, in `[LOGIC]` sections, under names like `MET_BUTHANE`
+and `INTRODUCED_EMILIO`, and they do not agree on a mechanism: most are
+`GetTopicCount(noun,"T_INTRODUCE")`, but Buthane has no `T_INTRODUCE` at all and introduces
+herself while explaining the tour, Jean says his name when you walk up to the front desk,
+Larry is met by turning up at his house, and Wilkes has a flag for the introduction he gets
+in room 24 without a topic being raised. So the conditions are copied out verbatim into
+`Assets/Story/Introductions.txt`, each with the file it came from beside it, and evaluated
+exactly as an action's case is.
+
+That bounds the list at the **twelve** people the data asks about. Anybody it never asks
+about keeps their name — `MONTREAUX`, `MACDOUGALL`, `MALLORY`, `MESMI`, `SIMONE`,
+`PRINCE_JAMES`, `MONSIEUR_BIGOUT`, listed in the file so the gap is visible — and so does
+anybody the character file has no shoes for. Both failures are the same shape and it is the
+safe one: a name shown early is a small spoiler, a stranger who stays a stranger after two
+days of talking is a bug the player cannot work around. `GRACE` and `MOSELY` are absent for
+a different reason: Gabriel arrives knowing them.
+
+**The hotspot overlay was leaking too.** Holding Alt draws every noun in the room, and it
+drew them raw — so the corridor the doors fix was written for still named all eight of them
+when the key was held. It goes through the same naming now, which was the point of that fix
+and half of it was missing.
+
+Verified in the museum: the pair read "Woman" until the introduction, then "Lady Howard"
+and "Estelle".
+
+
+### The floor never noticed anybody standing on it — fixed 2026-08-24
+
+**Reported** as a story blocker: Estelle and Lady Howard cannot be overheard in the museum,
+because trying to listen to them from behind the panel walks Gabriel over to them instead.
+
+The walkthrough's instruction for that moment is "go hide behind the panel behind them and
+eavesdrop their conversation", and hiding is all it takes. `MS3110A.SIF` marks out a
+rectangle of floor behind the display panels and names it:
+
+    [TRIGGERS]
+    noun=GET_CLOSE,rect={48.84, -400.57, 370.19, -598.15}
+
+Standing in it does `GET_CLOSE, WALK`, which is the whole eavesdrop — the two women's
+conversation about the sacred number of Ra, and the two points for hearing it. **Nothing read
+the section.** `[TRIGGERS]` was not one of the parts of a scene file the reader knew about, so
+the rectangle did not exist, and the room's only remaining way into the scene was
+`LADY_H_ESTELLE, LISTEN` — whose script asks whether Gabriel is within a hundred units of one
+of four `Behind_` spots and, finding he is not, walks him to `TryToListen` to say he cannot
+hear from there. That walk is the reported symptom; the missing rectangle is the cause.
+
+**Thirty-four rectangles across twenty-nine scene files**, and they carry most of the game's
+"step closer and overhear them" beats: the front desk of the lobby, where Jean greets Gabriel
+by name on the first morning; the window into Arnaud's office; Mosely's door; the two
+lectures on the Blanchefort tour. All of them were silent.
+
+They are read now, and `Scene::Update`'s rule is the one implemented: every frame, if the
+player is inside a rectangle and nothing is playing, do that rectangle's noun with the verb
+`WALK` — a verb no file writes beside the rectangle, because the original hard-codes it.
+Not on the way in: the original tests every frame and relies on the action's own case to stop
+it happening twice, which is what `GetNounVerbCount("GET_CLOSE","WALK")==0` is doing in the
+museum's rules.
+
+**Two details the rectangles need.**
+
+- **The corners are written in whichever order the artist dragged them.** The museum's runs
+  from z −400 to z −598, and a rectangle whose edges are the wrong way round contains
+  nothing. They are sorted on the way in, as `Rect::Rect` does.
+- **Two of them are mistyped**, both in `CSE212P`: one has a doubled comma and one writes a
+  number as `11.03.58`. The original reads both, discarding empty elements and parsing with
+  `stof`, which stops at the second point. A trigger dropped for a typo is a room where
+  something quietly never happens, so the reader is as forgiving.
+
+**A walk that would cross one now stops at its edge**, which is
+`Walker::FindEarliestPathNodeInsideActiveTriggerRegion` — and its own comment names the case:
+in the lobby on the first morning, the way to the front door goes through Jean's rectangle.
+Without it the player walks over the trigger, the conversation starts behind them, and Jean
+introduces himself to somebody already at the door. The stopping point is where the route
+crosses the edge rather than the corner of the route that happens to be inside it.
+
+**What stands for "an action is playing".** The original keeps a current action and asks it;
+nothing here does, so the answer is assembled from four things that each cover part of one —
+an action held back for its approach walk, the waits an action reported when it ran, a clip
+the story is playing on the player, and any script still outstanding from the last action the
+room started itself. That last one is what covers `wait CallSheep(…)`, whose length is
+another script rather than a number of seconds, and it is measured against how many scripts
+were waiting *before* the room acted: the dining room and the third-floor hall each keep two
+parked for as long as they stand, so "any script is waiting" is not a usable answer.
+
+Verified in the museum both ways round — walk behind the panels and the conversation plays;
+stand there and use `LISTEN` and it plays — and in the lobby, where walking to the desk now
+gets "Ah! You must be Monsieur Knight in room 25." `check-scenes` counts **112** rectangles
+across the location and timeblock pairs, 8 of them with something to run at that point in the
+story.
+
+
+### Round things are rounded, and the village ground gained its relief — done 2026-08-23, rebuilt 2026-08-24
 
 **The bell, the lamps, the vases.** A curated list of round objects — names containing bell,
-lamp, lantern, candle, chandel, vase, urn — is subdivided twice at scene load, silhouette and
-shading both. The head's subdivision could not do it, for a structural reason worth writing
-down: it pins boundary vertices, and a lathed object is strips and caps whose vertices are
-all on a boundary — the rim between a bell's side and its top belongs to two surfaces, so
-refining each surface alone holds the hexagon exactly where it was. `ObjectRounding` welds
-the whole object by position first, carries texture coordinates per corner so seams stay
-seams, and smooths true boundaries along their curve instead of pinning them. Capped at five
-hundred authored triangles per object, so a "lamp" that is really a street of lampposts
-stays as authored. The refined triangles go to the ray tracer too, so the shadow matches the
-silhouette. Adding an object is one name in `SceneGeometry.RoundNames`.
+lamp, lantern, candle, chandel, vase, urn — is rounded at scene load, silhouette and shading
+both. The head's subdivision could not do it, for a structural reason worth writing down: it
+pins boundary vertices, and a lathed object is strips and caps whose vertices are all on a
+boundary — the rim between a bell's side and its top belongs to two surfaces, so refining
+each surface alone holds the hexagon exactly where it was. `ObjectRounding` welds the whole
+object by position first and carries texture coordinates per corner so seams stay seams.
+Capped at five hundred authored triangles per object, so a "lamp" that is really a street of
+lampposts stays as authored. The rounded triangles go to the ray tracer too, so the shadow
+matches the silhouette. Adding an object is one name in `SceneGeometry.RoundNames`.
+
+**How it rounds them was wrong for a day and is worth recording.** The first version was two
+levels of Loop subdivision over the welded object, and it wrecked what it touched — the
+lobby's lamp shade came out with its panels sagging inward between their ribs and its rim
+spiked into sails, reported as "instead of round it's now oddly inward curved, definitely not
+rounded". Loop is an *approximating* scheme: every original vertex moves toward the average
+of its neighbours, which is invisible on a dense mesh and is the entire shape on a
+twelve-sided shade. It was reverted to smoothed normals alone, which fixed the damage and
+left the objects as polygonal as they were found. Rebuilt on 2026-08-24 as PN triangles —
+interpolating, so no authored vertex moves at all — with crease-aware normals and a rim
+curved along its own polyline. See `docs/rendering.md` (Round things); nine tests pin what it
+may and may not do, starting with "a flat face comes out flat".
 
 **The village ground.** Every RC1 walking texture was displacement-mapped except
 `RC1MOTGRAS` — the mottled dirt most of the village stands on — because the derivation had
 classified it as foliage. It is ground with grass in the picture, not blades standing up;
 marked edited, displacement on at depth 2.5, and RC1 grew from 41,675 triangles to 65,765.
 
-**Why outdoor relief still reads as subtle:** geometric bumps show through directional light
-and the shadows it casts, and RC1's rig has no sun — open issue 4. The cobbles are cut into
-the geometry at depth 4 and have been for some time; under an overcast ambient they simply
-have nothing to cast. The sun is the remaining lever, not the displacement.
+**Why outdoor relief still read as subtle, and what it actually was.** Two things were
+blamed at the time and only one of them was true. The missing sun was real and was fixed
+(issue 4). The other — "the cobbles are cut into the geometry at depth 4 and have been for
+some time" — was wrong: they were being cut and then held flat. See the entry below.
+
+### The village's floor was cut into a million triangles and did not move — fixed 2026-08-24
+
+Reported as "the dirt and cobble tiles still have zero depth", twice, with screenshots at a
+grazing angle where the ground's horizon was a perfectly straight line. Everything the loader
+printed said it was working: 1,107,726 triangles, a sensible cell, height maps loaded and
+read. What none of it said is how far anything had moved, which was **0.32 units typically**
+against materials asking for 2.5 to 4.
+
+Three causes, and each hid the next.
+
+**The pin rule counted edges instead of looking.** An edge used by one triangle was treated
+as the floor's boundary and held still. GK3's ground is laid as separate flat patches that
+abut without being welded, and a stitch of stairs or a doorway leaves a long edge with a
+vertex partway along it, so 2,201 of RC1's 2,674 once-used edges are not boundaries at all.
+With the fade reaching a cell inward from every one of them, nine tenths of the village was
+held down. Now an edge used once is tested by looking a little way past it for more floor of
+the same texture.
+
+**The fade from a held corner was a barycentric weight, not a distance.** That is only a
+distance when the triangle is roughly equilateral, and a village's ground is mostly long thin
+strips: 946 of RC1's floor triangles have a shortest side under ten units and they carry 81%
+of the cut. Their whole length was damped by a corner seven units away.
+
+**The tiling rate was a mean.** One number per texture decides where the lattice lines fall.
+`rc1Coblston` is laid at a clean 120 units to the texture across the village square, and a
+handful of triangles with all but collapsed coordinates carried the *mean* to 42,641 — so
+every cobble asked for a lattice a thousand times too fine, was refused as impossible by the
+per-triangle cap, and came out flat. It is the area-weighted median now.
+
+With all three: RC1 moves **1.23 units typically, up to 3.67**, at 4.4 units a cell. The
+budget went from 400,000 to a million at the same time, because its estimate had been out by
+2.8× and could now be trusted. The loader reports how far the floor moved on the same line as
+how many triangles it cost, which is the number that was missing.
 
 ### A relative clip played with its authored turn left in — fixed 2026-08-23
 

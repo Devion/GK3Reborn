@@ -21,6 +21,7 @@
     <!-- What each of the game's score events is worth. The original compiled the table
          into its executable and no barn holds it, so the engine carries it; adapted from
          G-Engine, GPL-3, see NOTICE. -->
+    <EmbeddedResource Include="Assets/Story/Introductions.txt" />
     <EmbeddedResource Include="Assets/Story/Pockets.txt" />
     <EmbeddedResource Include="Assets/Story/Quests.txt" />
     <EmbeddedResource Include="Assets/Story/Walkthrough.txt" />

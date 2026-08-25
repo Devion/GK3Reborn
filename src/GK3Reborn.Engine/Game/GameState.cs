@@ -119,6 +119,42 @@ public sealed class GameState
     /// </remarks>
     public bool CinematicsEnabled { get; set; } = true;
 
+    /// <summary>The flag the game's own easter-egg content is written against.</summary>
+    public const string EasterEggFlag = "EGG";
+
+    /// <summary>
+    /// Whether the game's easter-egg content is switched on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A player's preference kept as a story flag, because a flag is where the game itself
+    /// looks: <c>EGG</c> is a built-in action case, and Sidney's sixth email is written
+    /// against <c>GetFlag("Egg")</c>. Reading it through a property rather than leaving
+    /// everybody to spell the flag gives it one name and one place.
+    /// </para>
+    /// <para>
+    /// Which means it can arrive in a save, and it must not: it is what this player asked
+    /// for, not something the story earned. <see cref="Restore"/> puts the current answer
+    /// back over whatever the save had, so loading somebody else's game does not turn it on.
+    /// </para>
+    /// </remarks>
+    public bool EasterEggs
+    {
+        get => GetFlag(EasterEggFlag);
+
+        set
+        {
+            if (value)
+            {
+                SetFlag(EasterEggFlag);
+            }
+            else
+            {
+                ClearFlag(EasterEggFlag);
+            }
+        }
+    }
+
     /// <summary>Actions the story has asked for later.</summary>
     /// <remarks>
     /// Story state rather than scene state: a minute set in the lobby has to still be
@@ -752,6 +788,10 @@ public sealed class GameState
     {
         ArgumentNullException.ThrowIfNull(save);
 
+        // A preference rather than a fact about the story, so it survives the load: see
+        // EasterEggs.
+        bool eggs = EasterEggs;
+
         _variables.Clear();
         _flags.Clear();
         _nounVerbCounts.Clear();
@@ -796,6 +836,8 @@ public sealed class GameState
         {
             _flags.Add(Key(flag));
         }
+
+        EasterEggs = eggs;
 
         Fill(_variables, save.Variables);
         Fill(_nounVerbCounts, save.NounVerbCounts);

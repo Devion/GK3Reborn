@@ -90,6 +90,29 @@ public sealed class SaveGameTests
     }
 
     [Fact]
+    public void Loading_somebody_elses_game_does_not_turn_the_easter_eggs_on()
+    {
+        // EGG is a preference kept as a story flag, because a flag is where the game itself
+        // looks. Which means it travels in a save, and it must not arrive from one: what
+        // the player asked for is not something a saved game gets to decide.
+        var played = new GameState { EasterEggs = true };
+        SaveGame save = played.Capture();
+
+        var other = new GameState();
+        other.Restore(save);
+
+        Assert.False(other.EasterEggs);
+        Assert.False(other.GetFlag("EGG"));
+
+        // And the other way round: a save taken without them does not turn them off.
+        var asked = new GameState { EasterEggs = true };
+
+        asked.Restore(new GameState().Capture());
+
+        Assert.True(asked.EasterEggs);
+    }
+
+    [Fact]
     public void Reloading_does_not_re_roll_the_dice()
     {
         // Otherwise a save is a way to retry anything the story left to chance.

@@ -98,6 +98,25 @@ goes — `SetLocation("rc3")` — and `ESTRINGS.TXT` says what that place is cal
 label reads "Rennes-le-Château: Outside Church". Same file, same reason, for the corner of
 the screen: "Hotel Lobby - Day 1, 10am - 12pm" rather than `LBY - 110A`.
 
+**A label never names somebody the player has not met.** A scene names its people by their
+surnames — `BUTHANE`, `BUCHELLI`, `WILKES` — so a label that reads them back introduces
+every suspect in the game the first time the player points at one. It is the leak the
+second-floor doors had, where `EMILIOS_DOOR` and `BUTHANES_DOOR` named half the cast to
+anybody walking down the corridor, in a place where there is no room number to fall back
+on. Until the introduction has happened the label says what can actually be seen, "Woman"
+or "Man", out of the character's own `ShoeType` in `CHARACTERS.TXT` — which is there to
+pick a footstep sound and is also the only thing in the shipped data that says which is
+which.
+
+When the introduction has happened is the game's own question and the game's own answer:
+the conditions in `Assets/Story/Introductions.txt` are copied out of the `[LOGIC]` sections
+of the action files, `MET_BUTHANE` and `MET_WILKES` and the rest, and each line says which
+file it came from. Which bounds the list at the twelve the data asks about — anybody it
+never asks about keeps their name, as does anybody the character file has no shoes for.
+Both failures are the same shape and it is the safe one: a name a little early is a small
+spoiler, and a stranger who is still a stranger after two days of conversation is a bug the
+player cannot get round.
+
 **The inventory is a strip along the bottom that never goes away.** The original put it
 behind a mode change, so checking what you were carrying cost you the sight of the room you
 were carrying it in. Clicking a slot takes the thing in hand; clicking it again opens it

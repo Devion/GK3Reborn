@@ -154,6 +154,8 @@ public sealed class ActionRunner
             _api.Defers is { } defer &&
             defer(approaching, () => Perform(action, statements, sources)))
         {
+            _api.ActionSeconds = Math.Max(_api.ActionSeconds, approaching);
+
             return new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: true)
             {
                 Approaching = approaching,
@@ -211,7 +213,14 @@ public sealed class ActionRunner
 
         Finish(action);
 
-        return new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: true);
+        var outcome = new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: true);
+
+        // How long the story is busy for. Anything that starts something of its own — a
+        // trigger the player has walked onto, a timer coming due — asks this before it does,
+        // the way the original asks its action manager whether an action is playing.
+        _api.ActionSeconds = Math.Max(_api.ActionSeconds, outcome.Seconds);
+
+        return outcome;
     }
 
     /// <summary>

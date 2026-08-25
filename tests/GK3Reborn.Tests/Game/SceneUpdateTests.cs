@@ -179,10 +179,11 @@ public sealed class SceneUpdateTests
         return ModFile.FromMeshes("GAB", [Mesh(30, "GAB_SHIRT"), Mesh(65, "GAB_FACE")]);
     }
 
-    private static LoadedScene Scene() =>
+    private static LoadedScene Scene(string? text = null, WalkBoundary? boundary = null) =>
         new(
             "TEST",
             new SceneDefinition(SceneInitFile.Parse(
+                text ??
                 """
                 [ROOM_CAMERAS]
                 NEAR, angle={0, 0}, pos={0, 60, 0}, Default
@@ -192,6 +193,7 @@ public sealed class SceneUpdateTests
             Asset: null,
             Lightmaps: null,
             ModelsPlaced: 1,
+            Walkable: boundary,
             Placed:
             [
                 new PlacedModel(
@@ -303,6 +305,156 @@ public sealed class SceneUpdateTests
 
         Assert.Empty(update.Advance(0));
         Assert.Empty(sink.Turns);
+    }
+
+    /// <summary>A room with one patch of floor that does something, around the origin.</summary>
+    private const string TriggerRoom =
+        """
+        [ROOM_CAMERAS]
+        NEAR, angle={0, 0}, pos={0, 60, 0}, Default
+
+        [TRIGGERS]
+        noun=GET_CLOSE, rect={-50, 50, 50, -50}
+        """;
+
+    private static (SceneUpdate Update, GameState State) TriggerWorld(string script)
+    {
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var resolver = new ActionResolver(api);
+
+        resolver.Add(NvcFile.Parse(script, "test.nvc", new DiagnosticBag()));
+
+        var sink = new Watcher();
+        sink.Moves[0] = Matrix4x4.CreateRotationY(Walker.Rotation(0f));
+
+        return (
+            new SceneUpdate(
+                Scene(TriggerRoom), api, new Glances(), sink, resolver, new ActionRunner(api)),
+            state);
+    }
+
+    [Fact]
+    public void Standing_on_a_trigger_does_its_nouns_walk()
+    {
+        // How the game says "and then you overhear them". The player is placed at the
+        // origin, which the fixture's rectangle is drawn around.
+        (SceneUpdate update, GameState state) = TriggerWorld(
+            """GET_CLOSE, WALK, ALL, script={SetFlag("overheard")}""");
+
+        Assert.Single(update.Advance(1.0 / 60));
+        Assert.True(state.GetFlag("overheard"));
+    }
+
+    [Fact]
+    public void A_trigger_the_player_is_not_standing_in_does_nothing()
+    {
+        (SceneUpdate update, GameState state) = TriggerWorld(
+            """GET_CLOSE, WALK, ALL, script={SetFlag("overheard")}""");
+
+        update.Place("GABRIEL", new Vector3(400, 0, 400), 0f);
+
+        Assert.Empty(update.Advance(1.0 / 60));
+        Assert.False(state.GetFlag("overheard"));
+    }
+
+    [Fact]
+    public void A_trigger_whose_noun_has_nothing_written_about_it_is_quiet()
+    {
+        // 26 of the corpus's 34 rectangles are this at any given point in the story. The
+        // player walks over them as they would over any other patch of floor, and a room
+        // that reported it every frame would drown everything else out.
+        (SceneUpdate update, GameState state) = TriggerWorld(
+            """SOMETHING_ELSE, WALK, ALL, script={SetFlag("overheard")}""");
+
+        for (int i = 0; i < 10; i++)
+        {
+            Assert.Empty(update.Advance(1.0 / 60));
+        }
+
+        Assert.False(state.GetFlag("overheard"));
+    }
+
+    [Fact]
+    public void A_trigger_does_not_fire_again_while_what_it_started_is_running()
+    {
+        // The reference tests every frame and leans on the action's own case to stop it
+        // happening twice; what stops it in the meantime is that an action is playing.
+        // Here the case never stops applying, so anything that fires it every frame counts
+        // to twenty rather than to one.
+        (SceneUpdate update, GameState state) = TriggerWorld(
+            """GET_CLOSE, WALK, ALL, script={wait SetTimerSeconds(0.5); IncNounVerbCount("GET_CLOSE", "WALK");}""");
+
+        for (int i = 0; i < 20; i++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.Equal(1, state.GetNounVerbCount("GET_CLOSE", "WALK"));
+
+        // And again once it is over, because the player is still standing there and the
+        // rule still applies. That is the original's behaviour and it is what the rules
+        // written with a count in them are guarding against.
+        for (int i = 0; i < 20; i++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.Equal(2, state.GetNounVerbCount("GET_CLOSE", "WALK"));
+    }
+
+    [Fact]
+    public void A_walk_that_would_cross_a_trigger_stops_at_its_edge()
+    {
+        // Walker::FindEarliestPathNodeInsideActiveTriggerRegion. Its own comment names the
+        // case: in the lobby on the first morning the way to the front door goes through
+        // Jean's rectangle, and walking over it starts a conversation with somebody who is
+        // by then at the door.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var resolver = new ActionResolver(api);
+
+        resolver.Add(NvcFile.Parse(
+            """FAR_HALF, WALK, ALL, script={SetFlag("crossed")}""",
+            "test.nvc",
+            new DiagnosticBag()));
+
+        var sink = new Watcher();
+        sink.Moves[0] = Matrix4x4.CreateRotationY(Walker.Rotation(0f));
+
+        // Eight texels square over eight hundred units centred on the origin, every one of
+        // them open, so the route is a straight line of corners rather than a way round
+        // anything. Each texel is a hundred units across and their middles fall on 50, 150,
+        // 250 and 350 either side of nothing.
+        var boundary = new WalkBoundary(
+            new IndexedImage(8, 8, new byte[8 * 8]),
+            new Vector2(800, 800),
+            new Vector2(400, 400));
+
+        var update = new SceneUpdate(
+            Scene(
+                """
+                [ROOM_CAMERAS]
+                NEAR, angle={0, 0}, pos={0, 60, 0}, Default
+
+                [TRIGGERS]
+                noun=FAR_HALF, rect={-400, 100, 400, 400}
+                """,
+                boundary),
+            api,
+            new Glances(),
+            sink,
+            resolver,
+            new ActionRunner(api));
+
+        update.Place("GABRIEL", new Vector3(0, 0, -300), 0f);
+        update.Walk("GABRIEL", new Vector3(0, 0, 350), mayRun: true);
+
+        Vector3 stops = Assert.IsType<Vector3>(update.Heading("GABRIEL"));
+
+        // Not the corner it was sent to, and not the corner of the route that happens to
+        // be inside — the point on the edge where the walk crosses it.
+        Assert.Equal(100f, stops.Z, 1);
     }
 
     [Fact]

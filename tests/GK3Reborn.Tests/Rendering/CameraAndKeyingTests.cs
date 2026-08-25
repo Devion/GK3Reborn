@@ -249,6 +249,10 @@ public sealed class CameraAndKeyingTests
         public void EndFrame()
         {
         }
+
+        public void Forget()
+        {
+        }
     }
 
     /// <summary>Input with one action held down and nothing else happening.</summary>
@@ -308,6 +312,10 @@ public sealed class CameraAndKeyingTests
         public int ScrollDelta => 0;
 
         public void EndFrame()
+        {
+        }
+
+        public void Forget()
         {
         }
     }

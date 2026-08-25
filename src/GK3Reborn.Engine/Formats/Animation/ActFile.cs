@@ -248,12 +248,13 @@ public sealed class ActFile
     /// second — are the clearest case in the game.
     /// </para>
     /// <para>
-    /// So a moment between two recorded poses is the two of them mixed. The mix is of the
-    /// <em>recorded</em> poses either side, not of consecutive frame numbers: a mesh that
-    /// does not move is not written again, and reading a held pose as a keyframe would make
-    /// a mesh that moves once every ten frames drift the whole way instead of waiting and
-    /// then moving. Rotation is a proper spherical mix rather than a mix of the matrices,
-    /// because mixing two rotation matrices shrinks whatever is between them.
+    /// So a moment between two recorded poses is the two of them mixed — but only where the
+    /// two are recorded on consecutive frames. A mesh that does not move is not written
+    /// again, so a gap in the recording is a pose held for the length of the gap, and mixing
+    /// across one would make a mesh that moves once every ten frames drift the whole way
+    /// instead of waiting and then moving. <see cref="Next"/> is where that is decided.
+    /// Rotation is a proper spherical mix rather than a mix of the matrices, because mixing
+    /// two rotation matrices shrinks whatever is between them.
     /// </para>
     /// </remarks>
     public Matrix4x4? PoseAt(int mesh, float frame, bool cycles = false)
@@ -360,20 +361,41 @@ public sealed class ActFile
     /// Which recorded entry a moment is heading towards, and how many frames away it is.
     /// </summary>
     /// <remarks>
-    /// Past the last recorded entry there is nothing to head towards and the pose is held —
-    /// unless the clip cycles, in which case what it is heading towards is its own opening
-    /// pose and the distance is however much of the clip is left. That is what makes a fan
-    /// come round rather than freezing for a fifteenth of a second at the top of every turn.
+    /// <para>
+    /// <b>Only ever the very next frame.</b> A mix is between an entry and one recorded on
+    /// the frame after it; a gap in the recording is a pose that is <em>held</em>, and there
+    /// is nothing to head towards until the gap ends. That is the rule from G-Engine's
+    /// <c>VertexAnimationPose::GetForTime</c>, whose own comment states it: if the next pose
+    /// is not for the next frame, use the current pose with no interpolation.
+    /// </para>
+    /// <para>
+    /// A gap says the mesh does not move, because a mesh that does not move is not recorded
+    /// again. Sliding across one instead sets the mesh off the moment the hold begins and
+    /// lands it as the hold ends, which is the whole gap spent somewhere it never was. It
+    /// shows worst on the thing that holds most: <b>a planted foot</b>. Gabriel's walk
+    /// records his right shoe on frames 0 and 4 to 15 and his left on 0 to 5 and 14 to 20 —
+    /// the gaps are the half of each stride that foot spends on the ground. The right one's
+    /// runs off the end of the clip, so what it mixed towards was the opening pose a whole
+    /// stride's travel away, and the shoe left his ankle by fifty units and snapped back at
+    /// the loop.
+    /// </para>
+    /// <para>
+    /// Past the last recorded entry the pose is held — unless the clip cycles and that entry
+    /// is on the clip's last frame, in which case the frame after it is the clip's opening
+    /// one. That is what makes a fan come round rather than freezing for a fifteenth of a
+    /// second at the top of every turn: its blades are recorded on every frame there is, so
+    /// the wrap is a step of one frame like any other.
+    /// </para>
     /// </remarks>
     private (int To, float Span) Next(
         int count, int previous, int at, Func<int, int> frameOf, bool cycles)
     {
         if (previous + 1 < count)
         {
-            return (previous + 1, frameOf(previous + 1) - at);
+            return frameOf(previous + 1) == at + 1 ? (previous + 1, 1f) : (-1, 0);
         }
 
-        return cycles && count > 1 ? (0, FrameCount - at) : (-1, 0);
+        return cycles && count > 1 && at == FrameCount - 1 ? (0, 1f) : (-1, 0);
     }
 
     /// <summary>Mixes two mesh transforms, turning the shorter way round.</summary>

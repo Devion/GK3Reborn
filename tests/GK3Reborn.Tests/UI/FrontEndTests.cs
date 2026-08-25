@@ -232,6 +232,25 @@ public sealed class FrontEndTests
     }
 
     [Fact]
+    public void The_easter_eggs_are_off_until_the_player_asks_for_them()
+    {
+        // The game as it shipped is the game as it shipped: somebody meeting GK3 for the
+        // first time should not be offered a verb its authors switched off.
+        FrontEnd front = Front();
+
+        front.Choose(new MenuAction("options"));
+        front.Choose(new MenuAction("gameplay"));
+
+        Assert.False(front.Settings.EasterEggs);
+        Assert.Equal("Off", Row(front, "eggs").Value);
+
+        front.Choose(new MenuAction("eggs"));
+
+        Assert.True(front.Settings.EasterEggs);
+        Assert.Equal("On", Row(front, "eggs").Value);
+    }
+
+    [Fact]
     public void Play_quit_and_resume_are_the_only_things_that_leave_the_menu()
     {
         Assert.Equal(FrontEndOutcome.Play, Front().Choose(new MenuAction("play")));
@@ -462,6 +481,29 @@ public sealed class MenuPageTests
     }
 
     private static MenuPage Page() => new(new Overlay(Font()));
+
+    [Fact]
+    public void The_timeblock_card_is_lettered_large_and_puts_the_size_back()
+    {
+        // Two hours of the story have just gone by and the point of the card is that it
+        // cannot be missed, so it is not drawn at the size a list of settings is read at.
+        MenuPage page = Page();
+
+        int ordinary = page.Overlay.LineHeight;
+
+        page.Announcing("Day 1, 12pm - 2pm", 1280, 720);
+
+        Assert.NotEmpty(page.Overlay.Quads);
+
+        // And the page is left as it was: the same overlay draws the menu next.
+        Assert.Equal(ordinary, page.Overlay.LineHeight);
+
+        // The letters themselves were bigger than that while they were drawn — a fifteenth
+        // of 720 lines is 48, against a sheet cut at twelve.
+        Assert.True(
+            page.Overlay.Quads.Max(q => q.Destination.W) > ordinary,
+            "the card's lettering should be taller than a menu row");
+    }
 
     private static IReadOnlyList<MenuItem> Items() =>
     [

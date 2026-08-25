@@ -199,6 +199,24 @@ public sealed class Gk3SheepApi : ISheepApi
     /// </remarks>
     public string ActingOn { get; set; } = string.Empty;
 
+    /// <summary>How much longer the action that is running has to run.</summary>
+    /// <remarks>
+    /// <para>
+    /// The reference keeps a whole <c>mCurrentAction</c> for this and asks it
+    /// <c>IsActionPlaying</c>; what anything here wants to know is only whether the story
+    /// is in the middle of something, so what is kept is the time left rather than the
+    /// action. The runner writes the sum of an action's waits here as it performs it and
+    /// the room counts it down.
+    /// </para>
+    /// <para>
+    /// It is a floor rather than a promise. A statement whose length the host cannot work
+    /// out — <c>wait CallSheep(…)</c>, whose length is another script — contributes
+    /// nothing, so an action can still be going on after this has run out. Whoever asks
+    /// has to be safe if it says no too early.
+    /// </para>
+    /// </remarks>
+    public double ActionSeconds { get; set; }
+
     /// <summary>How long a movie runs, asked before it is played.</summary>
     /// <remarks>
     /// A hook rather than a library lookup, because the length lives in the movie's own

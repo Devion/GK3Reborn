@@ -1,6 +1,7 @@
 ﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Models;
+using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Formats.Animation;
@@ -231,6 +232,7 @@ public sealed class SceneUpdate
         _actions = actions;
         _runner = runner;
         _scripts = scripts;
+        _triggers.AddRange(scene.Definition.Triggers());
 
         foreach (PlacedModel placed in scene.Models)
         {
@@ -514,10 +516,28 @@ public sealed class SceneUpdate
                 _walking.Remove(target.Name);
             }
 
-            // Whatever the model does on its own waits until this is over.
+            // Whatever the model does on its own stops here, and does not start again
+            // by itself.
+            //
+            // <b>A stop rather than a pause</b>, which is the difference between the two
+            // rules. A walk pauses an idle and gives it back on arrival — the reference
+            // says so in Walker::OnWalkToFinished — but a story animation calls
+            // StopFidget, and nothing in GKActor::OnVertexAnimationStop turns it back on
+            // again. What turns it back on is the script, by hand, once it has finished
+            // with the character: PourCoffee$ ends with StartIdleFidget("Gabriel") and
+            // that line is there for exactly this reason.
+            //
+            // Pausing instead leaves a gap between every pair of clips in a sequence, and
+            // the idle fires into it. Reported from the dining room, where Gabriel walks
+            // to the kitchen for coffee and snaps back to the table between clips — a
+            // breath is a non-move clip, so it gives back all the ground the story had
+            // just covered — and from the museum, where Lady Howard does the same after
+            // each of hers. The hold below stops an idle that is already running; this
+            // stops the script that keeps starting them.
             if (!fromBehaviour)
             {
                 _held.Add(target.Name);
+                Quieten(target);
             }
 
             _playing.Add(new Playing(
@@ -810,6 +830,22 @@ public sealed class SceneUpdate
         // doing before.
         _fidgets[model.Name] = new Fidget(model);
         return true;
+    }
+
+    /// <summary>Stops one model's behaviour script, because the story has taken it over.</summary>
+    /// <param name="model">The model.</param>
+    /// <remarks>
+    /// <c>GKActor::StartAnimation</c> does this on the way in to any animation that did not
+    /// come from the behaviour script itself. The prop the idle was holding goes back where
+    /// it lives, which is what <see cref="Tidy"/> is for.
+    /// </remarks>
+    private void Quieten(PlacedModel model)
+    {
+        if (_fidgets.TryGetValue(model.Name, out Fidget? fidget))
+        {
+            Tidy(fidget);
+            fidget.Stopped = true;
+        }
     }
 
     /// <summary>Stops a character fidgeting, or everybody.</summary>
@@ -1820,6 +1856,10 @@ public sealed class SceneUpdate
             // No boundary is no obstacles, so the straight line is the route.
             : new WalkRoute(true, [destination]);
 
+        // A walk the player asked for stops where it walks onto something that acts on
+        // whoever stands there, rather than crossing it and carrying on.
+        route = ShortenedAtTrigger(actor, route);
+
         // Asked for at once rather than walked. The route is still found, because where the
         // walk would have *ended* is where the player belongs — the boundary may stop it
         // short of what was asked for, and arriving somewhere the floor does not reach is
@@ -2226,6 +2266,10 @@ public sealed class SceneUpdate
 
         List<string> happened = [];
 
+        // What is left of the action that is running. Counted down here so that everything
+        // below sees one answer for the frame.
+        _api.ActionSeconds = Math.Max(0, _api.ActionSeconds - seconds);
+
         // The scripts first: one carrying on from a wait may cut the camera or set a
         // timer, and it should take effect in the frame it happened rather than the next.
         foreach (string carried in _scripts?.Advance(seconds) ?? [])
@@ -2430,8 +2474,224 @@ public sealed class SceneUpdate
             }
         }
 
+        // Last, because it asks where the player is standing and this is the frame in
+        // which they have finished moving.
+        Tripped(happened);
+
         return happened;
     }
+
+    /// <summary>The patches of floor that act on whoever walks onto them.</summary>
+    private readonly List<SceneTrigger> _triggers = [];
+
+    /// <summary>
+    /// Runs the action for any trigger the player is standing in.
+    /// </summary>
+    /// <param name="happened">What to report it as.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>How the game says "and then you overhear them".</b> A scene file marks out a
+    /// rectangle on the floor and names a noun, and standing in it does that noun's
+    /// <c>WALK</c> — a verb no file writes beside the rectangle because
+    /// <c>Scene::Update</c> hard-codes it. Thirty-four rectangles across twenty-nine files,
+    /// and they carry the museum's eavesdrop, the front desk of the lobby, the window into
+    /// Arnaud's office and the two lectures on the Blanchefort tour.
+    /// </para>
+    /// <para>
+    /// <b>Not edge-triggered.</b> The original tests every frame and relies on the action's
+    /// own case to stop it happening twice — the museum's is <c>GetNounVerbCount("GET_CLOSE",
+    /// "WALK")==0</c> and its script increments that before it waits on anything. Firing
+    /// only on the way in would instead lose the ones written to happen again, so the rule
+    /// here is the reference's: while something is playing, nothing new is started.
+    /// </para>
+    /// </remarks>
+    private void Tripped(List<string> happened)
+    {
+        if (_triggers.Count == 0 || Occupied || Where(_api.State.Ego) is not { } standing)
+        {
+            return;
+        }
+
+        foreach (SceneTrigger trigger in _triggers)
+        {
+            // Nothing written about the noun is not a refusal to report; it is a rectangle
+            // that does nothing at this point in the story, and the player walks over it
+            // as they would over any other patch of floor.
+            if (!trigger.Rect.Contains(standing.X, standing.Z) ||
+                _actions?.Find(trigger.Noun, Walked) is null)
+            {
+                continue;
+            }
+
+            // Before it runs, so that what its script starts counts as outstanding and
+            // what the room was already running does not.
+            _quiet = _scripts?.Count ?? 0;
+
+            happened.Add(Fire(trigger.Noun, Walked));
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Cuts a walk short where it would step onto a trigger.
+    /// </summary>
+    /// <param name="actor">Whose walk it is.</param>
+    /// <param name="route">The route the boundary found.</param>
+    /// <returns>The route, cut at the edge of the first trigger it enters.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>Walker::FindEarliestPathNodeInsideActiveTriggerRegion</c>, whose own comment names
+    /// the case: in the lobby on the first morning, the way to the front door goes through
+    /// Jean's rectangle. Without this the player walks over the trigger, the action fires
+    /// behind them, and the conversation it starts plays to somebody already at the door.
+    /// </para>
+    /// <para>
+    /// Only a walk the player asked for, and only one for the player. A script that sends
+    /// somebody somewhere means all the way there — the museum's own eavesdrop ends by
+    /// walking Gabriel into the rectangle it was fired by.
+    /// </para>
+    /// </remarks>
+    private WalkRoute ShortenedAtTrigger(string actor, WalkRoute route)
+    {
+        if (_triggers.Count == 0 ||
+            Occupied ||
+            route.Points.Count == 0 ||
+            !string.Equals(
+                ModelNamed(actor)?.Name ?? actor,
+                ModelNamed(_api.State.Ego)?.Name ?? _api.State.Ego,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return route;
+        }
+
+        for (int i = 0; i < route.Points.Count; i++)
+        {
+            Vector3 point = route.Points[i];
+
+            foreach (SceneTrigger trigger in _triggers)
+            {
+                // A rectangle nothing is written about does nothing, so walking over it is
+                // walking over floor.
+                if (!trigger.Rect.Contains(point.X, point.Z) ||
+                    _actions?.Find(trigger.Noun, Walked) is null)
+                {
+                    continue;
+                }
+
+                Vector3[] cut = [.. route.Points.Take(i + 1)];
+
+                // Where the walk crosses the edge rather than the corner the boundary
+                // happened to put inside it, so the player stops on the line.
+                if (i > 0 && Entry(trigger.Rect, route.Points[i - 1], point) is { } edge)
+                {
+                    cut[i] = new Vector3(edge.X, point.Y, edge.Y);
+                }
+
+                return new WalkRoute(false, cut);
+            }
+        }
+
+        return route;
+    }
+
+    /// <summary>Where a segment first crosses into a rectangle.</summary>
+    /// <param name="rect">The rectangle, on the ground plan.</param>
+    /// <param name="before">The end of the segment outside it.</param>
+    /// <param name="inside">The end of the segment within it.</param>
+    /// <returns>The crossing point on X and Z, or null when the segment is degenerate.</returns>
+    private static Vector2? Entry(SceneRect rect, Vector3 before, Vector3 inside)
+    {
+        var start = new Vector2(before.X, before.Z);
+        Vector2 along = new Vector2(inside.X, inside.Z) - start;
+
+        float enters = 0f;
+        float leaves = 1f;
+
+        if (!Clip(-along.X, start.X - rect.MinX, ref enters, ref leaves) ||
+            !Clip(along.X, rect.MaxX - start.X, ref enters, ref leaves) ||
+            !Clip(-along.Y, start.Y - rect.MinZ, ref enters, ref leaves) ||
+            !Clip(along.Y, rect.MaxZ - start.Y, ref enters, ref leaves))
+        {
+            return null;
+        }
+
+        return start + (along * enters);
+    }
+
+    /// <summary>One side of the Liang-Barsky clip.</summary>
+    /// <param name="denominator">How fast the segment approaches the edge.</param>
+    /// <param name="numerator">How far outside the edge the segment begins.</param>
+    /// <param name="enters">The parameter at which it is inside so far.</param>
+    /// <param name="leaves">The parameter at which it leaves.</param>
+    /// <returns>False when the segment misses the rectangle entirely.</returns>
+    private static bool Clip(float denominator, float numerator, ref float enters, ref float leaves)
+    {
+        if (denominator == 0)
+        {
+            return numerator >= 0;
+        }
+
+        float at = numerator / denominator;
+
+        if (denominator < 0)
+        {
+            if (at > leaves)
+            {
+                return false;
+            }
+
+            enters = MathF.Max(enters, at);
+        }
+        else
+        {
+            if (at < enters)
+            {
+                return false;
+            }
+
+            leaves = MathF.Min(leaves, at);
+        }
+
+        return true;
+    }
+
+    /// <summary>The verb a trigger's noun is looked up with.</summary>
+    private const string Walked = "WALK";
+
+    /// <summary>How many scripts were waiting before the room last started an action.</summary>
+    /// <remarks>
+    /// Minus one until it has. A room's own background scripts sit in the scheduler for as
+    /// long as the room stands — the dining room and the third-floor hall each keep two
+    /// parked permanently — so "any script is waiting" is not a usable answer to whether
+    /// something is happening. The number of them when the room last acted is, because what
+    /// an action starts is on top of that and what it started going away is the action
+    /// being over.
+    /// </remarks>
+    private int _quiet = -1;
+
+
+    /// <summary>
+    /// Whether the story is in the middle of something.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>ActionManager::IsActionPlaying</c>, which is true from the moment an action starts
+    /// until its script has finished waiting. Nothing here keeps a current action, so it is
+    /// assembled out of four things that each cover part of one: an action held back for its
+    /// approach walk, the waits an action reported when it ran, a clip the story is playing
+    /// on the player, and any script still outstanding from the last action the room started
+    /// itself.
+    /// </para>
+    /// <para>
+    /// The last of those is what covers <c>wait CallSheep(…)</c>, whose length is another
+    /// script rather than a number of seconds — which is most of what the triggers run.
+    /// </para>
+    /// </remarks>
+    private bool Occupied =>
+        _later.Count > 0 ||
+        _api.ActionSeconds > 0 ||
+        Performing(_api.State.Ego) ||
+        (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);
 
     /// <summary>Takes the view wherever the story has put it.</summary>
     /// <remarks>
@@ -2703,16 +2963,27 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Performs an action that has come due.</summary>
-    private string Fire(GameTimer timer)
+    private string Fire(GameTimer timer) => Fire(timer.Noun, timer.Verb);
+
+    /// <summary>Performs an action the room itself asked for.</summary>
+    /// <param name="noun">What it is about.</param>
+    /// <param name="verb">What is being done to it.</param>
+    /// <returns>What to report happened.</returns>
+    /// <remarks>
+    /// Nobody clicked on this: a timer came due, or the player walked onto a patch of floor
+    /// that does something. Either way the rule is chosen and run exactly as a click's would
+    /// be, so its approach is walked and its case is scored against the story as it stands.
+    /// </remarks>
+    private string Fire(string noun, string verb)
     {
         if (_actions is null || _runner is null)
         {
-            return $"{timer.Noun}:{timer.Verb} came due and there is nothing here to run it";
+            return $"{noun}:{verb} came due and there is nothing here to run it";
         }
 
-        if (_actions.Find(timer.Noun, timer.Verb) is not { } rule)
+        if (_actions.Find(noun, verb) is not { } rule)
         {
-            return $"{timer.Noun}:{timer.Verb} came due and nothing applies to it now";
+            return $"{noun}:{verb} came due and nothing applies to it now";
         }
 
         ActionOutcome outcome = _runner.Run(rule);
@@ -2722,8 +2993,7 @@ public sealed class SceneUpdate
             Diagnostics.Add(diagnostic);
         }
 
-        return $"{timer.Noun}:{timer.Verb} [{rule.Case}] " +
-               (outcome.Ran ? "ran" : "was refused");
+        return $"{noun}:{verb} [{rule.Case}] " + (outcome.Ran ? "ran" : "was refused");
     }
 
     /// <summary>One clip running on one model.</summary>
@@ -3624,9 +3894,27 @@ public sealed class SceneUpdate
         }
 
         /// <summary>Where the clip's mesh groups sit on a frame.</summary>
+        /// <remarks>
+        /// The recorded pose, held rather than mixed. Everything that measures the clip
+        /// rather than plays it asks this: how far the stride travels, which sets the pace
+        /// the feet have to match, and whether the last frame closes back onto the first.
+        /// Mixing into the answer would bend the pace towards a wrap that has not happened.
+        /// </remarks>
         private static Vector3 Mean(ActFile clip, int frame) => Average(Enumerable
             .Range(0, clip.MeshCount)
             .Select(m => clip.PoseOf(m, frame))
+            .Where(p => p is not null)
+            .Select(p => p!.Value.Translation));
+
+        /// <summary>Where they sit at a moment between two frames.</summary>
+        /// <remarks>
+        /// What the stride uses while it plays, so the forward travel comes out at the same
+        /// moment of the clip that poses the meshes. Taking it from a whole frame while the
+        /// legs are mixed between two is the difference between a walk and a skate.
+        /// </remarks>
+        private static Vector3 MeanAt(ActFile clip, float frame) => Average(Enumerable
+            .Range(0, clip.MeshCount)
+            .Select(m => clip.PoseAt(m, frame, cycles: true))
             .Where(p => p is not null)
             .Select(p => p!.Value.Translation));
 
@@ -3727,30 +4015,51 @@ public sealed class SceneUpdate
         /// <summary>Poses the model for however long the walk has been going.</summary>
         /// <param name="geometry">Where the poses go.</param>
         /// <param name="seconds">Time since the last frame.</param>
+        /// <remarks>
+        /// <para>
+        /// <b>Between the recorded frames, not on them.</b> A stride is recorded at fifteen
+        /// poses a second and drawn at sixty or more, so showing the recorded poses as they
+        /// stand shows each of them four times and the legs arrive in four equal jumps.
+        /// Every other clip in the game has gone through <see cref="ActFile.PoseAt"/> and
+        /// been mixed since the day it was written; this one asked for whole frames, which
+        /// is why walking was the one thing that still read as 1999 while the rest of a
+        /// character did not.
+        /// </para>
+        /// <para>
+        /// The forward travel is taken out at the same moment of the clip that poses the
+        /// meshes, or the body's offset steps while its legs slide and the feet skate.
+        /// </para>
+        /// <para>
+        /// The footsteps still go by whole frames. A footstep is an event on a numbered
+        /// frame rather than a quantity to be mixed, and asking for it twice because a
+        /// moment landed either side of one is a doubled sound.
+        /// </para>
+        /// </remarks>
         public void Step(ISceneSink geometry, float seconds)
         {
             _elapsed += Math.Max(0, seconds) * Math.Max(0.01f, Rate);
 
             // Looped, and seamlessly: with the forward travel removed, the last frame sits
             // exactly where the first does, so the join is invisible.
-            int frame = (int)(_elapsed * AnimationFile.FramesPerSecond) % _period;
+            float at = (float)(_elapsed * AnimationFile.FramesPerSecond % _period);
+            int frame = (int)at;
 
             Landed = Feet(frame);
             _lastFrame = frame;
 
             Matrix4x4 correction =
-                Matrix4x4.CreateTranslation(0, 0, _opens - Forward(_clip, frame)) * _rest;
+                Matrix4x4.CreateTranslation(0, 0, _opens - ForwardAt(_clip, at)) * _rest;
 
             for (int mesh = 0; mesh < _clip.MeshCount; mesh++)
             {
-                if (_clip.PoseOf(mesh, frame) is { } pose)
+                if (_clip.PoseAt(mesh, at, cycles: true) is { } pose)
                 {
                     geometry.PoseMesh(_target.Placement, mesh, pose * correction);
                 }
 
                 foreach (int submesh in _clip.ShapedSubmeshes(mesh))
                 {
-                    if (_clip.ShapeOf(mesh, submesh, frame) is { } shape)
+                    if (_clip.ShapeAt(mesh, submesh, at, cycles: true) is { } shape)
                     {
                         geometry.ShapeMesh(_target.Placement, mesh, submesh, shape);
                     }
@@ -3760,6 +4069,9 @@ public sealed class SceneUpdate
 
         /// <summary>How far along the model's forward axis the body sits on a frame.</summary>
         private static float Forward(ActFile clip, int frame) => Mean(clip, frame).Z;
+
+        /// <summary>The same, at a moment between two frames.</summary>
+        private static float ForwardAt(ActFile clip, float frame) => MeanAt(clip, frame).Z;
     }
 
     /// <summary>One actor's head, and where it is on its way to.</summary>

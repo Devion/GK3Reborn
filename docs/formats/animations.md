@@ -40,7 +40,7 @@ that happen on a frame, opening with how many of them there are.
 | `[GK3]` | `<frame>,FOOTSTEP,<noun>` / `FOOTSCUFF` | Put a foot down |
 | `[MTEXTURES]` | `<frame>,<model>,<mesh>,<submesh>,<texture>` | Repaint one submesh of a model |
 | `[OPTIONS]` | `<frame>,FRAMERATE,<n>` | Run at this rate rather than fifteen |
-| `[OPTIONS]` | `<frame>,SIMPLE,<n>` / `<frame>,NOINTERPOLATE` | Read past; neither changes what happens |
+| `[OPTIONS]` | `<frame>,SIMPLE,<n>` / `<frame>,NOINTERPOLATE` | Read past. `NOINTERPOLATE` is now a real instruction rather than a curiosity — see below — and is still not obeyed: nine clips ask for it, all of them the moped and the van. |
 | `[STEXTURES]` | | 78 files; scene textures, not read |
 | `[MORPHS]` | | 7 files; not read |
 
@@ -141,3 +141,31 @@ Voice-overs, measured over the corpus: median 3.1s, mean 3.7s, 95th percentile 8
 
 Scripts, mostly — and for scenery, the room itself: a `gasprop` carries a `.GAS`
 behaviour script that plays an animation and loops. See `behaviour-scripts.md`.
+
+## Between the recorded frames
+
+A clip records fifteen poses a second and the game draws sixty or more, so playing the poses
+as they stand shows each of them four times over. `ActFile.PoseAt` mixes the two poses either side
+of the moment instead — but only where the two are recorded on *consecutive frames*, which is
+the reference's rule. A mesh that does not move is not written again, so a gap in the
+recording is a pose held for the length of the gap; mixing across one sets the mesh off the
+moment the hold begins and lands it as the hold ends. Rotation is a spherical mix rather than
+a mix of the matrices, which would shrink whatever is between them. `ShapeAt` does the same for the vertex shapes, straight down the
+line between the two recorded ones.
+
+**The walk stride was the exception until 2026-08-24** and asked for whole frames, which is
+why walking was the one thing in the game that still read as 1999 while the rest of a
+character did not. It goes through the same path now, with the forward travel taken out at
+the same fractional moment that poses the meshes; what still measures whole frames is
+everything that asks a question *about* the clip — how far a stride travels, whether its last
+frame closes onto its first — and the footsteps, which are events on numbered frames rather
+than quantities to mix.
+
+**What is still linear.** Two recorded poses are joined by a straight line, so a limb that
+reaches the end of its swing changes direction in one frame rather than easing through it. A
+cubic fit through the neighbouring poses would round that off, at the cost of overshoot where
+a clip changes direction sharply — which on a foot plant reads as a slide. Not attempted yet.
+
+**Nine clips say `NOINTERPOLATE`** and are interpolated anyway: `GABPROPFWD` and the rest of
+the moped set, and `MADVAN_PL4`. None of them is a walk. Worth honouring now that everything
+else is mixed, since a clip that asks for whole frames is asking for a reason.

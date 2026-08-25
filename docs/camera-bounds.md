@@ -1,4 +1,4 @@
-# Camera bounds
+﻿# Camera bounds
 
 What keeps the player's view inside the room.
 
@@ -85,3 +85,12 @@ rather than to the renderer. `Application` fills it in when the scene has a shel
 how some of its geometry gets checked, and that is worth keeping — the doc comment on
 `FreeCamera` has always said the camera exists to look at scenes from places the game never
 looks at them from.
+
+`--eye x,y,z` and `--aim heading,pitch` stand the camera somewhere and point it, in world
+units and degrees, and hold it there against anything a scene's entry script tries to do
+with the view. A headless run has no mouse, so until these every screenshot was one of the
+scene's own cameras or nothing — and half of what wants photographing is at no authored
+camera: a floor at a grazing angle, a lamp from a foot away. Describing those in words
+instead is how a rendering claim goes unchecked for a week.
+
+    --scene RC1 --timeblock 110A --rt high --enhanced --frames 90         --eye 2900,45,-2250 --aim 200,-22 --screenshot cobbles.png

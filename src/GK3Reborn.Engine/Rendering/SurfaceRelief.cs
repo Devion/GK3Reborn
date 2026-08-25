@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -27,16 +27,26 @@ namespace GK3Reborn.Rendering;
 /// </param>
 public readonly record struct ReliefSettings(bool Displace, int TriangleBudget, bool Trace)
 {
-    /// <summary>Displaced, at four hundred thousand triangles, and traced.</summary>
+    /// <summary>Displaced, at a million triangles, and traced.</summary>
     /// <remarks>
-    /// Four hundred thousand against the ten to fifteen thousand a whole room has been
-    /// until now. It sounds enormous and is not: this is a 1999 game running on hardware
-    /// twenty-five years later, the vertex format is forty bytes, and the budget comes to
-    /// about twenty megabytes of geometry for the one surface the camera spends its time
-    /// looking along. It buys about four units a cell — one cobble — over the largest paved
-    /// area in the game.
+    /// <para>
+    /// A million against the ten to fifteen thousand a whole room has been until now. It
+    /// sounds enormous and is not: this is a 1999 game running on hardware twenty-five years
+    /// later, the vertex format is forty bytes, and the budget comes to about fifty
+    /// megabytes of geometry for the one surface the camera spends its time looking along.
+    /// Measured on the village, which is the largest paved area in the game: four hundred
+    /// thousand buys seven and a half units a cell, a million buys four, and four million
+    /// buys two — and the frame rate is 150 either way, because a static mesh of this size
+    /// is nothing to draw. What it costs is about a second of the village's load.
+    /// </para>
+    /// <para>
+    /// Four units a cell is about a third of a cobble, which is where a paved street stops
+    /// reading as a painted plane. Every interior in the game is finer than that already:
+    /// their floors are small enough to reach <see cref="ReliefPlan.FinestCell"/> and the
+    /// budget never binds.
+    /// </para>
     /// </remarks>
-    public static ReliefSettings Default => new(true, 400_000, true);
+    public static ReliefSettings Default => new(true, 1_000_000, true);
 
     /// <summary>Nothing displaced.</summary>
     public static ReliefSettings Off => new(false, 1, false);
@@ -47,6 +57,165 @@ public readonly record struct ReliefSettings(bool Displace, int TriangleBudget, 
 /// <param name="Normal">The smoothed normal it was moved along.</param>
 /// <param name="TexCoord">Its texture coordinate, interpolated across the source triangle.</param>
 public readonly record struct ReliefVertex(Vector3 Position, Vector3 Normal, Vector2 TexCoord);
+
+/// <summary>
+/// The floor's triangles in buckets, so "does the floor go on past this edge?" is a local
+/// question.
+/// </summary>
+/// <remarks>
+/// Asked once per edge that no second triangle shares, which is two and a half thousand
+/// times on the village and would otherwise be that many sweeps of three thousand
+/// triangles. The buckets are square in the ground plane and a triangle goes in every one
+/// its extent touches, because a village street is one triangle across several buckets.
+/// </remarks>
+internal sealed class TriangleGrid
+{
+    /// <summary>How far off the plane of a triangle a point may be and still be on it.</summary>
+    /// <remarks>
+    /// Two patches of ground that abut are not always at exactly the same height: the game's
+    /// floors are laid by hand and a step of a unit between the street and the square in
+    /// front of it is common. A unit is a couple of centimetres and well under the depth
+    /// anything is displaced by, so accepting it costs nothing and refusing it would pin the
+    /// join.
+    /// </remarks>
+    private const float Flush = 2f;
+
+    /// <summary>How far past an edge to look for more floor.</summary>
+    /// <remarks>
+    /// Far enough to be inside the next triangle rather than on the line between them, and
+    /// short enough not to step over a gap. Three quarters of a unit is under two
+    /// centimetres.
+    /// </remarks>
+    private const float Beyond = 0.75f;
+
+    private const float Bucket = 128f;
+
+    private readonly Dictionary<(int X, int Z), List<int>> _buckets = [];
+    private readonly IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C, string Texture)> _triangles;
+
+    /// <summary>Buckets the triangles.</summary>
+    /// <param name="triangles">Every triangle the floor's displacement covers.</param>
+    public TriangleGrid(IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C, string Texture)> triangles)
+    {
+        ArgumentNullException.ThrowIfNull(triangles);
+
+        _triangles = triangles;
+
+        for (int i = 0; i < triangles.Count; i++)
+        {
+            (Vector3 a, Vector3 b, Vector3 c, _) = triangles[i];
+
+            int firstX = (int)MathF.Floor(MathF.Min(a.X, MathF.Min(b.X, c.X)) / Bucket);
+            int lastX = (int)MathF.Floor(MathF.Max(a.X, MathF.Max(b.X, c.X)) / Bucket);
+            int firstZ = (int)MathF.Floor(MathF.Min(a.Z, MathF.Min(b.Z, c.Z)) / Bucket);
+            int lastZ = (int)MathF.Floor(MathF.Max(a.Z, MathF.Max(b.Z, c.Z)) / Bucket);
+
+            for (int x = firstX; x <= lastX; x++)
+            {
+                for (int z = firstZ; z <= lastZ; z++)
+                {
+                    if (!_buckets.TryGetValue((x, z), out List<int>? bucket))
+                    {
+                        bucket = [];
+                        _buckets[(x, z)] = bucket;
+                    }
+
+                    bucket.Add(i);
+                }
+            }
+        }
+    }
+
+    /// <summary>Whether more of the same floor lies immediately past an edge.</summary>
+    /// <param name="from">One end of the edge.</param>
+    /// <param name="to">The other end.</param>
+    /// <param name="third">The far corner of the triangle the edge belongs to.</param>
+    /// <param name="texture">Its texture, since only the same texture's lattice agrees.</param>
+    /// <returns>True when the surface carries on, so the edge need not be held down.</returns>
+    public bool Continues(Vector3 from, Vector3 to, Vector3 third, string texture)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+
+        Vector3 along = to - from;
+
+        if (along.LengthSquared() < 1e-9f)
+        {
+            return false;
+        }
+
+        along = Vector3.Normalize(along);
+
+        Vector3 middle = (from + to) * 0.5f;
+
+        // Straight out from the edge, in the surface, away from the triangle behind it.
+        Vector3 outward = middle - third;
+        outward -= along * Vector3.Dot(outward, along);
+
+        if (outward.LengthSquared() < 1e-9f)
+        {
+            return false;
+        }
+
+        Vector3 point = middle + (Vector3.Normalize(outward) * Beyond);
+
+        if (!_buckets.TryGetValue(
+                ((int)MathF.Floor(point.X / Bucket), (int)MathF.Floor(point.Z / Bucket)),
+                out List<int>? bucket))
+        {
+            return false;
+        }
+
+        foreach (int index in bucket)
+        {
+            (Vector3 a, Vector3 b, Vector3 c, string other) = _triangles[index];
+
+            if (!string.Equals(other, texture, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            Vector3 face = Vector3.Cross(b - a, c - a);
+
+            if (face.LengthSquared() < 1e-9f)
+            {
+                continue;
+            }
+
+            face = Vector3.Normalize(face);
+
+            float height = Vector3.Dot(point - a, face);
+
+            if (MathF.Abs(height) > Flush)
+            {
+                continue;
+            }
+
+            if (Inside(point - (face * height), a, b, c, face))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether a point on a triangle's plane is within the triangle.</summary>
+    private static bool Inside(Vector3 point, Vector3 a, Vector3 b, Vector3 c, Vector3 face)
+    {
+        return Beside(a, b) && Beside(b, c) && Beside(c, a);
+
+        bool Beside(Vector3 from, Vector3 to)
+        {
+            Vector3 edge = to - from;
+            Vector3 outward = Vector3.Cross(edge, face);
+            float length = outward.Length();
+
+            // Wound the same way round as the scene's own faces, so "inside" is the side
+            // the winding says it is.
+            return length < 1e-9f || Vector3.Dot(point - from, outward / length) <= 0f;
+        }
+    }
+}
 
 /// <summary>
 /// Turns a floor's height map into geometry.
@@ -117,12 +286,20 @@ public sealed class ReliefPlan
 
     /// <summary>How many lattice cells one source triangle may be cut against.</summary>
     /// <remarks>
-    /// A cap on the work one triangle can ask for. It cannot bind at any cell the budget
-    /// will choose — a whole floor is inside the budget by construction — and it is here so
-    /// that a surface with a broken texture coordinate cannot ask for a lattice with a
-    /// hundred million cells in it.
+    /// <para>
+    /// A backstop against a texture coordinate nobody can honour, not a budget: the budget
+    /// bounds the floor as a whole and is solved before this is reached.
+    /// </para>
+    /// <para>
+    /// It used to be sixty-five thousand, which a legitimate triangle can pass — a floor
+    /// laid as one slab four hundred cells across is inside it and then over it — and
+    /// passing it means the triangle comes out flat while its neighbours are displaced. It
+    /// also made the cost of cutting a floor rise as the cells were made coarser, because a
+    /// triangle refused at one cell size is cut into everything it asked for at the next,
+    /// and a budget cannot be solved against that.
+    /// </para>
     /// </remarks>
-    private const int MostCells = 65_536;
+    private const int MostCells = 4_194_304;
 
     private readonly Dictionary<(int X, int Y, int Z), Vector3> _normals;
     private readonly HashSet<((int X, int Y, int Z) From, (int X, int Y, int Z) To)> _pinned;
@@ -137,12 +314,18 @@ public sealed class ReliefPlan
     /// skirting.
     /// </remarks>
     private readonly HashSet<(int X, int Y, int Z)> _held;
+
+    /// <summary>Triangles whose tiling disagrees with their texture's, left as they were.</summary>
+    private readonly HashSet<((int, int, int), (int, int, int), (int, int, int))> _apart;
     private readonly Dictionary<string, Vector2> _steps;
+    private double _movedTotal;
+    private int _movedCount;
 
     private ReliefPlan(
         Dictionary<(int X, int Y, int Z), Vector3> normals,
         HashSet<((int X, int Y, int Z), (int X, int Y, int Z))> pinned,
         HashSet<(int X, int Y, int Z)> held,
+        HashSet<((int, int, int), (int, int, int), (int, int, int))> apart,
         Dictionary<string, Vector2> steps,
         int floorObject,
         float cell,
@@ -152,6 +335,7 @@ public sealed class ReliefPlan
         _normals = normals;
         _pinned = pinned;
         _held = held;
+        _apart = apart;
         _steps = steps;
         FloorObject = floorObject;
         Cell = cell;
@@ -170,6 +354,26 @@ public sealed class ReliefPlan
 
     /// <summary>How many triangles it was before.</summary>
     public int SourceTriangles { get; }
+
+    /// <summary>The furthest any vertex was moved, in world units.</summary>
+    /// <remarks>
+    /// Cutting a floor up and not moving it is a failure that looks like success from every
+    /// other number the loader prints: a million triangles, a sensible cell, and a picture
+    /// identical to the flat one. It has happened twice — once from height maps that were
+    /// never loaded, once from a fade that held nine tenths of the floor down — and both
+    /// times the evidence had to be dug for. This is that evidence, reported beside the
+    /// count.
+    /// </remarks>
+    public float Moved { get; private set; }
+
+    /// <summary>How far the average displaced vertex moved, in world units.</summary>
+    public float MovedTypically => _movedCount > 0 ? (float)(_movedTotal / _movedCount) : 0f;
+
+    /// <summary>How many of the floor's own edges were held down, and how many were freed.</summary>
+    public (int Pinned, int Continued) Boundary { get; private set; }
+
+    /// <summary>How many triangles were left uncut because their tiling stood apart.</summary>
+    public int SetApart { get; private set; }
 
     /// <summary>Whether a surface of the scene is part of what this displaces.</summary>
     /// <param name="surface">The surface.</param>
@@ -215,12 +419,22 @@ public sealed class ReliefPlan
         }
 
         List<(Vector3 A, Vector3 B, Vector3 C, string Texture)> triangles = [];
+        List<(Vector2 A, Vector2 B, Vector2 C)> coordinates = [];
 
-        // Area-weighted, per texture: how much world one unit of texture coordinate is
-        // worth along each axis. One answer for a whole texture rather than one per
-        // triangle, because it decides where the lattice lines fall and two triangles
-        // either side of an edge have to agree about that.
-        Dictionary<string, (double U, double V, double Weight)> tiling =
+        // How much world one unit of texture coordinate is worth along each axis, per
+        // texture. One answer for a whole texture rather than one per triangle, because it
+        // decides where the lattice lines fall and two triangles either side of an edge
+        // have to agree about that.
+        //
+        // Gathered as samples and settled below by an area-weighted *median*, not a mean.
+        // The mean is what a stray triangle poisons: `rc1Coblston` is laid at a clean 120
+        // units to the texture over the whole village square, and a handful of triangles
+        // whose texture coordinates are all but collapsed — the same texture drawn onto
+        // something it was never meant to tile across — carried the average to 42,641. Every
+        // cobble then asked for a lattice a thousand times too fine, was refused as
+        // impossible, and came out flat. The median does not care how far away an outlier
+        // is, only that it is outnumbered.
+        Dictionary<string, List<(double U, double V, double Weight)>> samples =
             new(StringComparer.OrdinalIgnoreCase);
 
         double area = 0;
@@ -254,6 +468,8 @@ public sealed class ReliefPlan
                 }
 
                 triangles.Add((pa, pb, pc, surface.TextureName));
+                coordinates.Add((
+                    scene.TexCoordFor(a), scene.TexCoordFor(b), scene.TexCoordFor(c)));
                 area += one;
                 perimeter += (pb - pa).Length() + (pc - pb).Length() + (pa - pc).Length();
 
@@ -265,21 +481,88 @@ public sealed class ReliefPlan
                     continue;
                 }
 
-                tiling.TryGetValue(surface.TextureName, out (double U, double V, double W) sum);
+                if (!samples.TryGetValue(surface.TextureName, out List<(double, double, double)>? seen))
+                {
+                    seen = [];
+                    samples[surface.TextureName] = seen;
+                }
 
-                tiling[surface.TextureName] = (
-                    sum.U + (alongU.Length() * one),
-                    sum.V + (alongV.Length() * one),
-                    sum.W + one);
+                seen.Add((alongU.Length(), alongV.Length(), one));
             }
         }
 
-        if (triangles.Count == 0 || area <= 0 || tiling.Count == 0)
+        if (triangles.Count == 0 || area <= 0 || samples.Count == 0)
         {
             return null;
         }
 
-        float cell = Afforded(area, perimeter, triangles.Count, budget);
+        var tiling = new Dictionary<string, (double U, double V, double Weight)>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach ((string texture, List<(double U, double V, double Weight)> seen) in samples)
+        {
+            tiling[texture] = (Middle(seen, true), Middle(seen, false), 1);
+        }
+
+        // A lattice is one answer for a whole texture, and a triangle whose own tiling is
+        // nothing like that answer cannot be cut on it: the cells come out a fraction of
+        // the size the budget bought, by the square, and the relief they carry is a
+        // fraction of the depth. The village has a handful — a texture laid across a slope
+        // at one scale and along a wall foot at another — and left in they made the cost of
+        // cutting the floor rise as the cells were made coarser, because a triangle asking
+        // for more cells than <see cref="MostCells"/> is left whole and one asking for
+        // slightly fewer is cut into all of them. A budget cannot be solved against a cost
+        // that goes the wrong way.
+        //
+        // Left whole, and their edges held: what borders them is the same case as what
+        // borders a wall.
+        var apart = new HashSet<((int, int, int), (int, int, int), (int, int, int))>();
+
+        for (int i = triangles.Count - 1; i >= 0; i--)
+        {
+            (Vector3 pa, Vector3 pb, Vector3 pc, string texture) = triangles[i];
+
+            if (!tiling.TryGetValue(texture, out (double U, double V, double W) rate) ||
+                rate.W <= 0 ||
+                !Gradients(
+                    pa, pb, pc, coordinates[i].A, coordinates[i].B, coordinates[i].C,
+                    out Vector3 alongU, out Vector3 alongV))
+            {
+                continue;
+            }
+
+            double ownU = alongU.Length();
+            double ownV = alongV.Length();
+            double sharedU = rate.U / rate.W;
+            double sharedV = rate.V / rate.W;
+
+            if (Agrees(ownU, sharedU) && Agrees(ownV, sharedV))
+            {
+                continue;
+            }
+
+            apart.Add(Corners(pa, pb, pc));
+            triangles.RemoveAt(i);
+            coordinates.RemoveAt(i);
+        }
+
+        if (triangles.Count == 0)
+        {
+            return null;
+        }
+
+        // Recomputed over what is left, because both are sums over the set that changed.
+        area = 0;
+        perimeter = 0;
+
+        foreach ((Vector3 pa, Vector3 pb, Vector3 pc, string _) in triangles)
+        {
+            area += 0.5f * Vector3.Cross(pb - pa, pc - pa).Length();
+            perimeter += (pb - pa).Length() + (pc - pb).Length() + (pa - pc).Length();
+        }
+
+        float cell = Afforded(triangles, coordinates, tiling, budget);
+
 
         var steps = new Dictionary<string, Vector2>(StringComparer.OrdinalIgnoreCase);
 
@@ -324,27 +607,72 @@ public sealed class ReliefPlan
 
         HashSet<((int, int, int), (int, int, int))> pinned = [];
         HashSet<(int X, int Y, int Z)> held = [];
+        int continued = 0;
+
+        // The far corner of whichever triangle owns an edge, for the test below. An edge
+        // used once has exactly one.
+        Dictionary<((int, int, int), (int, int, int)), Vector3> across = [];
+
+        foreach ((Vector3 a, Vector3 b, Vector3 c, string _) in triangles)
+        {
+            across[Ordered(Key(a), Key(b))] = c;
+            across[Ordered(Key(b), Key(c))] = a;
+            across[Ordered(Key(c), Key(a))] = b;
+        }
+
+        var neighbours = new TriangleGrid(triangles);
 
         foreach ((((int X, int Y, int Z) from, (int X, int Y, int Z) to) edge,
                   (int uses, string texture)) in edges)
         {
-            if (uses != 2 || texture.Length == 0)
+            if (uses == 2 && texture.Length > 0)
             {
-                pinned.Add(edge);
-                held.Add(edge.from);
-                held.Add(edge.to);
+                continue;
             }
+
+            // An edge used once is not necessarily an edge of the floor. GK3's ground is
+            // laid as separate flat patches that abut without being welded — the street
+            // against the square, the square against the verge — and a stitch of stairs or
+            // a doorway leaves a long edge with a vertex partway along it, which is a
+            // T-junction and so used once from either side. Measured on the village: 2,201
+            // of 2,674 once-used edges have more floor of the same texture lying against
+            // them, and holding all of them down left nine tenths of the relief unbuilt.
+            //
+            // Nothing has to be welded for those to be safe, because the lattice is what
+            // makes the two sides agree: it is laid out in texture space, so two triangles
+            // carrying the same texture put vertices at the same texture coordinates along
+            // the line they meet on, whether or not they share a single vertex. What has to
+            // stay still is where the floor stops — at a wall, at a kerb, or at the next
+            // texture along, whose lattice is its own.
+            if (uses == 1 &&
+                texture.Length > 0 &&
+                across.TryGetValue(edge, out Vector3 third) &&
+                neighbours.Continues(At(edge.from), At(edge.to), third, texture))
+            {
+                continued++;
+
+                continue;
+            }
+
+            pinned.Add(edge);
+            held.Add(edge.from);
+            held.Add(edge.to);
         }
 
         return new ReliefPlan(
             normals,
             pinned,
             held,
+            apart,
             steps,
             wanted,
             cell,
-            Estimate(area, perimeter, triangles.Count, cell),
-            triangles.Count);
+            Estimate(triangles, coordinates, tiling, cell),
+            triangles.Count)
+        {
+            Boundary = (pinned.Count, continued),
+            SetApart = apart.Count,
+        };
     }
 
     /// <summary>
@@ -393,7 +721,8 @@ public sealed class ReliefPlan
         if (!_steps.TryGetValue(texture, out Vector2 step) ||
             MathF.Abs(determinant) < 1e-12f ||
             step.X <= 0f ||
-            step.Y <= 0f)
+            step.Y <= 0f ||
+            _apart.Contains(Corners(a, b, c)))
         {
             Whole(a, b, c, ua, ub, uc, vertices, indices);
             return;
@@ -424,11 +753,13 @@ public sealed class ReliefPlan
         float fadeC = Fade(Key(a), Key(b), twiceArea, alongC);
 
         // And the corners, which a triangle can be holding down without owning the edge
-        // that holds them. A weight of one is the corner itself and zero is the far edge,
-        // so the fade runs over the shorter of the two sides that meet there.
-        float cornerA = Corner(Key(a), MathF.Min(alongB, alongC));
-        float cornerB = Corner(Key(b), MathF.Min(alongC, alongA));
-        float cornerC = Corner(Key(c), MathF.Min(alongA, alongB));
+        // that holds them. Measured as a distance from the corner rather than as a share of
+        // the triangle: a barycentric weight is only a distance when the triangle is
+        // roughly equilateral, and a village's ground is mostly long thin strips, where the
+        // weight ran out long before the world distance did and damped the whole strip.
+        bool heldA = _held.Contains(Key(a));
+        bool heldB = _held.Contains(Key(b));
+        bool heldC = _held.Contains(Key(c));
 
         Vector3 normalA = NormalAt(Key(a), a, b, c);
         Vector3 normalB = NormalAt(Key(b), a, b, c);
@@ -514,13 +845,20 @@ public sealed class ReliefPlan
                     MathF.Min(Held(towardsA, fadeA), Held(towardsB, fadeB)),
                     Held(towardsC, fadeC));
 
-                blend = MathF.Min(
-                    blend,
-                    MathF.Min(
-                        MathF.Min(
-                            Held(1f - towardsA, cornerA),
-                            Held(1f - towardsB, cornerB)),
-                        Held(1f - towardsC, cornerC)));
+                if (heldA)
+                {
+                    blend = MathF.Min(blend, Away(position, a));
+                }
+
+                if (heldB)
+                {
+                    blend = MathF.Min(blend, Away(position, b));
+                }
+
+                if (heldC)
+                {
+                    blend = MathF.Min(blend, Away(position, c));
+                }
 
                 if (blend > 0f)
                 {
@@ -537,8 +875,15 @@ public sealed class ReliefPlan
                     // the same peak-to-trough depth and cannot intersect anything that was
                     // not already intersecting.
                     float cut = field!.Over(uv.X, uv.Y, span) - 0.5f;
+                    float shift = cut * depth * blend;
 
-                    position += normal * (cut * depth * blend);
+                    position += normal * shift;
+
+                    float far = MathF.Abs(shift);
+
+                    Moved = MathF.Max(Moved, far);
+                    _movedTotal += far;
+                    _movedCount++;
                 }
             }
 
@@ -553,10 +898,58 @@ public sealed class ReliefPlan
     private static float Held(float weight, float fade) =>
         fade <= 0f ? 1f : Math.Clamp(weight * fade, 0f, 1f);
 
-    /// <summary>How quickly the fade lets go of a held corner, in weights.</summary>
-    /// <returns>Zero where the corner is free to move.</returns>
-    private float Corner((int X, int Y, int Z) at, float nearest) =>
-        _held.Contains(at) ? MathF.Max(nearest, 1e-6f) / Cell : 0f;
+    /// <summary>How much survives this far from a held corner: none at it, all a cell away.</summary>
+    private float Away(Vector3 point, Vector3 corner) =>
+        Math.Clamp((point - corner).Length() / Cell, 0f, 1f);
+
+    /// <summary>The area-weighted median of one axis of a texture's tiling samples.</summary>
+    /// <param name="seen">Every triangle's own rate and how much surface it stands for.</param>
+    /// <param name="acrossU">Which axis.</param>
+    /// <returns>The rate half the surface is finer than.</returns>
+    private static double Middle(List<(double U, double V, double Weight)> seen, bool acrossU)
+    {
+        List<(double Rate, double Weight)> sorted =
+            [.. seen.Select(one => (acrossU ? one.U : one.V, one.Weight)).OrderBy(one => one.Item1)];
+
+        double whole = sorted.Sum(one => one.Weight);
+        double running = 0;
+
+        foreach ((double rate, double weight) in sorted)
+        {
+            running += weight;
+
+            if (running >= whole / 2)
+            {
+                return rate;
+            }
+        }
+
+        return sorted.Count > 0 ? sorted[^1].Rate : 1;
+    }
+
+    /// <summary>Whether one rate is close enough to another to share a lattice.</summary>
+    /// <remarks>
+    /// A factor of three either way. Wide, because a texture stretched half again over one
+    /// patch of ground is ordinary and its cells are only half again the size; the case
+    /// this is for is the one off by a hundred.
+    /// </remarks>
+    private static bool Agrees(double own, double shared) =>
+        own > 1e-9 && shared > 1e-9 && own / shared is > (1.0 / 3.0) and < 3.0;
+
+    /// <summary>A triangle's three corners, in an order that does not depend on winding.</summary>
+    private static ((int, int, int), (int, int, int), (int, int, int)) Corners(
+        Vector3 a, Vector3 b, Vector3 c)
+    {
+        (int, int, int)[] keys = [Key(a), Key(b), Key(c)];
+
+        Array.Sort(keys);
+
+        return (keys[0], keys[1], keys[2]);
+    }
+
+    /// <summary>A quantized key back to the point it stands for.</summary>
+    private static Vector3 At((int X, int Y, int Z) key) =>
+        new(key.X / Grain, key.Y / Grain, key.Z / Grain);
 
     /// <summary>The triangle as it was, when there is no lattice to cut it with.</summary>
     private void Whole(
@@ -645,19 +1038,83 @@ public sealed class ReliefPlan
         return Math.Clamp(twiceArea / (MathF.Max(length, 1e-6f) * Cell), 1e-6f, 1e6f);
     }
 
-    /// <summary>How many triangles a cell size cuts an area into, with its ragged edges.</summary>
+    /// <summary>How many triangles a cell size cuts a floor into.</summary>
     /// <remarks>
-    /// Two triangles a cell over the area, plus the part-cells along every source
-    /// triangle's own edges — a small correction on a village street and a large one in a
-    /// room whose floor is already a thousand small triangles.
+    /// <para>
+    /// Counted in texture space, one source triangle at a time, because that is where the
+    /// lattice is. A convex shape laid over a grid covers about its own area in cells plus
+    /// one for every grid line it crosses; a cell wholly inside comes out as two triangles
+    /// and a cell the shape's edge runs through as about three.
+    /// </para>
+    /// <para>
+    /// <b>Both corrections matter and the village needed both.</b> The area term used the
+    /// texture's average stretch, so triangles tiled finer than that average — a third of
+    /// the ground outside the hotel — were cut into cells smaller than the one the budget
+    /// bought. And the crossings term was a perimeter over the cell size, which is right
+    /// for a triangle lying square to the lattice and half of the answer for one lying
+    /// across it: a long thin strip of road at an angle steps through a line of the lattice
+    /// in both directions at once. Together they made RC1 come out at 1,107,726 triangles
+    /// against an estimate of 392,407, which is not a budget.
+    /// </para>
     /// </remarks>
-    private static int Estimate(double area, double perimeter, int triangles, float cell) =>
-        (int)Math.Min(
-            int.MaxValue,
-            (2 * area / (cell * cell)) + (2 * perimeter / cell) + (4.0 * triangles));
+    private static int Estimate(
+        IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C, string Texture)> triangles,
+        IReadOnlyList<(Vector2 A, Vector2 B, Vector2 C)> coordinates,
+        IReadOnlyDictionary<string, (double U, double V, double Weight)> tiling,
+        float cell)
+    {
+        double total = 0;
 
-    /// <summary>The finest cell a budget affords over an area.</summary>
-    private static float Afforded(double area, double perimeter, int triangles, int budget)
+        for (int i = 0; i < triangles.Count; i++)
+        {
+            if (!tiling.TryGetValue(triangles[i].Texture, out (double U, double V, double W) rate) ||
+                rate.W <= 0)
+            {
+                continue;
+            }
+
+            double stepU = cell / Math.Max(rate.U / rate.W, 1e-6);
+            double stepV = cell / Math.Max(rate.V / rate.W, 1e-6);
+
+            if (stepU <= 0 || stepV <= 0)
+            {
+                continue;
+            }
+
+            (Vector2 ua, Vector2 ub, Vector2 uc) = coordinates[i];
+
+            double across = Math.Abs(
+                ((ub.X - ua.X) * (uc.Y - ua.Y)) - ((uc.X - ua.X) * (ub.Y - ua.Y))) / 2.0;
+
+            double spanU = Math.Max(ua.X, Math.Max(ub.X, uc.X)) - Math.Min(ua.X, Math.Min(ub.X, uc.X));
+            double spanV = Math.Max(ua.Y, Math.Max(ub.Y, uc.Y)) - Math.Min(ua.Y, Math.Min(ub.Y, uc.Y));
+
+            // The same refusal the cut itself makes: a surface whose texture coordinates
+            // ask for a lattice with more cells in it than this is left as the one triangle
+            // it already was. Counting the lattice it asked for instead is what made the
+            // village's estimate twenty-nine million.
+            if (((spanU / stepU) + 1) * ((spanV / stepV) + 1) > MostCells)
+            {
+                total += 1;
+
+                continue;
+            }
+
+            double inside = across / (stepU * stepV);
+            double crossed = (spanU / stepU) + (spanV / stepV) + 1;
+
+            total += (2 * inside) + (3 * crossed);
+        }
+
+        return (int)Math.Min(int.MaxValue, total);
+    }
+
+    /// <summary>The finest cell a budget affords over a floor.</summary>
+    private static float Afforded(
+        IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C, string Texture)> triangles,
+        IReadOnlyList<(Vector2 A, Vector2 B, Vector2 C)> coordinates,
+        IReadOnlyDictionary<string, (double U, double V, double Weight)> tiling,
+        int budget)
     {
         float cell = FinestCell;
 
@@ -665,7 +1122,7 @@ public sealed class ReliefPlan
         // of a hundred and thirty, which covers the corpus from a bathroom to a village.
         for (int attempt = 0; attempt < 100; attempt++)
         {
-            if (Estimate(area, perimeter, triangles, cell) <= budget)
+            if (Estimate(triangles, coordinates, tiling, cell) <= budget)
             {
                 break;
             }

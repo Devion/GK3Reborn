@@ -400,6 +400,69 @@ public sealed class SceneFileTests
         Assert.Equal(0.779141f, light.Direction.X, 4);
     }
 
+    /// <summary>The corpus's own trigger lines, including the two that are mistyped.</summary>
+    private const string TriggerFixture =
+        """
+        [TRIGGERS]
+        noun=GET_CLOSE,rect={48.84, -400.57, 370.19, -598.15}
+        noun=EXIT2, rect={201.56,859.80,344.20,,1072.81}
+        noun=SIDEWAYS,  rect={385.26, 163.02, 935.11, 11.03.58}
+        noun=NO_RECTANGLE
+        GET_CLOSE, pos={34.70, 173.75, 94.68, 185.80}
+        """;
+
+    [Fact]
+    public void A_trigger_names_a_noun_and_a_rectangle_on_the_ground_plan()
+    {
+        SceneTrigger trigger = SceneInitFile.Parse(TriggerFixture, "MS3110A.SIF").Triggers()[0];
+
+        Assert.Equal("GET_CLOSE", trigger.Noun);
+
+        // The file writes the far corner first on Z, and a rectangle whose edges are the
+        // wrong way round contains nothing at all.
+        Assert.Equal(48.84f, trigger.Rect.MinX, 2);
+        Assert.Equal(-598.15f, trigger.Rect.MinZ, 2);
+        Assert.Equal(370.19f, trigger.Rect.MaxX, 2);
+        Assert.Equal(-400.57f, trigger.Rect.MaxZ, 2);
+
+        Assert.True(trigger.Rect.Contains(210f, -499f));
+        Assert.False(trigger.Rect.Contains(-13f, -494f));
+
+        // The museum's four hiding places sit just outside it, which is the whole point of
+        // where they are: the edge counts as inside.
+        Assert.True(trigger.Rect.Contains(48.84f, -400.57f));
+    }
+
+    [Fact]
+    public void A_mistyped_rectangle_is_read_rather_than_dropped()
+    {
+        // Both of these are in CSE212P as shipped. A trigger dropped for a typo is a scene
+        // where something quietly never happens, so the reader is as forgiving as the
+        // original's, which discards empty elements and parses with stof.
+        IReadOnlyList<SceneTrigger> triggers =
+            SceneInitFile.Parse(TriggerFixture, "CSE212P.SIF").Triggers();
+
+        SceneTrigger doubled = Assert.Single(triggers, t => t.Noun == "EXIT2");
+
+        Assert.Equal(201.56f, doubled.Rect.MinX, 2);
+        Assert.Equal(1072.81f, doubled.Rect.MaxZ, 2);
+
+        SceneTrigger twoPoints = Assert.Single(triggers, t => t.Noun == "SIDEWAYS");
+
+        Assert.Equal(11.03f, twoPoints.Rect.MinZ, 2);
+    }
+
+    [Fact]
+    public void A_trigger_with_no_rectangle_is_no_trigger()
+    {
+        // One line in the corpus writes pos= where every other writes rect=, and one names
+        // no area at all. Neither can say where the player has to stand, and the original
+        // reads only rect, so both do nothing.
+        Assert.Equal(
+            ["GET_CLOSE", "EXIT2", "SIDEWAYS"],
+            SceneInitFile.Parse(TriggerFixture, "R31.SIF").Triggers().Select(t => t.Noun));
+    }
+
     [Fact]
     public void Commented_out_skybox_faces_are_absent_rather_than_empty()
     {

@@ -462,19 +462,56 @@ makes the cells the size they need to be: an N by N barycentric grid takes N fro
 triangle's longest edge, so a long thin strip of road comes out cut far finer across than
 along, and measured over the corpus that wastes between two and four triangles in five.
 
-**The cell is bought with a budget** rather than fixed. 400,000 triangles a room, and the
-cell is whatever spends them: the hotel lobby's 450,000 square units of tile come out at
-the two-unit floor and CSE's 2.4 million of forecourt and road at 4.2, with nobody tuning a
-scene. Against the 10–15,000 triangles a whole room has been until now that sounds
-enormous; it is about twenty megabytes of geometry for the one surface the camera spends
-its time looking along, and it costs about 150 ms of a scene's load.
+**How far one unit of texture coordinate goes** is the number the whole lattice hangs on,
+and it is one number per texture, so that two triangles either side of an edge agree about
+where the lines fall. It is the **area-weighted median** of the triangles' own rates and
+not their mean, because a mean is what one stray triangle poisons: `rc1Coblston` is laid at
+a clean 120 units to the texture over the whole village square, and a handful of triangles
+whose coordinates are all but collapsed carried the average to 42,641. Every cobble then
+asked for a lattice a thousand times too fine, was refused as impossible, and came out
+flat. A triangle whose own rate is still more than three times from the median after that
+is left uncut and its neighbours are held against it — 30 of RC1's 3,050, and none at all
+in most rooms.
 
-**What does not move.** An edge no second displaced triangle shares — the floor meeting a
-wall, a kerb, or simply the next texture along, whose lattice is its own — stays exactly
-where the 1999 geometry put it, and the displacement fades in over the first cell. So do
-the *corners* of such an edge, in every triangle, not only in the ones that own the edge:
-pinning edges alone leaves a pinhole where a boundary corner is also a corner of the
-triangle behind it, and that triangle has no reason not to lift it. A test covers both.
+**The cell is bought with a budget** rather than fixed. A million triangles a room, and the
+cell is whatever spends them: the hotel lobby's 450,000 square units of tile come out at
+the two-unit floor and RC1's village at 4.4, with nobody tuning a scene. Measured on RC1,
+which is the largest paved area in the game: 400,000 buys 7.5 units a cell, a million buys
+4.4, four million buys 2, and the frame rate is 150 either way — what it costs is about a
+second of that room's load. Four units a cell is about a third of a cobble, which is where
+a paved street stops reading as a painted plane.
+
+The budget is only a budget if the estimate is honest, and for a year it was not: RC1 came
+out at 1,107,726 triangles against an estimate of 392,407. Two things were wrong and both
+are worth knowing. The area term used the texture's average stretch, so triangles tiled
+finer than the average were cut into cells smaller than the one the budget bought. And the
+ragged-edge term was a perimeter over the cell size, which is right for a triangle lying
+square to the lattice and half the answer for one lying across it — a long thin strip of
+road at an angle steps through a line of the lattice in both directions at once. Both are
+counted per triangle in texture space now, and the estimate lands within about 15% on every
+room in the corpus.
+
+**What does not move.** Where the floor *stops* — at a wall, at a kerb, or at the next
+texture along, whose lattice is its own — stays exactly where the 1999 geometry put it, and
+the displacement fades in over the first cell. So do the *corners* of such an edge, in every
+triangle, not only in the ones that own it: pinning edges alone leaves a pinhole where a
+boundary corner is also a corner of the triangle behind it, and that triangle has no reason
+not to lift it. The fade from a held corner is measured as a **distance**, not as a share of
+the triangle, because a barycentric weight is only a distance when the triangle is roughly
+equilateral and a village's ground is mostly long thin strips.
+
+**Where the floor stops is a geometric question, not a combinatorial one**, and getting that
+wrong is what kept the village flat. GK3's ground is laid as separate flat patches that abut
+without being welded — the street against the square, the square against the verge — and a
+stitch of stairs or a doorway leaves a long edge with a vertex partway along it. All of
+those are used by one triangle and none of them is a boundary. Measured: 2,201 of RC1's
+2,674 once-used edges have more floor of the same texture lying against them, and holding
+all of them down left nine tenths of the relief unbuilt — the village moved 0.32 units where
+it should have moved 1.42, which is the difference between cobbles and a painting of
+cobbles. So an edge used once is tested: a point three quarters of a unit past it, in the
+surface, is looked up in a grid of the floor's triangles, and if a triangle of the same
+texture contains it the surface carries on and the edge is free. Nothing has to be welded
+for that to be safe, because the lattice is what makes the two sides agree, not the vertices.
 
 **The field is averaged over a cell** before a vertex moves, and the shader's march keeps a
 quarter of the depth on a displaced batch. Geometry can only carry relief coarser than its
@@ -492,7 +529,72 @@ object and is deliberately left reading the undisplaced geometry: the relief is 
 centimetres and an actor who bobbed over every cobble would be a worse picture than one
 whose feet clip them.
 
-`render-scene --no-relief` draws the room as it was, for comparison.
+**It says how far it moved.** The loader reports the cut as `floor cut into N triangles at
+C units a cell, moved up to X units (Y typically), P edges held down and Q carried on
+(expected E)`. Every number there but X and Y reads the same whether the floor moved or not,
+which is exactly how this shipped flat twice — once from height maps that were never loaded,
+once from the fade. A typical move well under half the material's `heightDepth` means
+something is holding the floor down.
+
+`--relief N` sets the budget for a run of the game and `--relief 0` displaces nothing, which
+is how the two are compared in a screenshot; `render-scene --no-relief` is the same switch
+for the tool.
+
+### Round things
+
+A bell, a lamp, a vase and an urn are lathes of eight or twelve sides, and at the distance
+an adventure game stands you from them that reads as a polygon. `ObjectRounding` rounds them
+off at load, in `SceneGeometry.AddScene`, on a curated list of names —
+`SceneGeometry.RoundNames`: bell, lamp, lantern, candle, chandel, vase, urn. A curated list
+rather than a measurement, because curvature could be estimated and would then round off
+things whose faceting is the point, a cut gem or a timber beam. Adding an object is one name
+in that array. Objects over 500 authored triangles are left alone, so a "lamp" that is
+really a street of lampposts stays as authored.
+
+**The whole object is welded first, across its surfaces.** A lathed object is strips and
+caps, and the rim between a bell's side and its top belongs to two of them; anything that
+refines one surface at a time sees that rim as a boundary to hold still, and the hexagon
+survives any amount of subdivision. Texture coordinates stay per corner, so a seam where two
+textures meet is still a seam.
+
+**PN triangles, not Loop.** Loop was tried and wrecked what it touched: a lamp shade's
+panels sagged inward between their ribs and its rim came out spiked. It is an *approximating*
+scheme — every original vertex moves toward the average of its neighbours — which is
+invisible on a dense mesh and is the whole shape on a twelve-sided shade. PN triangles
+interpolate: every authored vertex stays exactly where it is and the surface between them is
+a cubic patch whose shape comes from the corner normals. It cannot sag, because there is no
+averaging in it. Two levels, so sixteen pieces per authored triangle.
+
+**The normals stop at creases.** Faces are gathered into smoothing groups across the edges
+they meet gently at, and a position carries one normal per group rather than one in all — a
+bell's rim shaded as though the metal turned over smoothly there was half of what made the
+first attempt look wrong. An edge between two groups is a crease: it stays straight, and both
+of its sides work that out identically, so a crease cannot open a crack. The same rule is
+what keeps a flat cap flat, since a normal perpendicular to an edge asks for no curvature at
+all.
+
+**The threshold is 60°, which is not the usual figure** and is chosen against this
+population rather than in general. A lathe of twelve sides turns 30° at each, of eight 45°,
+of six 60°. At the usual 40° the reception bell, which is eight-sided, was creased at every
+one of its own sides and came out exactly as faceted as it went in. What must still crease
+is where a lathe meets its own cap or foot, and those are 70° and over.
+
+**A rim is curved along itself.** A crease is straight *across*; it does not follow that it
+is straight *along*. The rim where a bell's dome meets its foot is an octagon, and that
+octagon is the widest part of the bell and therefore its entire silhouette — curving the
+surface either side of it and leaving it an octagon rounds everything the eye does not look
+at. So a rim is treated as a polyline and given the tangent a Catmull-Rom spline would.
+Only where it has exactly two rim edges at a vertex, which a box corner does not, and only
+where it turns more gently than the crease angle, which a rectangular panel's corner does
+not.
+
+**The rounded triangles go to the ray tracer too**, so an object's shadow has the silhouette
+the object has.
+
+`--round N` sets the number of levels for a run and `--round 0` leaves the authored shape
+with only the crease-aware shading, which is how the two are compared in a screenshot. The
+loader reports `Rounded: N triangles from <names>`; an empty list where one was expected
+means no name matched, which is otherwise silent.
 
 ### Baked lighting
 

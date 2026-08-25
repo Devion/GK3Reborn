@@ -88,8 +88,37 @@ Sections used so far:
 | `CINEMATIC_CAMERAS`, `DIALOGUE_CAMERAS` | same shape; a script may cut to any of them by name |
 | `INSPECT_CAMERAS` | keyed by `noun=` rather than named, so not somewhere a script cuts to |
 | `POSITIONS` | named spots with `pos`, `heading`, and the `camera` to cut to |
-| `REGIONS`, `TRIGGERS` | rectangles the game reacts to |
+| `TRIGGERS` | `noun=` and `rect={x1,z1,x2,z2}` on the ground plan: standing in one does that noun's `WALK` |
+| `REGIONS` | rectangles of the same shape, named rather than nouned; two in the corpus, read by nothing |
 | `ACTIONS`, `AMBIENT` | bare file names, one per line: the `.NVC` action files in scope and the `.STK` soundtracks to play |
+
+### Triggers
+
+Thirty-four rectangles across twenty-nine files, and they are how the game says "step
+closer and you will overhear them": the museum's `GET_CLOSE` behind the display panels,
+the front desk of the lobby, the window into Arnaud's office, the lectures on the
+Blanchefort tour. A rectangle names a noun and nothing else, and the verb it is looked up
+with is always `WALK` — no file says so, because `Scene::Update` hard-codes it.
+
+`Scene::Update` tests every frame rather than on the way in, and leans on the action's own
+case to stop it happening twice: the museum's is
+`GetNounVerbCount("GET_CLOSE","WALK")==0`, and its script increments that before it waits
+on anything. Nothing new is started while an action is playing.
+
+Two things the corpus's rectangles need from a reader. **The corners come in whichever
+order the artist dragged them** — the museum's runs from z −400 to z −598 — and a
+rectangle whose edges are the wrong way round contains nothing, so they are sorted on the
+way in. And **two of them are mistyped**, both in `CSE212P`: one has a doubled comma, one
+writes a number as `11.03.58`. The original reads both, discarding empty elements and
+parsing with `stof`, which stops at the second point.
+
+A walk the player asked for stops where it would step onto one, rather than crossing it —
+`Walker::FindEarliestPathNodeInsideActiveTriggerRegion`, whose own comment gives the case:
+in the lobby the way to the front door goes through Jean's rectangle.
+
+`REGIONS` has the same shape with a name rather than a noun, and the corpus has two of
+them: R25's `MYTEST` and RC1's `NEAR_EMILIO`. The reference reads them into a list and
+never asks the list anything, so neither does this.
 
 ### Model types
 

@@ -462,6 +462,14 @@ public static class Application
             Console.WriteLine($"Names: {strings.Count} from ESTRINGS.TXT");
         }
 
+        // Who the player has been introduced to, which decides whether a label may use
+        // somebody's name. The conditions are the action files' own; see
+        // Assets/Story/Introductions.txt.
+        Game.Story.Introductions introductions = Game.Story.Introductions.Open();
+
+        Console.WriteLine(
+            $"Introductions: {introductions.Count} people are strangers until met");
+
                 var host = new ScriptHost(api);
 
         // Scripts wait for real here, unlike in the tools, because here there is a clock
@@ -636,6 +644,7 @@ public static class Application
 
             api.State.CameraGliding = chosen.CameraGlide;
             api.State.CinematicsEnabled = chosen.Cinematics;
+            api.State.EasterEggs = chosen.EasterEggs;
 
             if (live is not null)
             {
@@ -831,6 +840,27 @@ public static class Application
 
             geometry.Materials = finishes;
 
+            // How far round things are rounded, so the same object can be photographed
+            // both ways without editing anything.
+            if (int.TryParse(
+                    Option(args, "--round"), CultureInfo.InvariantCulture, out int levels) &&
+                levels is >= 0 and <= 4)
+            {
+                geometry.RoundLevels = levels;
+            }
+
+            // How many triangles a room's floor may be cut into. A switch because the right
+            // number is a judgement about a picture: it buys the cell size, and whether a
+            // cobble reads as a cobble or as a patch of ground is decided by how many cells
+            // fit across one. Zero displaces nothing.
+            if (int.TryParse(
+                    Option(args, "--relief"), CultureInfo.InvariantCulture, out int budget))
+            {
+                geometry.Relief = budget > 0
+                    ? ReliefSettings.Default with { TriangleBudget = budget }
+                    : ReliefSettings.Off;
+            }
+
             // A fresh loader each time: it carries the last room's glances and its count of
             // enhanced textures, and neither belongs to the next one.
             var loader = new SceneLoader(archives, Console.WriteLine)
@@ -998,9 +1028,30 @@ public static class Application
             // without saying so it reads as something having gone wrong.
             if (geometry.DisplacedTriangles > 0)
             {
-                Console.WriteLine(
+                string uncut = geometry.ReliefSetApart > 0
+                    ? string.Create(
+                        CultureInfo.InvariantCulture,
+                        $", {geometry.ReliefSetApart} left uncut")
+                    : string.Empty;
+
+                Console.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
                     $"Relief: floor cut into {geometry.DisplacedTriangles} triangles at " +
-                    $"{geometry.ReliefCell:0.#} units a cell");
+                    $"{geometry.ReliefCell:0.#} units a cell, moved up to " +
+                    $"{geometry.ReliefDepth:0.##} units ({geometry.ReliefTypically:0.##} typically), " +
+                    $"{geometry.ReliefBoundary.Pinned} edges held down and " +
+                    $"{geometry.ReliefBoundary.Continued} carried on " +
+                    $"(expected {geometry.ReliefExpected}{uncut})"));
+            }
+
+            // What the round things cost, and — more to the point — that they happened at
+            // all. A rounding that silently declines is invisible: the object is still
+            // there, still drawn, still the shape it always was.
+            if (geometry.RoundedObjects > 0)
+            {
+                Console.WriteLine(
+                    $"Rounded: {geometry.RoundedTriangles} triangles from " +
+                    $"{string.Join(", ", geometry.Rounded.Order(StringComparer.OrdinalIgnoreCase))}");
             }
 
             // The floor, which is how an actor knows what height to walk at. Reported
@@ -1244,7 +1295,12 @@ public static class Application
 
             RoomExit exit = FlyScene(
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api) { Strings = strings, Watcher = update },
+                new SceneInteraction(scene, api)
+                {
+                    Strings = strings,
+                    Watcher = update,
+                    Introductions = introductions,
+                },
                 room, movies, hud, Cut, api, screens, sidney,
                 map, binoculars, api.State, console,
                 front, pages, Apply, args, strings, journal);
@@ -1282,6 +1338,30 @@ public static class Application
                     Console.WriteLine(
                         string.Create(CultureInfo.InvariantCulture, $"Closing film: {was}end, {showing:F1}s"));
                 }
+
+                // And then say so. Before the next room is built, which is where the
+                // original puts it and the only place it can go: after it the player is
+                // standing somewhere new with no idea that two hours have passed.
+                Announce(
+                    window,
+                    renderer,
+                    pages,
+                    strings,
+                    api.State.Timeblock,
+                    Art(
+                        archives,
+                        settings.EnhancedTextures && !packsOnly && enhancedDirectory is { Length: > 0 }
+                            ? EnhancedTextures.Open(enhancedDirectory)
+                            : null,
+                        settings.EnhancedTextures
+                            ? CompressedTextures.Open(
+                                packsOnly
+                                    ? string.Empty
+                                    : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
+                                packs)
+                            : null,
+                        diagnostics,
+                        $"TBT{api.State.Timeblock}.BMP"));
             }
 
             request = SceneRequest.Continuing(api, next);
@@ -2087,6 +2167,34 @@ public static class Application
                 $"Arrived through the binoculars, at {leaned.Position:F0} looking {leaned.Angle.X:F0}"));
         }
 
+        // --eye and --aim put the camera where no authored camera stands. Held rather than
+        // set: a scene's entry script may direct the view, and a shot asked for on the
+        // command line has to outlast that or it photographs somewhere else.
+        Vector3? standing = Standing(options);
+        Vector2? looking = Aimed(options);
+
+        void Place()
+        {
+            if (standing is { } eye)
+            {
+                camera.Position = eye;
+            }
+
+            if (looking is { } look)
+            {
+                camera.Aim = look;
+            }
+        }
+
+        if (standing is not null || looking is not null)
+        {
+            Place();
+
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Camera placed at {camera.Position:F0} looking {camera.Aim.X:F1}, {camera.Aim.Y:F1}"));
+        }
+
         Console.WriteLine();
         Console.WriteLine("WASD to move, E and Q for up and down, drag to look,");
         Console.WriteLine("Tab for the next camera, R to return to it, F2 for ray tracing,");
@@ -2196,6 +2304,21 @@ public static class Application
         byte[]? previousFrame = null;
         double flickerTotal = 0;
         int flickerFrames = 0;
+
+        // Nothing has been clicked on in this room yet.
+        //
+        // A room is left in the middle of a frame — the click that opened the door returns
+        // out of the loop below before the frame it belongs to has ended — so the click is
+        // still on the books when the next room's first frame reads them. It was then acted
+        // on a second time, in a room it was never aimed at, at whatever the pointer
+        // happened to be over there: click the stairs down in the hallway and Gabriel is
+        // standing on that spot in the lobby, so the player arrives to a voice-over of
+        // Gabriel looking at himself.
+        //
+        // Forgotten on the way in rather than at each way out, because there are several
+        // ways out — a door, a load, the menu, the end of a film — and every one of them
+        // spends the input that took it.
+        window.Forget();
 
         while (!window.IsClosing && (frameLimit == 0 || presented < frameLimit))
         {
@@ -2523,6 +2646,8 @@ public static class Application
                 directing = update.View;
                 template = directed;
                 camera.CopyFrom(directed);
+
+                Place();
             }
 
             if (!console.Open)
@@ -3176,9 +3301,33 @@ public static class Application
         GameArchives archives,
         EnhancedTextures? enhanced,
         CompressedTextures? compressed,
-        DiagnosticBag diagnostics)
+        DiagnosticBag diagnostics) =>
+        Art(archives, enhanced, compressed, diagnostics, TitlePicture);
+
+    /// <summary>
+    /// Reads one of the game's full-screen pictures, from wherever it is to be had.
+    /// </summary>
+    /// <param name="archives">The game's own barns.</param>
+    /// <param name="enhanced">A directory of upscaled pictures, if there is one.</param>
+    /// <param name="compressed">The block-compressed build or a pack, if there is one.</param>
+    /// <param name="diagnostics">Where a picture that will not decode is reported.</param>
+    /// <param name="file">Its file name, with the extension.</param>
+    /// <returns>The picture, or nothing when no source has it.</returns>
+    /// <remarks>
+    /// Three places, in the order that gives the best-looking answer: the enhanced set, the
+    /// compressed build, and then the archives, which is all a shipped game has. Missing is
+    /// not a failure — a card without its painting still says what time it is, and a game
+    /// that would not start because a decorative bitmap is malformed would be worse than
+    /// either.
+    /// </remarks>
+    private static TitleScreen Art(
+        GameArchives archives,
+        EnhancedTextures? enhanced,
+        CompressedTextures? compressed,
+        DiagnosticBag diagnostics,
+        string file)
     {
-        string bare = Path.GetFileNameWithoutExtension(TitlePicture);
+        string bare = Path.GetFileNameWithoutExtension(file);
 
         if (enhanced?.Read(bare, diagnostics) is { } better)
         {
@@ -3199,9 +3348,9 @@ public static class Application
 
         try
         {
-            return archives.Read(TitlePicture) is { } bytes
+            return archives.Read(file) is { } bytes
                 ? new TitleScreen(
-                    Formats.Bitmaps.BitmapDecoder.Decode(bytes, TitlePicture),
+                    Formats.Bitmaps.BitmapDecoder.Decode(bytes, file),
                     null,
                     "from the archives")
                 : default;
@@ -3210,9 +3359,97 @@ public static class Application
         {
             // A menu without its picture is a menu; a game that will not start because a
             // decorative bitmap is malformed is not.
-            Console.Error.WriteLine($"WARNING GK3R3430: {TitlePicture} would not decode. ({error.Message})");
+            Console.Error.WriteLine($"WARNING GK3R3430: {file} would not decode. ({error.Message})");
             return default;
         }
+    }
+
+    /// <summary>How long the card stands there on its own, in seconds.</summary>
+    /// <remarks>
+    /// Long enough to read twice and short enough that nobody waits for it. The player can
+    /// end it sooner, and the original's own card has no timer at all when it is not being
+    /// used to cover a load — it sits until Continue is pressed. This ends by itself as
+    /// well, because a card that needs dismissing is a card that can be missed by somebody
+    /// who has walked away from the keyboard.
+    /// </remarks>
+    private const double CardSeconds = 4.0;
+
+    /// <summary>
+    /// Says that the story has moved on to another part of the day.
+    /// </summary>
+    /// <param name="window">The window, for the click or key that ends it.</param>
+    /// <param name="renderer">What draws the picture and the words.</param>
+    /// <param name="pages">The menu's own typeface, which is the big one.</param>
+    /// <param name="strings">What the game calls this part of the day.</param>
+    /// <param name="now">Where the clock has got to.</param>
+    /// <param name="art">The painting for it, or nothing.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The original has this screen and the port did not.</b> A timeblock ending was a
+    /// line on the console and nothing on the screen: the room dissolved, another one built
+    /// itself, and two hours of story had passed with nothing said about it.
+    /// <c>TimeblockScreen</c> in the reference shows a painting for the point in the story
+    /// with its name lettered over it, and every one of those paintings is in the archives
+    /// as <c>TBT110A.BMP</c> and its fifteen siblings.
+    /// </para>
+    /// <para>
+    /// The painting is kept and the lettering is not. The original draws the name as a
+    /// fifteen-frame sprite animation whose position it has to hard-code per timeblock
+    /// because the artists placed each one differently; the name itself is already in
+    /// <c>ESTRINGS.TXT</c> as <c>Day110a = Day 1, 10am - 12pm</c>, and setting it in the
+    /// port's own face costs nothing and is legible at any window size. That is the same
+    /// division the title screen makes: the picture is art and the words are a widget.
+    /// </para>
+    /// <para>
+    /// It sits over a black screen when the archives have no painting, which is what an
+    /// installation without the art gets and is still better than the room simply changing.
+    /// </para>
+    /// </remarks>
+    private static void Announce(
+        Platform.SilkGameWindow window,
+        VulkanRenderer renderer,
+        MenuPage? pages,
+        GameStrings strings,
+        Timeblock now,
+        TitleScreen art)
+    {
+        art.Show(renderer);
+
+        string name = strings.When(now.ToString()) is { Length: > 0 } called
+            ? called
+            : now.ToString();
+
+        Console.WriteLine($"Card: {name}{(art.Exists ? $", over {art.Width}x{art.Height} of painting" : ", with no painting")}");
+
+        var clock = Stopwatch.StartNew();
+
+        // A press that is still down from before does not count: the click that walked
+        // through the door is what brought the player here.
+        window.Forget();
+
+        while (!window.IsClosing && clock.Elapsed.TotalSeconds < CardSeconds)
+        {
+            window.PumpEvents();
+
+            if (window.WasClicked(Platform.PointerButton.Primary) ||
+                window.WasPressed(Platform.EditKey.Enter) ||
+                window.WasPressed(Platform.EditKey.Escape))
+            {
+                break;
+            }
+
+            pages?.Announcing(name, window.FramebufferWidth, window.FramebufferHeight);
+            renderer.SetOverlay(pages?.Overlay);
+
+            window.EndFrame();
+            renderer.SetScene(null, null);
+            renderer.DrawFrame(0f, 0f, 0f);
+
+        }
+
+        window.Forget();
+        renderer.SetOverlay(null);
+        renderer.SetBackdrop(null);
     }
 
     /// <summary>The picture behind the menu, in whichever form it was found.</summary>
@@ -4178,6 +4415,37 @@ public static class Application
         float.TryParse(x, CultureInfo.InvariantCulture, out float px) &&
         float.TryParse(y, CultureInfo.InvariantCulture, out float py)
             ? new Vector2(px, py)
+            : null;
+
+    /// <summary>Where <c>--eye x,y,z</c> asks the camera to stand.</summary>
+    /// <param name="args">The command line.</param>
+    /// <returns>The viewpoint, or null when the switch is absent or unreadable.</returns>
+    /// <remarks>
+    /// A headless run has no mouse, so every shot until now was one of the scene's own
+    /// cameras or nothing. Half of what wants photographing — a floor at a grazing angle, a
+    /// lamp from a foot away — is at no authored camera, and describing it in words is how
+    /// a rendering claim goes unchecked for a week.
+    /// </remarks>
+    private static Vector3? Standing(string[] args) =>
+        Option(args, "--eye")?.Split(',') is [string x, string y, string z] &&
+        float.TryParse(x, CultureInfo.InvariantCulture, out float ex) &&
+        float.TryParse(y, CultureInfo.InvariantCulture, out float ey) &&
+        float.TryParse(z, CultureInfo.InvariantCulture, out float ez)
+            ? new Vector3(ex, ey, ez)
+            : null;
+
+    /// <summary>Which way <c>--aim heading,pitch</c> asks it to look, in degrees.</summary>
+    /// <param name="args">The command line.</param>
+    /// <returns>The aim, or null when the switch is absent or unreadable.</returns>
+    /// <remarks>
+    /// Degrees, because both other things that write an aim down — the scene files' camera
+    /// angles and <see cref="FreeCamera.Aim"/> — are written in degrees.
+    /// </remarks>
+    private static Vector2? Aimed(string[] args) =>
+        Option(args, "--aim")?.Split(',') is [string h, string p] &&
+        float.TryParse(h, CultureInfo.InvariantCulture, out float heading) &&
+        float.TryParse(p, CultureInfo.InvariantCulture, out float pitch)
+            ? new Vector2(heading, pitch)
             : null;
 
     /// <summary>How far to subdivide a character's head.</summary>

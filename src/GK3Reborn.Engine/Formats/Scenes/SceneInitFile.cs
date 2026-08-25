@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System.Globalization;
+using System.Numerics;
 using GK3Reborn.Formats.Ini;
 
 namespace GK3Reborn.Formats.Scenes;
@@ -101,6 +102,49 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     /// </remarks>
     public string? InitialAnimation { get; init; }
 }
+
+/// <summary>
+/// A rectangle on the ground plan.
+/// </summary>
+/// <param name="MinX">The lower of its two X edges.</param>
+/// <param name="MinZ">The lower of its two Z edges.</param>
+/// <param name="MaxX">The higher of its two X edges.</param>
+/// <param name="MaxZ">The higher of its two Z edges.</param>
+/// <remarks>
+/// The files write two opposite corners in whichever order the artist happened to drag
+/// them, and half the corpus's rectangles are written backwards on one axis or both. The
+/// original sorts them on the way in — see <c>Rect::Rect</c> — so the corners are put in
+/// order here rather than by everybody who reads one.
+/// </remarks>
+public readonly record struct SceneRect(float MinX, float MinZ, float MaxX, float MaxZ)
+{
+    /// <summary>Puts two opposite corners in order.</summary>
+    /// <param name="x1">One corner's X.</param>
+    /// <param name="z1">One corner's Z.</param>
+    /// <param name="x2">The other corner's X.</param>
+    /// <param name="z2">The other corner's Z.</param>
+    /// <returns>The rectangle they describe.</returns>
+    public static SceneRect Between(float x1, float z1, float x2, float z2) => new(
+        MathF.Min(x1, x2), MathF.Min(z1, z2), MathF.Max(x1, x2), MathF.Max(z1, z2));
+
+    /// <summary>Whether a point on the ground plan is inside it.</summary>
+    /// <param name="x">The point's X.</param>
+    /// <param name="z">The point's Z.</param>
+    /// <returns>True when it is, edges included.</returns>
+    public bool Contains(float x, float z) =>
+        x >= MinX && x <= MaxX && z >= MinZ && z <= MaxZ;
+}
+
+/// <summary>
+/// A patch of floor that does something to whoever walks onto it.
+/// </summary>
+/// <param name="Noun">The noun its action is written about.</param>
+/// <param name="Rect">The patch, on the ground plan.</param>
+/// <remarks>
+/// The verb is always <c>WALK</c> and no file says so; see
+/// <c>Scene::Update</c> in the reference, which hard-codes it.
+/// </remarks>
+public sealed record SceneTrigger(string Noun, SceneRect Rect);
 
 /// <summary>A spot in the scene the player or an actor can stand.</summary>
 /// <param name="Name">Its name.</param>
@@ -509,6 +553,94 @@ public sealed class SceneInitFile
                 float.DegreesToRadians(l.Number("heading") ?? 0f),
                 l.Value("camera")))
             .ToList();
+
+    /// <summary>The patches of floor the scene watches for.</summary>
+    /// <param name="includeConditional">Whether to include conditional sections.</param>
+    /// <returns>The triggers, in file order.</returns>
+    /// <remarks>
+    /// Thirty-four of them across twenty-nine files, and most of the game's "step closer
+    /// and overhear them" moments are one: the museum's <c>GET_CLOSE</c>, the front desk of
+    /// the lobby, the window into Arnaud's office. A line names a noun and a rectangle and
+    /// nothing else, and the verb the noun is looked up with is always <c>WALK</c>.
+    /// </remarks>
+    public List<SceneTrigger> Triggers(bool includeConditional = true) =>
+        _document.LinesOf("TRIGGERS", Applies(includeConditional))
+            .Select(l => (Noun: l.Value("noun"), Rect: Rectangle(l.Value("rect"))))
+            .Where(t => t.Noun is { Length: > 0 } && t.Rect is not null)
+            .Select(t => new SceneTrigger(t.Noun!, t.Rect!.Value))
+            .ToList();
+
+    /// <summary>
+    /// Reads a <c>rect={x1,z1,x2,z2}</c> value.
+    /// </summary>
+    /// <param name="value">The value, braces and all.</param>
+    /// <returns>The rectangle, or null when four numbers could not be read.</returns>
+    /// <remarks>
+    /// Forgiving in the two ways the shipped data needs, both in CSE212P: one rectangle has
+    /// a doubled comma in it and one writes a number as <c>11.03.58</c>. The original reads
+    /// both — it discards empty elements and parses with <c>stof</c>, which stops at the
+    /// second point — and a scene that drops its trigger because of a typo is a scene where
+    /// something quietly never happens.
+    /// </remarks>
+    private static SceneRect? Rectangle(string? value)
+    {
+        if (value is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        string inside = value.Trim();
+
+        if (inside.StartsWith('{') && inside.EndsWith('}'))
+        {
+            inside = inside[1..^1];
+        }
+
+        List<float> numbers = [];
+
+        foreach (string part in inside.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (Leading(part) is { } number)
+            {
+                numbers.Add(number);
+            }
+        }
+
+        return numbers.Count >= 4
+            ? SceneRect.Between(numbers[0], numbers[1], numbers[2], numbers[3])
+            : null;
+    }
+
+    /// <summary>Reads the number a string starts with.</summary>
+    /// <param name="text">The text.</param>
+    /// <returns>The number, or null when it does not start with one.</returns>
+    private static float? Leading(string text)
+    {
+        string trimmed = text.Trim();
+        int end = 0;
+        bool point = false;
+
+        while (end < trimmed.Length)
+        {
+            char c = trimmed[end];
+
+            if (c == '.' && !point)
+            {
+                point = true;
+            }
+            else if (!char.IsAsciiDigit(c) && !(end == 0 && (c == '-' || c == '+')))
+            {
+                break;
+            }
+
+            end++;
+        }
+
+        return float.TryParse(
+            trimmed[..end], NumberStyles.Float, CultureInfo.InvariantCulture, out float value)
+            ? value
+            : null;
+    }
 
     /// <summary>A named spot, or null if the scene does not define one under that name.</summary>
     /// <param name="name">The spot's name.</param>

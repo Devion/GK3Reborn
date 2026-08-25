@@ -120,7 +120,12 @@ public sealed class ScenePicker
     /// <summary>
     /// Everything in the room the player can act on, and where it is.
     /// </summary>
-    /// <returns>Each noun once, with the middle of what it occupies in world space.</returns>
+    /// <returns>
+    /// Each noun once, with the object it was found on and the middle of what it occupies in
+    /// world space. The object comes back because what a noun should be <em>called</em>
+    /// sometimes depends on it — a hotel door is named by the number in its model's name —
+    /// and there is no pick to ask when every hotspot is being listed at once.
+    /// </returns>
     /// <remarks>
     /// <para>
     /// For showing them all at once while a key is held. A 1999 adventure game hides its
@@ -134,14 +139,21 @@ public sealed class ScenePicker
     /// middle is of that one's own box.
     /// </para>
     /// </remarks>
-    public IReadOnlyList<(string Noun, Vector3 Where)> Interactive()
+    public IReadOnlyList<(string Noun, string Name, Vector3 Where)> Interactive()
     {
-        var found = new List<(string, Vector3)>();
+        var found = new List<(string, string, Vector3)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (Target target in _targets)
         {
+            // The same two refusals a click makes, and for the same reason: what is not
+            // drawn is not there, and what a script has switched off is not there either.
+            // Reported as an item still having a hotspot after it had been picked up —
+            // taking something takes its model out of the room, so the ray stopped finding
+            // it and this went on listing it. A label for something that is not there is
+            // worse than no label, which is what the list is for.
             if (target.Noun is not { Length: > 0 } noun ||
+                target.Of is { Visible: false } ||
                 Blocked?.Contains(target.Name) == true ||
                 !seen.Add(noun))
             {
@@ -170,7 +182,7 @@ public sealed class ScenePicker
 
             if (any)
             {
-                found.Add((noun, (minimum + maximum) * 0.5f));
+                found.Add((noun, target.Name, (minimum + maximum) * 0.5f));
             }
         }
 

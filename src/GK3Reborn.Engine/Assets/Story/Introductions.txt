@@ -1,0 +1,67 @@
+# When Gabriel and Grace have been introduced to somebody.
+#
+# The port draws a label under the pointer and the original does not, so this is a
+# question the original never had to answer. A scene names its people by their surnames —
+# BUTHANE, BUCHELLI, WILKES — and a label that reads them back tells the player who
+# everybody is the moment they walk into the square, before a word has been said. It is
+# the same leak the second-floor doors had, where EMILIOS_DOOR and BUTHANES_DOOR
+# introduced every suspect in the hotel to anybody who walked down the corridor.
+#
+# So until one of these holds, the label says what the player can actually see: "Woman"
+# or "Man", taken from the character's own ShoeType in CHARACTERS.TXT rather than from a
+# list kept here by hand.
+#
+# Every condition below is the game's own, copied out of the [LOGIC] section of an action
+# file. Nothing is invented: where the shipped data writes MET_BUTHANE, that is what is
+# written here, verbatim enough to search for. Which is also the limit of the list — a
+# character the data never asks "have we met" about is not in it, and keeps their name.
+# That is MONTREAUX, MACDOUGALL, MALLORY, MESMI, SIMONE, PRINCE_JAMES and
+# MONSIEUR_BIGOUT; add a line when somebody finds the rule the game uses for one of them.
+#
+# GRACE and MOSELY are absent on purpose rather than for want of a rule. Gabriel arrives
+# knowing both of them.
+#
+# One line per noun: the noun, a bar, and a Sheep expression evaluated against the story
+# exactly as an action file's case is.
+
+# RC1110A.NVC: MET_BUTHANE. She introduces herself while explaining the tour, so the
+# tour-group topic is the introduction; there is no T_INTRODUCE for her.
+BUTHANE        | GetTopicCount("BUTHANE","T_TOUR_GROUP") > 0
+
+# CHU_1ALL.NVC: MET_ABBE.
+ABBE           | GetTopicCount("ABBE","T_INTRODUCE") > 0
+
+# CHU_ALL.NVC: MET_BUCHELLI, without the two clauses about what he is doing at the time.
+BUCHELLI       | GetTopicCount("BUCHELLI","T_INTRODUCE") > 0
+
+# LBY110A.NVC: INTRODUCED_EMILIO, without its clause about which room he is in.
+EMILIO         | GetTopicCount("EMILIO","T_INTRODUCE") > 0
+
+# MS2_ALL.NVC: MET_GIRARD. Grace meets her too, so the ego clause is dropped.
+GIRARD         | GetTopicCount("GIRARD","T_INTRODUCE") > 0
+
+# LBY110A.NVC: MET_JEAN. He is behind the desk and says his name when you walk up to it,
+# which is why the rule is a noun and a verb rather than a topic.
+JEAN           | GetNounVerbCount("FRONT_DESK","WALK") > 0
+
+# MS3110A.NVC: MET_LHE. The two women are introduced together and the data treats them as
+# one noun for it, so all three names turn over at once.
+LADY_H_ESTELLE | GetTopicCount("LADY_H_ESTELLE","T_INTRODUCE") > 0
+LADY_HOWARD    | GetTopicCount("LADY_H_ESTELLE","T_INTRODUCE") > 0
+ESTELLE        | GetTopicCount("LADY_H_ESTELLE","T_INTRODUCE") > 0
+
+# LHE_ALL.NVC: MET_LARRY. Not a topic at all — he is met by having been inside his study,
+# which is what LHI is: ESTRINGS.TXT reads "loc_lhi = Larry's Study". LHE beside it is
+# "Outside Larry's House", and standing on the doorstep is not meeting him. The study is
+# the only room in the game he is ever in.
+LARRY          | WasEgoEverInLocation("LHI")
+
+# TR2_ALL.NVC: MET_MARCIE.
+MARCIE         | GetTopicCount("MARCIE","T_INTRODUCE") > 0
+
+# DIN112P.NVC and LER102P.NVC: MET_WILKES, and the second spelling of it, which allows
+# for the introduction he gets in room 24 without a topic being raised.
+WILKES         | GetTopicCount("WILKES","T_INTRODUCE") > 0 || GetFlag("IntroWilkes24")
+
+# CD1_ALL.NVC: MET_TAXI_DRIVER. His noun is what he is rather than who he is, so it gives
+# nothing away and he is not listed. Kept here as a note so nobody adds him.

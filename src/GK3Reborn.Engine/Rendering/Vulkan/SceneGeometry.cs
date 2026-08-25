@@ -97,6 +97,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>The textures of this room's floor, whose height maps are kept readable.</summary>
     private readonly HashSet<string> _relief = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _rounded = [];
 
     private RayTracingScene? _rayTracing;
     private VulkanTexture? _lightmap;
@@ -179,6 +180,40 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>How long an edge of that subdivision is, in world units, or zero.</summary>
     public float ReliefCell { get; private set; }
+
+    /// <summary>The furthest a displaced vertex moved, in world units, or zero.</summary>
+    /// <remarks>
+    /// See <see cref="ReliefPlan.Moved"/>. A floor cut into a million triangles and left
+    /// flat costs everything displacement costs and shows nothing, and no other number
+    /// says so.
+    /// </remarks>
+    public float ReliefDepth { get; private set; }
+
+    /// <summary>How far the average displaced vertex moved, in world units, or zero.</summary>
+    public float ReliefTypically { get; private set; }
+
+    /// <summary>How many of the floor's edges were held down, and how many carried on.</summary>
+    public (int Pinned, int Continued) ReliefBoundary { get; private set; }
+
+    /// <summary>How many of the room's objects were rounded off.</summary>
+    public int RoundedObjects { get; private set; }
+
+    /// <summary>Which objects those were, in the order they were met.</summary>
+    /// <remarks>
+    /// Named rather than counted because the list is curated by name
+    /// (<see cref="RoundNames"/>) and the failure it hides is silent: a room where nothing
+    /// matched looks exactly like a room where everything did.
+    /// </remarks>
+    public IReadOnlyList<string> Rounded => _rounded;
+
+    /// <summary>How many triangles those objects came to, once rounded.</summary>
+    public int RoundedTriangles { get; private set; }
+
+    /// <summary>How many triangles the plan expected the cut to come to.</summary>
+    public int ReliefExpected { get; private set; }
+
+    /// <summary>How many floor triangles were left uncut because their tiling stood apart.</summary>
+    public int ReliefSetApart { get; private set; }
 
     /// <summary>What each texture's surface is like, for the passes that care.</summary>
     /// <remarks>
@@ -940,6 +975,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         ReliefCell = relief?.Cell ?? 0f;
         DisplacedTriangles = 0;
+        RoundedObjects = 0;
+        RoundedTriangles = 0;
+        _rounded.Clear();
 
         // Keyed by whether the surface lights itself as well as by texture, because one
         // texture serves both states: LAMPSHADE is on a shade that the bake lit and on
@@ -1132,6 +1170,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             }
         }
 
+        // How far the cut floor actually moved. Reported rather than assumed: every other
+        // number a displaced floor produces reads the same whether it moved or not.
+        ReliefDepth = relief?.Moved ?? 0f;
+        ReliefTypically = relief?.MovedTypically ?? 0f;
+        ReliefBoundary = relief?.Boundary ?? (0, 0);
+        ReliefExpected = relief?.Triangles ?? 0;
+        ReliefSetApart = relief?.SetApart ?? 0;
+
         if (_context.SupportsRayTracing && occluderIndices.Count > 0)
         {
             _traceable.Add(new RayTracingMesh([.. occluders], [.. occluderIndices]));
@@ -1204,6 +1250,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// "lamp" that is really a street of lampposts stays as authored.
     /// </remarks>
     private const int RoundBudget = 500;
+
+    /// <summary>How many times a rounded object's edges are halved.</summary>
+    /// <remarks>
+    /// Two, which is sixteen pieces per authored triangle. One is visibly still a polygon on
+    /// the eight-sided objects and three buys nothing a bell is large enough on screen to
+    /// show. Zero leaves the authored shape and keeps only the crease-aware shading, which
+    /// is how the two are told apart in a screenshot.
+    /// </remarks>
+    public int RoundLevels { get; set; } = 2;
 
     /// <summary>
     /// Rounds one object off across every surface it is made of, and emits it whole.
@@ -1289,19 +1344,20 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             return;
         }
 
-        // Welded for the normals and left exactly where it was authored. Moving the
-        // vertices was tried — two levels of Loop subdivision — and it wrecked what it
-        // touched: a lamp shade's panels sagged inward between their ribs and its rim
-        // spiked, because subdivision rules written for dense meshes pull a coarse open
-        // shell towards its own average. What actually made these objects read as low-poly
-        // was the faceted shading, and smoothing the normals across the welded seams fixes
-        // that without the power to make anything worse.
+        // Welded across its surfaces, then curved. Every authored vertex stays where it is
+        // and the surface between them bows out to the curve the normals describe; see
+        // <see cref="ObjectRounding"/> for why an interpolating scheme and not Loop's, which
+        // was tried and left a lamp shade sagging between its ribs.
         List<Vector3> positions = [];
         List<RoundedTriangle> welded = ObjectRounding.Weld(raw, positions);
 
-        Vector3[] normals = ObjectRounding.Normals(welded, positions);
+        List<CurvedTriangle> curved = ObjectRounding.Curve(welded, positions, RoundLevels);
 
-        foreach (RoundedTriangle piece in welded)
+        RoundedObjects++;
+        RoundedTriangles += curved.Count;
+        _rounded.Add(owner);
+
+        foreach (CurvedTriangle piece in curved)
         {
             BspSurface surface = scene.Surfaces[piece.Surface];
 
@@ -1318,18 +1374,18 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 groups[key] = group;
             }
 
-            foreach (RoundedCorner corner in (ReadOnlySpan<RoundedCorner>)[piece.A, piece.B, piece.C])
+            foreach (CurvedCorner corner in (ReadOnlySpan<CurvedCorner>)[piece.A, piece.B, piece.C])
             {
                 group.Indices.Add((uint)group.Vertices.Count);
                 group.Vertices.Add(new MeshVertex(
-                    positions[corner.Position],
-                    normals[corner.Position],
+                    corner.Position,
+                    corner.Normal,
                     corner.TexCoord,
                     Lightmap(corner.TexCoord, surface, region)));
 
                 if (!hidden)
                 {
-                    Grow(positions[corner.Position]);
+                    Grow(corner.Position);
                 }
             }
 
@@ -1340,12 +1396,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             if (occludes)
             {
+                // The rounded triangles, so the shadow has the silhouette the object has.
                 Occlude(
                     occluders,
                     occluderIndices,
-                    positions[piece.A.Position],
-                    positions[piece.B.Position],
-                    positions[piece.C.Position]);
+                    piece.A.Position,
+                    piece.B.Position,
+                    piece.C.Position);
             }
         }
     }

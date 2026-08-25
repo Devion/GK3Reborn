@@ -144,6 +144,9 @@ public sealed class MenuPage
     private static readonly Vector4 Rule = new(0.24f, 0.26f, 0.31f, 1f);
     private static readonly Vector4 Track = new(0.16f, 0.18f, 0.22f, 1f);
 
+    /// <summary>A band to read light letters against, over a painting of any colour.</summary>
+    private static readonly Vector4 Shade = new(0f, 0f, 0f, 0.62f);
+
     private readonly List<(string Id, Vector4 Bounds, MenuItemKind Kind)> _rows = [];
 
     private Vector4 _panel;
@@ -530,6 +533,42 @@ public sealed class MenuPage
 
         Overlay.Rect(x, y, bar, thick, Track);
         Overlay.Rect(x, y, bar * Math.Clamp(part, 0f, 1f), thick, Accent);
+    }
+
+    /// <summary>
+    /// Names the part of the day the story has moved on to, across the middle of the screen.
+    /// </summary>
+    /// <param name="text">What this part of the day is called.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <remarks>
+    /// Big, centred and over a band, because the whole point of it is to be impossible to
+    /// miss: two hours of the story have just gone by. The band is there for the paintings
+    /// with a bright sky in the middle of them, where white letters on their own would be
+    /// unreadable.
+    /// </remarks>
+    public void Announcing(string text, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        Overlay.Begin(width, height);
+
+        int was = Overlay.Magnify;
+
+        // A line about a fifteenth of the screen tall, which is two to four times the size
+        // the sheets were cut at. The point of the card is to be unmissable, and the menu's
+        // own size is a size for reading a list of settings.
+        Overlay.Magnify = Math.Max(
+            2, (int)MathF.Round(height / 15f / Math.Max(1, Overlay.Atlas.Height)));
+
+        float unit = Overlay.LineHeight;
+        float wide = Overlay.Measure(text);
+        float y = MathF.Round((height - unit) / 2f);
+
+        Overlay.Rect(0, MathF.Round(y - (unit * 0.6f)), width, unit * 2.2f, Shade);
+        Overlay.Text(text, MathF.Round((width - wide) / 2f), y, Accent);
+
+        Overlay.Magnify = was;
     }
 
     /// <summary>Whether a point is on the page at all.</summary>

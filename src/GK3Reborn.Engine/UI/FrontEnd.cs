@@ -456,6 +456,12 @@ public sealed class FrontEnd
         MenuItem.Toggle("cinematics", "Let the story move the camera", Settings.Cinematics),
         MenuItem.Toggle("captions", "Write out what is said", Settings.Captions),
         MenuItem.Toggle("intro", "Play the intro on starting", Settings.PlayIntro),
+        MenuItem.Toggle("eggs", "Easter eggs", Settings.EasterEggs),
+
+        // What it actually does, because "easter eggs" on its own could mean anything. The
+        // switch is the game's own: EGG is a case an action file may be written against,
+        // and the original left it hard-coded off.
+        MenuItem.Label("Lets the game show the jokes its authors left switched off."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -485,6 +491,7 @@ public sealed class FrontEnd
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "captions" => Settings with { Captions = !Settings.Captions },
             "intro" => Settings with { PlayIntro = !Settings.PlayIntro },
+            "eggs" => Settings with { EasterEggs = !Settings.EasterEggs },
 
             _ => Settings,
         };

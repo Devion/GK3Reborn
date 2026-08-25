@@ -48,7 +48,8 @@ public readonly record struct Completion(string Name, string Signature);
 /// </para>
 /// <para>
 /// <b>Which is why the completion matters rather than being a nicety.</b> Nobody can be
-/// expected to know that the way to see the easter-egg content is <c>SetFlag("EGG")</c>, or
+/// expected to know that the way to see the easter-egg content is <c>SetFlag("EGG")</c> —
+/// which is why there is now a row for it under Options, Playing — or
 /// to remember which of <c>SetLocation</c> and <c>SetEgoLocation</c> takes what. A list that
 /// narrows as you type, showing each function's return type and arguments, is the
 /// difference between a console that is usable without the source open beside it and one
@@ -169,7 +170,8 @@ public sealed class GameConsole
                 // Written in ASCII on purpose. GK3's own bitmap fonts are what draws
                 // this, and they have no glyph for an em dash: one comes out as a box.
                 "Try SetFlag(\"EGG\") - the game's own easter-egg switch, which every " +
-                "action file tests and nothing ever set.",
+                "action file tests and nothing ever set. Options, Playing has a row " +
+                "that keeps it on.",
                 ConsoleLineKind.Notice);
         }
 

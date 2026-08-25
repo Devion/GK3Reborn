@@ -217,4 +217,16 @@ public interface IGameInput
 
     /// <summary>Clears the per-frame state. Called once a frame, after reading it.</summary>
     void EndFrame();
+
+    /// <summary>
+    /// Throws away input that has been gathered but not read.
+    /// </summary>
+    /// <remarks>
+    /// The same clearing <see cref="EndFrame"/> does, under a name that says why rather
+    /// than when — for the places where a frame is abandoned rather than finished. Leaving
+    /// a room is one: the click that opened the door returns out of the room's loop before
+    /// its frame has ended, so without this the click is still on the books when the next
+    /// room reads them and is acted on a second time, somewhere it was never aimed.
+    /// </remarks>
+    void Forget();
 }

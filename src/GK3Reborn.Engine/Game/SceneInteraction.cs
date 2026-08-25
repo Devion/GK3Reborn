@@ -235,6 +235,11 @@ public sealed class SceneInteraction
     /// </remarks>
     private string? Called(string noun, ScenePick pick, IReadOnlyList<AvailableAction> offered)
     {
+        if (Stranger(noun) is { Length: > 0 } unmet)
+        {
+            return unmet;
+        }
+
         if (Numbered(noun, pick.Name) is { Length: > 0 } room)
         {
             return room;
@@ -363,6 +368,13 @@ public sealed class SceneInteraction
     /// </remarks>
     public GameStrings Strings { get; set; } = GameStrings.None;
 
+    /// <summary>Who the player has been introduced to, when anything read the table.</summary>
+    /// <remarks>
+    /// Left alone it says everybody, which is what the interface did before this and what a
+    /// test that only cares about verbs wants.
+    /// </remarks>
+    public Story.Introductions Introductions { get; set; } = Story.Introductions.None;
+
     /// <summary>The room as it stands, for questions only it can answer.</summary>
     /// <remarks>
     /// Whether a thing can be looked at closely depends on where it is and what it occupies,
@@ -379,7 +391,69 @@ public sealed class SceneInteraction
     /// is exactly what a click could reach — a label for something unclickable would be worse
     /// than no label.
     /// </remarks>
-    public IReadOnlyList<(string Noun, Vector3 Where)> Nouns() => _picker.Interactive();
+    public IReadOnlyList<(string Noun, Vector3 Where)> Nouns() =>
+        [.. _picker.Interactive().Select(spot => (Labelled(spot.Noun, spot.Name), spot.Where))];
+
+    /// <summary>What a noun is called when there is no pointer resting on it.</summary>
+    /// <param name="noun">What the scene calls it.</param>
+    /// <param name="model">The object it was found on, which carries a door's number.</param>
+    /// <returns>The label.</returns>
+    /// <remarks>
+    /// The same answers <see cref="Called"/> gives, less the one that needs a pick: a
+    /// numbered exit is named after where its verb's script goes, and showing every door in
+    /// the room at once has no verb to ask about. Routing them through here matters because
+    /// the point of showing every hotspot at once is a corridor full of them, which is
+    /// exactly where a label that gives too much away does the most damage.
+    /// </remarks>
+    private string Labelled(string noun, string model) =>
+        Stranger(noun)
+        ?? Numbered(noun, model)
+        ?? OneOfSeveral(noun)
+        ?? noun;
+
+    /// <summary>The scene's own model for a noun, when it places one.</summary>
+    private PlacedModel? ModelOf(string noun) =>
+        _scene.Models.FirstOrDefault(
+            m => string.Equals(m.Noun, noun, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// What to call somebody the player has not been introduced to.
+    /// </summary>
+    /// <param name="noun">The noun the scene gives them.</param>
+    /// <returns>What they look like, or null when the player already knows their name.</returns>
+    /// <remarks>
+    /// <para>
+    /// A scene names its people by their surnames — <c>BUTHANE</c>, <c>BUCHELLI</c>,
+    /// <c>WILKES</c> — and the original never had to care, because it drew no label. This
+    /// one does, so pointing at the woman waiting by the tour bus told the player her name
+    /// before Gabriel had said a word to her. It is the leak the second-floor doors had,
+    /// somewhere there is no room number to fall back on.
+    /// </para>
+    /// <para>
+    /// So the label says what can actually be seen. "Woman" and "Man" come out of the
+    /// character's own <c>ShoeType</c> in <c>CHARACTERS.TXT</c> — the only thing in the
+    /// shipped data that says which is which — rather than out of a table kept here by
+    /// hand, and <see cref="Story.Introductions"/> decides when the name is earned using
+    /// the action files' own <c>MET_</c> conditions.
+    /// </para>
+    /// <para>
+    /// Anybody the file says nothing about keeps their name, and so does anybody the
+    /// character file has no shoes for. Both failures are the same shape and it is the safe
+    /// one: a name a little early is a small spoiler, and a stranger who stays a stranger
+    /// after two days of conversation is a bug the player cannot get round.
+    /// </para>
+    /// </remarks>
+    private string? Stranger(string noun)
+    {
+        if (Introductions.Knows(noun, _api) ||
+            ModelOf(noun) is not { Kind: PlacedModelKind.Actor } person ||
+            Watcher?.Characters?.Of(person.Name)?.IsWoman is not { } woman)
+        {
+            return null;
+        }
+
+        return woman ? "Woman" : "Man";
+    }
 
     /// <summary>Does something to what is under the pointer.</summary>
     /// <param name="hover">What was under it, from <see cref="At"/>.</param>

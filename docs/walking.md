@@ -141,3 +141,35 @@ cannot say which of two floors above one another was meant.
 This is what the original does. `Scene::Interact` in the reference casts at the BSP when
 nothing interactive was hit, compares the hit object's name against the scene's floor model
 name, and calls `FindNearestWalkablePosition` before walking the ego there.
+
+## Stopping where the floor does something
+
+A scene file can mark out a rectangle of floor and name a noun for it — see
+[scene-text.md](formats/scene-text.md#triggers) — and standing in one does that noun's
+`WALK`. A walk the *player* asked for stops where it would step onto one rather than
+crossing it: the route is cut at the point it crosses the rectangle's edge, which is
+`Walker::FindEarliestPathNodeInsideActiveTriggerRegion` in the reference. Its own comment
+gives the case, and it is the lobby on the first morning: the way to the front door goes
+through Jean's rectangle, and without this the player walks over it and Jean introduces
+himself to somebody already at the door.
+
+Only the player, and only a walk they asked for. A script that sends somebody somewhere
+means all the way there — the museum's eavesdrop ends by walking Gabriel into the very
+rectangle that started it.
+
+## Between the recorded frames
+
+The stride is a clip like any other and is played like one: `ActFile.PoseAt` mixes the poses
+either side of the moment rather than holding whole frames — where the two are recorded on
+consecutive frames, which for a walk everything except the shoes is. A planted foot does not
+move and so is not recorded, and what a gap in the recording means is a hold; see
+`formats/vertex-animation.md`, and `known-issues.md` for the stride it was found in. Until 2026-08-24
+this one clip asked for whole frames while every other clip in the game was mixed, so a
+stride recorded at fifteen poses a second and drawn at a hundred and forty showed each pose
+nine times — reported, exactly, as the legs being choppy and nothing else being choppy.
+
+The forward travel that keeps the feet on the ground is taken out at the same fractional
+moment that poses the meshes. Taking it from a whole frame while the legs are mixed between
+two is the difference between a walk and a skate. What still reads whole frames is what asks
+about the clip rather than a moment in it — how far it travels, which sets the pace — and the
+footsteps, which are events on numbered frames.

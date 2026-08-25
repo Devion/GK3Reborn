@@ -370,18 +370,62 @@ public sealed class ActFileTests
     [Fact]
     public void A_mesh_that_is_not_recorded_again_waits_and_then_moves()
     {
-        // The mix is of the recorded poses either side, not of consecutive frame numbers.
-        // Reading a held pose as a keyframe would make a mesh that moves once every ten
-        // frames drift the whole way instead of waiting and then moving.
+        // A mix is only ever between two poses recorded on consecutive frames. A mesh that
+        // does not move is not written again, so the gap is a pose held for its length, and
+        // sliding across it would set the mesh off the moment the hold began.
+        //
+        // Reported as Gabriel's right shoe: his walk records it on frames 0 and 4 to 15 and
+        // his left on 0 to 5 and 14 to 20 - a foot on the ground does not move, so it is not
+        // written - and mixing across those gaps walked each shoe off its own ankle for the
+        // stance half of every stride and snapped it back at the far end.
         ActFile act = Read(
             new Clip(2)
-                .Frame((0, Clip.Transform(Spun(0))), (1, Clip.Transform(Spun(0, Vector3.Zero))))
-                .Frame((0, Clip.Transform(Spun(0))))
                 .Frame(
-                    (0, Clip.Transform(Spun(0))),
+                    (0, Clip.Transform(Spun(0, Vector3.Zero))),
+                    (1, Clip.Transform(Spun(0, Vector3.Zero))))
+                .Frame((0, Clip.Transform(Spun(0, new Vector3(10, 0, 0)))))
+                .Frame(
+                    (0, Clip.Transform(Spun(0, new Vector3(20, 0, 0)))),
                     (1, Clip.Transform(Spun(0, new Vector3(20, 0, 0))))));
 
-        Assert.Equal(10f, (act.PoseAt(1, 1f) ?? default).Translation.X, 3);
+        Assert.Equal(0f, (act.PoseAt(1, 1f) ?? default).Translation.X, 3);
+        Assert.Equal(0f, (act.PoseAt(1, 1.9f) ?? default).Translation.X, 3);
+        Assert.Equal(20f, (act.PoseAt(1, 2f) ?? default).Translation.X, 3);
+
+        // The mesh recorded on every frame goes on being mixed as it was, which is what
+        // makes the shoe part company with the ankle above it.
+        Assert.Equal(5f, (act.PoseAt(0, 0.5f) ?? default).Translation.X, 3);
+        Assert.Equal(15f, (act.PoseAt(0, 1.5f) ?? default).Translation.X, 3);
+    }
+
+    [Fact]
+    public void A_shape_that_is_not_recorded_again_waits_and_then_moves()
+    {
+        // The same rule, and for the same reason: a submesh whose shape has not changed is
+        // not written again either.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Shape(0, new Vector3(0, 0, 0))))
+                .Frame()
+                .Frame((0, Clip.Shape(0, new Vector3(0, 8, 0)))));
+
+        Assert.Equal(0f, Assert.Single(act.ShapeAt(0, 0, 1.5f)!).Y, 3);
+        Assert.Equal(8f, Assert.Single(act.ShapeAt(0, 0, 2f)!).Y, 3);
+    }
+
+    [Fact]
+    public void A_clip_that_cycles_holds_a_mesh_it_stops_recording_early()
+    {
+        // The wrap is the same step as any other, so it only mixes where the last recorded
+        // pose is on the last frame. A stride's planted foot stops being written partway
+        // through and must stay where it was put, not set off towards the opening pose.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Transform(Spun(0, new Vector3(10, 0, 0)))))
+                .Frame()
+                .Frame());
+
+        Assert.Equal(10f, (act.PoseAt(0, 2.5f, cycles: true) ?? default).Translation.X, 3);
     }
 
     [Fact]

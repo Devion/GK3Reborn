@@ -38,7 +38,25 @@ public sealed record CharacterConfig(
     CharacterAxes? Hips = null,
     CharacterAxes? LeftShoe = null,
     CharacterAxes? RightShoe = null,
-    string? ShoeType = null);
+    string? ShoeType = null)
+{
+    /// <summary>Whether the game records this character as a woman.</summary>
+    /// <remarks>
+    /// Out of <see cref="ShoeType"/>, which every one of the file's 45 characters gives and
+    /// which begins with the word: "Female Leather", "Male Boot". It is there to pick a
+    /// footstep sound and it is also the only thing in the shipped data that says which of
+    /// them is a man and which a woman — so it is what the interface calls somebody the
+    /// player has not been introduced to yet. Null when the file says nothing.
+    /// </remarks>
+    public bool? IsWoman =>
+        ShoeType is not { Length: > 0 } shoes
+            ? null
+            : shoes.StartsWith("Female", StringComparison.OrdinalIgnoreCase)
+                ? true
+                : shoes.StartsWith("Male", StringComparison.OrdinalIgnoreCase)
+                    ? false
+                    : null;
+}
 
 /// <summary>
 /// <c>CHARACTERS.TXT</c> — who the game's people are and how they move.
