@@ -1,0 +1,442 @@
+using System.Numerics;
+using GK3Reborn.Content;
+using GK3Reborn.Formats.Models;
+using GK3Reborn.Formats.Scenes;
+
+namespace GK3Reborn.Game;
+
+/// <summary>Somewhere a modelled tree can stand, and how big it has to be to stand there.</summary>
+/// <param name="Species">Which species the card was a picture of.</param>
+/// <param name="Foot">Where the tree meets the ground, or where its crown begins.</param>
+/// <param name="Height">How tall it has to come out, in scene units.</param>
+/// <param name="Radius">How far the card reached from its centre, in scene units.</param>
+/// <param name="Seed">Something stable about the place, for choosing a variant.</param>
+public readonly record struct TreeSite(
+    TreeSpecies Species, Vector3 Foot, float Height, float Radius, int Seed);
+
+/// <summary>
+/// Finds the trees hiding in a scene's flat foliage cards.
+/// </summary>
+/// <remarks>
+/// <para>
+/// GK3 draws a tree as a picture of one on a quad, or on two quads crossed at the trunk.
+/// The picture is the tree's whole description: how tall it is, how wide it spread, and
+/// which species it was meant to be. So a card is not thrown away and guessed at — it is
+/// measured, and what replaces it is grown to the size the artist drew.
+/// </para>
+/// <para>
+/// The species comes from the texture rather than from the model's name, because the names
+/// do not agree with each other and the textures do. <c>WOD_BIGDTREEFF</c>,
+/// <c>CSE_FFTREE03</c> and <c>PL6_FFTREE01</c> are the same broadleaf under three
+/// conventions, and all three draw <c>TREE00</c>.
+/// </para>
+/// </remarks>
+public static class Foliage
+{
+    /// <summary>The smallest card worth replacing, in scene units.</summary>
+    /// <remarks>
+    /// Gabriel is 76 units tall. Anything under half of him is a shrub or a scrap of
+    /// undergrowth rather than a tree, and a grown trunk with a crown on it is the wrong
+    /// shape for it.
+    /// </remarks>
+    private const float SmallestTree = 40f;
+
+    /// <summary>How far a grown tree may be stretched or squeezed to match a card's width.</summary>
+    /// <remarks>
+    /// A tree is not a rectangle and the two do not have to agree exactly, but a maple card
+    /// is square where a grown maple is broader than it is tall, and left alone the crown
+    /// would overhang the path the card kept clear. Clamped, because a tree squashed to
+    /// half its width stops reading as that species at all.
+    /// </remarks>
+    private const float LeastSqueeze = 0.75f;
+
+    /// <summary>The other end of <see cref="LeastSqueeze"/>.</summary>
+    private const float MostStretch = 1.35f;
+
+    /// <summary>Reads a placed prop as a tree, when that is what it is.</summary>
+    /// <param name="model">The parsed prop.</param>
+    /// <param name="trees">The grown trees available to stand in for it.</param>
+    /// <returns>Where a tree goes, or null when this prop is not a tree.</returns>
+    /// <remarks>
+    /// <para>
+    /// Every submesh has to be foliage, and they all have to be the same species. A model
+    /// that is a tree <em>and</em> something else — a lantern hung in one, a sign nailed to
+    /// one — would lose the something else, and there is no way to put it back from here.
+    /// </para>
+    /// <para>
+    /// The box is the model's own, in its own space, because that is the space it will be
+    /// placed in: GK3's props carry their scene position in their vertices rather than in a
+    /// transform, so a card's box is already where the tree goes.
+    /// </para>
+    /// </remarks>
+    public static TreeSite? SiteFor(ModFile model, TreeLibrary trees)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(trees);
+
+        TreeSpecies? species = null;
+        var least = new Vector3(float.MaxValue);
+        var most = new Vector3(float.MinValue);
+        bool any = false;
+
+        foreach (ModMesh mesh in model.Meshes)
+        {
+            foreach (ModSubmesh submesh in mesh.Submeshes)
+            {
+                if (submesh.Positions.Length == 0)
+                {
+                    continue;
+                }
+
+                if (trees.For(submesh.TextureName) is not { } found)
+                {
+                    return null;
+                }
+
+                if (species is not null && !ReferenceEquals(species, found))
+                {
+                    return null;
+                }
+
+                species = found;
+                any = true;
+
+                foreach (Vector3 position in submesh.Positions)
+                {
+                    Vector3 placed = Vector3.Transform(position, mesh.MeshToLocal);
+                    least = Vector3.Min(least, placed);
+                    most = Vector3.Max(most, placed);
+                }
+            }
+        }
+
+        return any && species is not null ? Site(species, least, most) : null;
+    }
+
+    /// <summary>Turns a measured box into a tree that fills it.</summary>
+    /// <param name="species">The species the card was a picture of.</param>
+    /// <param name="least">Lower corner of the card's box.</param>
+    /// <param name="most">Upper corner of the card's box.</param>
+    /// <returns>The site, or null when the box is too small or too flat to be a tree.</returns>
+    public static TreeSite? Site(TreeSpecies species, Vector3 least, Vector3 most)
+    {
+        ArgumentNullException.ThrowIfNull(species);
+
+        float height = most.Y - least.Y;
+
+        if (height < SmallestTree)
+        {
+            return null;
+        }
+
+        // Half the wider horizontal side. A single card is flat in one direction, so its
+        // thin side says nothing about how far the tree spread; a crossed pair is roughly
+        // square and either side would do.
+        float radius = MathF.Max(most.X - least.X, most.Z - least.Z) * 0.5f;
+
+        var foot = new Vector3((least.X + most.X) * 0.5f, least.Y, (least.Z + most.Z) * 0.5f);
+
+        // Quantised, so that a tree keeps its variant across a rebuild of the geometry it
+        // was measured from, and two cards a unit apart do not become two different trees.
+        int seed = Mix(
+            (int)MathF.Round(foot.X / 8f),
+            (int)MathF.Round(foot.Z / 8f),
+            (int)MathF.Round(height / 8f),
+            species.Name);
+
+        return new TreeSite(species, foot, height, radius, seed & int.MaxValue);
+    }
+
+    /// <summary>A hash that is the same in every process, which is the whole point of it.</summary>
+    /// <remarks>
+    /// FNV-1a, written out, and deliberately not <see cref="HashCode"/>: that one is seeded
+    /// randomly once per process, so a wood hashed with it would be a different wood every
+    /// time the game was started. The property being protected is that a room comes out the
+    /// same on every load — a stand that reshuffles itself when the player walks out and
+    /// back in is worse than a stand of identical trees, and it makes two renders of one
+    /// scene impossible to compare. The test for it can only see one process, so the reason
+    /// has to be written down here.
+    /// </remarks>
+    private static int Mix(int x, int z, int height, string species)
+    {
+        const uint Prime = 16777619;
+        uint hash = 2166136261;
+
+        foreach (int part in (stackalloc[] { x, z, height }))
+        {
+            for (int shift = 0; shift < 32; shift += 8)
+            {
+                hash = (hash ^ (byte)(part >> shift)) * Prime;
+            }
+        }
+
+        foreach (char letter in species)
+        {
+            hash = (hash ^ (byte)char.ToUpperInvariant(letter)) * Prime;
+        }
+
+        return (int)hash;
+    }
+
+    /// <summary>
+    /// A run of the room's own geometry that is nothing but foliage cards, and the trees
+    /// hiding in it.
+    /// </summary>
+    /// <param name="Named">The object name, as the geometry file records it.</param>
+    /// <param name="Sites">One site per tree found in it.</param>
+    /// <param name="Cards">How many quads it was drawn with.</param>
+    /// <param name="Triangles">What growing every one of those sites would cost.</param>
+    public readonly record struct FoliageObject(
+        string Named, IReadOnlyList<TreeSite> Sites, int Cards, int Triangles);
+
+    /// <summary>
+    /// Finds the trees in a room's own geometry.
+    /// </summary>
+    /// <param name="scene">The parsed room.</param>
+    /// <param name="trees">The grown trees available to stand in for its cards.</param>
+    /// <returns>One entry per object that is entirely foliage, largest first.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is where most of the game's foliage actually is. The scene files place 431
+    /// foliage props across the corpus; the rooms themselves hold <b>43,136</b> tree cards,
+    /// and 21,502 of those are inside 55 objects — <c>wod_treeshadowcasters</c>,
+    /// <c>lhm_treeshadowcasters</c>, <c>rc1_pleavesshadowcasters</c> — that contain nothing
+    /// else. Replacing only the props leaves a wood where the near trees are modelled and
+    /// everything behind them is still cardboard.
+    /// </para>
+    /// <para>
+    /// <b>Only objects that are nothing but foliage.</b> An object that mixes cards with
+    /// something else cannot be taken away, because a room is hidden by name and there is
+    /// no way to hide half of one: <c>wod_dectree01</c> draws its leaves on cards and its
+    /// bole with <c>TRUNK01</c>, and hiding it to replace the leaves would take the trunk
+    /// with them. 96 objects are mixed like that and they keep their cards.
+    /// </para>
+    /// <para>
+    /// The clustering is deliberately crude, because the data is: one tree is two or three
+    /// quads crossed at the same spot, so quads that stand over the same patch of ground
+    /// and overlap in height are one tree. It is quadratic over the cards of a single
+    /// object, which is a thousand at the very worst and runs once per room.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<FoliageObject> InGeometry(BspFile scene, TreeLibrary trees)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(trees);
+
+        if (trees.IsEmpty)
+        {
+            return [];
+        }
+
+        // Cards by the object that owns them, and only while every one of that object's
+        // surfaces is foliage. A single surface of something else disqualifies the object,
+        // so the check has to see all of them before any of it is used.
+        var cards = new Dictionary<int, List<Card>>();
+        var refused = new HashSet<int>();
+
+        foreach (BspPolygon polygon in scene.Polygons)
+        {
+            if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= scene.Surfaces.Count)
+            {
+                continue;
+            }
+
+            BspSurface surface = scene.Surfaces[polygon.SurfaceIndex];
+            int owner = surface.ObjectIndex;
+
+            if (refused.Contains(owner))
+            {
+                continue;
+            }
+
+            if (trees.For(surface.TextureName) is not { } species)
+            {
+                refused.Add(owner);
+                cards.Remove(owner);
+                continue;
+            }
+
+            var least = new Vector3(float.MaxValue);
+            var most = new Vector3(float.MinValue);
+
+            for (int at = 0; at < polygon.VertexIndexCount; at++)
+            {
+                int index = polygon.VertexIndexOffset + at;
+
+                if (index < 0 || index >= scene.VertexIndices.Length)
+                {
+                    continue;
+                }
+
+                ushort vertex = scene.VertexIndices[index];
+
+                if (vertex < scene.Vertices.Length)
+                {
+                    least = Vector3.Min(least, scene.Vertices[vertex]);
+                    most = Vector3.Max(most, scene.Vertices[vertex]);
+                }
+            }
+
+            if (least.X > most.X)
+            {
+                continue;
+            }
+
+            if (!cards.TryGetValue(owner, out List<Card>? owned))
+            {
+                owned = [];
+                cards[owner] = owned;
+            }
+
+            owned.Add(new Card(species, least, most));
+        }
+
+        List<FoliageObject> found = [];
+
+        foreach ((int owner, List<Card> owned) in cards)
+        {
+            if (owner < 0 || owner >= scene.ObjectNames.Count || owned.Count == 0)
+            {
+                continue;
+            }
+
+            List<TreeSite> sites = Cluster(owned);
+
+            if (sites.Count > 0)
+            {
+                found.Add(new FoliageObject(
+                    scene.ObjectNames[owner],
+                    sites,
+                    owned.Count,
+                    sites.Sum(s => TreeLibrary.Variant(s.Species, s.Seed).Triangles)));
+            }
+        }
+
+        // Largest first, so that a scene spending a triangle budget spends it on the wood
+        // the player is standing in rather than on a copse behind a wall.
+        return [.. found.OrderByDescending(f => f.Cards)];
+    }
+
+    /// <summary>One quad of a room's foliage, before its tree is known.</summary>
+    private readonly record struct Card(TreeSpecies Species, Vector3 Least, Vector3 Most);
+
+    /// <summary>Gathers cards that stand over the same ground into one tree each.</summary>
+    private static List<TreeSite> Cluster(List<Card> cards)
+    {
+        // Widest first. A tree's widest card is the one that says how far it spread, and
+        // starting from it means the narrow crossing quad is drawn into the cluster rather
+        // than becoming a second, thinner tree of its own.
+        List<Card> order = [.. cards.OrderByDescending(
+            c => MathF.Max(c.Most.X - c.Least.X, c.Most.Z - c.Least.Z))];
+
+        bool[] taken = new bool[order.Count];
+        List<TreeSite> sites = [];
+
+        for (int seed = 0; seed < order.Count; seed++)
+        {
+            if (taken[seed])
+            {
+                continue;
+            }
+
+            Card first = order[seed];
+            taken[seed] = true;
+
+            Vector3 least = first.Least;
+            Vector3 most = first.Most;
+
+            // A fifth of the seed card's own width, and no more. Crossed quads share a
+            // trunk, so the cards of one tree sit almost exactly on top of each other; half
+            // a card's width sounds safe and is not, because a wood is planted about one
+            // card apart and half a width swallows the neighbours. WOD's hillside came out
+            // as 34 trees at a half and a hundred and seventy at a fifth, which is what is
+            // actually drawn on it.
+            float width = MathF.Max(most.X - least.X, most.Z - least.Z);
+            float reach = MathF.Max(width * 0.20f, 2f);
+            float span = MathF.Max(width * 1.5f, 8f);
+
+            var centre = new Vector2((least.X + most.X) * 0.5f, (least.Z + most.Z) * 0.5f);
+
+            for (int other = seed + 1; other < order.Count; other++)
+            {
+                if (taken[other])
+                {
+                    continue;
+                }
+
+                Card card = order[other];
+                var at = new Vector2(
+                    (card.Least.X + card.Most.X) * 0.5f, (card.Least.Z + card.Most.Z) * 0.5f);
+
+                // Over the same ground and overlapping in height. Height matters: a room
+                // built on a hillside has cards above cards, and ground position alone
+                // would gather a tree and the one on the terrace above it into one.
+                if (Vector2.Distance(centre, at) > reach ||
+                    card.Least.Y > most.Y || card.Most.Y < least.Y)
+                {
+                    continue;
+                }
+
+                Vector3 grownLeast = Vector3.Min(least, card.Least);
+                Vector3 grownMost = Vector3.Max(most, card.Most);
+
+                // And no wider than half again the card it started from. Without this the
+                // cluster walks: each card it swallows moves the box out a little, the next
+                // one is then inside it, and a stand of six spruces becomes one spruce six
+                // trees wide. A tree is about as wide as the card it was drawn on.
+                if (MathF.Max(grownMost.X - grownLeast.X, grownMost.Z - grownLeast.Z) > span)
+                {
+                    continue;
+                }
+
+                taken[other] = true;
+                least = grownLeast;
+                most = grownMost;
+            }
+
+            if (Site(first.Species, least, most) is { } site)
+            {
+                sites.Add(site);
+            }
+        }
+
+        return sites;
+    }
+
+    /// <summary>Where a grown tree has to be put to fill a site.</summary>
+    /// <param name="site">The site.</param>
+    /// <param name="tree">The variant chosen for it.</param>
+    /// <returns>A transform for the normalised tree.</returns>
+    /// <remarks>
+    /// <para>
+    /// A grown tree stands on the origin and is exactly one unit tall, so the height is the
+    /// whole of the vertical scale. The horizontal scale starts there too and is then
+    /// nudged towards the card's own width, within limits: a grown maple is wider than it
+    /// is tall and the square card it replaces is not, and a crown that overhangs by half
+    /// its width reaches over walls the card never touched.
+    /// </para>
+    /// <para>
+    /// The turn about the vertical is what stops four variants from looking like four
+    /// copies. It comes from the site's seed rather than from a counter, so a wood is the
+    /// same wood every time the room is loaded.
+    /// </para>
+    /// </remarks>
+    public static Matrix4x4 Standing(TreeSite site, GrownTree tree)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+
+        float across = site.Height;
+
+        if (tree.Radius > 0.01f && site.Radius > 0.01f)
+        {
+            float wanted = site.Radius / (tree.Radius * site.Height);
+            across *= Math.Clamp(wanted, LeastSqueeze, MostStretch);
+        }
+
+        float turn = (site.Seed % 3600) / 3600f * MathF.Tau;
+
+        return Matrix4x4.CreateScale(across, site.Height, across)
+            * Matrix4x4.CreateRotationY(turn)
+            * Matrix4x4.CreateTranslation(site.Foot);
+    }
+}

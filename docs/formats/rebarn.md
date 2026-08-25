@@ -27,7 +27,8 @@ That encodes every PNG under `enhanced/` to DDS and writes two volumes into
 | Flag | What it does |
 | --- | --- |
 | `--output <dir>` | Where the volumes go. `<workspace>/build/pack` by default. |
-| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models video` |
+| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models video manifests` |
+| `--only <dir>` | Only the kinds packed from a source directory, such as `enhanced/trees`. |
 | `--cap normals=512` | Longest edge a kind is encoded at, overriding the default. |
 | `--single-volume` | One file rather than two. |
 | `--force` | Re-encode even when a cached DDS is still valid. |
@@ -167,6 +168,20 @@ so a later full run does not generate maps for it either.
 | height | `BC4_UNORM` | 512 | One channel. Half the size of every other block format. |
 | models | `.glb`, stored | — | Already compact. |
 | video | `.mp4`, stored | — | Already a compressed video stream. |
+| manifests | `.json`, deflated | — | Text, and text deflates. |
+
+### One directory, three kinds
+
+Every source directory feeds one kind except `enhanced/trees`, which feeds three: a grown
+tree is geometry (`*.glb` → models), the foliage it is painted with (`*.PNG` → textures,
+encoded like any other colour texture) and a manifest saying which is which (`*.json` →
+manifests). They are produced, reviewed and shipped together, and splitting them into three
+directories to suit the packer would put a tree's parts three places apart for no reason a
+person would recognise. `PackKind.Files` is the search pattern that divides them.
+
+That is also why `--only` exists. Filtering by *kind* cannot reach the trees on their own —
+any filter that catches them drags in every enhanced texture in the game — and re-encoding
+six thousand of those to check that a tree packed is an hour. See `docs/trees.md`.
 
 Colour is the only channel kept at full resolution. The other three modulate a surface the
 colour texture has already described, and detail in them below the colour's own resolution is

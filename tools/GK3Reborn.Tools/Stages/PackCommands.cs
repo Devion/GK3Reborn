@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Rebarn;
@@ -44,6 +44,7 @@ public static class PackCommands
         string? output = Flag(args, "--output");
         string? texconv = Flag(args, "--texconv");
         string? only = Flag(args, "--kinds");
+        string? fromSource = Flag(args, "--only");
         bool force = Has(args, "--force");
         bool dryRun = Has(args, "--dry-run");
         bool encodeOnly = Has(args, "--encode-only");
@@ -76,6 +77,22 @@ public static class PackCommands
             }
 
             plan = [.. plan.Where(k => wanted.Contains(k.Kind))];
+        }
+
+        // --only enhanced/trees packs one source directory and leaves the rest of the plan
+        // alone. Which matters because the trees are three kinds out of one directory: any
+        // filter by kind that reaches them also drags in every enhanced texture in the game,
+        // and re-encoding six thousand of those to check that a tree packed is an hour.
+        if (fromSource is { Length: > 0 })
+        {
+            string under = fromSource.Replace(Path.DirectorySeparatorChar, '/');
+            plan = [.. plan.Where(
+                k => k.Source.Contains(under, StringComparison.OrdinalIgnoreCase))];
+
+            if (plan.Count == 0)
+            {
+                return Usage($"--only: no kind in the plan is packed from {fromSource}.");
+            }
         }
 
         // --cap normals=512,height=256 overrides the defaults one kind at a time.

@@ -168,6 +168,13 @@ once this much is known to work.
 Viewport and scissor are dynamic state, so a window resize re-records the command buffer
 rather than rebuilding the pipeline.
 
+**It is built only when asked for**, by `VulkanRenderer.Create(..., bringUp: true)`, which
+is the `--render` smoke test and nothing else. A frame with no room in it falls back to
+whatever this pipeline draws, and the game has several such frames — the intro films, the
+menu, the timeblock card, the moment between two rooms. Built always, it showed as one frame
+of a red-green-blue triangle between the publisher's logo and the opening film, and it would
+have been what the timeblock card's words sat on in an installation with no painting.
+
 ## Drawing a scene
 
 `SceneGeometry` holds what a scene needs on the GPU — vertex and index buffers, textures,
@@ -189,6 +196,9 @@ of the ground beneath it and coloured by region: green for open floor, darkening
 the walls, amber for the regions a script opens. It draws through the same self-lit path
 as a light bulb and stays out of the acceleration structure, so an overlay never changes
 the picture it exists to check.
+
+`--no-trees` leaves the scene's foliage cards flat instead of growing modelled trees over
+them, which is how the two are compared. See `docs/trees.md`.
 
 `--timeblock` takes either a point in the story — `202P` — or an asset suffix — `M`, `A`,
 `E`, `N`. The story form decides the scene file's conditions, so the scene comes out in

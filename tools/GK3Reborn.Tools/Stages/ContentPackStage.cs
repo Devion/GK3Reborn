@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using GK3Reborn.Formats.Rebarn;
@@ -12,13 +12,24 @@ namespace GK3Reborn.Tools.Stages;
 /// <param name="Colour">Whether the source is sRGB-encoded, which decides <c>-srgbi</c>.</param>
 /// <param name="Cap">Longest edge the output may have; the source's own size when zero.</param>
 /// <param name="Volume">Which volume it is packed into.</param>
+/// <param name="Files">
+/// Which files in the source directory this kind claims, as a search pattern.
+/// </param>
+/// <remarks>
+/// Every kind but one takes a directory of its own. <c>enhanced/trees</c> is the exception
+/// and has to be: a grown tree is geometry, the foliage it is painted with, and a manifest
+/// saying which is which, and the three are one thing that has to be produced, reviewed and
+/// shipped together. Splitting them into three directories to suit the packer would put a
+/// tree's parts three places apart for no reason a person would recognise.
+/// </remarks>
 public sealed record PackKind(
     RebarnKind Kind,
     string Source,
     string? Format,
     bool Colour,
     int Cap,
-    string Volume);
+    string Volume,
+    string Files = "*");
 
 /// <summary>
 /// Encodes the enhanced content to DDS and packs it into ReBarn volumes.
@@ -77,6 +88,14 @@ public sealed class ContentPackStage
         new(RebarnKind.Emissive, "enhanced/emissive", "BC7_UNORM_SRGB", true, 0, "Reborn"),
         new(RebarnKind.Model, "enhanced/models", null, false, 0, "Reborn"),
         new(RebarnKind.Video, "enhanced/video", null, false, 0, "Reborn"),
+
+        // The modelled trees, all three parts of them, out of the one directory they are
+        // grown into. The foliage cards go through the encoder like any other colour
+        // texture, which is what lets the scene loader find them by name without knowing
+        // they belong to a tree; the geometry and the manifest are packed as they stand.
+        new(RebarnKind.Model, "enhanced/trees", null, false, 0, "Reborn", "*.glb"),
+        new(RebarnKind.Manifest, "enhanced/trees", null, false, 0, "Reborn", "*.json"),
+        new(RebarnKind.Texture, "enhanced/trees", "BC7_UNORM_SRGB", true, 0, "Reborn"),
         new(RebarnKind.Normal, "enhanced/normals", "BC5_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Orm, "enhanced/orm", "BC7_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Height, "enhanced/height", "BC4_UNORM", false, 512, "RebornMaterials"),
@@ -297,7 +316,7 @@ public sealed class ContentPackStage
     }
 
     private static List<Packable> Verbatim(PackKind kind, string source) =>
-        [.. Directory.EnumerateFiles(source)
+        [.. Directory.EnumerateFiles(source, kind.Files)
             .Where(f => !Path.GetFileName(f).StartsWith('_'))
             .Select(f => new Packable(kind.Kind, Path.GetFileName(f), f))];
 

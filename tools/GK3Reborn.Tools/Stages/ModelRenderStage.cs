@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
@@ -61,22 +61,39 @@ public sealed class ModelRenderStage
         ArgumentNullException.ThrowIfNull(outputPath);
         ArgumentNullException.ThrowIfNull(diagnostics);
 
-        string wanted = Path.GetExtension(modelName).Equals(".MOD", StringComparison.OrdinalIgnoreCase)
+        // A path to a .glb renders that file instead of asking the archives for a .MOD.
+        // Generated geometry has to be looked at on its own before it is scattered over a
+        // hillside, and the alternative — grow a tree, load a scene, hunt for it in the
+        // frame — is a slow way to find out that a needle spray is too small.
+        bool generated = Path.GetExtension(modelName)
+            .Equals(".glb", StringComparison.OrdinalIgnoreCase);
+
+        string wanted = generated || Path.GetExtension(modelName)
+                .Equals(".MOD", StringComparison.OrdinalIgnoreCase)
             ? modelName
             : modelName + ".MOD";
 
         using GameArchives archives = GameArchives.Open(sourceDirectory);
 
-        byte[]? modelBytes = archives.Read(wanted);
+        byte[]? modelBytes = generated
+            ? (File.Exists(wanted) ? File.ReadAllBytes(wanted) : null)
+            : archives.Read(wanted);
+
         if (modelBytes is null)
         {
             diagnostics.Add(new Diagnostic(
-                "RENDER001", DiagnosticSeverity.Error, $"No archive contains {wanted}."));
+                "RENDER001",
+                DiagnosticSeverity.Error,
+                generated
+                    ? $"There is no file at {wanted}."
+                    : $"No archive contains {wanted}."));
 
             return false;
         }
 
-        ModFile parsed = ModFile.Parse(modelBytes, wanted);
+        ModFile parsed = generated
+            ? GlbReader.Parse(modelBytes, wanted)
+            : ModFile.Parse(modelBytes, wanted);
         _log($"{wanted}: {parsed.Meshes.Count} meshes, {parsed.TriangleCount} triangles");
 
         // The same call the game makes, so what is rendered here is what a player sees
@@ -102,6 +119,17 @@ public sealed class ModelRenderStage
                      .Where(n => n.Length > 0)
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            // Beside the model first, for the same reason the scene loader looks there:
+            // a grown tree is painted with foliage drawn for it, which no archive holds.
+            string local = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(wanted)) ?? ".", texture + ".PNG");
+
+            if (generated && File.Exists(local))
+            {
+                geometry.AddTexture(texture, PngReader.Decode(File.ReadAllBytes(local), local));
+                continue;
+            }
+
             byte[]? bytes = archives.Read(texture) ?? archives.Read(texture + ".BMP");
             if (bytes is null || !BitmapDecoder.CanDecode(bytes))
             {

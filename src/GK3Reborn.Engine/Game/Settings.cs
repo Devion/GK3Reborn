@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using GK3Reborn.Audio;
 using GK3Reborn.Rendering;
@@ -70,6 +70,18 @@ public sealed record Settings
 
     /// <summary>Whether to use the higher-resolution textures where they exist.</summary>
     public bool EnhancedTextures { get; init; } = true;
+
+    /// <summary>
+    /// Whether a foliage card is replaced by a modelled tree where one has been grown.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="EnhancedTextures"/> because it is a separate judgement and
+    /// a separate cost. A better bitmap on a wall is free; a wood of modelled trees is
+    /// eighty thousand triangles where there were nine thousand, and it changes an outdoor
+    /// scene's silhouette rather than its surface. Somebody who wants the 1999 outline
+    /// should be able to have it with the rest of the enhancement left on.
+    /// </remarks>
+    public bool ModelledTrees { get; init; } = true;
 
     /// <summary>
     /// How many times a character's head is subdivided, or zero to draw it as authored.

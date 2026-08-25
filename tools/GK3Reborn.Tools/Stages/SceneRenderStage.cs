@@ -65,6 +65,8 @@ public sealed class SceneRenderStage
     /// <param name="enhanced">Higher-resolution textures to prefer, or null for none.</param>
     /// <param name="heads">How far to subdivide a character's head; zero draws it as authored.</param>
     /// <param name="relief">Whether the floor's height map is cut into the geometry.</param>
+    /// <param name="trees">Whether foliage cards are grown into modelled trees.</param>
+    /// <param name="packs">Where the ReBarn volumes are, or null to use loose content only.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
     public bool Run(
@@ -86,6 +88,8 @@ public sealed class SceneRenderStage
         string? enhanced,
         int heads,
         bool relief,
+        bool trees,
+        string? packs,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -137,6 +141,17 @@ public sealed class SceneRenderStage
 
         var loader = new SceneLoader(archives, _log) { SmoothHeads = heads };
 
+        // Opened for the whole render, because a packed texture's blocks point into the
+        // memory-mapped volume and stay valid only while it is open.
+        using RebarnContent? volumes = packs is { Length: > 0 }
+            ? RebarnContent.Open(packs, diagnostics)
+            : null;
+
+        if (volumes?.Describe() is { } summary)
+        {
+            _log($"packs: {summary}");
+        }
+
         if (enhanced is { Length: > 0 })
         {
             EnhancedTextures set = EnhancedTextures.Open(enhanced);
@@ -159,6 +174,32 @@ public sealed class SceneRenderStage
                  $"{finishes.Metallic} metal" +
                  (finishes.Corrected > 0 ? $", {finishes.Corrected} corrected by hand" : string.Empty));
         }
+
+        if (volumes is not null)
+        {
+            // The foliage a grown tree is painted with is packed as an ordinary colour
+            // texture, so this is what finds it: no special case, just the compressed set
+            // answering for a name the archives have never heard of.
+            loader.Compressed = CompressedTextures.Open(string.Empty, volumes);
+        }
+
+        // Outside the --enhanced block, because the packs are a supply of their own: a
+        // shipped game has volumes beside the executable and no content workspace anywhere,
+        // and gating the trees on a loose directory would mean nobody who installed the
+        // game ever saw one. Reported whether or not there are any, since a render with no
+        // trees in it and a render whose trees never loaded look identical.
+        TreeLibrary grown = trees
+            ? TreeLibrary.Open(
+                enhanced is { Length: > 0 } ? Beside(enhanced, "trees") : string.Empty,
+                volumes,
+                diagnostics)
+            : TreeLibrary.Open(string.Empty);
+
+        loader.Trees = grown;
+        _log(grown.IsEmpty
+            ? "trees: none grown; every foliage card stays flat"
+            : $"trees: {grown.Count} grown across {grown.SpeciesCount} species, " +
+              (grown.Packed ? "read from the packs" : "read loose"));
 
         if (glance is { Length: > 0 })
         {

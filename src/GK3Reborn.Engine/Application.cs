@@ -910,6 +910,33 @@ public static class Application
                 }
             }
 
+            // The modelled trees, beside the textures and gated on their own setting. Not
+            // inside the block above: this is geometry rather than a bitmap, it costs an
+            // outdoor scene ten times its triangles, and somebody who wants the 1999
+            // outline should be able to keep the rest of the enhancement.
+            //
+            // From the packs as well as from a workspace, and outside the --enhanced block
+            // for the same reason the compressed textures are: a shipped game has packs and
+            // no content workspace at all, so gating the trees on a loose directory would
+            // mean nobody who installed the game ever saw one.
+            if (settings.ModelledTrees)
+            {
+                TreeLibrary trees = TreeLibrary.Open(
+                    packsOnly || enhancedDirectory is not { Length: > 0 }
+                        ? string.Empty
+                        : Beside(enhancedDirectory, "trees"),
+                    packs);
+
+                loader.Trees = trees;
+
+                if (first && !trees.IsEmpty)
+                {
+                    Console.WriteLine(
+                        $"Modelled trees: {trees.Count} grown across {trees.SpeciesCount} " +
+                        $"species, {(trees.Packed ? "packed" : "loose")}");
+                }
+            }
+
             // The block-compressed build of the same set, preferred over the originals
             // wherever it has an answer: nothing to decode, a mip chain already built, and
             // a quarter of the video memory. Outside the --enhanced block on purpose — a
@@ -4712,7 +4739,10 @@ public static class Application
     private static int RenderFrames(int frameLimit)
     {
         using var window = Platform.SilkGameWindow.Open("GK3Reborn");
-        using var renderer = Rendering.Vulkan.VulkanRenderer.Create(window, window);
+
+        // The one caller that wants the bring-up triangle: there is no room to draw and the
+        // point is to prove the chain reaches the screen at all.
+        using var renderer = Rendering.Vulkan.VulkanRenderer.Create(window, window, bringUp: true);
 
         Console.WriteLine($"Renderer: {renderer}");
 

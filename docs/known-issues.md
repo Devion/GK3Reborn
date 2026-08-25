@@ -203,6 +203,28 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### A coloured triangle flashed between the intro films — fixed 2026-08-25
+
+**Reported** as a short frame with a colourful pyramid in it between the intros, and guessed
+at as stale Vulkan testing. That is exactly what it was.
+
+`TrianglePipeline` is the first bring-up: three vertices from `SV_VertexID`, red at the apex
+and green and blue along the bottom, and it proves a device, a swapchain and a present loop
+reach the screen on a machine with nothing else to show. It was built at startup always, and
+`DrawFrame` falls back to it whenever there is no room to draw — so it was underneath every
+frame of the intro, hidden only because a film covers the window.
+
+**What uncovered it is the film ending.** `MoviePlayer.Stop` drops the picture, and the intro
+loop hands the renderer whatever picture there is and then draws, so the frame in which a
+film ends or is skipped has no picture in it. That frame stays on screen for as long as
+opening the next film takes, which is long enough to see.
+
+The triangle is opt-in now — `VulkanRenderer.Create(..., bringUp: true)`, which only the
+`--render` smoke test asks for — so a frame with no room and no picture draws the clear
+colour, as the black between two films should be. The same fallback was under the menu, the
+timeblock card and the moment between two rooms, and the card without its painting was
+documented as showing its words over black when it would have shown them over this.
+
 ### Gabriel's right shoe came off his ankle every stride — fixed 2026-08-25
 
 **Reported** after the walk was made to interpolate: his right shoe lags behind, comes away

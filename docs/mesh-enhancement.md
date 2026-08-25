@@ -83,11 +83,15 @@ skinning. Nothing imported here has a skeleton, so the organic/hard-surface spli
 comes from the declared role rather than from rig data. Building skeletons is its own
 project, scheduled as C6.
 
-**Nothing here reaches the screen.** The engine draws `.MOD` geometry; it has no glTF
-reader, so `enhanced/models` is an output and not yet an input. The one piece of mesh
-enhancement that is live in the game is the head refinement, which does its subdivision
-inside the engine on the original geometry rather than importing anything — see
-`head-refinement.md`.
+**Nothing here reaches the screen yet, but the door is now open.** When this was written
+the engine drew `.MOD` geometry and had no glTF reader, so `enhanced/models` was an output
+and could never be an input. `Formats/Models/GlbReader` has since closed that — see
+`trees.md`, which is its first consumer — and what remains is that nothing loads the output
+of *this* stage in particular: an enhanced `.MOD` has to be matched to the original it
+replaces, and no scene does that yet. The two pieces of mesh work that are live in the game
+are the head refinement, which subdivides inside the engine on the original geometry rather
+than importing anything (`head-refinement.md`), and the modelled trees, which are grown
+rather than converted.
 
 **Texture work is not here.** Upscaling and PBR channel generation are an image
 pipeline, not a mesh one; coupling them would join two stages that fail for unrelated

@@ -68,6 +68,15 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private bool _presentedAnything;
     private bool _needsRecreate;
     private ShaderCompiler? _shaderCompiler;
+
+    /// <summary>The bring-up triangle, when this renderer was asked for one.</summary>
+    /// <remarks>
+    /// <b>Not part of the game.</b> It is what a smoke test draws to prove a device, a
+    /// swapchain and a present loop work on a machine with nothing else to show, and it is
+    /// built only when <c>Create</c> is asked for it. Built always, it is what the frame
+    /// with no room and no picture in it fell back to — which is how one frame of a
+    /// red-green-blue triangle got in between the publisher's logo and the opening film.
+    /// </remarks>
     private TrianglePipeline? _triangle;
     private OverlayPipeline? _overlay;
 
@@ -132,12 +141,17 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private DeviceMemory _depthMemory;
     private ImageView _depthView;
 
-    private VulkanRenderer(Vk vk, IGameWindow window, IVulkanSurfaceSource surfaceSource)
+    private VulkanRenderer(
+        Vk vk, IGameWindow window, IVulkanSurfaceSource surfaceSource, bool bringUp)
     {
         _vk = vk;
         _window = window;
         _surfaceSource = surfaceSource;
+        _bringUp = bringUp;
     }
+
+    /// <summary>Whether to build the bring-up triangle. See <see cref="_triangle"/>.</summary>
+    private readonly bool _bringUp;
 
     /// <summary>The device this renderer is using.</summary>
     public string DeviceName { get; private set; } = "unknown";
@@ -233,14 +247,21 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <param name="window">Window to present into.</param>
     /// <param name="surfaceSource">Surface provider for that window.</param>
     /// <param name="enableValidation">Whether to turn on validation layers when present.</param>
+    /// <param name="bringUp">
+    /// Whether to build the bring-up triangle, which a frame with nothing else to draw falls
+    /// back to. For the smoke test that has nothing else to draw; the game never wants it.
+    /// </param>
     /// <returns>The renderer.</returns>
     public static VulkanRenderer Create(
-        IGameWindow window, IVulkanSurfaceSource surfaceSource, bool enableValidation = true)
+        IGameWindow window,
+        IVulkanSurfaceSource surfaceSource,
+        bool enableValidation = true,
+        bool bringUp = false)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(surfaceSource);
 
-        var renderer = new VulkanRenderer(Vk.GetApi(), window, surfaceSource);
+        var renderer = new VulkanRenderer(Vk.GetApi(), window, surfaceSource, bringUp);
 
         try
         {
@@ -1404,6 +1425,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
         else if (_triangle is not null)
         {
+            // Only the smoke test builds one. See the field: a game frame with no room in it
+            // draws the clear colour and whatever is over it, not this.
+
             var viewport = new Viewport
             {
                 Width = _extent.Width,
@@ -1753,7 +1777,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
         // Compiled shaders are cached beside the executable, so the compiler runs only
         // when a shader actually changes.
         _shaderCompiler = new ShaderCompiler(Path.Combine(AppContext.BaseDirectory, "shader-cache"));
-        _triangle = TrianglePipeline.Create(_vk, _device, _format, _shaderCompiler);
+
+        if (_bringUp)
+        {
+            _triangle = TrianglePipeline.Create(_vk, _device, _format, _shaderCompiler);
+        }
 
         _context = VulkanContext.Adopt(
             _vk, _instance, _physicalDevice, _device, _graphicsQueue, _graphicsFamily,

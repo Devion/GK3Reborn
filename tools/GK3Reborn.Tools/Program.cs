@@ -152,6 +152,8 @@ public static class Program
                 EnhancedDirectory(options),
                 options.Heads,
                 options.Relief,
+                options.Trees,
+                options.Packs,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height,
@@ -720,12 +722,17 @@ public static class Program
               --no-relief          render-scene leaves the floor flat, drawing its
                                    height map with the shader alone. What the room
                                    looked like before displacement, for comparison.
+              --no-trees           render-scene leaves the foliage cards flat rather
+                                   than growing modelled trees in their place. What
+                                   the wood looked like in 1999, for comparison.
               --heads N            How far render-model subdivides a character's
                                    head, 0 to 3. The same refinement the game
                                    applies, so a before and after can be
                                    rendered from one command.
               --tool NAME          What produced the candidates, recorded as
                                    provenance by import-textures.
+              --only DIR           pack-content packs only the kinds whose source is
+                                   under DIR, such as enhanced/trees.
               --texconv PATH       Where texconv.exe is, for pack-content.
               --cap KIND=N         Longest edge pack-content encodes a kind at, such as
                                    normals=1024. Colour is never capped by default.
@@ -810,6 +817,9 @@ public static class Program
         /// <summary>Whether render-scene cuts the floor's height map into its geometry.</summary>
         public bool Relief { get; init; } = true;
 
+        /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
+        public bool Trees { get; init; } = true;
+
         public string? Tool { get; init; }
 
         public string? Enhanced { get; init; }
@@ -842,6 +852,7 @@ public static class Program
             string? variant = null;
             int heads = 0;
             bool relief = true;
+            bool trees = true;
             string? tool = null;
             string? enhanced = null;
             bool force = false;
@@ -868,6 +879,9 @@ public static class Program
                         break;
                     case "--no-relief":
                         relief = false;
+                        break;
+                    case "--no-trees":
+                        trees = false;
                         break;
 
                     case "--force":
@@ -979,6 +993,7 @@ public static class Program
                 Variant = variant,
                 Heads = heads,
                 Relief = relief,
+                Trees = trees,
                 Tool = tool,
                 Enhanced = enhanced,
             };

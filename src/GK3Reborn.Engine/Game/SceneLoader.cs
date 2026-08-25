@@ -213,6 +213,13 @@ public sealed class SceneLoader
     private readonly GameArchives _archives;
     private readonly Action<string>? _log;
     private int _enhancedUsed;
+    private int _treesGrown;
+
+    /// <summary>Which of a room's trees the budget stretched to growing in full.</summary>
+    private readonly HashSet<int> _nearTrees = [];
+
+    /// <summary>Where a prop has already put a modelled tree, so the room does not too.</summary>
+    private readonly List<(System.Numerics.Vector3 Foot, float Radius)> _standing = [];
 
     /// <summary>Creates a loader.</summary>
     /// <param name="archives">Where to read assets from.</param>
@@ -263,6 +270,20 @@ public sealed class SceneLoader
     /// than as displacement, so it deepens what is already flat and changes no silhouette.
     /// </remarks>
     public EnhancedTextures? Heights { get; set; }
+
+    /// <summary>
+    /// Modelled trees to stand in place of the scene's flat foliage cards.
+    /// </summary>
+    /// <remarks>
+    /// The one enhancement here that changes geometry rather than what is painted on it,
+    /// and it is confined to foliage because foliage is where a card is the whole of the
+    /// object: a wall drawn flat is a wall, and a tree drawn flat is a picture of a tree.
+    /// Null or empty leaves every card exactly as it shipped.
+    /// </remarks>
+    public TreeLibrary? Trees { get; set; }
+
+    /// <summary>How many flat cards were replaced by a modelled tree in the last load.</summary>
+    public int TreesGrown => _treesGrown;
 
     /// <summary>
     /// The same textures and maps, block-compressed, if the pipeline has built them.
@@ -338,6 +359,13 @@ public sealed class SceneLoader
         string scene = request.Scene;
         string? timeblock = request.AssetSuffix;
 
+        // Where this room's trees are, and nowhere else. A loader is meant to be built per
+        // scene, but one that was not would carry the last room's trees into this one and
+        // refuse to plant anything near where they stood — in a different room, at
+        // coordinates that mean something else entirely.
+        _standing.Clear();
+        _nearTrees.Clear();
+
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
         SceneAssetFile? asset = ReadAsset(scene, timeblock, init, diagnostics);
 
@@ -383,7 +411,18 @@ public sealed class SceneLoader
         }
 
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
-        geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject);
+
+        // Decided before the room is added, because growing a wood means not drawing the
+        // cards it replaces, and the cards are hidden by naming them here.
+        List<Foliage.FoliageObject> woods = GrowWoods(bsp, diagnostics);
+        HashSet<string> hidden = HiddenObjects(init);
+
+        foreach (Foliage.FoliageObject wood in woods)
+        {
+            hidden.Add(wood.Named);
+        }
+
+        geometry.AddScene(bsp, lightmaps, hidden, floorObject);
 
         // 177 of the game's 229 scene assets name a sky, and which one is already decided
         // by the time of day the timeblock chose.
@@ -395,11 +434,25 @@ public sealed class SceneLoader
         ReportDisputedVisibility(init, diagnostics);
 
         List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
+
+        // After the props, because the two overlap. A room's shadow-caster cards are a
+        // second copy of the trees the scene file also places as props - WOD draws ten
+        // pines twice, once in `wod_treeshadowcasters` and once as ten `_pineleavesff`
+        // models a few units away - and the original drew both, one lit by the bake and one
+        // not. Two flat cards in the same place are a slightly thicker tree; two *modelled*
+        // trees in the same place are a mess, so the props win and the room's copies of
+        // them are left out.
+        PlantWoods(geometry, woods, diagnostics);
         placed.AddRange(
             PlaceActors(geometry, init, diagnostics, request.State?.LastLocation));
         _log?.Invoke(
             $"models: {placed.Count} placed, textures: {geometry.TextureCount}" +
             (_enhancedUsed > 0 ? $", {_enhancedUsed} of them enhanced" : string.Empty));
+
+        if (_treesGrown > 0)
+        {
+            _log?.Invoke($"trees: {_treesGrown} cards grown into modelled trees");
+        }
 
         return new LoadedScene(
             scene,
@@ -898,6 +951,19 @@ public sealed class SceneLoader
             }
 
             ModFile parsed = ModFile.Parse(bytes, model.Name + ".MOD");
+            Matrix4x4 standing = Matrix4x4.Identity;
+
+            // A flat tree becomes a modelled one here, before anything else is decided
+            // about it. Everything downstream — the noun the player clicks, whether the
+            // scene starts it hidden, the script that shows it again — is about the
+            // placement rather than about the shape, so a tree that grew is still the
+            // same prop under the same name.
+            if (GrowTree(parsed, diagnostics) is { } grown)
+            {
+                parsed = grown.Model;
+                standing = grown.Standing;
+                _treesGrown++;
+            }
 
             LoadTextures(
                 geometry,
@@ -910,7 +976,8 @@ public sealed class SceneLoader
             // RC1's moped — which waits out of sight for the scripted moment it rides
             // past the hotel — was never loaded at all, so the show did nothing and the
             // player heard Gabriel remark on a bike that was not there.
-            ModelPlacement placement = geometry.Add(parsed);
+            ModelPlacement placement = geometry.Add(
+                parsed, standing.IsIdentity ? null : standing);
 
             if (model.Hidden)
             {
@@ -922,7 +989,7 @@ public sealed class SceneLoader
                 model.Noun,
                 model.Verb,
                 parsed,
-                Matrix4x4.Identity,
+                standing,
                 PlacedModelKind.Prop,
                 placement)
             {
@@ -935,6 +1002,261 @@ public sealed class SceneLoader
         }
 
         return placed;
+    }
+
+    /// <summary>
+    /// How many triangles of grown wood one room may be given.
+    /// </summary>
+    /// <remarks>
+    /// A cap rather than a target, and the reason there is one is arithmetic. LHM draws its
+    /// hillside with 1,023 foliage cards, which cluster into a hundred and sixty trees; at
+    /// four thousand triangles each that is six hundred thousand triangles of scenery behind
+    /// a conversation, in a room that shipped at six thousand. Every stand is grown at the
+    /// far detail first, which is a quarter of the cost, and the budget left over is spent
+    /// raising the tallest trees to full — so what a player stands under is modelled and the
+    /// ridge behind it is suggested.
+    /// </remarks>
+    private const int WoodBudget = 400_000;
+
+    /// <summary>Finds the stands of trees in a room, as far as the budget reaches.</summary>
+    /// <param name="scene">The parsed room.</param>
+    /// <param name="diagnostics">Receives a warning for any grown tree that will not load.</param>
+    /// <returns>The objects whose cards are to be replaced, largest first.</returns>
+    /// <remarks>
+    /// All of an object or none of it. A room is hidden by name and there is no way to hide
+    /// half of one, so growing part of a stand and leaving the rest would draw the modelled
+    /// trees over the cards they were meant to replace.
+    /// </remarks>
+    private List<Foliage.FoliageObject> GrowWoods(BspFile scene, DiagnosticBag diagnostics)
+    {
+        if (Trees is not { IsEmpty: false } library)
+        {
+            return [];
+        }
+
+        List<Foliage.FoliageObject> afforded = [];
+        int spent = 0;
+        int refused = 0;
+        int unreadable = 0;
+
+        foreach (Foliage.FoliageObject wood in Foliage.InGeometry(scene, library))
+        {
+            int cheapest = wood.Sites.Sum(
+                s => TreeLibrary.Variant(s.Species, s.Seed, far: true).Triangles);
+
+            if (spent + cheapest > WoodBudget)
+            {
+                refused += wood.Sites.Count;
+                continue;
+            }
+
+            // Read before the object is committed to, not while planting it. Hiding a
+            // room's cards and then finding the geometry that was to replace them will not
+            // load leaves a hole in the hillside, which is worse than the flat trees this
+            // set out to remove. Reads are cached, so this costs nothing twice.
+            if (!Readable(wood, library, diagnostics))
+            {
+                unreadable += wood.Sites.Count;
+                continue;
+            }
+
+            spent += cheapest;
+            afforded.Add(wood);
+        }
+
+        if (unreadable > 0)
+        {
+            _log?.Invoke(
+                $"trees: {unreadable} left flat; the grown trees for them will not load");
+        }
+
+        // What is left after every stand is standing, spent on the tallest trees across all
+        // of them. Tallest rather than nearest, because there is no camera yet and height is
+        // the only thing in the data that says which tree a room is about.
+        _nearTrees.Clear();
+        int left = WoodBudget - spent;
+
+        foreach (TreeSite site in afforded
+                     .SelectMany(w => w.Sites)
+                     .OrderByDescending(s => s.Height))
+        {
+            int upgrade = TreeLibrary.Variant(site.Species, site.Seed).Triangles
+                - TreeLibrary.Variant(site.Species, site.Seed, far: true).Triangles;
+
+            if (upgrade > left)
+            {
+                break;
+            }
+
+            left -= upgrade;
+            _nearTrees.Add(site.Seed);
+        }
+
+        if (refused > 0)
+        {
+            // Said out loud, because a silent cap reads as "the corpus has no more foliage
+            // in it" when what happened is that this room had more than it could afford.
+            _log?.Invoke(
+                $"trees: {refused} left flat, over the {WoodBudget:N0}-triangle budget");
+        }
+
+        return afforded;
+    }
+
+    /// <summary>Whether every tree a stand needs can actually be loaded.</summary>
+    /// <remarks>
+    /// Both details, because the budget decides between them after this and either may be
+    /// asked for. A stand is all or nothing: the room hides its cards by object name, so one
+    /// tree that will not read costs the whole object rather than one trunk.
+    /// </remarks>
+    private static bool Readable(
+        Foliage.FoliageObject wood, TreeLibrary library, DiagnosticBag diagnostics)
+    {
+        foreach (TreeSite site in wood.Sites)
+        {
+            if (library.Read(TreeLibrary.Variant(site.Species, site.Seed, far: true),
+                    diagnostics) is null ||
+                library.Read(TreeLibrary.Variant(site.Species, site.Seed), diagnostics) is null)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Stands the grown trees where a room's cards were.</summary>
+    private void PlantWoods(
+        ISceneSink geometry,
+        List<Foliage.FoliageObject> woods,
+        DiagnosticBag diagnostics)
+    {
+        if (Trees is not { } library || woods.Count == 0)
+        {
+            return;
+        }
+
+        int planted = 0;
+        int full = 0;
+        int cards = 0;
+        int doubled = 0;
+
+        foreach (Foliage.FoliageObject wood in woods)
+        {
+            foreach (TreeSite site in wood.Sites)
+            {
+                if (AlreadyStanding(site))
+                {
+                    doubled++;
+                    continue;
+                }
+
+                bool near = _nearTrees.Contains(site.Seed);
+                GrownTree chosen = TreeLibrary.Variant(site.Species, site.Seed, far: !near);
+
+                if (library.Read(chosen, diagnostics) is not { } grown)
+                {
+                    continue;
+                }
+
+                LoadTextures(
+                    geometry,
+                    grown.Meshes.SelectMany(m => m.Submeshes).Select(s => s.TextureName),
+                    chosen.Name,
+                    diagnostics);
+
+                geometry.Add(grown, Foliage.Standing(site, chosen));
+                planted++;
+
+                if (near)
+                {
+                    full++;
+                }
+            }
+
+            cards += wood.Cards;
+        }
+
+        if (planted > 0)
+        {
+            _treesGrown += planted;
+            _log?.Invoke(
+                $"trees: {planted} grown over {cards} cards in {woods.Count} of the " +
+                $"room's own objects, {full} of them at full detail" +
+                (doubled > 0 ? $", {doubled} left to the props standing on them" : string.Empty));
+        }
+    }
+
+    /// <summary>Whether a prop has already grown a tree where this site is.</summary>
+    /// <remarks>
+    /// <para>
+    /// A third of a crown's radius, which is much tighter than it sounds and is a measured
+    /// number rather than a cautious one. Where a scene places a foliage prop, the room's
+    /// own copy of that tree is <b>within twenty-two units of it and usually within five</b>
+    /// — measured across WOD's eighteen pines, whose crowns are two hundred units across.
+    /// So the duplicates are unambiguous, and anything further away is a different tree.
+    /// </para>
+    /// <para>
+    /// The looser rule this replaced took a whole radius, which suppressed 81 of WOD's 87
+    /// stands to remove 18 duplicates: the hillside behind the eighteen props went with
+    /// them, and the wood came out as a clearing.
+    /// </para>
+    /// </remarks>
+    private bool AlreadyStanding(TreeSite site)
+    {
+        foreach ((System.Numerics.Vector3 foot, float radius) in _standing)
+        {
+            float apart = System.Numerics.Vector2.Distance(
+                new System.Numerics.Vector2(foot.X, foot.Z),
+                new System.Numerics.Vector2(site.Foot.X, site.Foot.Z));
+
+            if (apart < MathF.Max(MathF.Min(radius, site.Radius) * 0.35f, 10f) &&
+                MathF.Abs(foot.Y - site.Foot.Y) < site.Height)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Grows a modelled tree in place of a prop that is only a picture of one.
+    /// </summary>
+    /// <param name="card">The prop as the archive holds it.</param>
+    /// <param name="diagnostics">Receives a warning when a grown tree will not read.</param>
+    /// <returns>The tree and where it stands, or null when this prop stays as it is.</returns>
+    /// <remarks>
+    /// <para>
+    /// Null is the ordinary answer and costs one dictionary lookup per submesh: no tree
+    /// library, no foliage texture, or a prop that is a tree and something else all leave
+    /// the card alone. That matters because this runs over every prop in every scene, and
+    /// most scenes are indoors.
+    /// </para>
+    /// <para>
+    /// A tree that will not read leaves the card too, rather than leaving a gap. Enhanced
+    /// content is a draft until somebody has looked at it, and one bad file in a set should
+    /// cost that tree and nothing else.
+    /// </para>
+    /// </remarks>
+    private (ModFile Model, Matrix4x4 Standing)? GrowTree(
+        ModFile card, DiagnosticBag diagnostics)
+    {
+        if (Trees is not { IsEmpty: false } library ||
+            Foliage.SiteFor(card, library) is not { } site)
+        {
+            return null;
+        }
+
+        GrownTree chosen = TreeLibrary.Variant(site.Species, site.Seed);
+
+        if (library.Read(chosen, diagnostics) is not { } grown)
+        {
+            return null;
+        }
+
+        _standing.Add((site.Foot, site.Radius));
+        return (grown, Foliage.Standing(site, chosen));
     }
 
     /// <summary>Puts the scene's actors where the scene says they stand.</summary>
@@ -1347,6 +1669,21 @@ public sealed class SceneLoader
             byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
             bool readable = bytes is not null && BitmapDecoder.CanDecode(bytes);
             DecodedImage? original = readable ? BitmapDecoder.Decode(bytes!, texture) : null;
+
+            // Foliage drawn for the modelled trees, which no archive holds and no enhanced
+            // set replaces: a needle spray is not a better version of a 1999 bitmap, it is
+            // a new one. Asked first, and only for names the tree pack actually carries,
+            // so it costs one dictionary lookup for every other texture in the game.
+            if (Trees?.Textures.Read(texture, bag) is { } foliage)
+            {
+                read[i] = (
+                    bumps, blockBumps,
+                    finish, blockFinish,
+                    relief, blockRelief,
+                    foliage, null, Source.Enhanced, null);
+
+                return;
+            }
 
             // The enhanced picture. It falls back on its own if it will not decode, so a bad
             // file in the enhanced set costs that texture and nothing else.

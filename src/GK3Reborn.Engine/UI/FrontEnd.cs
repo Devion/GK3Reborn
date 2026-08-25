@@ -420,10 +420,11 @@ public sealed class FrontEnd
         // collected at the bottom makes the reader work out which belongs to which.
         MenuItem.Label(Explain(Settings.Picture)),
         MenuItem.Toggle("enhanced", "Higher-resolution textures", Settings.EnhancedTextures),
+        MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
 
         // The room standing round the player was built from whichever set was chosen when
         // it loaded. Rebuilding it here would mean reloading the scene underneath them.
-        MenuItem.Label("Textures change as you go through the next door."),
+        MenuItem.Label("Textures and trees change as you go through the next door."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -487,6 +488,7 @@ public sealed class FrontEnd
             "picture" => Settings with { Picture = Step(Pictures, Settings.Picture, action.Step) },
 
             "enhanced" => Settings with { EnhancedTextures = !Settings.EnhancedTextures },
+            "trees" => Settings with { ModelledTrees = !Settings.ModelledTrees },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "captions" => Settings with { Captions = !Settings.Captions },
