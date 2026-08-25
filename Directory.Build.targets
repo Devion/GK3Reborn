@@ -21,8 +21,19 @@
          An arm64 RuntimeIdentifier moves an executable's target here when the RID is known
          this early. The entry project of a publish learns its RID from a publish profile,
          which is imported after this file, so those profiles set PlatformTarget
-         themselves; assigning it there overrides whatever this leaves. -->
+         themselves; assigning it there overrides whatever this leaves.
+
+         With no RuntimeIdentifier at all the target must follow the machine doing the
+         building, not a guess. x64 was that guess, and on an Apple silicon Mac it produced
+         an assembly the arm64 host then refused to load: "The assembly architecture is not
+         compatible with the current process architecture". That is every RID-less build of
+         an Exe on such a machine - the test projects above all, which are
+         Microsoft.Testing.Platform applications and so are OutputType Exe, and are run
+         directly by build/run-tests.sh. NETCoreSdkPortableRuntimeIdentifier is the SDK's
+         own RID for the host; it comes from the SDK props, which are imported before the
+         project body and so well before this file. -->
     <PlatformTarget Condition="'$(PlatformTarget)' == '' and '$(OutputType)' == 'Exe' and $([System.String]::Copy('$(RuntimeIdentifier)').EndsWith('-arm64'))">arm64</PlatformTarget>
+    <PlatformTarget Condition="'$(PlatformTarget)' == '' and '$(OutputType)' == 'Exe' and '$(RuntimeIdentifier)' == '' and $([System.String]::Copy('$(NETCoreSdkPortableRuntimeIdentifier)').EndsWith('-arm64'))">arm64</PlatformTarget>
     <PlatformTarget Condition="'$(PlatformTarget)' == '' and '$(OutputType)' == 'Exe'">x64</PlatformTarget>
   </PropertyGroup>
 

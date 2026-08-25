@@ -11,6 +11,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="publishlinux\**" />
+    <Compile Remove="publishmac\**" />
+    <Compile Remove="publish\**" />
+    <EmbeddedResource Remove="publishlinux\**" />
+    <EmbeddedResource Remove="publishmac\**" />
+    <EmbeddedResource Remove="publish\**" />
+    <None Remove="publishlinux\**" />
+    <None Remove="publishmac\**" />
+    <None Remove="publish\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../GK3Reborn.Engine/GK3Reborn.Engine.csproj" />
   </ItemGroup>
 
@@ -42,9 +54,7 @@
        is worth having when bisecting a native-loading failure.
        ================================================================================== -->
 
-  <Target Name="RebornRelocateNativeLibraries"
-          AfterTargets="ComputeResolvedFilesToPublishList"
-          Condition="'$(RebornCleanPublishLayout)' != 'false'">
+  <Target Name="RebornRelocateNativeLibraries" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(RebornCleanPublishLayout)' != 'false'">
 
     <ItemGroup>
       <!-- Publish is computed once per inner build, and MSBuild item state outlives a
@@ -58,8 +68,7 @@
     <ItemGroup>
       <!-- A portable publish keeps the package's own runtimes/<rid>/native/ shape, so the
            RID is read back out of the path: two directories up from the file. -->
-      <_RebornPortableNative Include="@(ResolvedFileToPublish)"
-                             Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/'))" />
+      <_RebornPortableNative Include="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/'))" />
       <_RebornPortableNative>
         <RebornRid>$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName($([System.IO.Path]::GetDirectoryName('%(RelativePath)'))))))</RebornRid>
       </_RebornPortableNative>
@@ -69,8 +78,7 @@
            runtimes/ exclusion keeps the two halves disjoint: without it a portable
            publish matches both, and every native ships twice - once under its RID and
            once under a libs/ with no RID at all. -->
-      <_RebornRidNative Include="@(ResolvedFileToPublish)"
-                        Condition="'$(RuntimeIdentifier)' != '' and '%(ResolvedFileToPublish.AssetType)' == 'native' and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/'))" />
+      <_RebornRidNative Include="@(ResolvedFileToPublish)" Condition="'$(RuntimeIdentifier)' != '' and '%(ResolvedFileToPublish.AssetType)' == 'native' and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\','/').StartsWith('runtimes/'))" />
       <_RebornRidNative>
         <RebornRid>$(RuntimeIdentifier)</RebornRid>
       </_RebornRidNative>
@@ -88,9 +96,7 @@
     </ItemGroup>
   </Target>
 
-  <Target Name="RebornPublishSolutionNativeLibraries"
-          AfterTargets="ComputeResolvedFilesToPublishList"
-          Condition="'$(RebornCleanPublishLayout)' != 'false'">
+  <Target Name="RebornPublishSolutionNativeLibraries" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(RebornCleanPublishLayout)' != 'false'">
 
     <ItemGroup>
       <_RebornSolutionNative Remove="@(_RebornSolutionNative)" />
@@ -127,9 +133,7 @@
 
     <!-- Not a warning: the solution's libs/ is gitignored and legitimately absent on a
          fresh checkout. Say so once, plainly, rather than shipping a silent gap. -->
-    <Message Importance="high"
-             Condition="'@(_RebornSolutionNative)' == ''"
-             Text="GK3Reborn: no native payload found under $(RebornRoot)libs\. The published game will have no video decoder; see docs/formats/video.md." />
+    <Message Importance="high" Condition="'@(_RebornSolutionNative)' == ''" Text="GK3Reborn: no native payload found under $(RebornRoot)libs\. The published game will have no video decoder; see docs/formats/video.md." />
   </Target>
 
   <!-- ==================================================================================
@@ -154,9 +158,7 @@
        host-dependent newline is a host-dependent signature, and this repository asks for
        builds that do not depend on which machine made them - see .gitattributes, and
        Deterministic in Directory.Build.props. Writing the text verbatim is the whole job. -->
-  <UsingTask TaskName="RebornWriteText"
-             TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+  <UsingTask TaskName="RebornWriteText" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
       <Path ParameterType="System.String" Required="true" />
       <Text ParameterType="System.String" Required="true" />
@@ -169,12 +171,9 @@
     </Task>
   </UsingTask>
 
-  <Target Name="RebornWriteMacAppBundle"
-          AfterTargets="Publish"
-          Condition="'$(RebornMacAppBundle)' == 'true'">
+  <Target Name="RebornWriteMacAppBundle" AfterTargets="Publish" Condition="'$(RebornMacAppBundle)' == 'true'">
 
-    <Error Condition="'$(RebornMacBundleRoot)' == ''"
-           Text="RebornMacAppBundle needs RebornMacBundleRoot, the path of the .app. FolderProfileMac sets both." />
+    <Error Condition="'$(RebornMacBundleRoot)' == ''" Text="RebornMacAppBundle needs RebornMacBundleRoot, the path of the .app. FolderProfileMac sets both." />
 
     <!-- Defaulted inside the target rather than in a PropertyGroup of their own: the
          switch that turns any of this on comes from a publish profile, and a profile is
@@ -228,15 +227,10 @@
          iconutil to do it with. Carrying the source into the bundle means a bundle handed
          to a Mac already has everything that step needs. A missing icon is not an error:
          the application runs and shows the generic one. -->
-    <Copy SourceFiles="$(RebornMacIconSource)"
-          DestinationFolder="$(_RebornBundleResources)"
-          Condition="Exists('$(RebornMacIconSource)')"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(RebornMacIconSource)" DestinationFolder="$(_RebornBundleResources)" Condition="Exists('$(RebornMacIconSource)')" SkipUnchangedFiles="true" />
 
     <Message Importance="high" Text="GK3Reborn: wrote $(RebornMacBundleRoot)" />
-    <Message Importance="high"
-             Condition="!Exists('$(RebornMacIconSource)')"
-             Text="GK3Reborn: no icon at $(RebornMacIconSource); the bundle will show the generic application icon." />
+    <Message Importance="high" Condition="!Exists('$(RebornMacIconSource)')" Text="GK3Reborn: no icon at $(RebornMacIconSource); the bundle will show the generic application icon." />
   </Target>
 
 </Project>

@@ -507,11 +507,11 @@ public static class Application
             $"Scripts: {LoadScripts(archives, host, catalogue)} loaded, " +
             $"{catalogue.Count} function signatures");
 
-        // The rules that decide when a point in the story is over, compiled after the
-        // game's own scripts so that the catalogue they build is available to it.
-        Console.WriteLine(LoadStoryRules(host, catalogue)
-            ? "Story rules: Timeblocks.shp compiled, 16 timeblocks"
-            : "Story rules: none, so the clock will not advance");
+        // The rules that decide when a point in the story is over. Code rather than a
+        // script, so there is nothing to compile and nothing that can fail to load; said
+        // here anyway because the count is worth seeing beside the scripts that were.
+        Console.WriteLine(
+            $"Story rules: {Game.Story.TimeblockRules.Known.Count} timeblocks");
 
         // The interface. GK3's own bitmap fonts rather than anything imported: they are in
         // the archives, they are the right size for the game's own screens, and reading one
@@ -1401,7 +1401,7 @@ public static class Application
 
             Timeblock was = api.State.Timeblock;
 
-            if (Complete(host, api) is { Length: > 0 } instead)
+            if (Complete(api) is { Length: > 0 } instead)
             {
                 next = instead;
 
@@ -1731,55 +1731,14 @@ public static class Application
         font.Height <= 0 ? 1 : Math.Clamp((int)MathF.Round((float)wanted / font.Height), 1, 4);
 
     /// <summary>
-    /// Compiles the engine's own script and makes it callable.
-    /// </summary>
-    /// <param name="host">Where scripts live.</param>
-    /// <param name="catalogue">What the compiler knows about the game's own functions.</param>
-    /// <returns>True when it was there and compiled.</returns>
-    /// <remarks>
-    /// <c>Timeblocks.shp</c> holds the rules that decide when a point in the story is over,
-    /// and it is the one script the game does not ship: no compiled script in the eight
-    /// barns calls <c>SetTime</c> at all, because the original kept these rules in its
-    /// executable. It is carried as source rather than as bytecode — it is a set of rules
-    /// somebody may want to read or correct, and the engine has a compiler.
-    /// </remarks>
-    private static bool LoadStoryRules(ScriptHost host, Sheep.SheepSignatures? catalogue)
-    {
-        using Stream? carried = typeof(Application).Assembly
-            .GetManifestResourceStream("GK3Reborn.Assets.Story.Timeblocks.shp");
-
-        if (carried is null)
-        {
-            return false;
-        }
-
-        using var reader = new StreamReader(carried);
-
-        try
-        {
-            host.Add(Sheep.SheepCompiler.Compile(
-                reader.ReadToEnd(), "Timeblocks.shp", catalogue));
-
-            return true;
-        }
-        catch (Formats.FormatParseException)
-        {
-            // A rule set that will not compile is a story that cannot advance, which is
-            // worth saying rather than a game that will not start.
-            return false;
-        }
-    }
-
-    /// <summary>
     /// Asks whether this point in the story is over, and moves the clock on if it is.
     /// </summary>
-    /// <param name="host">Where the rules live.</param>
     /// <param name="api">The game.</param>
     /// <returns>The room to open instead, or null to open the one that was asked for.</returns>
     /// <remarks>
     /// <para>
-    /// The rules are <c>Timeblocks.shp</c>, one function per timeblock, each a run of
-    /// conditions ending in <c>SetTime</c>. They are checked on every change of location
+    /// The rules are <see cref="Game.Story.TimeblockRules"/>, one method per timeblock,
+    /// each a run of conditions. They are checked on every change of location
     /// and nowhere else, which is the original's own arrangement
     /// (<c>LocationManager::ChangeLocationInternal</c>) and the reason a timeblock ends as
     /// you walk through a door rather than the moment you finish the last thing in it.
@@ -1790,16 +1749,18 @@ public static class Application
     /// of the others put the player somewhere else entirely.
     /// </para>
     /// </remarks>
-    private static string? Complete(ScriptHost host, Gk3SheepApi api)
+    private static string? Complete(Gk3SheepApi api)
     {
-        if (!host.LoadedScripts.Contains(AssetId.From("Timeblocks.shp")))
+        if (Game.Story.TimeblockRules.Check(api.State) is not { } completion)
         {
             return null;
         }
 
         Timeblock was = api.State.Timeblock;
 
-        host.Run("Timeblocks.shp", "CheckTimeblockComplete$");
+        // Through the same door SetTime and SetLocationTime went through, so a timeblock
+        // the rules end and one a script ends are the same event downstream.
+        api.State.ChangeTimeblock(completion.Next, completion.Location);
 
         if (!api.State.ChangingTimeblock)
         {

@@ -1,5 +1,5 @@
 using GK3Reborn.Game;
-using GK3Reborn.Sheep;
+using GK3Reborn.Game.Story;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -8,10 +8,10 @@ namespace GK3Reborn.Tests.Game;
 /// Tests for the rules that decide when a point in the story is over.
 /// </summary>
 /// <remarks>
-/// The rules themselves are <c>Assets/Story/Timeblocks.shp</c>, carried by the engine
-/// because the original kept them in its executable — no script in the game's own archives
-/// calls <c>SetTime</c> at all. What is checked here is that they compile, that they are
-/// reachable, and that the clock moves only when everything a timeblock asks for is done.
+/// The rules themselves are <see cref="TimeblockRules"/>, carried by the engine because the
+/// original kept them in its executable — no script in the game's own archives calls
+/// <c>SetTime</c> at all. What is checked here is that every timeblock has a rule, and that
+/// the clock moves only when everything a timeblock asks for is done.
 /// </remarks>
 public sealed class TimeblockRulesTests
 {
@@ -28,29 +28,8 @@ public sealed class TimeblockRulesTests
         ("LADY_H_ESTELLE", "T_INTRODUCE", 1),
     ];
 
-    private static (ScriptHost Host, Gk3SheepApi Api) Rules()
-    {
-        var state = new GameState { Timeblock = new Timeblock(1, 10, false), Location = "RC1" };
-        var api = new Gk3SheepApi(state);
-        var host = new ScriptHost(api);
-
-        host.Add(SheepCompiler.Compile(Script(), "Timeblocks.shp"));
-
-        return (host, api);
-    }
-
-    /// <summary>The engine's own copy of the rules.</summary>
-    private static string Script()
-    {
-        using Stream? carried = typeof(GameState).Assembly
-            .GetManifestResourceStream("GK3Reborn.Assets.Story.Timeblocks.shp");
-
-        Assert.NotNull(carried);
-
-        using var reader = new StreamReader(carried);
-
-        return reader.ReadToEnd();
-    }
+    private static GameState Morning110A() =>
+        new() { Timeblock = new Timeblock(1, 10, false), Location = "RC1" };
 
     private static void Did(GameState state, (string Noun, string Verb, int Count) done)
     {
@@ -59,28 +38,36 @@ public sealed class TimeblockRulesTests
     }
 
     [Fact]
-    public void The_rules_the_engine_carries_compile()
+    public void Every_timeblock_the_game_has_rules_for_is_answered()
     {
-        // They are source rather than bytecode, so they are compiled at startup by the
-        // engine's own compiler. A rule set that will not compile is a story that cannot
-        // advance, and nothing else would say so.
-        (ScriptHost host, _) = Rules();
+        // The dispatch is a switch on the timeblock's own code, and a code that falls
+        // through it is a point in the story that can never end. Sixteen of them; 309P is
+        // where the story stops and has no rule of its own.
+        foreach (string code in TimeblockRules.Known)
+        {
+            Assert.True(Timeblock.TryParse(code, out Timeblock block), $"{code} does not parse");
+            Assert.Equal(code, block.ToString());
 
-        Assert.Contains(
-            host.LoadedScripts,
-            id => id.ToString().Contains("TIMEBLOCKS", StringComparison.OrdinalIgnoreCase));
+            // Nothing done and nowhere the rules want the player, so the answer is null.
+            var state = new GameState { Timeblock = block, Location = "NOWHERE" };
+
+            Assert.Null(TimeblockRules.Check(state));
+        }
     }
 
     [Fact]
-    public void A_timeblock_with_nothing_done_does_not_end()
+    public void A_timeblock_with_no_rules_is_simply_not_over()
     {
-        (ScriptHost host, Gk3SheepApi api) = Rules();
+        // 309P is the end of the story, and any other unrecognised code is a save from a
+        // future version or a broken one. Neither should throw.
+        var state = new GameState { Timeblock = new Timeblock(3, 9, true), Location = "R25" };
 
-        host.Run("Timeblocks.shp", "CheckTimeblockComplete$");
-
-        Assert.False(api.State.ChangingTimeblock);
-        Assert.Equal(new Timeblock(1, 10, false), api.State.Timeblock);
+        Assert.Null(TimeblockRules.Check(state));
     }
+
+    [Fact]
+    public void A_timeblock_with_nothing_done_does_not_end() =>
+        Assert.Null(TimeblockRules.Check(Morning110A()));
 
     [Fact]
     public void Everything_but_one_thing_is_not_enough()
@@ -90,41 +77,37 @@ public sealed class TimeblockRulesTests
         // condition read the wrong way round would show.
         for (int missing = 0; missing < Morning.Length; missing++)
         {
-            (ScriptHost host, Gk3SheepApi api) = Rules();
+            GameState state = Morning110A();
 
             for (int i = 0; i < Morning.Length; i++)
             {
                 if (i != missing)
                 {
-                    Did(api.State, Morning[i]);
+                    Did(state, Morning[i]);
                 }
             }
 
-            host.Run("Timeblocks.shp", "CheckTimeblockComplete$");
-
-            Assert.False(
-                api.State.ChangingTimeblock,
-                $"the morning ended without {Morning[missing].Noun}:{Morning[missing].Verb}");
+            Assert.Null(TimeblockRules.Check(state));
         }
     }
 
     [Fact]
     public void The_morning_ends_once_it_is_all_done()
     {
-        (ScriptHost host, Gk3SheepApi api) = Rules();
+        GameState state = Morning110A();
 
         foreach ((string Noun, string Verb, int Count) done in Morning)
         {
-            Did(api.State, done);
+            Did(state, done);
         }
 
-        host.Run("Timeblocks.shp", "CheckTimeblockComplete$");
+        TimeblockCompletion? completion = TimeblockRules.Check(state);
 
-        Assert.True(api.State.ChangingTimeblock);
+        Assert.NotNull(completion);
+        Assert.Equal(new Timeblock(1, 12, true), completion.Value.Next);
 
-        api.State.StartedTimeblock();
-
-        Assert.Equal(new Timeblock(1, 12, true), api.State.Timeblock);
+        // 110A ends where it began, so it names no room of its own.
+        Assert.Null(completion.Value.Location);
     }
 
     [Fact]
@@ -133,18 +116,69 @@ public sealed class TimeblockRulesTests
         // "Must be at RC1 to complete timeblock" is 110A's first line, and it is why the
         // check runs on a change of location and after the new one is current: the morning
         // ends as you walk into the square, not the moment you finish the last errand.
-        (ScriptHost host, Gk3SheepApi api) = Rules();
-
-        api.State.Location = "LBY";
+        GameState state = Morning110A();
+        state.Location = "LBY";
 
         foreach ((string Noun, string Verb, int Count) done in Morning)
         {
-            Did(api.State, done);
+            Did(state, done);
         }
 
-        host.Run("Timeblocks.shp", "CheckTimeblockComplete$");
+        Assert.Null(TimeblockRules.Check(state));
+    }
 
-        Assert.False(api.State.ChangingTimeblock);
+    [Fact]
+    public void The_rules_ask_where_the_player_is_case_insensitively()
+    {
+        // Locations arrive from scene files, save games and the command line in whatever
+        // case they were written in, and the Sheep function these rules replace compared
+        // them with OrdinalIgnoreCase.
+        GameState state = Morning110A();
+        state.Location = "rc1";
+
+        foreach ((string Noun, string Verb, int Count) done in Morning)
+        {
+            Did(state, done);
+        }
+
+        Assert.NotNull(TimeblockRules.Check(state));
+    }
+
+    [Fact]
+    public void One_timeblock_says_where_the_player_ends_up()
+    {
+        // 210A is the only one of the sixteen that moves the player as well as the clock:
+        // lunch at the Chateau de Serras. Everything it needs is checked by the lobby's own
+        // action file, which leaves this single count as the trace of it.
+        var state = new GameState { Timeblock = new Timeblock(2, 10, false), Location = "LBY" };
+
+        Assert.Null(TimeblockRules.Check(state));
+
+        state.SetNounVerbCount("MAID", "FOLLOW", 1);
+
+        TimeblockCompletion? completion = TimeblockRules.Check(state);
+
+        Assert.NotNull(completion);
+        Assert.Equal(new Timeblock(2, 12, true), completion.Value.Next);
+        Assert.Equal("CSE", completion.Value.Location);
+    }
+
+    [Fact]
+    public void Deciding_does_not_move_the_story()
+    {
+        // Check is asked on every change of location. It answers; Application acts, and
+        // keeping those apart is what lets a rule be asked without consequences.
+        GameState state = Morning110A();
+
+        foreach ((string Noun, string Verb, int Count) done in Morning)
+        {
+            Did(state, done);
+        }
+
+        Assert.NotNull(TimeblockRules.Check(state));
+
+        Assert.False(state.ChangingTimeblock);
+        Assert.Equal(new Timeblock(1, 10, false), state.Timeblock);
     }
 
     [Fact]

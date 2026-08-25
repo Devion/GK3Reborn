@@ -1376,12 +1376,20 @@ finish the last thing in it, and 110A's first line is "must be at RC1".
 
 `Timeblocks.shp` is **not in the game's data** either: the original kept these rules in its
 executable. What they are is written down in the design document the game shipped with,
-`TIMEBLOCKBIBLE.TXT`, one "Completion Rules" list per timeblock. The engine now carries the
-script — as source, since it is a set of rules somebody may want to read, and the engine has
-a Sheep compiler — adapted from G-Engine under GPL-3; see NOTICE. It compiles to 18
-functions and 995 instructions, and **every function it calls is one the game's own scripts
-call too**, so the rules are checkable against the corpus rather than being a private
-language.
+`TIMEBLOCKBIBLE.TXT`, one "Completion Rules" list per timeblock. The engine carries them as
+`Game/Story/TimeblockRules.cs`, adapted from G-Engine's Sheep script under GPL-3; see NOTICE.
+
+They are **code rather than a carried script**, and the reason is the extension. A `.shp` is
+compiled Sheep, every compiled Sheep script in existence is original game data, and this
+repository refuses that extension in `.gitignore` and again in the CI check — so a file
+called `Timeblocks.shp` could not be committed, and a checkout without it failed the Linux
+and macOS builds on an `EmbeddedResource` that was not there. As code the rules are type
+checked, need no compiler at startup, and cannot go missing. **Every condition still reads
+the state the Sheep function of the same name reads** — `GetNounVerbCount` is
+`GameState.GetNounVerbCount`, `GetFlag` is `GameState.GetFlag` — so they stay checkable
+against the corpus rather than being a private language. Deciding and acting are separate:
+`TimeblockRules.Check` returns where the story goes next and `Application` applies it through
+the same `ChangeTimeblock` that `SetTime` uses.
 
 Measured end to end: with 110A's eight requirements met, walking out of the hotel ends the
 morning and opens `RC1112P.SIF` — a different cast, different light, "Day 1, 12pm - 2pm" in

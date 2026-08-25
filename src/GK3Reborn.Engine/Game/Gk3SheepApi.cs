@@ -519,9 +519,11 @@ public sealed class Gk3SheepApi : ISheepApi
         Register("GetMaxScore", _ => SheepValue.FromInt(Scores.Maximum));
 
         // Moving the clock on. Nothing in the shipped data calls either of these — the
-        // rules that do live in the engine's own Timeblocks.shp, because the original kept
-        // them in its executable — so until that script existed there was no way out of the
-        // first two hours of the game.
+        // rules that do are the engine's own Game/Story/TimeblockRules.cs, because the
+        // original kept them in its executable — so until those rules existed there was no
+        // way out of the first two hours of the game. They are still registered here: the
+        // rules go through State.ChangeTimeblock as these do, and a script that did call
+        // one would be answered the same way.
         Register("SetTime", a =>
         {
             if (Timeblock.TryParse(Arg(a, 0), out Timeblock wanted))
