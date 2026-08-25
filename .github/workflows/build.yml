@@ -1,0 +1,131 @@
+name: build
+
+# Called by ci.yml on every change and by release.yml on a tag. It exists as its own file
+# so that what a release ships is byte-for-byte what CI tested: a second copy of these
+# steps would drift, and the copy that drifts is always the one nobody runs until the day
+# it matters.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is a target from day one, not a late port. See Plan/04 P1. macos-latest is
+        # Apple silicon, which is the only Mac the game supports; the tests that need a
+        # Vulkan device skip themselves there as they do on any runner without one.
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore GK3Reborn.slnx --locked-mode || dotnet restore GK3Reborn.slnx
+
+      - name: Build
+        run: dotnet build GK3Reborn.slnx --configuration Release --no-restore --nologo
+
+      - name: Test
+        shell: bash
+        run: bash ./build/run-tests.sh Release
+
+      # Pinned and hash-verified, so the cache key is the script itself: change a pin and
+      # the key changes with it. The script is idempotent, so a hit makes the fetch a no-op
+      # rather than something that has to be skipped.
+      - name: Cache the native payload
+        uses: actions/cache@v4
+        with:
+          path: libs
+          key: native-${{ runner.os }}-${{ hashFiles('build/fetch-native.sh') }}
+
+      # The half of libs/<rid> that is not on NuGet: FFmpeg, and MoltenVK on a Mac. Without
+      # this a downloaded build has no cutscenes, and on macOS no Vulkan at all. It has to
+      # run before anything publishes, because that is when libs/<rid> is copied.
+      - name: Fetch the native payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ runner.os }}" in
+            Windows) bash ./build/fetch-native.sh win-x64 ;;
+            Linux)   bash ./build/fetch-native.sh linux-x64 ;;
+            macOS)   bash ./build/fetch-native.sh osx-arm64 ;;
+          esac
+
+      # The bundle is file layout and an XML file, so every runner can produce one and a
+      # break in that target is caught wherever it happens rather than only on a Mac. That
+      # is not redundancy: RebornWriteMacAppBundle is driven by backslash paths authored on
+      # Windows, and these two runners are the only thing checking they normalize on Unix.
+      # The .pkg is not built here: it needs signing, and signing needs a key this has not
+      # got. On the Mac runner this step is the package itself, so it does not repeat.
+      - name: Publish the macOS application bundle
+        shell: bash
+        run: |
+          dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfileMac --nologo
+          bundle=src/GK3Reborn.Host/publishmac/GK3Reborn.app
+          for expected in Contents/Info.plist Contents/PkgInfo Contents/MacOS/GK3Reborn; do
+            if [ ! -f "$bundle/$expected" ]; then
+              echo "::error::$bundle is missing $expected"
+              exit 1
+            fi
+          done
+
+      # Each runner packages its own platform, so the archive is produced by the machine
+      # that will run it. Framework-dependent by design - the runtime is a prerequisite,
+      # not a payload - and carrying LICENSE and NOTICE is not optional for a GPL binary.
+      - name: Package for Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile --nologo
+          Copy-Item -Path LICENSE, NOTICE, README.md -Destination src/GK3Reborn.Host/publish
+          Copy-Item -Path licenses -Destination src/GK3Reborn.Host/publish -Recurse
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path src/GK3Reborn.Host/publish/* -DestinationPath dist/GK3Reborn-win-x64.zip
+
+      # tar rather than zip on both Unix platforms, and the archive is uploaded as a single
+      # file rather than as a directory, because actions/upload-artifact does not preserve
+      # the executable bit - the same defect that stopped this workflow running its own
+      # test script. A zipped .app would also lose its symlinks and its signature.
+      - name: Package for Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish src/GK3Reborn.Host -p:PublishProfile=FolderProfile1 --nologo
+          cp LICENSE NOTICE README.md src/GK3Reborn.Host/publishlinux/
+          cp -R licenses src/GK3Reborn.Host/publishlinux/
+          mkdir -p dist
+          tar -czf dist/GK3Reborn-linux-x64.tar.gz -C src/GK3Reborn.Host/publishlinux .
+
+      # Signed ad hoc, which costs nothing and is the difference between a bundle macOS
+      # will start and one it refuses outright on Apple silicon. It is not notarized and
+      # cannot be here, so a downloaded copy still carries the quarantine attribute; see
+      # the release notes. build/package-macos.sh does this properly, with a real key.
+      - name: Package for macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp LICENSE NOTICE README.md src/GK3Reborn.Host/publishmac/
+          cp -R licenses src/GK3Reborn.Host/publishmac/
+          codesign --force --deep --sign - src/GK3Reborn.Host/publishmac/GK3Reborn.app
+          codesign --verify --deep --strict src/GK3Reborn.Host/publishmac/GK3Reborn.app
+          mkdir -p dist
+          tar -czf dist/GK3Reborn-osx-arm64.tar.gz -C src/GK3Reborn.Host/publishmac .
+
+      - name: Upload the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: GK3Reborn-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error

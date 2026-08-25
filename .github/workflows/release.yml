@@ -1,0 +1,79 @@
+name: Release
+
+# A tag is the trigger, because a release is a decision rather than a consequence of
+# pushing. Everything it publishes was built and tested by the same build.yml that CI
+# runs, on the same three runners.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # The only place in either workflow that can write to the repository, and it is
+      # granted on the job rather than the workflow so nothing that builds code has it.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: GK3Reborn-*
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -la dist
+
+          cat > notes.md <<'NOTES'
+          ## Installing
+
+          GK3Reborn is an engine, not a game. It needs a legally obtained Gabriel Knight 3
+          installation to read its data from; none of that data is included here and none
+          of it ever will be. See the README for where to point it.
+
+          The .NET 10 runtime is a prerequisite. These builds are framework-dependent by
+          design: the runtime is a prerequisite, not a payload.
+
+          | Platform | Download |
+          |---|---|
+          | Windows x64 | `GK3Reborn-win-x64.zip` |
+          | Linux x64 | `GK3Reborn-linux-x64.tar.gz` |
+          | macOS, Apple silicon | `GK3Reborn-osx-arm64.tar.gz` |
+
+          ### macOS
+
+          The bundle is signed ad hoc, not notarized, so macOS quarantines it on download:
+
+              xattr -dr com.apple.quarantine GK3Reborn.app
+
+          MoltenVK is included, so nothing else has to be installed to render. Cutscenes
+          are the exception: nobody publishes an FFmpeg 7.1 shared build for Apple silicon,
+          so a Mac plays the game without them unless it has its own. That is a supported
+          state, not a failure.
+
+          ### What else is in the archive
+
+          `libs/` carries FFmpeg 7.1 for decoding the cutscenes, and on macOS MoltenVK.
+          Both are unmodified upstream builds, loaded at run time and replaceable by
+          deleting the file and dropping in your own. `licenses/THIRD-PARTY.md` lists
+          every third-party component, its version and its licence.
+          NOTES
+
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "GK3Reborn ${{ github.ref_name }}" \
+            --notes-file notes.md \
+            dist/*
