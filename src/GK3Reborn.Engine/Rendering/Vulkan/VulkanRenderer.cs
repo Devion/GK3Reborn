@@ -1485,13 +1485,20 @@ public sealed unsafe class VulkanRenderer : IDisposable
         // picture. When it is not, they wait for the pass that turns its parts into one.
         if (!deferred)
         {
-            // The horizon after the room and before the sky: the room has claimed its
-            // pixels, the terrain takes the far tail of the depth buffer, and the sky
-            // fills only what is left above the ridge.
+            // The horizon after the room: the reconstructed backdrop brings its own sky,
+            // and the painted cubemap must not draw behind it — its mountains are baked
+            // into the picture and would double-expose against the real ridge. The
+            // cubemap is the fallback for a backdrop that would not build, nothing more.
             if (_camera is not null)
             {
-                _terrain?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
-                _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+                if (_terrain is not null)
+                {
+                    _terrain.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+                }
+                else
+                {
+                    _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+                }
             }
 
             // Over the room and under the interface. A movie covers the window, so what
@@ -1712,8 +1719,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         if (_camera is not null)
         {
-            _terrain?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
-            _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+            if (_terrain is not null)
+            {
+                _terrain.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+            }
+            else
+            {
+                _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+            }
         }
 
         _vk.CmdEndRendering(buffer);

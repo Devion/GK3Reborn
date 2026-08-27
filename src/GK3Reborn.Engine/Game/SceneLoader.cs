@@ -1704,6 +1704,9 @@ public sealed class SceneLoader
     /// <summary>What the offline pipeline wrote beside each heightfield.</summary>
     private sealed record TerrainMeta(int Grid, float ExtentMeters);
 
+    /// <summary>One tree of the backdrop's forest, as the offline placement wrote it.</summary>
+    private readonly record struct TerrainTree(float X, float Y, float Z, float S, float R);
+
     /// <summary>One part of a terrain set: the loose file first, then the packs.</summary>
     private byte[]? ReadTerrainPart(string set, string part)
     {
@@ -1780,6 +1783,28 @@ public sealed class SceneLoader
                 return;
             }
 
+            // The forest, five floats a tree. A set without one is a set without one.
+            float[] trees = [];
+            if (ReadTerrainPart(set, "trees.json") is { } treesBytes)
+            {
+                List<TerrainTree>? placed =
+                    JsonSerializer.Deserialize<List<TerrainTree>>(treesBytes, TerrainJson);
+
+                if (placed is { Count: > 0 })
+                {
+                    trees = new float[placed.Count * 5];
+                    for (int i = 0; i < placed.Count; i++)
+                    {
+                        TerrainTree tree = placed[i];
+                        trees[(i * 5) + 0] = tree.X;
+                        trees[(i * 5) + 1] = tree.Y;
+                        trees[(i * 5) + 2] = tree.Z;
+                        trees[(i * 5) + 3] = tree.S;
+                        trees[(i * 5) + 4] = tree.R;
+                    }
+                }
+            }
+
             geometry.SetTerrain(new TerrainBackdrop
             {
                 Grid = meta.Grid,
@@ -1793,11 +1818,17 @@ public sealed class SceneLoader
                 TileDirt = dirt.Value,
                 SunDirection = sunDirection,
                 Azimuth = sky.Azimuth,
+
+                // The scene's own centre, which is where the painted sky was
+                // conceptually seen from.
+                AnchorUnits = (geometry.Minimum + geometry.Maximum) / 2f,
+                Trees = trees,
             });
 
             _log?.Invoke(string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"terrain: {set}, {meta.Grid}x{meta.Grid} over {meta.ExtentMeters:F0} m"));
+                $"terrain: {set}, {meta.Grid}x{meta.Grid} over {meta.ExtentMeters:F0} m, " +
+                $"{trees.Length / 5} trees"));
         }
         catch (Exception error) when (
             error is IOException or JsonException or Formats.FormatParseException)

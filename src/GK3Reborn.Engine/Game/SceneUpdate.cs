@@ -3079,7 +3079,7 @@ public sealed class SceneUpdate
     /// script rather than a number of seconds — which is most of what the triggers run.
     /// </para>
     /// </remarks>
-    private bool Occupied =>
+    public bool Occupied =>
         _later.Count > 0 ||
         _api.ActionSeconds > 0 ||
         Performing(_api.State.Ego) ||

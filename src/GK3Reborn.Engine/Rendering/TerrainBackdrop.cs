@@ -60,4 +60,15 @@ public sealed record TerrainBackdrop
 
     /// <summary>How far the backdrop is turned, in radians — the sky's own azimuth.</summary>
     public required float Azimuth { get; init; }
+
+    /// <summary>The room point the backdrop is centred on, in room units.</summary>
+    /// <remarks>
+    /// The scene's own centre. The camera's offset from it, scaled by the renderer's
+    /// metres-per-unit, is what moves the camera through the backdrop — anchoring the
+    /// horizon to the world instead of gluing it to the lens.
+    /// </remarks>
+    public required Vector3 AnchorUnits { get; init; }
+
+    /// <summary>The forest: five floats per tree — x, y, z, scale, yaw — in metres.</summary>
+    public float[] Trees { get; init; } = [];
 }

@@ -3096,13 +3096,20 @@ public static class Application
                      window.WasClicked(Platform.PointerButton.Primary) &&
                      menu is null &&
                      hud?.OverInterface(pointer) != true &&
-                     room?.Skip() == true)
+                     ((room?.Skip() == true) || update.Occupied))
             {
                 // Somebody is speaking, so the click reads the line rather than the room:
                 // it cuts the recording short and the next one starts. Nothing else happens
                 // — the player is not sent walking across the floor behind the conversation,
                 // which was the complaint, and no verb is performed either, because a click
                 // during dialogue is about the dialogue.
+                //
+                // And not only while a line is audibly playing. A conversation is lines,
+                // silences between them, and scripts still running through both, and a
+                // click in one of the silences used to fall through to the floor and send
+                // Gabriel walking out of the middle of it. Occupied is the same signal the
+                // trigger rectangles trust: deferred actions, an action's stated seconds,
+                // the player performing, or the story's own scripts still outstanding.
                 //
                 // Not while a menu is open, and not on the interface: those clicks already
                 // mean something, and a conversation is not a reason to take them away.
