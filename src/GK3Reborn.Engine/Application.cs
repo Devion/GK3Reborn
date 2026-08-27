@@ -880,6 +880,10 @@ public static class Application
                 // The player's preference, with a command-line override so a screenshot can
                 // be taken of the same room both ways without editing a settings file.
                 SmoothHeads = HeadLevels(args, settings),
+
+                // The same finishes the sink shades with, so the loader can say which of
+                // an outdoor scene's textures deserve their relief cut beyond the floor.
+                Finishes = finishes,
             };
 
             if (!packsOnly && settings.EnhancedTextures && enhancedDirectory is { Length: > 0 })

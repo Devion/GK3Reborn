@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
@@ -82,6 +82,10 @@ public sealed class SceneUpdateTests
         }
 
         public void SetTerrain(TerrainBackdrop backdrop)
+        {
+        }
+
+        public void ReliefEverywhere(IReadOnlySet<string> textures)
         {
         }
 

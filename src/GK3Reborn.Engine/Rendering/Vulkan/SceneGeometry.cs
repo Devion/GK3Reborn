@@ -392,10 +392,28 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         ArgumentNullException.ThrowIfNull(textures);
 
         _relief.Clear();
+        _reliefEverywhere.Clear();
 
         foreach (string texture in textures)
         {
             _relief.Add(texture);
+        }
+    }
+
+    /// <summary>Textures whose relief is cut wherever they appear, floor or not.</summary>
+    private readonly HashSet<string> _reliefEverywhere = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <inheritdoc/>
+    public void ReliefEverywhere(IReadOnlySet<string> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+
+        foreach (string texture in textures)
+        {
+            // Into both sets: the everywhere set widens what the plan covers, and the
+            // relief set is what makes the height map be kept as numbers at all.
+            _relief.Add(texture);
+            _reliefEverywhere.Add(texture);
         }
     }
 
@@ -990,7 +1008,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // none of the floor's textures has a height map, or when the setting is off — and
         // then everything below takes exactly the path it took before any of this existed.
         ReliefPlan? relief = Relief.Displace
-            ? ReliefPlan.For(scene, floorObject, Deep, Relief.TriangleBudget)
+            ? ReliefPlan.For(
+                scene, floorObject, Deep, Relief.TriangleBudget,
+                _reliefEverywhere.Count > 0
+                    ? surface => _reliefEverywhere.Contains(surface.TextureName)
+                    : null)
             : null;
 
         ReliefCell = relief?.Cell ?? 0f;
@@ -1116,13 +1138,24 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 Vector2 ub = scene.TexCoordFor(b);
                 Vector2 uc = scene.TexCoordFor(c);
 
-                if (displace)
+                if (displace && relief!.Lies(surface, pa, pb, pc))
                 {
+                    // Outdoor ground gets its depth multiplied: the derived depths average
+                    // 1.2 units — honest for a floor somebody stands on, invisible on a
+                    // road seen from a room camera. Capped past even the library's own
+                    // ceiling, because the boost is the point.
+                    float depth = Materials.Of(surface.TextureName).HeightDepth;
+
+                    if (_reliefEverywhere.Contains(surface.TextureName))
+                    {
+                        depth = MathF.Min(depth * 2.5f, 12f);
+                    }
+
                     relief!.Tessellate(
                         pa, pb, pc, ua, ub, uc,
                         surface.TextureName,
                         _textures.FieldFor(surface.TextureName),
-                        Materials.Of(surface.TextureName).HeightDepth,
+                        depth,
                         pieces,
                         pieceIndices);
 
@@ -1178,13 +1211,33 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     continue;
                 }
 
-                uint at = (uint)group.Item1.Count;
-                group.Item1.Add(new MeshVertex(pa, normal, ua, Lightmap(ua, surface, region)));
-                group.Item1.Add(new MeshVertex(pb, normal, ub, Lightmap(ub, surface, region)));
-                group.Item1.Add(new MeshVertex(pc, normal, uc, Lightmap(uc, surface, region)));
-                group.Item2.Add(at);
-                group.Item2.Add(at + 1);
-                group.Item2.Add(at + 2);
+                (List<MeshVertex>, List<uint>) into = group;
+
+                if (displace)
+                {
+                    // A wall or a roof of a covered surface stays the flat triangle it
+                    // was: cutting them is what blew the village to thirty-six million
+                    // triangles and tore every facade at its corners. Emitted into an
+                    // undisplaced batch, so its parallax is not marched at the displaced
+                    // batch's residual depth.
+                    (string, bool, bool, string, bool) flatKey =
+                        (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit,
+                         false, owner, hidden);
+
+                    if (!groups.TryGetValue(flatKey, out into))
+                    {
+                        into = ([], []);
+                        groups[flatKey] = into;
+                    }
+                }
+
+                uint at = (uint)into.Item1.Count;
+                into.Item1.Add(new MeshVertex(pa, normal, ua, Lightmap(ua, surface, region)));
+                into.Item1.Add(new MeshVertex(pb, normal, ub, Lightmap(ub, surface, region)));
+                into.Item1.Add(new MeshVertex(pc, normal, uc, Lightmap(uc, surface, region)));
+                into.Item2.Add(at);
+                into.Item2.Add(at + 1);
+                into.Item2.Add(at + 2);
 
                 if (occludes)
                 {

@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Text;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Bitmaps;
@@ -86,6 +86,10 @@ public sealed class HeadPlaybackTests
         }
 
         public void SetTerrain(TerrainBackdrop backdrop)
+        {
+        }
+
+        public void ReliefEverywhere(IReadOnlySet<string> textures)
         {
         }
 

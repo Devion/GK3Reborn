@@ -6,8 +6,8 @@ using Silk.NET.Vulkan;
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>
-/// Draws the reconstructed horizon: real terrain, its forest, and a generated sky,
-/// where the painted skybox was.
+/// Draws the reconstructed horizon: real terrain, its forest, and a generated sky with
+/// procedural cloud cover, where the painted skybox was.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,8 +27,9 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <para>
 /// When this draws, the painted cubemap does not: its mountains are baked into the
 /// picture and would double-expose against the reconstructed ridge. The sky here is a
-/// gradient with the scene's own sun in it, near-black when the hour has no sun, and
-/// the cubemap survives only as the fallback for a backdrop that would not build.
+/// atmosphere and cloud layer with the scene's own sun in it, near-black when the hour
+/// has no sun, and the cubemap survives only as the fallback for a backdrop that would
+/// not build.
 /// </para>
 /// <para>
 /// Texturing is four tileable ground textures blended by the offline splat weights,
@@ -60,7 +61,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             mat4 viewProjection;  // terrain space to clip, camera offset included
             vec4 sun;             // xyz: toward the sun, in terrain space; w: 1 by day
             vec4 params;          // x: tile metres, y: tint amount, z: fog density, w: extent
-            vec4 eye;             // xyz: the camera in terrain space
+            vec4 eye;             // xyz: camera in terrain space; w: mean cloud cover
         } push;
 
         layout(location = 0) out vec3 vWorld;
@@ -149,8 +150,15 @@ public sealed unsafe class TerrainPipeline : IDisposable
 
             // A sunless hour is a dark one: the night sets carry their day sibling's
             // geometry and colours, and the hour's whole difference is made here.
-            float toSun = max(dot(normalize(vNormal), push.sun.xyz), 0.0) * push.sun.w;
+            // The cloud sheet is local detail in the sky pass, but its mean coverage
+            // still belongs in the ground light. Heavy overcast softens the hard key and
+            // returns part of it as diffuse sky light instead of leaving sunlit grass
+            // blazing underneath a grey ceiling.
+            float overcast = clamp(push.eye.w, 0.0, 1.0);
+            float toSun = max(dot(normalize(vNormal), push.sun.xyz), 0.0) * push.sun.w
+                        * mix(1.0, 0.56, overcast);
             vec3 ambient = mix(vec3(0.045, 0.055, 0.085), vec3(0.26, 0.30, 0.38), push.sun.w);
+            ambient *= mix(1.0, 1.16, overcast);
             vec3 lit = albedo * (ambient + (vec3(1.38, 1.26, 1.06) * toSun));
 
             // The canopy's shadow: ground under a dense wood is darker than the open
@@ -255,8 +263,11 @@ public sealed unsafe class TerrainPipeline : IDisposable
             float density = texture(splat, gridUv).r;
             float occlusion = mix(0.42, 1.0, vCrown) * (1.0 - (0.45 * density * (1.0 - vCrown)));
 
-            float toSun = max(dot(normalize(vNormal), push.sun.xyz), 0.0) * push.sun.w;
+            float overcast = clamp(push.eye.w, 0.0, 1.0);
+            float toSun = max(dot(normalize(vNormal), push.sun.xyz), 0.0) * push.sun.w
+                        * mix(1.0, 0.56, overcast);
             vec3 ambient = mix(vec3(0.045, 0.055, 0.085), vec3(0.26, 0.30, 0.38), push.sun.w);
+            ambient *= mix(1.0, 1.16, overcast);
             vec3 lit = albedo * ((ambient * occlusion)
                                + (vec3(1.38, 1.26, 1.06) * toSun * mix(0.55, 1.0, vCrown)));
 
@@ -289,9 +300,34 @@ public sealed unsafe class TerrainPipeline : IDisposable
             vec4 up;        // xyz: its up;     w: tan of half the vertical fov
             vec4 viewport;  // xy: size in pixels
             vec4 sun;       // xyz: toward the sun, world frame; w: 1 by day
+            vec4 clouds;    // x: coverage; y: scale; zw: stable scene offset
         } push;
 
         layout(location = 0) out vec4 outColor;
+
+        // A volumetric field sampled on the sky dome has no UV seam and, crucially,
+        // does not change scale when the camera pitches. The previous flat cloud plane
+        // was a perspective projection: looking toward or away from its normal made the
+        // same cloud appear to stretch and zoom.
+        float cloudWaves(vec3 p)
+        {
+            // Smooth in every direction by construction: unlike value noise this has no
+            // grid cells whose boundaries can become polygons after coverage is applied.
+            // The two low-frequency waves bend the phases of the smaller ones, breaking
+            // up their bands into broad, connected cloud masses.
+            float warpA = sin(dot(p, vec3(0.73, 0.41, 0.55)));
+            float warpB = sin(dot(p, vec3(-0.48, 0.84, 0.25)) + (warpA * 0.75));
+
+            float value = sin(dot(p, vec3(0.31, -0.57, 0.76)) + (warpB * 1.20)) * 0.50;
+            value += sin(dot(p * 1.91, vec3(-0.67, -0.22, 0.71))
+                       - (warpA * 0.65)) * 0.25;
+            value += sin(dot(p * 3.67, vec3(0.12, 0.93, -0.35))
+                       + (warpB * 0.45)) * 0.14;
+            value += sin(dot(p * 7.13, vec3(0.89, -0.31, -0.32))
+                       - (warpA * 0.28)) * 0.07;
+
+            return clamp(0.5 + (value / 1.92), 0.0, 1.0);
+        }
 
         void main()
         {
@@ -300,19 +336,65 @@ public sealed unsafe class TerrainPipeline : IDisposable
                                + (push.right.xyz * (ndc.x * push.right.w))
                                - (push.up.xyz * (ndc.y * push.up.w)));
 
-            // A plain atmosphere: bright at the horizon, deeper overhead, near-black
-            // when the hour has no sun. The painted mountains that used to live in the
-            // cubemap are real geometry now, so the sky is only sky.
+            // Bright at the horizon, deeper overhead, near-black when the hour has no
+            // sun. The painted mountains that used to live in the cubemap are real
+            // geometry now.
             float day = push.sun.w;
             float height = clamp(ray.y, 0.0, 1.0);
             vec3 zenith = mix(vec3(0.012, 0.018, 0.038), vec3(0.22, 0.42, 0.72), day);
             vec3 horizon = mix(vec3(0.045, 0.055, 0.085), vec3(0.74, 0.81, 0.88), day);
             vec3 sky = mix(horizon, zenith, pow(height, 0.55));
 
-            // The sun itself, and the glow around it, only while it is up.
+            // World direction is the coordinate. Turning the camera only reveals a
+            // different part of this fixed sphere; it cannot squeeze, translate or zoom
+            // the pattern. The offset selects a stable arrangement for each scene.
+            vec3 cloudPoint = (ray * (4.2 * push.clouds.y))
+                            + vec3(push.clouds.z, push.clouds.w,
+                                   (push.clouds.z * 0.37) - (push.clouds.w * 0.61));
+            float broad = cloudWaves(cloudPoint * 0.78);
+            float detail = cloudWaves(
+                (cloudPoint * 2.17) + vec3(-9.4, 6.7, 3.1));
+            float cloudField = (broad * 0.76) + (detail * 0.24);
+
+            // Coverage changes the threshold, while a softer secondary veil joins the
+            // individual masses into the layered stratus expected from an overcast sky.
+            float threshold = mix(0.72, 0.38, clamp(push.clouds.x, 0.0, 1.0));
+            float cloudBody = smoothstep(threshold - 0.09, threshold + 0.14, cloudField);
+            float cloudVeil = smoothstep(threshold - 0.22, threshold + 0.07, broad) * 0.46;
+            float cloudDensity = max(cloudBody, cloudVeil);
+            float cloudAlpha = cloudDensity * smoothstep(0.018, 0.16, ray.y);
+            cloudAlpha *= mix(0.52, 1.0, day);
+
+            // The underside stays cool and weighty, but thinner folds and the higher
+            // part of the dome still catch diffuse daylight. A narrow warm edge close
+            // to the sun keeps the layer dimensional instead of reading as grey fog.
+            float sunHeight = max(push.sun.y, 0.0) * day;
+            float diffuseLight = clamp(0.24 + (0.38 * sunHeight)
+                                     + (0.22 * (1.0 - cloudDensity))
+                                     + (0.18 * detail), 0.0, 1.0);
+            vec3 cloudShadow = mix(vec3(0.018, 0.024, 0.040),
+                                   vec3(0.31, 0.37, 0.45), day);
+            vec3 cloudLight = mix(vec3(0.065, 0.075, 0.105),
+                                  vec3(0.74, 0.77, 0.79), day);
+            vec3 cloudColor = mix(cloudShadow, cloudLight, diffuseLight);
+            cloudColor *= mix(0.82, 1.0, smoothstep(0.05, 0.48, ray.y));
+
             float facing = max(dot(ray, push.sun.xyz), 0.0);
+            float cloudEdge = smoothstep(0.12, 0.42, cloudDensity)
+                            * (1.0 - smoothstep(0.48, 0.90, cloudDensity));
+            cloudColor += vec3(1.0, 0.91, 0.73) * day * cloudEdge
+                        * pow(facing, 18.0) * (0.20 + (0.55 * sunHeight));
+
+            sky = mix(sky, cloudColor, clamp(cloudAlpha, 0.0, 0.96));
+
+            // Dense cloud locally hides the solar disc and damps its halo; breaks in
+            // the cover still reveal both, which is much more convincing than drawing
+            // the sun unconditionally over the cloud colour.
+            float sunTransmission = mix(1.0, 0.035, clamp(cloudAlpha, 0.0, 1.0));
             sky += day * (vec3(1.0, 0.92, 0.75) * pow(facing, 900.0) * 4.0
-                        + vec3(0.9, 0.82, 0.62) * pow(facing, 12.0) * 0.16);
+                            * sunTransmission
+                        + vec3(0.9, 0.82, 0.62) * pow(facing, 12.0) * 0.16
+                            * mix(1.0, 0.30, cloudAlpha));
 
             outColor = vec4(sky, 1.0);
         }
@@ -369,6 +451,12 @@ public sealed unsafe class TerrainPipeline : IDisposable
 
     /// <summary>How strongly the vista's colour is laid over the tiles, zero to one.</summary>
     public float TintAmount { get; set; } = 0.6f;
+
+    /// <summary>Fraction of the procedural sky occupied by cloud, zero to one.</summary>
+    public float CloudCoverage { get; set; } = 0.78f;
+
+    /// <summary>Frequency of the cloud forms; smaller values make broader masses.</summary>
+    public float CloudScale { get; set; } = 1f;
 
     /// <summary>Creates the pipeline for one scene's backdrop.</summary>
     /// <param name="context">Device context.</param>
@@ -488,7 +576,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             ViewProjection = view * projection,
             Sun = sun,
             Params = new Vector4(TileMeters, TintAmount, 1.6e-4f, _extent),
-            Eye = new Vector4(offset, 0f),
+            Eye = new Vector4(offset, Math.Clamp(CloudCoverage, 0f, 1f)),
         };
 
         var viewport = new Viewport { Width = width, Height = height, MaxDepth = 1f };
@@ -526,18 +614,28 @@ public sealed unsafe class TerrainPipeline : IDisposable
             _vk.CmdDrawIndexed(command, _treeIndexCount, _treeCount, 0, 0, 0);
         }
 
-        // The sky last, at the far plane, over exactly the pixels nothing claimed.
+        // The sky last, at the far plane, over exactly the pixels nothing claimed. Its
+        // basis must be the same orthonormal basis CreateLookAt uses. Passing camera.Up
+        // directly works only at zero pitch; as the view tilts it shears every ray away
+        // from the centre, which made a fixed cloud field appear to zoom and squint.
+        Vector3 skyRight = Vector3.Normalize(Vector3.Cross(camera.Up, forward));
+        Vector3 skyUp = Vector3.Cross(forward, skyRight);
+        float tanHalfFov = MathF.Tan(camera.FieldOfView / 2f);
+
         var skyPush = new SkyPush
         {
             Forward = new Vector4(forward, 0f),
-            Right = new Vector4(
-                Vector3.Normalize(Vector3.Cross(camera.Up, forward)),
-                MathF.Tan(camera.FieldOfView / 2f) * width / height),
-            Up = new Vector4(camera.Up, MathF.Tan(camera.FieldOfView / 2f)),
+            Right = new Vector4(skyRight, tanHalfFov * width / height),
+            Up = new Vector4(skyUp, tanHalfFov),
             Viewport = new Vector4(width, height, 0f, 0f),
             Sun = _sunDirection is { } sunWorld
                 ? new Vector4(Vector3.Normalize(-sunWorld), 1f)
                 : new Vector4(0f, 1f, 0f, 0f),
+            Clouds = new Vector4(
+                Math.Clamp(CloudCoverage, 0f, 1f),
+                Math.Clamp(CloudScale, 0.25f, 4f),
+                19.7f + (MathF.Sin(_azimuth) * 13.1f),
+                -7.3f + (MathF.Cos(_azimuth) * 17.9f)),
         };
 
         _vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, _skyPipeline);
@@ -637,7 +735,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
         /// <summary>Tile metres, tint amount, fog density, grid extent.</summary>
         public Vector4 Params;
 
-        /// <summary>The camera, in backdrop metres, for the haze.</summary>
+        /// <summary>The camera in backdrop metres; w is the mean cloud cover.</summary>
         public Vector4 Eye;
     }
 
@@ -658,6 +756,9 @@ public sealed unsafe class TerrainPipeline : IDisposable
 
         /// <summary>Toward the sun, world frame; w is zero for a sunless hour.</summary>
         public Vector4 Sun;
+
+        /// <summary>Coverage, scale, and a stable per-scene offset for procedural clouds.</summary>
+        public Vector4 Clouds;
     }
 
     private void BuildMesh(TerrainBackdrop backdrop)

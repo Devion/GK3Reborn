@@ -107,6 +107,24 @@ public sealed class SurfaceReliefTests
             new DecodedImage(extent, extent, pixels, HasAlpha: false, "test"));
     }
 
+    /// <summary>A neutral field: mid grey is the surface the BSP already models.</summary>
+    private static HeightField LevelField()
+    {
+        const int extent = 16;
+        var pixels = new byte[extent * extent * 4];
+
+        for (int at = 0; at < pixels.Length; at += 4)
+        {
+            pixels[at] = 128;
+            pixels[at + 1] = 128;
+            pixels[at + 2] = 128;
+            pixels[at + 3] = 255;
+        }
+
+        return HeightField.From(
+            new DecodedImage(extent, extent, pixels, HasAlpha: false, "level"));
+    }
+
     /// <summary>Cuts every triangle of a room's floor and returns what came out.</summary>
     private static List<(List<ReliefVertex> Vertices, List<int> Indices)> Cut(
         BspFile room, ReliefPlan plan, HeightField? field, float depth)
@@ -417,6 +435,25 @@ public sealed class SurfaceReliefTests
 
         // And the inside did move, or the test above is passing for the wrong reason.
         Assert.True(anyMoved, "nothing was displaced at all");
+    }
+
+    [Fact]
+    public void A_level_field_does_not_sink_or_ramp_at_the_boundary()
+    {
+        // HeightField has already converted mid grey to the modelled surface (zero).
+        // Subtracting another half during displacement sank the whole interior by about
+        // half the material depth while the pinned edge stayed put, manufacturing a ramp
+        // around a texture that contained no relief at all.
+        BspFile room = Room(Slab(0, 400, 0, 400));
+        ReliefPlan plan = ReliefPlan.For(room, "the_floor", _ => true, 100_000)!;
+
+        foreach ((List<ReliefVertex> vertices, _) in Cut(room, plan, LevelField(), 8f))
+        {
+            Assert.All(vertices, vertex => Assert.Equal(0f, vertex.Position.Y, 4));
+        }
+
+        Assert.Equal(0f, plan.Moved);
+        Assert.Equal(0f, plan.MovedTypically);
     }
 
     [Fact]

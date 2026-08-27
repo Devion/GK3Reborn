@@ -143,6 +143,16 @@ public sealed class HeadlessSceneSink : ISceneSink
     /// <inheritdoc/>
     public bool HasHeightMap(string name) => false;
 
+    /// <summary>How many textures were named for relief beyond the floor.</summary>
+    public int EverywhereReliefCount { get; private set; }
+
+    /// <inheritdoc/>
+    public void ReliefEverywhere(IReadOnlySet<string> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+        EverywhereReliefCount = textures.Count;
+    }
+
     /// <summary>How many sides of a sky the scene gave, for a sweep that wants to count.</summary>
     public int SkyboxFaces { get; private set; }
 

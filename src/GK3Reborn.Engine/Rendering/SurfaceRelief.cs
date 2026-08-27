@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 the GK3Reborn authors.
+// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -45,8 +45,14 @@ public readonly record struct ReliefSettings(bool Displace, int TriangleBudget, 
     /// their floors are small enough to reach <see cref="ReliefPlan.FinestCell"/> and the
     /// budget never binds.
     /// </para>
+    /// <para>
+    /// Two million since relief stopped ending at the floor object: outdoors the verges,
+    /// rock and roadside are cut too, and the same budget over twice the area would have
+    /// meant coarser cobbles on the street that was already right. The measurements above
+    /// scale — the frame rate does not notice and the load pays another second outdoors.
+    /// </para>
     /// </remarks>
-    public static ReliefSettings Default => new(true, 1_000_000, true);
+    public static ReliefSettings Default => new(true, 2_000_000, true);
 
     /// <summary>Nothing displaced.</summary>
     public static ReliefSettings Off => new(false, 1, false);
@@ -301,6 +307,16 @@ public sealed class ReliefPlan
     /// </remarks>
     private const int MostCells = 4_194_304;
 
+    /// <summary>How flat a non-floor triangle must lie to have its relief cut.</summary>
+    /// <remarks>
+    /// The vertical component of the unit normal: 0.35 keeps ground and rocky slopes up
+    /// to about seventy degrees and refuses walls, facades and steep roofs — which tear
+    /// from their neighbours at every corner two lattices meet, and whose texture-space
+    /// spans against a ground-solved lattice are what blew one village to thirty-six
+    /// million triangles.
+    /// </remarks>
+    private const float LiesFlat = 0.35f;
+
     private readonly Dictionary<(int X, int Y, int Z), Vector3> _normals;
     private readonly HashSet<((int X, int Y, int Z) From, (int X, int Y, int Z) To)> _pinned;
 
@@ -383,8 +399,42 @@ public sealed class ReliefPlan
     {
         ArgumentNullException.ThrowIfNull(surface);
 
-        return deep && surface.ObjectIndex == FloorObject;
+        return deep && (surface.ObjectIndex == FloorObject || Also?.Invoke(surface) == true);
     }
+
+    /// <summary>Whether one triangle of a covered surface lies flat enough to cut.</summary>
+    /// <param name="surface">The surface it belongs to.</param>
+    /// <param name="a">First corner.</param>
+    /// <param name="b">Second corner.</param>
+    /// <param name="c">Third corner.</param>
+    /// <returns>True to cut it; false to leave it the flat triangle it was.</returns>
+    /// <remarks>
+    /// The same test the plan applied when it gathered, so the estimate and the cut
+    /// count the same set. The floor object is never refused: its edges were solved
+    /// for from the start.
+    /// </remarks>
+    public bool Lies(BspSurface surface, Vector3 a, Vector3 b, Vector3 c)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (surface.ObjectIndex == FloorObject)
+        {
+            return true;
+        }
+
+        Vector3 lie = Vector3.Cross(b - a, c - a);
+
+        return MathF.Abs(lie.Y) >= LiesFlat * lie.Length();
+    }
+
+    /// <summary>Surfaces beyond the floor whose relief is cut, or null for floor-only.</summary>
+    /// <remarks>
+    /// The floor was the whole story until the reconstructed horizon made the rooms the
+    /// sharpest thing on screen: outdoors, the ground runs past the <c>floor=</c> object
+    /// into verges, rock and roadside that carry the same displaced-class textures and
+    /// were left flat for no reason a player can see.
+    /// </remarks>
+    private Func<BspSurface, bool>? Also { get; init; }
 
     /// <summary>
     /// Works out how finely a scene's floor can afford to be cut, and what must not move.
@@ -393,6 +443,10 @@ public sealed class ReliefPlan
     /// <param name="floorObject">The object the scene's <c>floor=</c> line names.</param>
     /// <param name="deep">Whether a texture's relief is to be cut into the geometry.</param>
     /// <param name="budget">The most triangles the floor may become.</param>
+    /// <param name="also">
+    /// Surfaces beyond the floor whose relief is cut too, or null for floor-only —
+    /// outdoors, the ground runs past the <c>floor=</c> object and the loader says how far.
+    /// </param>
     /// <returns>The plan, or null when there is no floor to displace.</returns>
     /// <remarks>
     /// The cell is bought with the budget rather than fixed, which is what lets one number
@@ -401,19 +455,20 @@ public sealed class ReliefPlan
     /// forecourt's two and a half million at about four, with nobody tuning a scene.
     /// </remarks>
     public static ReliefPlan? For(
-        BspFile? scene, string? floorObject, Func<string, bool> deep, int budget)
+        BspFile? scene, string? floorObject, Func<string, bool> deep, int budget,
+        Func<BspSurface, bool>? also = null)
     {
         ArgumentNullException.ThrowIfNull(deep);
         ArgumentOutOfRangeException.ThrowIfLessThan(budget, 1);
 
-        if (scene is null || string.IsNullOrWhiteSpace(floorObject))
+        if (scene is null || (string.IsNullOrWhiteSpace(floorObject) && also is null))
         {
             return null;
         }
 
-        int wanted = Named(scene, floorObject);
+        int wanted = string.IsNullOrWhiteSpace(floorObject) ? -1 : Named(scene, floorObject);
 
-        if (wanted < 0)
+        if (wanted < 0 && also is null)
         {
             return null;
         }
@@ -449,7 +504,8 @@ public sealed class ReliefPlan
 
             BspSurface surface = scene.Surfaces[polygon.SurfaceIndex];
 
-            if (surface.ObjectIndex != wanted || !deep(surface.TextureName))
+            if ((surface.ObjectIndex != wanted && also?.Invoke(surface) != true) ||
+                !deep(surface.TextureName))
             {
                 continue;
             }
@@ -460,9 +516,20 @@ public sealed class ReliefPlan
                 Vector3 pb = scene.Vertices[b];
                 Vector3 pc = scene.Vertices[c];
 
-                float one = 0.5f * Vector3.Cross(pb - pa, pc - pa).Length();
+                Vector3 lie = Vector3.Cross(pb - pa, pc - pa);
+                float one = 0.5f * lie.Length();
 
                 if (one <= 1e-6f)
+                {
+                    continue;
+                }
+
+                // Surfaces reached through `also` are ground, not architecture: displacing
+                // a facade, a roof or a window frame tears it from whatever it abuts at
+                // every corner two lattices meet. Anything steeper than about seventy
+                // degrees stays flat; the floor object itself is never filtered, because
+                // its edges were solved for from the start.
+                if (surface.ObjectIndex != wanted && MathF.Abs(lie.Y) < LiesFlat * lie.Length())
                 {
                     continue;
                 }
@@ -672,6 +739,7 @@ public sealed class ReliefPlan
         {
             Boundary = (pinned.Count, continued),
             SetApart = apart.Count,
+            Also = also,
         };
     }
 
@@ -862,19 +930,23 @@ public sealed class ReliefPlan
 
                 if (blend > 0f)
                 {
-                    // Downwards only: the modelled surface is the *top* of the relief and
-                    // the field cuts into it, rather than sitting in the middle of it with
-                    // half above.
+                    // Downwards only: the lower half of the signed field cuts into the
+                    // modelled surface and its upper half remains on that surface. `Over`
+                    // has already moved mid grey to zero, so subtracting another half here
+                    // would turn a level map into a half-depth depression. Besides sinking
+                    // the whole material, that made every pinned edge climb back to the
+                    // authored plane as a conspicuous one-cell ramp.
                     //
                     // Not a stylistic choice. A floor is the one surface other things rest
                     // on — a rug, a shadow decal, the foot of a chair — and the game
                     // places them flush with the plane the 1999 geometry describes. Relief
                     // that rises above that plane punches through every one of them, which
                     // in the hotel lobby was three thousand pixels of tile flickering
-                    // through the rug at the resolution it was measured at. Carving keeps
-                    // the same peak-to-trough depth and cannot intersect anything that was
-                    // not already intersecting.
-                    float cut = field!.Over(uv.X, uv.Y, span) - 0.5f;
+                    // through the rug at the resolution it was measured at. Remapping the
+                    // signed field's lower half over the full depth keeps that depth for
+                    // mortar and grooves without moving a neutral surface or raising a
+                    // crest through something resting on it.
+                    float cut = MathF.Min(field!.Over(uv.X, uv.Y, span) * 2f, 0f);
                     float shift = cut * depth * blend;
 
                     position += normal * shift;

@@ -354,6 +354,18 @@ public sealed class SceneLoader
     /// </remarks>
     public string? TerrainDirectory { get; set; }
 
+    /// <summary>
+    /// What the material library measured about each texture, or null to displace only
+    /// the floor.
+    /// </summary>
+    /// <remarks>
+    /// Only consulted to widen relief displacement outdoors: which of a scene's
+    /// textures carry a displaced-class finish is a question the sink's own copy could
+    /// answer, but the sink learns of surfaces one batch at a time and the relief plan
+    /// wants the whole set before the first one.
+    /// </remarks>
+    public Rendering.Materials.SurfaceFinishes? Finishes { get; set; }
+
     /// <summary>The ReBarn packs the terrain sets ship in, or null for none.</summary>
     /// <remarks>
     /// The same files as <see cref="TerrainDirectory"/>, as <c>Raw</c> entries under
@@ -488,6 +500,31 @@ public sealed class SceneLoader
             _log?.Invoke(
                 $"floor: {floorObject}, {floorTextures.Count} " +
                 $"texture{(floorTextures.Count == 1 ? string.Empty : "s")} that can carry relief");
+        }
+
+        // Outdoors, the ground does not stop at the floor object: verges, rock faces and
+        // roadside carry the same displaced-class textures and were left flat by the
+        // floor-only rule, which the reconstructed horizon made the sharpest thing on
+        // screen. Every displaced-class texture the scene uses is cut wherever it appears.
+        if (asset is { Skybox.IsEmpty: false } && Finishes is { } finishes)
+        {
+            HashSet<string> everywhere = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (BspSurface surface in bsp.Surfaces)
+            {
+                if (finishes.Of(surface.TextureName) is { Displaced: true, HeightDepth: > 0f })
+                {
+                    everywhere.Add(surface.TextureName);
+                }
+            }
+
+            if (everywhere.Count > 0)
+            {
+                geometry.ReliefEverywhere(everywhere);
+                _log?.Invoke(
+                    $"terrain relief: {everywhere.Count} displaced " +
+                    $"texture{(everywhere.Count == 1 ? string.Empty : "s")} cut beyond the floor");
+            }
         }
 
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);

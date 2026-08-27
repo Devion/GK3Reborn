@@ -312,6 +312,19 @@ public interface ISceneSink
     void KeepRelief(IReadOnlySet<string> textures);
 
     /// <summary>
+    /// Says which textures' relief is cut into the geometry wherever they appear,
+    /// rather than only on the floor.
+    /// </summary>
+    /// <param name="textures">The colour texture names.</param>
+    /// <remarks>
+    /// The loader names these for outdoor scenes: ground and rock running past the
+    /// <c>floor=</c> object into verges and roadside, which the displaced material
+    /// classes already describe and the floor-only rule left flat. Called after
+    /// <see cref="KeepRelief"/>, which resets both sets for the room.
+    /// </remarks>
+    void ReliefEverywhere(IReadOnlySet<string> textures);
+
+    /// <summary>
     /// Draws one of the room's own named objects, or stops drawing it.
     /// </summary>
     /// <param name="objectName">The object's name, as the geometry file records it.</param>
