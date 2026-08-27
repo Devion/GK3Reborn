@@ -174,7 +174,7 @@ public sealed unsafe class RayTracingScene : IDisposable
                     InstanceCustomIndex = 0,
                     Mask = MaskFor(part),
                     InstanceShaderBindingTableRecordOffset = 0,
-                    Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
+                    Flags = FacingOf(part),
                     AccelerationStructureReference =
                         scene.DeviceAddressOf(scene._parts[^1].Structure.Handle),
                 });
@@ -277,6 +277,28 @@ public sealed unsafe class RayTracingScene : IDisposable
     /// </para>
     /// </remarks>
     public static uint MaskFor(int part) => part == 0 ? WorldMask : ModelMask;
+
+    /// <summary>Whether a part's triangles may be told apart by which side they are met from.</summary>
+    /// <param name="part">The part key; zero is the room.</param>
+    /// <returns>The instance's facing flags.</returns>
+    /// <remarks>
+    /// <para>
+    /// A model keeps its winding, so a ray may cull the faces it meets from within. That is
+    /// what lets a character shadow itself: a person is a stack of overlapping shells and
+    /// the only thing separating "this shell is around me" from "this arm is in my light"
+    /// is which side of the triangle the ray arrives at. See the trace stage's kSkipShells.
+    /// </para>
+    /// <para>
+    /// The room does not, and nothing asks it to. A BSP's polygons carry no consistent
+    /// winding — each triangle is given its own plane's normal at load, which is exactly
+    /// the admission that the file does not say — so a room triangle's two sides are not
+    /// distinguishable and disabling the test is the honest reading. Every ray that traces
+    /// the room today asks for no culling anyway, so this changes nothing for it.
+    /// </para>
+    /// </remarks>
+    private static GeometryInstanceFlagsKHR FacingOf(int part) => part == 0
+        ? GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr
+        : 0;
 
     /// <summary>Gives a mesh the vertices it is currently drawn with.</summary>
     /// <param name="key">Which mesh, as <see cref="RayTracingMesh.Key"/> named it.</param>

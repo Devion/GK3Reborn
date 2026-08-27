@@ -1020,10 +1020,32 @@ internal static class MeshShaders
             // still subject to occlusion, and still never subtracted against. What it gains
             // is shape and colour: bright where the artists put brightness, dim in the
             // corners they left dim, and warm where they painted warmth.
+            float hint = frame.ambientFloor.w * useLightmap;
+
             vec3 shaped = mix(
                 vec3(1.0),
                 vec3(kHintFloor) + (baked * kHintScale),
-                frame.ambientFloor.w * useLightmap);
+                hint);
+
+            // How much of that shaped floor is the bake's doing.
+            //
+            // The floor under the hint is there so a corner the artists left black reads as
+            // a corner rather than a hole; it is ambient in the ordinary sense and nothing
+            // standing here can take it away. Everything above it is the bake, and the bake
+            // is a record of how much light reached this spot in 1999 from these same
+            // lamps. Somebody standing in front of them now is stopping that light too, and
+            // the compositing pass is the only place that knows it — see the residual
+            // there.
+            //
+            // Written this way round, as the share that *may* be taken, because zero is
+            // then the answer for everything this pass does not write: the sky, which is
+            // not a surface, and a bulb, which nobody dims by standing in front of it. Both
+            // read the target's cleared alpha, and the safe reading of "nothing was said
+            // here" is "there is nothing here to take away".
+            float share = mix(
+                0.0,
+                1.0 - (kHintFloor / max(dot(shaped, vec3(0.2126, 0.7152, 0.0722)), 1e-4)),
+                hint);
 
             // Alpha says what this term is, because the compositing pass treats the three
             // differently: zero for a surface that carries its own brightness, a half for
@@ -1031,7 +1053,10 @@ internal static class MeshShaders
             // rig is computing, and only a bake may be subtracted against.
             outColor = vec4(
                 albedo * mix(ambient * shaped, baked, lit), lit > 0.5 ? 1.0 : 0.5);
-            outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1), 1.0);
+
+            // The rig's light, and in the spare channel how much of the indirect term above
+            // a moving thing may not touch.
+            outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1), share);
             #else
             // Indirect light. There is no gathered bounce, so the bake stands in for it,
             // scaled down because it also contains the direct light computed afresh.

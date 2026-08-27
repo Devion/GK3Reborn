@@ -193,9 +193,13 @@ internal static class DenoiserShaders
         //
         // Everything, unless the pixel is on a model — a character or a prop — in which
         // case the room and nothing else. The mesh pass writes a negative roughness into
-        // the normal target to say so, which is the whole of the signal; see
-        // RayTracingScene.MaskFor for why it has to exist: GK3's people are a stack of
-        // overlapping shells and a ray leaving the shirt hits the arm inside it.
+        // the normal target to say so, which is the whole of the signal.
+        //
+        // A hemisphere of rays is a harsher test of the shell stack than a shadow ray is,
+        // and the reason is the cosine weighting: most of an occlusion ray's samples leave
+        // nearly along the normal and the shell above is exactly there, so a torso inside a
+        // shirt occludes itself over most of its hemisphere however the faces are wound.
+        // Shadow rays leave toward one light and are handled below.
         //
         // Shadow rays no longer come through here. They are traced twice against the two
         // halves separately, because the composite needs to tell a shadow the bake already
@@ -205,17 +209,17 @@ internal static class DenoiserShaders
             return roughness < 0.0 ? kRoomOnly : kEverything;
         }
 
-        bool Occluded(vec3 origin, vec3 direction, float reach, uint mask)
+        bool Occluded(vec3 origin, vec3 direction, float reach, uint mask, uint flags, float from)
         {
             rayQueryEXT query;
 
             rayQueryInitializeEXT(
                 query,
                 scene,
-                gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT,
+                gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | flags,
                 mask,
                 origin,
-                kRayBias,
+                from,
                 direction,
                 reach);
 
@@ -224,6 +228,39 @@ internal static class DenoiserShaders
             return rayQueryGetIntersectionTypeEXT(query, true) !=
                    gl_RayQueryCommittedIntersectionNoneEXT;
         }
+
+        bool Occluded(vec3 origin, vec3 direction, float reach, uint mask)
+        {
+            return Occluded(origin, direction, reach, mask, 0u, kRayBias);
+        }
+
+        // What a shadow ray leaving a *model* is allowed to hit, when the thing it is
+        // testing against is the models.
+        //
+        // <b>Back faces are skipped, and that is what makes a character able to shadow
+        // itself at all.</b> GK3's people are not solid bodies: a character is a dozen
+        // separate meshes with a shirt shell around a whole torso, sleeves around whole
+        // arms, a collar around a whole neck. The surface a ray starts from is very often
+        // *inside* another mesh of the same person, so the ray hits that mesh immediately
+        // and no bias fixes it — the geometry really is there. That is why every character
+        // used to come out with a hard dark patch across the chest and the small of the
+        // back, and why models were made to skip models outright.
+        //
+        // The two cases are told apart by which side of a triangle the ray meets. Leaving a
+        // surface that is inside a shell, the ray meets that shell from within and hits its
+        // back face: an artefact of how the model is built, and skipped. Blocked by
+        // something genuinely in the way — an arm across a chest, a hat brim over a face,
+        // another person standing between this one and the lamp — the ray meets that
+        // surface from outside and hits its front face, which is a real shadow and is kept.
+        //
+        // It costs the shadow a shell casts on whatever is directly inside it, which is a
+        // shadow nobody can see: the thing inside is not drawn where the shell covers it.
+        const uint kSkipShells = gl_RayFlagsCullBackFacingTrianglesEXT;
+
+        // How far along a self-shadow ray to start looking, in scene units — about four
+        // centimetres. Small, because the winding is doing the work: this is only here for
+        // the seam where two shells meet edge-on and neither face is clearly the far side.
+        const float kSelfBias = 1.5;
 
         // What this light gives this pixel before anything blocks it, as a single number.
         // The same falloff, cone and lambert term the raster pass uses, so the weights
@@ -279,7 +316,8 @@ internal static class DenoiserShaders
         // direct light that arrives: a light worth twice as much is picked twice as often,
         // so the average over frames weights each light exactly as the shading does.
         bool ShadowRay(
-            vec3 position, vec3 normal, vec2 pixel, int index, int samples, uint mask)
+            vec3 position, vec3 normal, vec2 pixel, int index, int samples, uint mask,
+            uint flags, float from)
         {
             int count = int(rig.counts.x);
             float total = 0.0;
@@ -340,10 +378,16 @@ internal static class DenoiserShaders
                 float reach = length(target);
                 vec3 start = position + (normal * kNormalBias);
 
-                return !Occluded(start, target / reach, reach, mask);
+                return !Occluded(start, target / reach, reach, mask, flags, from);
             }
 
             return true;
+        }
+
+        bool ShadowRay(
+            vec3 position, vec3 normal, vec2 pixel, int index, int samples, uint mask)
+        {
+            return ShadowRay(position, normal, pixel, index, samples, mask, 0u, kRayBias);
         }
 
         bool OcclusionRay(
@@ -424,10 +468,17 @@ internal static class DenoiserShaders
                     litCount += ShadowRay(
                         position, normal, vec2(pixel), i, samples, kRoomOnly) ? 1 : 0;
 
-                    // A model does not shadow another model, by the same argument that
-                    // stops it shadowing itself, so nothing here is traced for one.
-                    clearCount += onModel || ShadowRay(
-                        position, normal, vec2(pixel), i, samples, kModelsOnly) ? 1 : 0;
+                    // The same ray against the models. From a model this is the person's
+                    // own arm across their own chest and the person standing between them
+                    // and the lamp, which needs the shells skipped; from the room it is
+                    // whoever is standing there, and every face of them counts.
+                    clearCount += (onModel
+                        ? ShadowRay(
+                            position, normal, vec2(pixel), i, samples,
+                            kModelsOnly, kSkipShells, kSelfBias)
+                        : ShadowRay(
+                            position, normal, vec2(pixel), i, samples, kModelsOnly))
+                        ? 1 : 0;
 
                     openCount +=
                         OcclusionRay(position, normal, vec2(pixel), i, samples, mask) ? 1 : 0;
@@ -996,7 +1047,27 @@ internal static class DenoiserShaders
 
                     float w = kernel[abs(x)] * kernel[abs(y)];
                     w *= exp(-abs(centre.x - valueNear.x) / deviation);
-                    w *= exp(-abs(depthCentre - linear) / denoise.sigma.x);
+
+                    // How far apart two depths may be before they stop being one surface,
+                    // <b>as a fraction of how far away they are</b> rather than in scene
+                    // units.
+                    //
+                    // AMD's tolerance is a hundredth and this divided a difference in
+                    // *units* by it. GK3 measures in units of about two and a half
+                    // centimetres, so a room is hundreds of them across and a wall a pixel
+                    // further from the eye than its neighbour is a hundred tolerances away:
+                    // the exponential returned nothing, the neighbour counted for nothing,
+                    // and the blur only ever ran across surfaces standing square-on to the
+                    // camera. Walls are square-on, which is why the room came out clean;
+                    // a head is not square-on anywhere, so the eight rays a pixel spends
+                    // stayed exactly as noisy as they arrived and read as a stipple over
+                    // every face in the game.
+                    //
+                    // A fraction is the same thing the reprojection already asks — see
+                    // IsDisoccluded, which divides by the depth before it compares.
+                    w *= exp(-abs(depthCentre - linear) /
+                             max(denoise.sigma.x * depthCentre, 1e-4));
+
                     w *= pow(clamp(dot(normal, normalNear), 0.0, 1.0), 32.0);
                     w *= usable;
 

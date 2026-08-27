@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Game;
 using Xunit;
@@ -23,9 +23,6 @@ public sealed class SunlightTests
     {
         AuthoredLight morning = Sunlight.For(new Timeblock(3, 7, IsAfternoon: false), Centre)!;
         AuthoredLight noon = Sunlight.For(new Timeblock(1, 12, IsAfternoon: true), Centre)!;
-
-        float ElevationOf(AuthoredLight sun) =>
-            MathF.Asin(-sun.Direction.Y) * 180f / MathF.PI;
 
         Assert.True(ElevationOf(morning) < 20f, $"7am stands at {ElevationOf(morning):0}°");
         Assert.True(ElevationOf(noon) > 55f, $"noon stands at {ElevationOf(noon):0}°");
@@ -74,6 +71,115 @@ public sealed class SunlightTests
         float Warmth(AuthoredLight sun) => sun.Color.X - sun.Color.Z;
 
         Assert.True(Warmth(morning) > Warmth(noon));
+    }
+
+    /// <summary>A scenekey standing in a given direction, at a scenekey's distance.</summary>
+    private static AuthoredLight Scenekey(float azimuth, float elevation, float intensity = 1f)
+    {
+        float radians = MathF.PI / 180f;
+        var toward = new Vector3(
+            MathF.Cos(elevation * radians) * MathF.Sin(azimuth * radians),
+            MathF.Sin(elevation * radians),
+            MathF.Cos(elevation * radians) * MathF.Cos(azimuth * radians));
+
+        return new AuthoredLight(
+            "scenekey", AuthoredLightKind.Point, Centre + (toward * 54_000f), -toward,
+            new Vector3(0.53f, 0.48f, 0.40f),
+            HotSpot: 0, Falloff: 0, AttenuationStart: 0, AttenuationEnd: 200f,
+            UsesAttenuation: false, CastsShadows: true, Intensity: intensity, Radius: 0f);
+    }
+
+    private static float ElevationOf(AuthoredLight sun) =>
+        MathF.Asin(-sun.Direction.Y) * 180f / MathF.PI;
+
+    private static float AzimuthOf(AuthoredLight sun) =>
+        MathF.Atan2(-sun.Direction.X, -sun.Direction.Z) * 180f / MathF.PI;
+
+    /// <summary>
+    /// The replacement takes the artists' aim, and only their aim.
+    /// </summary>
+    /// <remarks>
+    /// The hour picked the scene asset, and the asset carries the key its room was baked
+    /// under. Aiming by the hour instead put the light a median 42 degrees from that key
+    /// across the corpus and 107 at worst, which is a room lit from somewhere the bake and
+    /// the painted sky both disagree with. What the hour still decides is everything else:
+    /// whether there is a sun at all, and — through the elevation the key turns out to
+    /// stand at — how warm it is.
+    /// </remarks>
+    [Fact]
+    public void An_authored_scenekey_aims_the_sun_that_replaces_it()
+    {
+        var timeblock = new Timeblock(1, 10, IsAfternoon: false);
+
+        AuthoredLight aimed = Sunlight.For(timeblock, Centre, Scenekey(31f, 40f))!;
+
+        Assert.Equal(40f, ElevationOf(aimed), 0.5f);
+        Assert.Equal(31f, AzimuthOf(aimed), 0.5f);
+
+        // And nothing else of it. The scenekey's two hundred unit range is exactly what
+        // made it unusable; the replacement stands far enough out to be directional and
+        // carries no falloff at all.
+        Assert.False(aimed.UsesAttenuation);
+        Assert.True(Vector3.Distance(aimed.Position, Centre) > 10_000f);
+        Assert.True(aimed.Radius > 0f);
+        Assert.True(aimed.Intensity > 1f);
+    }
+
+    [Fact]
+    public void Without_a_scenekey_the_sun_still_follows_the_hour()
+    {
+        var timeblock = new Timeblock(1, 10, IsAfternoon: false);
+
+        AuthoredLight arc = Sunlight.For(timeblock, Centre)!;
+        AuthoredLight aimed = Sunlight.For(timeblock, Centre, Scenekey(31f, 40f))!;
+
+        Assert.True(
+            MathF.Abs(AzimuthOf(arc) - AzimuthOf(aimed)) > 45f,
+            $"the two paths agreed by accident: {AzimuthOf(arc):0}° and {AzimuthOf(aimed):0}°");
+
+        Assert.Equal(51f, ElevationOf(arc), 1f);
+    }
+
+    [Fact]
+    public void The_brightest_of_two_distant_keys_is_the_one_that_aims_the_sun()
+    {
+        Vector3 minimum = Centre - new Vector3(1500f, 300f, 1000f);
+        Vector3 maximum = Centre + new Vector3(1500f, 300f, 1000f);
+
+        AuthoredLight[] rig = [Scenekey(200f, 25f, 0.4f), Scenekey(31f, 40f, 1f)];
+
+        AuthoredLight? found = Sunlight.AuthoredSun(rig, minimum, maximum);
+
+        Assert.Same(rig[1], found);
+        Assert.Equal(31f, AzimuthOf(Sunlight.For(
+            new Timeblock(1, 10, IsAfternoon: false), Centre, found)!), 0.5f);
+    }
+
+    /// <summary>
+    /// A key underground is not an answer about where the sun is.
+    /// </summary>
+    /// <remarks>
+    /// No scenekey in the corpus stands below the horizon — all 749 are between 24 and 62
+    /// degrees up. A rig is a text file anybody may edit, though, and a scene lit from
+    /// underneath is worse than one lit by the clock.
+    /// </remarks>
+    [Fact]
+    public void A_key_below_the_horizon_falls_back_to_the_hour()
+    {
+        var timeblock = new Timeblock(1, 10, IsAfternoon: false);
+
+        AuthoredLight below = Sunlight.For(timeblock, Centre, Scenekey(31f, -20f))!;
+        AuthoredLight arc = Sunlight.For(timeblock, Centre)!;
+
+        Assert.Equal(ElevationOf(arc), ElevationOf(below), 0.5f);
+        Assert.Equal(AzimuthOf(arc), AzimuthOf(below), 0.5f);
+    }
+
+    [Fact]
+    public void A_scenekey_does_not_put_a_sun_over_a_night_sky()
+    {
+        Assert.Null(Sunlight.For(
+            new Timeblock(1, 6, IsAfternoon: true), Centre, Scenekey(31f, 40f)));
     }
 
     /// <summary>RC1's own rig, reduced to the shapes that matter to the recogniser.</summary>

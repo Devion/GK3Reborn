@@ -1579,6 +1579,23 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         _rayTracing ??= RayTracingScene.Build(_context, _traceable);
 
+        // Where each model stands. A model's triangles go into the structure in the
+        // model's own space and are placed by an instance transform — which is what makes
+        // walking across a room a transform rewrite rather than ten thousand rewritten
+        // vertices — and RayTracingScene.Build has no transform to place them by, so
+        // everything it builds starts at the origin.
+        //
+        // Nothing else was putting them right. MoveModel is the only other caller of
+        // Move, and nothing moves a prop after a room has loaded: a van, a bench, a
+        // signpost stayed piled at (0, 0, 0) for the life of the scene, shadowing whatever
+        // is there and nothing where it is drawn. An actor came right only once the story
+        // first walked them somewhere. Measured on RC1: not one ground pixel in the square
+        // was shadowed by the forty-one models standing in it.
+        for (int placement = 0; placement < _placed.Count; placement++)
+        {
+            _rayTracing?.Move(placement + 1, _placed[placement].Item2);
+        }
+
         // Whatever was hidden while the room was being built. The structure did not exist
         // to be told at the time, and a hidden model that still casts a shadow is worse
         // than one that is simply drawn.
@@ -1586,6 +1603,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             _rayTracing?.SetTraced(hidden + 1, false);
         }
+
+        // Both of those only recorded. The room is about to be drawn and the first frame
+        // traces against whatever the structure holds, so it has to hold this now rather
+        // than after a frame has gone by with every model in the wrong place.
+        _rayTracing?.Settle();
 
         var size = new DescriptorPoolSize
         {

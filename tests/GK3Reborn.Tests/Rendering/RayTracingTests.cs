@@ -135,6 +135,46 @@ public sealed class RayTracingTests
         ],
         -Vector3.UnitZ);
 
+    /// <summary>A flat panel, face up, standing a little above the floor.</summary>
+    /// <remarks>
+    /// A <em>model</em>, which is the point of it: a pixel on a model is the one the trace
+    /// stage treats differently, and a floor built out of a <c>.MOD</c> is what these tests
+    /// were originally and wrongly written with. Here it is the thing being shadowed rather
+    /// than the room, so a model is exactly right.
+    /// </remarks>
+    private static ModFile Panel(float half, float height) => Quad(
+        "white",
+        [
+            new(-half, height, -half), new(-half, height, half),
+            new(half, height, half), new(half, height, -half),
+        ],
+        Vector3.UnitY);
+
+    /// <summary>The wall, wound so that the ray meets one side of it or the other.</summary>
+    /// <param name="half">Half its width.</param>
+    /// <param name="height">How tall it stands.</param>
+    /// <param name="shell">
+    /// True to turn its front face toward the light, which is what a shirt around a torso
+    /// looks like to a ray leaving that torso: met from within, and it must go through.
+    /// False for the same wall the other way round — something standing between the panel
+    /// and the light, which must shadow it.
+    /// </param>
+    /// <remarks>
+    /// The two differ in winding and in nothing else: the same four corners, the same
+    /// shading normal, and the mesh pipeline culls no faces, so both are drawn identically —
+    /// and the camera looks straight down, so both are the same edge-on line either way.
+    /// Any difference between the two renders is the traced ray and can be nothing else.
+    /// </remarks>
+    private static ModFile Cover(float half, float height, bool shell)
+    {
+        Vector3[] corners =
+        [
+            new(-half, 0, 0), new(half, 0, 0), new(half, height, 0), new(-half, height, 0),
+        ];
+
+        return Quad("white", shell ? [.. corners.Reverse()] : corners, -Vector3.UnitZ);
+    }
+
     private static DecodedImage White()
     {
         byte[] pixels = new byte[8 * 8 * 4];
@@ -170,11 +210,21 @@ public sealed class RayTracingTests
     };
 
     /// <summary>Renders the floor, with or without the wall that shadows it.</summary>
+    /// <param name="renderer">The renderer.</param>
+    /// <param name="quality">Which ray budget to render at.</param>
+    /// <param name="wall">Whether to stand the occluder in the room.</param>
+    /// <param name="settings">A ray budget of one's own, or null for the level's.</param>
+    /// <param name="placement">
+    /// Where to stand the wall, or null for the model's own origin. Only the transform
+    /// changes: the model is the same either way, which is what makes the difference
+    /// between two renders evidence about the placement and nothing else.
+    /// </param>
     private static DecodedImage Picture(
         SceneRenderer renderer,
         RayTracingQuality quality,
         bool wall,
-        RayTracingSettings? settings = null)
+        RayTracingSettings? settings = null,
+        Matrix4x4? placement = null)
     {
         using SceneGeometry geometry = renderer.CreateGeometry();
 
@@ -183,7 +233,7 @@ public sealed class RayTracingTests
 
         if (wall)
         {
-            geometry.Add(Wall(400f, 120f));
+            geometry.Add(Wall(400f, 120f), placement);
         }
 
         renderer.SetLights([SideLight()]);
@@ -277,6 +327,173 @@ public sealed class RayTracingTests
         Assert.True(
             blocked < open * 0.8f,
             $"adding an occluder did not darken the floor: {open} to {blocked}");
+    }
+
+    /// <summary>
+    /// A model shadows the room from where it was placed, not from where it was modelled.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A model's triangles go into the acceleration structure in the model's own space and
+    /// are placed by an instance transform. Every other test here stands its wall at the
+    /// model's own origin, so all of them passed while that transform was never applied at
+    /// all: the structure was built with every instance at identity and only
+    /// <c>MoveModel</c> ever put one right. Nothing moves a prop after a room has loaded,
+    /// so every van, bench and signpost in the game traced from (0, 0, 0) — and an actor
+    /// did too, until the story first walked them somewhere.
+    /// </para>
+    /// <para>
+    /// The wall is placed five thousand units away, well outside both the floor and the
+    /// far plane. It should shadow nothing and be drawn nowhere, so the picture should be
+    /// the empty room's. Placed at identity it shadows half the floor, which is what this
+    /// used to render.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_model_shadows_the_room_from_where_it_is_placed()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        float open = Render(renderer, RayTracingQuality.Low, wall: false);
+        float blocked = Render(renderer, RayTracingQuality.Low, wall: true);
+
+        float away = MeanLuminance(Picture(
+            renderer,
+            RayTracingQuality.Low,
+            wall: true,
+            placement: Matrix4x4.CreateTranslation(0, 0, 5000)));
+
+        Assert.True(open > 20f, $"the floor was not lit to begin with: {open}");
+        Assert.True(
+            blocked < open * 0.8f,
+            $"the occluder cast no shadow at its own origin: {open} to {blocked}");
+
+        Assert.True(
+            away > blocked * 1.2f,
+            $"the occluder shadowed the floor from a place it does not stand: " +
+            $"{blocked} at the origin, {away} five thousand units away");
+
+        Assert.True(
+            away > open * 0.95f,
+            $"a model outside the room darkened it: {open} empty, {away} with it away");
+    }
+
+    /// <summary>Renders a model panel, with whatever else is standing over it.</summary>
+    /// <param name="renderer">The renderer.</param>
+    /// <param name="quality">Which ray budget to render at.</param>
+    /// <param name="build">What to place besides the panel, if anything.</param>
+    /// <returns>How bright the panel came out.</returns>
+    /// <remarks>
+    /// <b>No room, and that is deliberate.</b> These measure what a model does to a model,
+    /// and a floor would fill most of the frame with a surface that is shadowed by the same
+    /// occluder through the other half of the structure — where no face is culled, because
+    /// a ray leaving the room may hit either side of anything. Its brightness would swamp
+    /// the panel's and move with the occluder in every case, including the ones that are
+    /// supposed to be identical.
+    /// </remarks>
+    private static float Panelled(
+        SceneRenderer renderer, RayTracingQuality quality, Action<SceneGeometry>? build = null)
+    {
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        geometry.AddTexture("white", White());
+        geometry.Add(Panel(160f, 10f));
+
+        build?.Invoke(geometry);
+
+        renderer.SetLights([SideLight()]);
+        renderer.Quality = quality;
+        renderer.Overriding = null;
+
+        return MeanLuminance(renderer.Render(geometry, 200, 200, Overlooking()));
+    }
+
+    /// <summary>
+    /// One model shadows another, and a model shadows itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both used to be refused outright — a shadow ray leaving a model traced the room and
+    /// skipped every model, its own included — because GK3's people are a stack of
+    /// overlapping shells and a surface inside one hits it before the ray has gone
+    /// anywhere. Which side of a triangle the ray arrives at is what tells the two apart,
+    /// so the wall's front face still shadows and a shell's back face no longer does.
+    /// </para>
+    /// <para>
+    /// The wall is placed as its own model in one case and built into the same model as
+    /// the panel in the other, which is the whole difference between shadowing a
+    /// neighbour and shadowing oneself.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_model_is_shadowed_by_another_model_and_by_itself()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        float open = Panelled(renderer, RayTracingQuality.Low);
+
+        float neighbour = Panelled(
+            renderer, RayTracingQuality.Low, g => g.Add(Wall(400f, 120f)));
+
+        // The same wall, in the panel's own model rather than beside it.
+        float itself = Panelled(
+            renderer,
+            RayTracingQuality.Low,
+            g => g.Add(ModFile.FromMeshes(
+                "panel and wall",
+                [.. Panel(160f, 10f).Meshes, .. Wall(400f, 120f).Meshes])));
+
+        Assert.True(open > 20f, $"the panel was not lit to begin with: {open}");
+
+        Assert.True(
+            neighbour < open * 0.9f,
+            $"one model did not shadow another: {open} to {neighbour}");
+
+        Assert.True(
+            itself < open * 0.9f,
+            $"a model did not shadow itself: {open} to {itself}");
+    }
+
+    /// <summary>
+    /// A shell around a surface is not a shadow on it.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the rule, and the one that stops a character being covered in hard
+    /// dark patches: a shirt around a torso, a sleeve around an arm, a collar around a
+    /// neck. The ray meets those from within, and what it meets is the reason the whole
+    /// signal used to be thrown away.
+    /// </remarks>
+    [Fact]
+    public void A_shell_around_a_model_does_not_shadow_it()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        float open = Panelled(renderer, RayTracingQuality.Low);
+
+        float shell = Panelled(
+            renderer, RayTracingQuality.Low, g => g.Add(Cover(400f, 120f, shell: true)));
+
+        float between = Panelled(
+            renderer, RayTracingQuality.Low, g => g.Add(Cover(400f, 120f, shell: false)));
+
+        // The same four corners, the same shading normal, and nothing is back-face culled
+        // when it is drawn, so the two pictures differ only in what the rays found.
+        Assert.True(
+            between < open * 0.9f,
+            $"the wall the right way round did not shadow the panel: {open} to {between}");
+
+        Assert.True(
+            shell > open * 0.98f,
+            $"a shell around the panel shadowed it: {open} without one, {shell} with");
     }
 
     [Fact]

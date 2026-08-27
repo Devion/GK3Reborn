@@ -540,6 +540,24 @@ public sealed class SceneLoader
 
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject, replaced);
 
+        // The sun, decided once and used by everything that has to agree with it: the room's
+        // rig, and the reconstructed horizon standing behind the sky. It is aimed by the
+        // artists' own scenekey wherever the asset ships one - see Sunlight - so it has to
+        // be worked out after AddScene, which is what gives it a room to be measured
+        // against, and before the terrain, which is lit by it.
+        //
+        // Against the room's corners rather than the whole scene's. Models are placed
+        // below and grow the box with them, and a suitcase on the far side of a square is
+        // not evidence about where the sun is.
+        Vector3 centre = (geometry.Minimum + geometry.Maximum) / 2f;
+
+        AuthoredLight? sun = asset is { Skybox.IsEmpty: false }
+            ? Sunlight.For(
+                Daylight(request, timeblock, asset),
+                centre,
+                Sunlight.AuthoredSun(asset.Lights, geometry.Minimum, geometry.Maximum))
+            : null;
+
         // 177 of the game's 229 scene assets name a sky, and which one is already decided
         // by the time of day the timeblock chose.
         if (asset?.Skybox is { IsEmpty: false } sky)
@@ -547,12 +565,8 @@ public sealed class SceneLoader
             LoadSkybox(geometry, sky, diagnostics);
 
             // The reconstructed horizon rides the same choice: the terrain set is named
-            // after the sky's own faces, so day and night come free here too. The sun's
-            // direction only needs the hour - the centre only places the light.
-            LoadTerrain(
-                geometry, sky,
-                Sunlight.For(Daylight(request, timeblock, asset), Vector3.Zero)?.Direction,
-                diagnostics);
+            // after the sky's own faces, so day and night come free here too.
+            LoadTerrain(geometry, sky, sun?.Direction, diagnostics);
         }
 
         ReportDisputedVisibility(init, diagnostics);
@@ -593,17 +607,14 @@ public sealed class SceneLoader
         {
             CameraShell = ReadCameraBounds(init, diagnostics),
 
-            // A sky overhead means the room is outdoors, and outdoors the sun is placed by
-            // the story's own clock — over the middle of what was just built, which is why
-            // this stands here after AddScene rather than anywhere tidier.
+            // The corners of the room, which is what tells a lamp standing in it from a key
+            // light tens of thousands of units outside it. Models have been placed by now
+            // and have grown the box, and that is fine here: the question this answers is
+            // "can this light's stored range reach anything", and a suitcase is something.
             Bounds = (geometry.Minimum, geometry.Maximum),
-            // The state's own clock where there is one; the asset suffix is only "A"
-            // for seven different mornings and afternoons, and names no hour.
-            Sun = asset is { Skybox.IsEmpty: false }
-                ? Sunlight.For(
-                    Daylight(request, timeblock, asset),
-                    (geometry.Minimum + geometry.Maximum) / 2f)
-                : null,
+
+            // Decided above, before the horizon that is lit by it.
+            Sun = sun,
         };
     }
 
@@ -620,7 +631,7 @@ public sealed class SceneLoader
     /// rule used to be "a sky <em>and</em> a timeblock", so a room entered without one was
     /// lit flat, cast no shadows at all, and looked like a bug in the renderer rather than
     /// a missing argument. Whether the hour has a sun in it is
-    /// <see cref="Sunlight.For(Timeblock, System.Numerics.Vector3)"/>'s business — it
+    /// <see cref="Sunlight.For(Timeblock, System.Numerics.Vector3, Formats.Scenes.AuthoredLight)"/>'s business — it
     /// answers null at night, which is a sun's absence for a reason.
     /// </para>
     /// <para>

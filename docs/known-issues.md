@@ -203,6 +203,171 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### The synthesised sun pointed somewhere the room was never lit from — fixed 2026-08-27
+
+**Reported:** 2026-08-27, as the ray-traced light arriving from nearly straight up rather
+than from where the sun is. **Fixed the same day**: `Sunlight.For` takes the scenekey's
+own bearing where the asset ships one, and the hour decides only whether there is a sun
+and — through the elevation that bearing turns out to stand at — how warm it is. RC1 at
+110A now reports `Sun: elevation 40deg` against the artists' 40, and its square measures a
+ground mean of 69.3 against the 1999 bake's 71.5, where the old arc made it 99.4.
+
+`Game/Sunlight.cs` throws the artists' `scenekey` away and replaces it with an arc that
+knows only the hour: `elevation = sin(day·pi)·62°`, `azimuth = lerp(80°, 280°)`. Nothing in it
+reads the scene. The scenekey it replaces carries the direction the room was *baked* from,
+and every asset that names a skybox also carries a `Skybox.Azimuth` saying how the painted
+sky is turned; neither is consulted.
+
+| scene, block | artists' scenekey | synthesised | apart |
+| --- | --- | --- | --- |
+| RC1 110A | elev 40°, az 31° | elev 51°, az 141° | **110°** |
+| RC2 110A | elev 40°, az 30° | elev 51°, az 141° | **112°** |
+| POU 110A | elev 61°, az −90° | elev 51°, az 141° | **128°** |
+| CEM 112P | elev 61°, az 153° | elev 62°, az 172° | 19° |
+| RC1 102P | elev 61°, az −174° | elev 58°, az −157° | 17° |
+
+The afternoon blocks land close by luck. Every morning block is a third of the way round the
+compass from the bake and from the sky above it.
+
+**It reads as overhead as well as sideways.** RC1 at 110A has two lights that reach the
+whole town: this sun (elev 51°, luma 1.06) and `sky_bounce` (elev **70°**, luma 0.26).
+Their sum sits at elev 56.5°, with 83% of the light vector pointing straight down.
+`ground_bounce` is at elev −81° — from below — and attenuates to nothing at the square's
+middle.
+
+**The scenekey was replaced for its reach, not its aim.** Its two hundred unit range cannot
+touch the geometry, which is what item 4 was about; its azimuth and elevation were never the
+problem. Keeping the direction the artists gave it and overriding only reach, attenuation
+and emitter size would put the light back where the bake and the painted sky agree it is,
+and would cost the timeblock arc nothing — the arc is still the answer for a scene whose
+asset ships no scenekey at all.
+
+### A shadow could only take about a fifth of an outdoor pixel — fixed 2026-08-27
+
+**Reported:** 2026-08-27, with the item above, as shadows being very weak outdoors.
+**Fixed the same day.** The measurement that follows is what the fix was sized against.
+
+Measured on RC1's sunlit ground at `--rt high`:
+
+- **54% of a lit ground pixel is the ambient floor** — `residual` in `CompositePipeline`,
+  which is `ambient × (0.30 + 3·baked)`. The dynamic shadow never touches it, deliberately
+  and for the reason that pass documents at length. But at Medium and High the bake is still
+  *shaping* that ambient, so a patch of ground the 1999 bake recorded as full sun keeps a
+  bright ambient floor with a character standing on it.
+- Of the remaining 46%, the sun is about half. The room-shadow fraction inside the obelisk's
+  own cast shadow bottoms out at 0.50 and never approaches zero, because `sky_bounce` and
+  the lamps are unshadowed there.
+
+So a character's deepest possible shadow is around `0.54 + 0.46 × 0.5 ≈ 0.77` of a lit
+pixel: under a quarter darker before gamma, about a tenth after. The obelisk does better
+only because its shadow is in the bake too, so it darkens `shaped` as well — which a
+character's shadow can never do.
+
+
+**What was done.** The mesh pass now says, in the rig target's spare alpha, how much of a
+pixel's ambient floor is the bake's doing — one minus `kHintFloor` over the shaped floor's
+own luminance — and the composite takes that share of the residual away with the dynamic
+shadow. The floor under the hint is untouched, because that part is there to keep a dark
+corner from reading as a hole and is ambient in the ordinary sense.
+
+The share is written as the part that *may* be taken rather than the part that may not, so
+that nought is the right answer for everything the pass does not write. That matters more
+than it sounds: the indirect target's alpha clears to **one**, so every is-this-a-surface
+test built on it reads the sky as a fully baked wall, while the dynamic channel over the sky
+is nought because the denoiser writes nought wherever there is nothing to shadow. Written
+the other way round the background went black, which is exactly what the first attempt did.
+
+Gabriel's shadow on RC1's square goes from 0.92 of the lit ground beside it to **0.67**.
+Frame means move by a tenth of a per cent or less on RC1, LBY and DIN and by 0.9% on R25,
+which is the whole of the point: nothing changes except where somebody is standing.
+
+
+### A character could not shadow itself or anybody else — fixed 2026-08-27
+
+**Asked for** 2026-08-27, having been refused outright since ray tracing was written: a
+shadow ray leaving a model traced the room and skipped every model, its own included.
+
+The reason was real. **GK3's people are not solid bodies** — a shirt shell around a whole
+torso, sleeves around whole arms, a collar around a whole neck — so the surface a ray starts
+from is very often inside another mesh of the same person and the ray hits it before it has
+gone anywhere. No bias fixes that; the geometry really is there, and every character came
+out with a hard dark patch across the chest and the small of the back.
+
+**Which side of the triangle the ray arrives at is what tells the two cases apart.** Leaving
+a surface that is inside a shell, the ray meets that shell from within and hits its back
+face: an artefact of how the model is built. Blocked by something genuinely in the way — an
+arm across a chest, a hat brim over a face, another person between this one and the lamp —
+it meets that surface from outside and hits its front face. So the self ray culls back
+faces, and model instances keep their winding for it. The room does not and is not asked to:
+a BSP's polygons carry no consistent winding, which is why each triangle is given its own
+plane's normal at load, and every ray that traces the room asks for no culling anyway.
+
+It costs the shadow a shell casts on whatever is directly inside it, which is a shadow
+nobody can see — the thing inside is not drawn where the shell covers it.
+
+`A_model_is_shadowed_by_another_model_and_by_itself` and
+`A_shell_around_a_model_does_not_shadow_it` are the pair. The second is the one that fails
+without the culling, and it is a controlled comparison: the same four corners, the same
+shading normal, nothing back-face culled when it is *drawn*, and only the winding reversed —
+so the difference between the two renders is the traced ray and can be nothing else. Neither
+uses a room, because a floor would be shadowed by the same occluder through the other half
+of the structure, where no face is culled, and its brightness would swamp the panel's.
+
+### Faces were stippled with shadow acne — fixed 2026-08-27
+
+**Reported:** 2026-08-27, as "shadow acne smears" on faces, while the self-shadowing above
+was being added. **It was not that**, and the measurement said so before anything was
+changed: rendering the same frame with self-shadowing off gave 2.25% speckle against 2.22%
+with it, and pushing the self ray's start out to thirty units — twenty times what it needs —
+changed nothing at all. The stipple was in the room-shadow channel and had always been
+there.
+
+**The filter's depth tolerance was in the wrong units.** A blurring pass weighs a neighbour
+by `exp(-|Δdepth| / sigma)` with AMD's own sigma of a hundredth, and `LinearDepth` returns
+view-space Z **in scene units**. A GK3 unit is about two and a half centimetres, so a room
+is hundreds of them deep and a wall one pixel further from the eye than its neighbour is a
+hundred tolerances away: the exponential returned nothing and the blur only ever ran across
+surfaces standing square-on to the camera. Walls are square-on, which is why the room came
+out clean. A head is not square-on anywhere, so the eight rays a pixel spends stayed exactly
+as noisy as they arrived.
+
+Dividing by the depth first — which is what the reprojection's own `IsDisoccluded` already
+does — takes R25's head from 2.22% speckle to **1.43%**, below the 1.59% the hair texture
+itself carries at `--rt none`. Four times the rays only reached 1.47%, and this costs
+nothing.
+
+A settled character was never affected: the host at 400 frames measures 5.34% on the same
+crop at High against the bake's 6.44%, because the temporal filter gets there in the end.
+What this fixes is every pixel that has no history to average — the first frame after a cut,
+and anything the camera or the character is moving.
+
+### Nothing placed in a room cast a ray-traced shadow — fixed 2026-08-27
+
+**Reported** as characters casting only a very faint shadow outdoors, alongside two separate
+complaints about the sun's direction and about how weak a shadow could be, both above.
+
+**Every model was traced at the world origin.** `RayTracingScene.Build` puts a model's
+triangles into the structure in the model's own space and places them with an instance
+transform, and it has none to place them by: everything it builds starts at identity.
+`SceneGeometry.Finish` replayed the *hidden* models onto the finished structure and never
+replayed where any of them stands, and `MoveModel` — the only other caller of `Move` — runs
+when the story moves somebody. Nothing moves a prop after a room has loaded. So RC1's van,
+benches and signposts sat piled at (0, 0, 0) for the life of the scene, shadowing whatever
+is there and nothing where they are drawn; an actor came right only once something first
+walked them somewhere, which is why *some* shadow appeared in play and none at all through
+`render-scene`.
+
+Measured on RC1 at 110A, dumping the composite's three shadow inputs: the models-only
+channel read fully lit on 131,959 of 131,972 ground pixels. Occlusion went with it, because
+a floor pixel's occlusion ray traces everything and there was nothing of a character there
+to find. `Finish` now replays each placement's transform and settles the structure before
+the first frame draws.
+
+**The three tests here could not have caught it**, and that is worth remembering: all of
+them stand their occluder at the model's own origin, where identity is the right answer.
+`A_model_shadows_the_room_from_where_it_is_placed` is the one that fails without the fix —
+it places the same wall five thousand units away and asserts the floor stops being shadowed.
+
 ### The tour at Poussin's tomb was cut off at the hips — fixed 2026-08-25
 
 **Reported** as legs missing on the second morning, and correctly re-diagnosed by the

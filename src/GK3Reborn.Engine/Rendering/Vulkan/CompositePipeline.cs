@@ -77,7 +77,8 @@ internal sealed unsafe class CompositePipeline : IDisposable
             ivec2 pixel = ivec2(gl_FragCoord.xy);
 
             vec4 indirect = texelFetch(indirectTarget, pixel, 0);
-            vec3 direct = texelFetch(directTarget, pixel, 0).rgb;
+            vec4 rig = texelFetch(directTarget, pixel, 0);
+            vec3 direct = rig.rgb;
             float shadow = clamp(texelFetch(shadowTarget, pixel, 0).r, 0.0, 1.0);
             float open = clamp(texelFetch(occlusionTarget, pixel, 0).r, 0.0, 1.0);
 
@@ -133,6 +134,32 @@ internal sealed unsafe class CompositePipeline : IDisposable
             // the rig computes, so nothing is taken off it — it is simply light that is
             // there, and it survives to be occluded below.
             vec3 residual = max(indirect.rgb - (accounted * lightmapped), vec3(0.0));
+
+            // And what a moving thing takes off *that*.
+            //
+            // Not all of it. The mesh pass says in the rig target's spare channel how much
+            // of this pixel's indirect term is a plain ambient floor, and that part is
+            // light from everywhere at once — nobody standing here blocks it. The rest is
+            // the shape of the bake, which is a record of how much light these same lamps
+            // put on this spot when nobody was standing on it, and somebody standing on it
+            // now is stopping the same share of it that they are stopping of the rig.
+            //
+            // Without this a character outdoors could not cast a shadow worth the name.
+            // Measured on RC1's square: 54% of a lit ground pixel was bake-shaped ambient
+            // and untouchable, and of the 46% left the sun was about half — so the deepest
+            // shadow anybody could throw was a fifth of the pixel, which reads as a smudge.
+            // Room shadows never had this problem, because the bake contains them: where
+            // the obelisk stands the artists painted the shadow, so the shape dims with it.
+            //
+            // A surface that carries its own brightness is exempt, and so is the sky, and
+            // neither needs a test: the mesh pass writes nothing into this channel for
+            // either of them and the target clears to nought, which already means "none of
+            // this is the bake's". The sky is the one that would have shown — its alpha in
+            // the *indirect* target clears to one, so every is-this-a-surface test built on
+            // that reads the background as a fully baked wall, and the dynamic channel over
+            // it is nought because the denoiser writes nought wherever there is nothing to
+            // shadow. The background went black.
+            residual *= mix(1.0, unblocked, rig.a);
 
             vec3 lit = (residual * occlusion) + arrived;
 

@@ -24,11 +24,29 @@ namespace GK3Reborn.Game;
 /// </para>
 /// <para>
 /// So outdoors the scenekey is replaced with this: a single warm sun far enough away to be
-/// effectively directional and unattenuated for real, so it reaches the ground, aimed by
-/// the timeblock's own hour rather than by where one morning's artist parked it. It
-/// subtends about half a degree — the real sun's size — so its ray-traced shadows have the
-/// real penumbra. The sky-bounce fills stay, interiors are left exactly alone, and so is
-/// any exterior at night.
+/// effectively directional and unattenuated for real, so it reaches the ground. It subtends
+/// about half a degree — the real sun's size — so its ray-traced shadows have the real
+/// penumbra. The sky-bounce fills stay, interiors are left exactly alone, and so is any
+/// exterior at night.
+/// </para>
+/// <para>
+/// <b>It is aimed by the scenekey it replaces.</b> The scenekey was replaced for its reach,
+/// not for its aim: its two hundred unit range cannot touch the geometry, and its azimuth
+/// and elevation were never the problem. They are the artists' own statement of where the
+/// light was coming from when they baked the room and painted the sky over it, and 749 of
+/// the corpus's 817 sky-lit pairs ship one — none of them below the horizon. Where a room
+/// has a bake for each time of day it has a scenekey for each, so the light still moves
+/// through the day; where it has one asset for the whole game the sun stands still, and so
+/// does everything else in that room.
+/// </para>
+/// <para>
+/// This used to be an arc computed from the hour alone, which knew nothing about the scene
+/// and disagreed with it: measured against the artists' keys across the corpus, the median
+/// pair was 42 degrees apart, the worst 107, and 262 of 573 daytime pairs more than 45.
+/// The arc is still the answer for the 68 sky-lit pairs that ship no scenekey at all — the
+/// case this class was written for — and it still decides, alone, whether there is a sun to
+/// place: the evening blocks' art is painted as dusk and a sun over a night sky argues with
+/// all of it.
 /// </para>
 /// </remarks>
 public static class Sunlight
@@ -73,34 +91,66 @@ public static class Sunlight
         return Vector3.Distance(light.Position, nearest) > light.AttenuationEnd;
     }
 
+    /// <summary>The artists' own sun among a scene's lights, if it ships one.</summary>
+    /// <param name="lights">Every light the scene asset declares.</param>
+    /// <param name="minimum">One corner of the loaded geometry.</param>
+    /// <param name="maximum">The other.</param>
+    /// <returns>The scenekey, or null where there is none.</returns>
+    /// <remarks>
+    /// The brightest, on the rare asset that declares two shadow-casting distant keys — a
+    /// sun and a moon over the same room. <see cref="LoadedScene.Lights"/> takes every one
+    /// of them out and puts this back, so the one that is kept had better be the sun.
+    /// </remarks>
+    public static AuthoredLight? AuthoredSun(
+        IReadOnlyList<AuthoredLight>? lights, Vector3 minimum, Vector3 maximum) =>
+        lights?
+            .Where(light => IsAuthoredSun(light, minimum, maximum))
+            .MaxBy(light => light.Intensity);
+
     /// <summary>
     /// The sun for a point in the story, or null where there should not be one.
     /// </summary>
     /// <param name="timeblock">When it is.</param>
     /// <param name="centre">The middle of the scene, which the sun is placed relative to.</param>
+    /// <param name="authored">
+    /// The scenekey this stands in for, from <see cref="AuthoredSun"/>, or null where the
+    /// asset ships none.
+    /// </param>
     /// <returns>The light, or null at night.</returns>
     /// <remarks>
-    /// The elevation follows the hour: low and warm in the morning, high and near white
-    /// before noon, sinking and warming again through the afternoon. The azimuth swings
-    /// from one side of the map to the other across the day. None of it is astronomy — the
-    /// game's world has no agreed compass — but a morning in the village now looks like a
-    /// morning, and by evening the shadows have crossed the square.
+    /// Aimed by the scenekey wherever there is one, so the light agrees with the bake it is
+    /// replacing and with the sky painted over it. Without one the elevation follows the
+    /// hour: low and warm in the morning, high and near white before noon, sinking and
+    /// warming again through the afternoon, with the azimuth swinging from one side of the
+    /// map to the other. That is not astronomy — a scene with no key light has no compass
+    /// either — but it is a morning that looks like a morning.
     /// </remarks>
-    public static AuthoredLight? For(Timeblock timeblock, Vector3 centre)
+    public static AuthoredLight? For(
+        Timeblock timeblock, Vector3 centre, AuthoredLight? authored = null)
     {
         if (Arc(timeblock) is not { } arc)
         {
             return null;
         }
 
-        (float azimuth, float elevation, Vector3 colour, float intensity) = arc;
+        (float azimuth, float hourly) = arc;
 
-        // From the scene toward the sun: east of the map in the morning, overhead-south at
-        // midday, west by evening.
-        var toward = new Vector3(
-            MathF.Cos(elevation) * MathF.Sin(azimuth),
-            MathF.Sin(elevation),
-            MathF.Cos(elevation) * MathF.Cos(azimuth));
+        // From the scene toward the sun. The scenekey's own bearing where the asset has
+        // one; otherwise east of the map in the morning, overhead-south at midday, west by
+        // evening.
+        Vector3 toward = Aim(authored, centre) ?? new Vector3(
+            MathF.Cos(hourly) * MathF.Sin(azimuth),
+            MathF.Sin(hourly),
+            MathF.Cos(hourly) * MathF.Cos(azimuth));
+
+        // Measured off whichever bearing was chosen rather than off the hour, so a scenekey
+        // standing low over a morning square is warm for standing low rather than for the
+        // clock saying so.
+        float elevation = MathF.Asin(Math.Clamp(toward.Y, -1f, 1f));
+
+        // Warmer the lower it stands.
+        float warm = 1f - (elevation / (MathF.PI / 2f));
+        var colour = new Vector3(1f, 0.97f - (0.12f * warm), 0.92f - (0.28f * warm));
 
         return new AuthoredLight(
             "sun",
@@ -118,13 +168,55 @@ public static class Sunlight
             // are read exactly this way.
             UsesAttenuation: false,
             CastsShadows: true,
-            Intensity: intensity,
+            Intensity: Strength,
             Radius: Disc);
     }
 
+    /// <summary>How bright the replacement stands, against the rig it joins.</summary>
+    /// <remarks>
+    /// Above the scenekey's own, which is typically 1.0 at a colour around
+    /// (0.53, 0.48, 0.40). The room it lights has no bake at Medium and High, and this is
+    /// most of what stands in for one.
+    /// </remarks>
+    private const float Strength = 1.15f;
+
+    /// <summary>
+    /// Which way the artists' scenekey says the light comes from, or null to fall back to
+    /// the hour.
+    /// </summary>
+    /// <param name="authored">The scenekey, or null.</param>
+    /// <param name="centre">The middle of the room it lights.</param>
+    /// <returns>A unit vector from the scene toward the sun, or null.</returns>
+    /// <remarks>
+    /// Refused below the horizon, and refused for a key standing on top of the room's own
+    /// centre. Neither happens in the corpus — all 749 scenekeys stand between 24 and 62
+    /// degrees up, the lowest of them over an evening — and a rig is a text file that
+    /// anybody may edit, so a light underground has to mean "no answer" rather than a scene
+    /// lit from below.
+    /// </remarks>
+    private static Vector3? Aim(AuthoredLight? authored, Vector3 centre)
+    {
+        if (authored is null)
+        {
+            return null;
+        }
+
+        Vector3 toward = authored.Position - centre;
+        float distance = toward.Length();
+
+        if (distance < 1f)
+        {
+            return null;
+        }
+
+        toward /= distance;
+
+        return toward.Y > 0.05f ? toward : null;
+    }
+
     /// <summary>Where the sun stands at each of the game's hours.</summary>
-    /// <returns>Azimuth and elevation in radians, colour, and intensity — or null at night.</returns>
-    private static (float, float, Vector3, float)? Arc(Timeblock timeblock)
+    /// <returns>Azimuth and elevation in radians, or null at night.</returns>
+    private static (float Azimuth, float Elevation)? Arc(Timeblock timeblock)
     {
         int hour = (timeblock.IsAfternoon && timeblock.Hour != 12
             ? timeblock.Hour + 12
@@ -141,13 +233,9 @@ public static class Sunlight
         // Sunrise about six, sunset just after the last daytime block ends, the noon peak
         // a little above sixty degrees — a southern French summer, near enough.
         float day = (hour - 6f) / 13f;
-        float elevation = MathF.Sin(day * MathF.PI) * (62f * MathF.PI / 180f);
-        float azimuth = float.Lerp(80f, 280f, day) * MathF.PI / 180f;
 
-        // Warmer the lower it stands.
-        float warm = 1f - (elevation / (MathF.PI / 2f));
-        var colour = new Vector3(1f, 0.97f - (0.12f * warm), 0.92f - (0.28f * warm));
-
-        return (azimuth, elevation, colour, 1.15f);
+        return (
+            float.Lerp(80f, 280f, day) * MathF.PI / 180f,
+            MathF.Sin(day * MathF.PI) * (62f * MathF.PI / 180f));
     }
 }
