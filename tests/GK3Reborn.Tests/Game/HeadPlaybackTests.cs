@@ -85,6 +85,10 @@ public sealed class HeadPlaybackTests
         {
         }
 
+        public void SetTerrain(TerrainBackdrop backdrop)
+        {
+        }
+
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,

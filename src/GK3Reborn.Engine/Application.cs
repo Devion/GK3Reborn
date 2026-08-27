@@ -949,6 +949,39 @@ public static class Application
                 }
             }
 
+            // The reconstructed horizon, beside the trees and gated on its own setting for
+            // the same reason they are: it is geometry rather than a bitmap, and somebody
+            // who wants the painted 1999 sky should be able to keep it with the rest of
+            // the enhancement on. From the packs as well as from a workspace, like the
+            // trees and for the same reason — a shipped game has packs and no content
+            // workspace at all. A loose set wins over the packed one.
+            if (settings.TerrainBackdrop)
+            {
+                string terrain = packsOnly || enhancedDirectory is not { Length: > 0 }
+                    ? string.Empty
+                    : Beside(enhancedDirectory, "terrain");
+
+                loader.TerrainDirectory = Directory.Exists(terrain) ? terrain : null;
+                loader.TerrainPacks = packs.VolumeCount > 0 ? packs : null;
+
+                if (first && loader.TerrainDirectory is not null)
+                {
+                    Console.WriteLine(
+                        "Terrain horizon: " +
+                        $"{Directory.EnumerateFiles(terrain, "*.heights.r32").Count()} sets, loose");
+                }
+                else if (first && loader.TerrainPacks is not null)
+                {
+                    int packedSets = packs.Names(Formats.Rebarn.RebarnKind.Raw)
+                        .Count(n => n.EndsWith(".heights", StringComparison.OrdinalIgnoreCase));
+
+                    if (packedSets > 0)
+                    {
+                        Console.WriteLine($"Terrain horizon: {packedSets} sets, packed");
+                    }
+                }
+            }
+
             // The block-compressed build of the same set, preferred over the originals
             // wherever it has an answer: nothing to decode, a mip chain already built, and
             // a quarter of the video memory. Outside the --enhanced block on purpose — a

@@ -65,8 +65,7 @@ jobs:
       # break in that target is caught wherever it happens rather than only on a Mac. That
       # is not redundancy: RebornWriteMacAppBundle is driven by backslash paths authored on
       # Windows, and these two runners are the only thing checking they normalize on Unix.
-      # The .pkg is not built here: it needs signing, and signing needs a key this has not
-      # got. On the Mac runner this step is the package itself, so it does not repeat.
+      # The .pkg is built further down, on the Mac runner only, from this bundle.
       - name: Publish the macOS application bundle
         shell: bash
         run: |
@@ -92,10 +91,10 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path src/GK3Reborn.Host/publish/* -DestinationPath dist/GK3Reborn-win-x64.zip
 
-      # tar rather than zip on both Unix platforms, and the archive is uploaded as a single
-      # file rather than as a directory, because actions/upload-artifact does not preserve
-      # the executable bit - the same defect that stopped this workflow running its own
-      # test script. A zipped .app would also lose its symlinks and its signature.
+      # A zip, because that is what the website offers. Info-ZIP keeps the Unix permission
+      # bits, and the archive is uploaded as a single file rather than as a directory
+      # because actions/upload-artifact does not preserve the executable bit - the same
+      # defect that stopped this workflow running its own test script.
       - name: Package for Linux
         if: runner.os == 'Linux'
         shell: bash
@@ -105,23 +104,30 @@ jobs:
           cp LICENSE NOTICE README.md src/GK3Reborn.Host/publishlinux/
           cp -R licenses src/GK3Reborn.Host/publishlinux/
           mkdir -p dist
-          tar -czf dist/GK3Reborn-linux-x64.tar.gz -C src/GK3Reborn.Host/publishlinux .
+          (cd src/GK3Reborn.Host/publishlinux && zip -qry "$GITHUB_WORKSPACE/dist/GK3Reborn-linux-x64.zip" .)
 
-      # Signed ad hoc, which costs nothing and is the difference between a bundle macOS
-      # will start and one it refuses outright on Apple silicon. It is not notarized and
-      # cannot be here, so a downloaded copy still carries the quarantine attribute; see
-      # the release notes. build/package-macos.sh does this properly, with a real key.
+      # An installer package, because that is what the website offers. build/package-macos.sh
+      # signs the bundle ad hoc, which costs nothing and is the difference between a bundle
+      # macOS will start and one it refuses outright on Apple silicon, and leaves the
+      # package unsigned: there is no Developer ID here and cannot be, so a downloaded copy
+      # is quarantined and has to be opened deliberately; see the release notes. The same
+      # script with --sign-app, --sign-pkg and --notarize is the real thing.
+      #
+      # LICENSE, NOTICE and the third-party notices travel inside the bundle, because the
+      # bundle is all the installer places on the disk. Copied in before signing so the
+      # seal covers them.
       - name: Package for macOS
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
-          cp LICENSE NOTICE README.md src/GK3Reborn.Host/publishmac/
-          cp -R licenses src/GK3Reborn.Host/publishmac/
-          codesign --force --deep --sign - src/GK3Reborn.Host/publishmac/GK3Reborn.app
-          codesign --verify --deep --strict src/GK3Reborn.Host/publishmac/GK3Reborn.app
-          mkdir -p dist
-          tar -czf dist/GK3Reborn-osx-arm64.tar.gz -C src/GK3Reborn.Host/publishmac .
+          resources=src/GK3Reborn.Host/publishmac/GK3Reborn.app/Contents/Resources
+          cp LICENSE NOTICE README.md "$resources/"
+          cp -R licenses "$resources/"
+          bash ./build/package-macos.sh --out dist
+          rm -f dist/*.plist dist/*.xml
+          mv dist/GK3Reborn-*.pkg dist/GK3Reborn-osx-arm64.pkg
+          pkgutil --payload-files dist/GK3Reborn-osx-arm64.pkg | grep 'GK3Reborn.app/Contents/MacOS/GK3Reborn$' > /dev/null
 
       - name: Upload the build
         uses: actions/upload-artifact@v4

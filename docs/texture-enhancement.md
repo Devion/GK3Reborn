@@ -229,6 +229,15 @@ is refused.
 manifest whose header names one generator for a mixed set is a provenance claim that is
 not true.
 
+## Skyboxes are a separate lane
+
+The sky faces are never selected by the texture plan — nothing reads `[Skybox]` from the
+`.SCN` files, so all 320 are tier 3 with no referrers. `SceneLoader.LoadSkybox` reads the
+enhanced set first as of 2026-08-26, and `PbrLab/make_skyboxes.py` produces 2048 faces
+into `enhanced/skyboxes/comfy/` (see `PbrLab/README.md`). `enhanced/skyboxes/original/`
+is the 512 set and `enhanced/skyboxes/2048/` a plain Lanczos enlargement, with the 25
+`*_MASK` faces enlarged nearest-neighbour; masks are keyed colours and must stay so.
+
 ## Suggested order
 
 1. A pilot of twenty tier 0 textures spanning stone, wood, fabric and metal, to

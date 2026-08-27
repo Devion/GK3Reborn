@@ -81,6 +81,10 @@ public sealed class SceneUpdateTests
         {
         }
 
+        public void SetTerrain(TerrainBackdrop backdrop)
+        {
+        }
+
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,

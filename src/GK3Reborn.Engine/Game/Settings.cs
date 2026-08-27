@@ -85,6 +85,19 @@ public sealed record Settings
     public bool ModelledTrees { get; init; } = true;
 
     /// <summary>
+    /// Whether a scene's painted horizon is replaced by reconstructed terrain where a
+    /// set has been built for it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="ModelledTrees"/> for the same reason that is separate
+    /// from <see cref="EnhancedTextures"/>: it is its own judgement and its own cost —
+    /// half a million triangles of hillside behind the room — and it changes what the
+    /// horizon <em>is</em> rather than how it is drawn. Off, or with no terrain data
+    /// installed, every scene keeps the 1999 sky painting exactly as shipped.
+    /// </remarks>
+    public bool TerrainBackdrop { get; init; } = true;
+
+    /// <summary>
     /// How many times a character's head is subdivided, or zero to draw it as authored.
     /// </summary>
     /// <remarks>

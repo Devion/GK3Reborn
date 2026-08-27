@@ -7,6 +7,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example, v1.0.0)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -33,9 +38,15 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           ls -la dist
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9] ]]; then
+            echo "::error::Release tag must start with 'v' followed by a number (for example, v1.0.0); got '$RELEASE_TAG'."
+            exit 1
+          fi
 
           cat > notes.md <<'NOTES'
           ## Installing
@@ -50,19 +61,24 @@ jobs:
           | Platform | Download |
           |---|---|
           | Windows x64 | `GK3Reborn-win-x64.zip` |
-          | Linux x64 | `GK3Reborn-linux-x64.tar.gz` |
-          | macOS, Apple silicon | `GK3Reborn-osx-arm64.tar.gz` |
+          | Linux x64 | `GK3Reborn-linux-x64.zip` |
+          | macOS, Apple silicon | `GK3Reborn-osx-arm64.pkg` |
 
           ### macOS
 
-          The bundle is signed ad hoc, not notarized, so macOS quarantines it on download:
+          The installer places GK3Reborn.app in /Applications. The bundle is signed ad hoc
+          and the package is not signed or notarized, so macOS refuses to open it on a
+          double-click. Either right-click the .pkg and choose Open, or clear the
+          quarantine first:
 
-              xattr -dr com.apple.quarantine GK3Reborn.app
+              xattr -d com.apple.quarantine GK3Reborn-osx-arm64.pkg
 
           MoltenVK is included, so nothing else has to be installed to render. The
           cutscenes are decoded by the engine itself and play on a Mac like anywhere else.
 
           ### What else is in the archive
+
+          On macOS these files are inside the bundle, under `Contents/Resources`.
 
           `libs/` carries the native libraries the engine loads at run time - GLFW,
           OpenAL Soft, shaderc, and on macOS MoltenVK - all unmodified upstream builds,
@@ -71,8 +87,19 @@ jobs:
           lists every third-party component, its version and its licence.
           NOTES
 
-          gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --title "GK3Reborn ${{ github.ref_name }}" \
-            --notes-file notes.md \
-            dist/*
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* \
+              --repo "${{ github.repository }}" \
+              --clobber
+            gh release edit "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --title "GK3Reborn $RELEASE_TAG" \
+              --notes-file notes.md
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "${{ github.sha }}" \
+              --title "GK3Reborn $RELEASE_TAG" \
+              --notes-file notes.md \
+              dist/*
+          fi

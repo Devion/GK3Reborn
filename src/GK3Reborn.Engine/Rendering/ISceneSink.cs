@@ -290,6 +290,15 @@ public interface ISceneSink
     /// </remarks>
     void SetSkybox(IReadOnlyList<DecodedImage> faces, float azimuth);
 
+    /// <summary>Gives the room a reconstructed horizon: terrain where the painting was.</summary>
+    /// <param name="backdrop">The terrain, its blend layers and its tiles.</param>
+    /// <remarks>
+    /// Set as well as the sky, never instead of it: the sky still draws behind the
+    /// ridge line, and a renderer that could not build the terrain still has the
+    /// painting to fall back on.
+    /// </remarks>
+    void SetTerrain(TerrainBackdrop backdrop);
+
     /// <summary>
     /// Says which surfaces' height maps will be wanted as numbers rather than as pictures.
     /// </summary>

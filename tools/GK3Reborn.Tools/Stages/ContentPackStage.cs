@@ -96,6 +96,14 @@ public sealed class ContentPackStage
         new(RebarnKind.Model, "enhanced/trees", null, false, 0, "Reborn", "*.glb"),
         new(RebarnKind.Manifest, "enhanced/trees", null, false, 0, "Reborn", "*.json"),
         new(RebarnKind.Texture, "enhanced/trees", "BC7_UNORM_SRGB", true, 0, "Reborn"),
+
+        // The reconstructed horizon, flat on disk as <set>.<part>.<ext> because a pack
+        // key carries no directory. Heights and JSON deflate well and get it by payload;
+        // the splat and tint PNGs are already compressed and data rather than colour, so
+        // nothing here goes near the texture encoder.
+        new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.r32"),
+        new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.json"),
+        new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.png"),
         new(RebarnKind.Normal, "enhanced/normals", "BC5_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Orm, "enhanced/orm", "BC7_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Height, "enhanced/height", "BC4_UNORM", false, 512, "RebornMaterials"),

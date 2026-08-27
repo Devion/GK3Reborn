@@ -162,6 +162,26 @@ public sealed class FrontEndTests
     }
 
     [Fact]
+    public void The_reconstructed_horizon_has_a_switch_of_its_own()
+    {
+        FrontEnd front = Front();
+
+        // On by default, like the trees: installed content is content the player asked
+        // for. The switch exists for whoever wants the painted 1999 sky back.
+        Assert.True(front.Settings.TerrainBackdrop);
+
+        front.Choose(new MenuAction("terrain"));
+        Assert.False(front.Settings.TerrainBackdrop);
+
+        // And nothing else moved with it.
+        Assert.True(front.Settings.ModelledTrees);
+        Assert.True(front.Settings.EnhancedTextures);
+
+        front.Choose(new MenuAction("terrain"));
+        Assert.True(front.Settings.TerrainBackdrop);
+    }
+
+    [Fact]
     public void A_slider_stops_at_both_ends()
     {
         FrontEnd front = Front();

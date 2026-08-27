@@ -287,6 +287,21 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         SkyboxAzimuth = azimuth;
     }
 
+    /// <summary>The room's reconstructed horizon, once it has been given one.</summary>
+    /// <remarks>
+    /// Kept rather than uploaded, for the same reason the sky's faces are: building the
+    /// pipeline needs the shader compiler and the swapchain's formats.
+    /// </remarks>
+    public TerrainBackdrop? Terrain { get; private set; }
+
+    /// <inheritdoc/>
+    public void SetTerrain(TerrainBackdrop backdrop)
+    {
+        ArgumentNullException.ThrowIfNull(backdrop);
+
+        Terrain = backdrop;
+    }
+
     /// <inheritdoc/>
     public void AddNormalMap(string name, DecodedImage image)
     {

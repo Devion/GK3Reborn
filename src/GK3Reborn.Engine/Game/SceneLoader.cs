@@ -1,5 +1,6 @@
 ﻿using GK3Reborn.Formats.Animation;
 using System.Numerics;
+using System.Text.Json;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Audio;
@@ -340,6 +341,27 @@ public sealed class SceneLoader
     /// </remarks>
     public TreeLibrary? Trees { get; set; }
 
+    /// <summary>
+    /// Where the reconstructed terrain sets live loose, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// Flat files named <c>&lt;set&gt;.&lt;part&gt;.&lt;ext&gt;</c> —
+    /// <c>BMB_A.heights.r32</c>, <c>BMB_A.splat.png</c> — written by
+    /// <c>PbrLab/publish_terrain.py</c>. A loose file beats the packed one, the same
+    /// rule every other enhanced kind follows. A scene whose sky has no set anywhere
+    /// keeps its painted horizon. See
+    /// <c>ContentWorkspace/enhanced/skyboxes/terrain-plan.md</c> for the contract.
+    /// </remarks>
+    public string? TerrainDirectory { get; set; }
+
+    /// <summary>The ReBarn packs the terrain sets ship in, or null for none.</summary>
+    /// <remarks>
+    /// The same files as <see cref="TerrainDirectory"/>, as <c>Raw</c> entries under
+    /// their flat names. This is what makes the reconstructed horizon part of the
+    /// shipped game rather than a workspace-only extra.
+    /// </remarks>
+    public RebarnContent? TerrainPacks { get; set; }
+
     /// <summary>How many flat cards were replaced by a modelled tree in the last load.</summary>
     public int TreesGrown => _treesGrown;
 
@@ -486,6 +508,14 @@ public sealed class SceneLoader
         if (asset?.Skybox is { IsEmpty: false } sky)
         {
             LoadSkybox(geometry, sky, diagnostics);
+
+            // The reconstructed horizon rides the same choice: the terrain set is named
+            // after the sky's own faces, so day and night come free here too. The sun's
+            // direction only needs the hour - the centre only places the light.
+            LoadTerrain(
+                geometry, sky,
+                Sunlight.For(Daylight(request, timeblock, asset), Vector3.Zero)?.Direction,
+                diagnostics);
         }
 
         ReportDisputedVisibility(init, diagnostics);
@@ -1581,6 +1611,16 @@ public sealed class SceneLoader
                 continue;
             }
 
+            // The enhanced set first, the same layer the room's surfaces get: a sky face
+            // is a texture like any other, only named by the scene rather than the BSP.
+            if (Enhanced?.Read(texture, diagnostics) is { } better)
+            {
+                read[face] = better;
+                any ??= better;
+                _enhancedUsed++;
+                continue;
+            }
+
             byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
 
             if (bytes is null || !BitmapDecoder.CanDecode(bytes))
@@ -1631,6 +1671,158 @@ public sealed class SceneLoader
             System.Globalization.CultureInfo.InvariantCulture,
             $"skybox: {faces[0].Width}px, turned {sky.Azimuth * 180 / MathF.PI:F0} degrees, " +
             $"sides {string.Join(", ", named.Select((n, i) => read[i] is null ? $"{Sides[i]}=none" : Sides[i]))}"));
+    }
+
+    /// <summary>The set a sky's faces belong to: <c>BMB_A_512RT</c> names <c>BMB_A</c>.</summary>
+    /// <param name="sky">The scene's sky.</param>
+    /// <returns>The set name, or null when the faces follow no known convention.</returns>
+    public static string? TerrainSetName(SkyboxDefinition sky)
+    {
+        foreach (string? name in new[] { sky.Front, sky.Back, sky.Left, sky.Right, sky.Up })
+        {
+            if (name is not { Length: > 6 })
+            {
+                continue;
+            }
+
+            // Every skybox face in the game is <set>_512<side>: the resolution is part
+            // of the name, and the two letters after it say which way the face looks.
+            int marker = name.LastIndexOf("_512", StringComparison.OrdinalIgnoreCase);
+
+            if (marker > 0 && name.Length == marker + 6)
+            {
+                return name[..marker];
+            }
+        }
+
+        return null;
+    }
+
+    private static readonly JsonSerializerOptions TerrainJson =
+        new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>What the offline pipeline wrote beside each heightfield.</summary>
+    private sealed record TerrainMeta(int Grid, float ExtentMeters);
+
+    /// <summary>One part of a terrain set: the loose file first, then the packs.</summary>
+    private byte[]? ReadTerrainPart(string set, string part)
+    {
+        if (TerrainDirectory is { Length: > 0 } root)
+        {
+            string file = Path.Combine(root, $"{set}.{part}");
+
+            if (File.Exists(file))
+            {
+                return File.ReadAllBytes(file);
+            }
+        }
+
+        return TerrainPacks?.Read(Formats.Rebarn.RebarnKind.Raw, $"{set}.{part}");
+    }
+
+    private void LoadTerrain(
+        ISceneSink geometry, SkyboxDefinition sky, Vector3? sunDirection,
+        DiagnosticBag diagnostics)
+    {
+        if ((TerrainDirectory is not { Length: > 0 } && TerrainPacks is null)
+            || TerrainSetName(sky) is not { } set)
+        {
+            return;
+        }
+
+        // A set that is not there is the ordinary case, not a fault: the terrain data is
+        // optional content, and every scene without it keeps its painted horizon.
+        byte[]? metaBytes = ReadTerrainPart(set, "terrain.json");
+        byte[]? raw = ReadTerrainPart(set, "heights.r32");
+        byte[]? splatBytes = ReadTerrainPart(set, "splat.png");
+        byte[]? tintBytes = ReadTerrainPart(set, "tint.png");
+
+        if (metaBytes is null || raw is null || splatBytes is null || tintBytes is null)
+        {
+            return;
+        }
+
+        try
+        {
+            TerrainMeta? meta = JsonSerializer.Deserialize<TerrainMeta>(metaBytes, TerrainJson);
+
+            if (meta is not { Grid: > 1, ExtentMeters: > 0 })
+            {
+                return;
+            }
+
+            if (raw.Length != meta.Grid * meta.Grid * sizeof(float))
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE022", DiagnosticSeverity.Warning,
+                    "A terrain set's heightfield does not match its own stated grid.",
+                    set, null, $"{meta.Grid * meta.Grid * sizeof(float)} bytes",
+                    $"{raw.Length} bytes",
+                    "The scene keeps its painted horizon."));
+                return;
+            }
+
+            float[] heights = new float[meta.Grid * meta.Grid];
+            System.Buffer.BlockCopy(raw, 0, heights, 0, raw.Length);
+
+            DecodedImage? forest = TerrainTile("HOW_MULCH", diagnostics);
+            DecodedImage? rock = TerrainTile("ARMROCK03", diagnostics);
+            DecodedImage? grass = TerrainTile("GRASS", diagnostics);
+            DecodedImage? dirt = TerrainTile("ARMDIRT", diagnostics);
+
+            if (forest is null || rock is null || grass is null || dirt is null)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE023", DiagnosticSeverity.Warning,
+                    "A terrain set is present but its ground textures are not.",
+                    set, null, "HOW_MULCH, ARMROCK03, GRASS and ARMDIRT", "at least one missing",
+                    "The scene keeps its painted horizon."));
+                return;
+            }
+
+            geometry.SetTerrain(new TerrainBackdrop
+            {
+                Grid = meta.Grid,
+                ExtentMeters = meta.ExtentMeters,
+                Heights = heights,
+                Splat = PngReader.Decode(splatBytes, $"{set}.splat.png"),
+                Tint = PngReader.Decode(tintBytes, $"{set}.tint.png"),
+                TileForest = forest.Value,
+                TileRock = rock.Value,
+                TileGrass = grass.Value,
+                TileDirt = dirt.Value,
+                SunDirection = sunDirection,
+                Azimuth = sky.Azimuth,
+            });
+
+            _log?.Invoke(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"terrain: {set}, {meta.Grid}x{meta.Grid} over {meta.ExtentMeters:F0} m"));
+        }
+        catch (Exception error) when (
+            error is IOException or JsonException or Formats.FormatParseException)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE024", DiagnosticSeverity.Warning,
+                "A terrain set is present but would not read.",
+                set, null, "readable heightfield, splat and tint", error.Message,
+                "The scene keeps its painted horizon."));
+        }
+    }
+
+    /// <summary>One of the terrain's ground tiles: enhanced first, the archives after.</summary>
+    private DecodedImage? TerrainTile(string name, DiagnosticBag diagnostics)
+    {
+        if (Enhanced?.Read(name, diagnostics) is { } better)
+        {
+            return better;
+        }
+
+        byte[]? bytes = _archives.Read(name) ?? _archives.Read(name + ".BMP");
+
+        return bytes is not null && BitmapDecoder.CanDecode(bytes)
+            ? BitmapDecoder.Decode(bytes, name)
+            : null;
     }
 
     /// <summary>How many surfaces in the last scene were given a normal map.</summary>

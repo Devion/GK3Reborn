@@ -84,6 +84,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private readonly Dictionary<string, int> _pictures = new(StringComparer.OrdinalIgnoreCase);
     private SkyboxPipeline? _skybox;
 
+    /// <summary>The reconstructed horizon, when the scene carries one.</summary>
+    /// <remarks>
+    /// Drawn between the room and the sky: real geometry with the far tail of the depth
+    /// buffer to itself, so the room occludes it, it occludes itself, and the painted
+    /// sky only shows above its ridge line.
+    /// </remarks>
+    private TerrainPipeline? _terrain;
+
     /// <summary>The movie over everything, when one is playing.</summary>
     /// <remarks>
     /// Built the first time a frame is handed over rather than at startup, because most of
@@ -797,6 +805,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _meshPipeline?.Dispose();
             _movie?.Dispose();
             _skybox?.Dispose();
+            _terrain?.Dispose();
             _overlay?.Dispose();
             _triangle?.Dispose();
             _shaderCompiler?.Dispose();
@@ -1387,6 +1396,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _skyOwner = _scene;
             _skybox?.Dispose();
             _skybox = null;
+            _terrain?.Dispose();
+            _terrain = null;
 
             if (_scene.SkyboxFaces is { Count: 6 } faces && _shaderCompiler is not null)
             {
@@ -1400,6 +1411,22 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 {
                     // A room without a sky is a room; a room that will not draw is not.
                     _skybox = null;
+                }
+            }
+
+            if (_scene.Terrain is { } backdrop && _shaderCompiler is not null)
+            {
+                try
+                {
+                    _terrain = TerrainPipeline.Create(
+                        _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler,
+                        backdrop);
+                }
+                catch (VulkanException)
+                {
+                    // The painted sky is still there behind it, so a horizon that will
+                    // not build is a horizon the player already had.
+                    _terrain = null;
                 }
             }
         }
@@ -1458,10 +1485,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
         // picture. When it is not, they wait for the pass that turns its parts into one.
         if (!deferred)
         {
-            // The sky after the room, so it fills only what the room left empty rather
-            // than shading every pixel and being painted over.
+            // The horizon after the room and before the sky: the room has claimed its
+            // pixels, the terrain takes the far tail of the depth buffer, and the sky
+            // fills only what is left above the ridge.
             if (_camera is not null)
             {
+                _terrain?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
                 _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
             }
 
@@ -1683,6 +1712,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         if (_camera is not null)
         {
+            _terrain?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
             _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
         }
 

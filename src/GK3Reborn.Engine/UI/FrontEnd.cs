@@ -461,10 +461,11 @@ public sealed class FrontEnd
         MenuItem.Label(Explain(Settings.Picture)),
         MenuItem.Toggle("enhanced", "Higher-resolution textures", Settings.EnhancedTextures),
         MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
+        MenuItem.Toggle("terrain", "Reconstructed horizon", Settings.TerrainBackdrop),
 
         // The room standing round the player was built from whichever set was chosen when
         // it loaded. Rebuilding it here would mean reloading the scene underneath them.
-        MenuItem.Label("Textures and trees change as you go through the next door."),
+        MenuItem.Label("Textures, trees and horizon change as you go through the next door."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -529,6 +530,7 @@ public sealed class FrontEnd
 
             "enhanced" => Settings with { EnhancedTextures = !Settings.EnhancedTextures },
             "trees" => Settings with { ModelledTrees = !Settings.ModelledTrees },
+            "terrain" => Settings with { TerrainBackdrop = !Settings.TerrainBackdrop },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "captions" => Settings with { Captions = !Settings.Captions },

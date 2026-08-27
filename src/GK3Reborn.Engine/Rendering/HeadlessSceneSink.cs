@@ -153,6 +153,16 @@ public sealed class HeadlessSceneSink : ISceneSink
         SkyboxFaces = faces.Count;
     }
 
+    /// <summary>Whether the scene gave a reconstructed horizon, for a sweep to count.</summary>
+    public bool HasTerrain { get; private set; }
+
+    /// <inheritdoc/>
+    public void SetTerrain(TerrainBackdrop backdrop)
+    {
+        ArgumentNullException.ThrowIfNull(backdrop);
+        HasTerrain = true;
+    }
+
     /// <inheritdoc/>
     /// <remarks>
     /// A sweep counts distinct textures, so it wants to be told about every one; saying no
