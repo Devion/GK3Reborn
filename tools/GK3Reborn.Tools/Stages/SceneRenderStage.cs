@@ -274,11 +274,22 @@ public sealed class SceneRenderStage
             ? cameraName
             : request.State?.CameraAngle is { Length: > 0 } cut ? cut : null;
 
-        Camera camera = SceneLoader.CameraFor(scene, geometry, angle);
+        // The close-up views too, which are keyed by what they look at rather than named:
+        // the only camera pointed at the hotel door is the one the player gets for
+        // inspecting it, and comparing a render against the original wants exactly those.
+        // And, failing both, a viewpoint spelt out on the command line, for the shots the
+        // artists never framed - looking down on a square to see where a shadow falls.
+        SceneCamera? inspect = angle is { Length: > 0 } && scene.Definition.AnyCameraNamed(angle) is null
+            ? scene.Definition.InspectCameraFor(angle) ?? Spelt(angle)
+            : null;
+
+        Camera camera = inspect is not null
+            ? SceneLoader.CameraAt(inspect, geometry)
+            : SceneLoader.CameraFor(scene, geometry, angle);
 
         _log(string.Create(
             CultureInfo.InvariantCulture,
-            $"camera: {scene.CameraNamed(angle)?.Name ?? "framed"} at " +
+            $"camera: {inspect?.Name ?? scene.CameraNamed(angle)?.Name ?? "framed"} at " +
             $"({camera.Position.X:F1}, {camera.Position.Y:F1}, {camera.Position.Z:F1})"));
 
         _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches" +
@@ -318,6 +329,50 @@ public sealed class SceneRenderStage
         _log($"wrote {outputPath}");
 
         return true;
+    }
+
+    /// <summary>A viewpoint written out on the command line, or null.</summary>
+    /// <param name="text">
+    /// <c>at=x,y,z,heading[,pitch]</c>, the two angles in degrees, as a scene file writes
+    /// them.
+    /// </param>
+    /// <returns>The camera, or null when the text is not one.</returns>
+    /// <remarks>
+    /// A scene names only the shots the artists framed, and a defect is often somewhere
+    /// none of them points: the sun over a roof, the ground a building should be shading.
+    /// </remarks>
+    private static SceneCamera? Spelt(string text)
+    {
+        if (!text.StartsWith("at=", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        string[] parts = text[3..].Split(',', StringSplitOptions.TrimEntries);
+
+        if (parts.Length is < 4 or > 5)
+        {
+            return null;
+        }
+
+        float[] numbers = new float[parts.Length];
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (!float.TryParse(parts[i], CultureInfo.InvariantCulture, out numbers[i]))
+            {
+                return null;
+            }
+        }
+
+        const float ToRadians = MathF.PI / 180f;
+
+        return new SceneCamera(
+            text,
+            new Vector3(numbers[0], numbers[1], numbers[2]),
+            numbers[3] * ToRadians,
+            (parts.Length == 5 ? numbers[4] : 0f) * ToRadians,
+            IsDefault: false);
     }
 
     /// <summary>Lays the walk boundary over the floor it describes.</summary>

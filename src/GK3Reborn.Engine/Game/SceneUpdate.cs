@@ -178,6 +178,56 @@ public sealed class SceneUpdate
     private readonly List<Playing> _playing = [];
 
     /// <summary>
+    /// A model whose clip is authored in somebody else's space, and whose space that is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What puts the binoculars in the Abbé's hands.</b> A prop somebody is holding is
+    /// not placed in the room and is not animated in the room's coordinates. It is a second
+    /// model exported from the same scene the character was, so its clip is authored around
+    /// the character's own origin: <c>AbeBinocUp.ANM</c> is two clips, one for <c>abe</c>
+    /// and one for <c>abebinocs</c>, and POU's second morning declares
+    /// <c>model=abebinocs, type=prop, hidden</c> with no position at all, because the
+    /// position is meant to come from the man holding it.
+    /// </para>
+    /// <para>
+    /// The original works out who that is from the animation's <em>name</em>: the first
+    /// three letters name the model everything else in the file belongs to, and that
+    /// model's own space is copied onto the others every frame —
+    /// <c>VertexAnimNode::Play</c> picks the holder and <c>VertexAnimator::OnLateUpdate</c>
+    /// copies the transform. Across the whole corpus that binds 314 action lines, and every
+    /// one of them is authored within 94 units of the character it accompanies, at a median
+    /// of 27.6 — arm's length. Not one is in room coordinates, which is why leaving them
+    /// unbound puts them all at the origin: the Abbé's binoculars, Buchelli's magnifier and
+    /// his notepad and pencil, Lady Howard's camera and its lens.
+    /// </para>
+    /// <para>
+    /// <b>The binding outlives the clip that made it</b>, which is also what the original
+    /// does: <c>VertexAnimator::Stop</c> clears the animation and leaves the parent behind.
+    /// <c>AbeBinocIdle.gas</c> is a loop of eight separate animations, and dropping the
+    /// binding between each pair would blink the binoculars back to the origin between
+    /// every one of them. It is replaced when a clip that names no holder starts on the
+    /// same model, exactly as assigning fresh parameters replaces it there.
+    /// </para>
+    /// </remarks>
+    private readonly Dictionary<string, (PlacedModel Held, PlacedModel Holder)> _carried =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The last shift a clip asked of each model, kept for as long as the room stands.
+    /// </summary>
+    /// <remarks>
+    /// A character's space is their placement with their clip's own correction in front of
+    /// it, and the correction lives on the clip — so when the clip ends there is nothing
+    /// left to ask. The original has no such gap, because there the space is a transform on
+    /// the model actor rather than something recomputed, and stopping an animation does not
+    /// touch it. Without this the binoculars jump by the whole of the Abbé's correction in
+    /// the frames between one clip of his idle and the next.
+    /// </remarks>
+    private readonly Dictionary<string, Matrix4x4> _space =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Models whose behaviour script is held while something else animates them.
     /// </summary>
     /// <remarks>
@@ -447,6 +497,11 @@ public sealed class SceneUpdate
 
         double longest = 0;
 
+        // Whose space this file's other clips are authored in — the man with the
+        // binoculars, and see _carried. Worked out once, because it is a property of the
+        // animation rather than of any one of its lines.
+        PlacedModel? holder = Holder(name, animation);
+
         foreach (AnimationAction action in animation.Actions)
         {
             if (Clips.Read(action.Name) is not { } clip)
@@ -540,10 +595,30 @@ public sealed class SceneUpdate
                 Quieten(target);
             }
 
+            // And whose space it is played in, before the clip is handed anything about
+            // where the model stands: binding it moves the model, and what a carried clip
+            // is corrected against is the holder rather than its own rest.
+            PlacedModel? carrier =
+                action.Placement is null && holder is not null && !ReferenceEquals(holder, target)
+                    ? holder
+                    : null;
+
+            if (carrier is not null)
+            {
+                _carried[target.Name] = (target, carrier);
+                Carry(target, carrier);
+            }
+            else
+            {
+                // Starting a clip that names no holder is the original assigning fresh
+                // parameters over the old ones, and the parent goes with them.
+                _carried.Remove(target.Name);
+            }
+
             _playing.Add(new Playing(
                 clip, target, action, repeat, moves, Where(target.Name),
                 _geometry.TransformOf(target.Placement), fromBehaviour, animation.Rate,
-                Characters?.Of(target.Name)));
+                Characters?.Of(target.Name), carrier is not null));
             longest = Math.Max(
                 longest,
                 ((double)clip.FrameCount + action.Frame) / Math.Max(1, animation.Rate));
@@ -1860,6 +1935,93 @@ public sealed class SceneUpdate
         return true;
     }
 
+    /// <summary>
+    /// Whose space the clips of an animation are authored in, when it is not the room's.
+    /// </summary>
+    /// <param name="animation">The <c>.ANM</c> name, whose first three letters name them.</param>
+    /// <param name="file">That animation, which has to agree that they are its subject.</param>
+    /// <returns>The model to play its other clips relative to, or null for the room.</returns>
+    /// <remarks>
+    /// <para>
+    /// The original looks the three-letter prefix up among the scene's models and stops
+    /// there. This also asks that the animation carry a clip for that model, which is a
+    /// narrower rule by exactly four action lines in the whole corpus: <c>GabJmpOffPen</c>
+    /// and <c>GabJmpPndulm</c>, the two Gabriel plays on the pendulum. The original excludes
+    /// those by hand — <c>noParenting</c>, set in <c>Pendulum</c> — so the two rules agree
+    /// on every line of the game's data, and this one says so without the pendulum ported.
+    /// </para>
+    /// <para>
+    /// It is also the rule that makes the prefix mean something. Three letters is a short
+    /// name and a room whose code happens to match one would otherwise pin every prop in an
+    /// animation to it; requiring the animation to actually move that model is what tells a
+    /// subject from a coincidence.
+    /// </para>
+    /// </remarks>
+    private PlacedModel? Holder(string animation, AnimationFile file)
+    {
+        if (animation.Length < 3 ||
+            Clips is null ||
+            !_models.TryGetValue(animation[..3], out PlacedModel? owner))
+        {
+            return null;
+        }
+
+        foreach (AnimationAction action in file.Actions)
+        {
+            // An absolute clip says where in the room it happens, so it is nobody's
+            // passenger and it makes nobody else one either.
+            if (action.Placement is null &&
+                Clips.Read(action.Name) is { } clip &&
+                clip.ModelName.Equals(owner.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                return owner;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Puts a held model into the space of whoever is holding it.</summary>
+    /// <param name="held">The prop, or occasionally the person, being carried.</param>
+    /// <param name="holder">Whose space its clip is authored in.</param>
+    private void Carry(PlacedModel held, PlacedModel holder)
+    {
+        if (!held.Placement.Exists || !holder.Placement.Exists)
+        {
+            return;
+        }
+
+        _geometry.MoveModel(held.Placement, ModelSpace(holder));
+    }
+
+    /// <summary>
+    /// Where a model's own space sits in the room, with whatever is animating it.
+    /// </summary>
+    /// <param name="model">The model whose space is wanted.</param>
+    /// <returns>The transform a clip authored in that space is played through.</returns>
+    /// <remarks>
+    /// <b>Not the placement.</b> A clip replaces a model's mesh transforms and the placement
+    /// is applied on top, so for a character the space their clip plays in is the placement
+    /// with that clip's own correction in front of it — see <see cref="Playing.Space"/>. The
+    /// original keeps exactly that as a transform of its own, <c>GKActor</c>'s model actor,
+    /// and a held prop is pinned to it rather than to where the scene stood the character.
+    /// </remarks>
+    private Matrix4x4 ModelSpace(PlacedModel model)
+    {
+        Matrix4x4 standing = _geometry.TransformOf(model.Placement);
+
+        if (_playing.Find(p => Drives(p, model)) is { } driving)
+        {
+            _space[model.Name] = driving.Space;
+
+            return driving.Space * standing;
+        }
+
+        return _space.TryGetValue(model.Name, out Matrix4x4 last)
+            ? last * standing
+            : standing;
+    }
+
     /// <summary>Whether a clip that is playing is the one animating a model.</summary>
     private static bool Drives(Playing playing, PlacedModel model) =>
         ReferenceEquals(playing.Target, model) ||
@@ -2832,6 +2994,14 @@ public sealed class SceneUpdate
             Follow(who, walking.Walker.Position);
         }
 
+        // What somebody is holding goes where they are — after their own clip has posed
+        // them and after they have walked, which is why it is here and not in either loop.
+        // The original syncs it in LateUpdate for exactly that reason. See _carried.
+        foreach ((PlacedModel held, PlacedModel holder) in _carried.Values)
+        {
+            Carry(held, holder);
+        }
+
         // The timed glances run out here, before the heads move: LOOKAT's five seconds
         // are five seconds, not for ever.
         _glances.Tick(seconds);
@@ -3652,7 +3822,8 @@ public sealed class SceneUpdate
             Matrix4x4 standing,
             bool fromBehaviour = false,
             int rate = AnimationFile.FramesPerSecond,
-            Actors.CharacterConfig? character = null)
+            Actors.CharacterConfig? character = null,
+            bool carried = false)
         {
             _character = character;
             Clip = clip;
@@ -3663,7 +3834,7 @@ public sealed class SceneUpdate
             _rate = Math.Max(1, rate);
             _delay = action.Frame / (double)_rate;
             _absolute = action.Placement is not null;
-            _correction = Correction(clip, target, action.Placement, standing, character);
+            _correction = Correction(clip, target, action.Placement, standing, character, carried);
             _opened = Opens(clip);
             Began = began;
             Carried = began;
@@ -3756,7 +3927,8 @@ public sealed class SceneUpdate
             PlacedModel target,
             AnimationPlacement? placement,
             Matrix4x4 standing,
-            Actors.CharacterConfig? character)
+            Actors.CharacterConfig? character,
+            bool carried)
         {
             if (placement is { } spot)
             {
@@ -3769,7 +3941,13 @@ public sealed class SceneUpdate
                     : authored;
             }
 
-            if (target.Kind != PlacedModelKind.Actor)
+            // A <b>carried</b> clip is already in the space it is played in — the holder's,
+            // which the model is pinned to for as long as the binding lasts — so it plays
+            // exactly as authored and there is nothing to correct. It matters only for the
+            // handful of clips that carry a person rather than a prop, <c>DemTe6KillGabe</c>
+            // among them: a prop's correction is the identity anyway, but an actor's would
+            // shift the clip to their own rest and undo the binding.
+            if (carried || target.Kind != PlacedModelKind.Actor)
             {
                 return Matrix4x4.Identity;
             }
@@ -3927,6 +4105,16 @@ public sealed class SceneUpdate
 
         /// <summary>Whether the clip says where in the room it happens.</summary>
         public bool Absolute => _absolute;
+
+        /// <summary>
+        /// The shift <see cref="Correction"/> settled on, so a held model can follow it.
+        /// </summary>
+        /// <remarks>
+        /// The model's placement is where the scene stood it; this is the rest of what its
+        /// clip is being played through, and the two together are the space anything the
+        /// model is holding is pinned to. See <c>SceneUpdate.ModelSpace</c>.
+        /// </remarks>
+        public Matrix4x4 Space => _correction;
 
         /// <summary>
         /// Puts one mesh group where the clip says, in the picture and on the model.

@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Formats.Lightmaps;
@@ -40,6 +40,20 @@ public sealed class MulFile
 
     /// <summary>Total lightmap pixels, as a measure of the baked lighting's resolution.</summary>
     public long TotalPixels => Lightmaps.Sum(l => (long)l.Width * l.Height);
+
+    /// <summary>Builds a lightmap set from images already in memory.</summary>
+    /// <param name="name">Name for the produced set.</param>
+    /// <param name="lightmaps">One lightmap per surface, in surface order.</param>
+    /// <returns>The set.</returns>
+    /// <remarks>
+    /// For tests and for tools that synthesise a room, the counterpart of
+    /// <see cref="Formats.Scenes.BspFile.FromParts"/>. A bake is not a detail of such a
+    /// room: whether a surface carries one decides how the composite spends every shadow
+    /// it traces, so a test about shadows on lit ground has to be able to say that the
+    /// ground was lit.
+    /// </remarks>
+    public static MulFile FromParts(string name, IReadOnlyList<DecodedImage> lightmaps) =>
+        new(name, lightmaps);
 
     /// <summary>Parses a lightmap set.</summary>
     /// <param name="data">The asset's bytes.</param>

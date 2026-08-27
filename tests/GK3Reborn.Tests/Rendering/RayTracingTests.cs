@@ -1,5 +1,6 @@
 ﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering;
@@ -127,6 +128,48 @@ public sealed class RayTracingTests
         [new(0, 0), new(0, 1), new(1, 1), new(1, 0)],
         [0, 1, 2, 3]);
 
+    /// <summary>A floor with a wall of the room's own standing across the light.</summary>
+    /// <param name="half">Half the floor's width.</param>
+    /// <param name="height">How tall the wall stands.</param>
+    /// <remarks>
+    /// One BSP rather than two, because a second <c>AddScene</c> repacks the lightmap
+    /// atlas and unlights the first. The wall reaches from edge to edge and stands tall
+    /// enough that <see cref="SideLight"/> grazes its top a thousand units beyond the far
+    /// edge of the floor: everything past it is in shadow, which is the case these are
+    /// about.
+    /// </remarks>
+    private static BspFile ShadedRoom(float half, float height) => BspFile.FromParts(
+        "shaded",
+        ["floor", "wall"],
+        [
+            new BspSurface
+            {
+                ObjectIndex = 0,
+                TextureName = "white",
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            },
+            new BspSurface
+            {
+                ObjectIndex = 1,
+                TextureName = "white",
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            },
+        ],
+        [
+            new BspPolygon { VertexIndexOffset = 0, VertexIndexCount = 4, SurfaceIndex = 0 },
+            new BspPolygon { VertexIndexOffset = 4, VertexIndexCount = 4, SurfaceIndex = 1 },
+        ],
+        [
+            new(-half, 0, -half), new(-half, 0, half), new(half, 0, half), new(half, 0, -half),
+            new(-half, 0, 0), new(half, 0, 0), new(half, height, 0), new(-half, height, 0),
+        ],
+        [new(0, 0), new(0, 1), new(1, 1), new(1, 0), new(0, 0), new(1, 0), new(1, 1), new(0, 1)],
+        [0, 1, 2, 3, 4, 5, 6, 7]);
+
     /// <summary>A vertical quad standing on the floor along the x axis.</summary>
     private static ModFile Wall(float half, float height) => Quad(
         "white",
@@ -173,6 +216,35 @@ public sealed class RayTracingTests
         ];
 
         return Quad("white", shell ? [.. corners.Reverse()] : corners, -Vector3.UnitZ);
+    }
+
+    /// <summary>A bake dim enough to shape the ambient term without blowing the floor out.</summary>
+    /// <param name="surfaces">How many surfaces the room has; a lightmap goes to each.</param>
+    /// <remarks>
+    /// An eighth of full. The mesh pass shapes the ambient floor by
+    /// <c>0.30 + 3 x baked</c> and calls everything above the 0.30 the bake's own, so this
+    /// leaves about half of the shaped term as the share a moving thing may take - enough
+    /// to measure, and dim enough that the lit floor stays short of white, which it must:
+    /// a saturated floor cannot be seen to darken.
+    /// </remarks>
+    private static MulFile Baked(int surfaces) => MulFile.FromParts(
+        "bake",
+        [.. Enumerable.Range(0, surfaces).Select(_ => Grey(32))]);
+
+    /// <summary>A flat image of one level, for a bake that shapes without blinding.</summary>
+    private static DecodedImage Grey(byte level)
+    {
+        byte[] pixels = new byte[8 * 8 * 4];
+
+        for (int at = 0; at < pixels.Length; at += 4)
+        {
+            pixels[at] = level;
+            pixels[at + 1] = level;
+            pixels[at + 2] = level;
+            pixels[at + 3] = 255;
+        }
+
+        return new DecodedImage(8, 8, pixels, HasAlpha: false, "bake");
     }
 
     private static DecodedImage White()
@@ -379,6 +451,98 @@ public sealed class RayTracingTests
         Assert.True(
             away > open * 0.95f,
             $"a model outside the room darkened it: {open} empty, {away} with it away");
+    }
+
+    /// <summary>How bright a room already in its own shadow comes out.</summary>
+    /// <param name="renderer">The renderer.</param>
+    /// <param name="shaded">Whether the room stands a wall of its own across the light.</param>
+    /// <param name="model">Whether to stand a model in the half beyond that wall.</param>
+    /// <remarks>
+    /// The model is shorter and narrower than the room's wall and stands behind it, so
+    /// every part of the floor it could shadow is a part the room has shadowed already.
+    /// Anything it takes off that floor is light that was not arriving.
+    /// </remarks>
+    private static float Sheltered(SceneRenderer renderer, bool shaded, bool model)
+    {
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        geometry.AddTexture("white", White());
+
+        // With a bake, which is the whole point of the case: the composite spends the
+        // moving shadow on the bake-shaped part of the indirect term, and a room with no
+        // lightmap has no such part, so an unlit room cannot show this at all.
+        geometry.AddScene(
+            shaded ? ShadedRoom(400f, 120f) : FloorScene(400f),
+            Baked(shaded ? 2 : 1));
+
+        if (model)
+        {
+            geometry.Add(Wall(200f, 60f), Matrix4x4.CreateTranslation(0, 0, 40));
+        }
+
+        renderer.SetLights([SideLight()]);
+        renderer.Quality = RayTracingQuality.High;
+        renderer.Overriding = null;
+
+        return MeanLuminance(renderer.Render(geometry, 200, 200, Overlooking()));
+    }
+
+    /// <summary>
+    /// Somebody standing in the shadow the room already casts takes nothing more away.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The two shadows are traced separately — the room's, which the bake already
+    /// contains, and the moving one, which is subtracted from the result — and the moving
+    /// one used to be traced without reference to the other. So a person standing on
+    /// ground a building shades was blocking a sun that does not reach that ground, and
+    /// the composite spent the answer on the bake-shaped part of the pixel: a second
+    /// shadow, hard-edged, laid inside the first.
+    /// </para>
+    /// <para>
+    /// It showed outside the hotel on RC1 at 110A, where the hotel's own wall stands
+    /// between the square and the morning sun. Gabriel and the van cast full shadows onto
+    /// ground with no light left on it, and onto the hotel's door beside them.
+    /// </para>
+    /// <para>
+    /// Measured against the same model in the open, which is what makes this about the
+    /// double count rather than about shadows in general: in the light it must take a
+    /// great deal, and in the room's shadow next to nothing. Next to nothing rather than
+    /// nothing at all because the model still occludes the ambient term around it, which
+    /// is a contact shadow and is meant to be there.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_model_in_the_room_s_own_shadow_takes_no_more_light_away()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        float open = Sheltered(renderer, shaded: false, model: false);
+        float openWithModel = Sheltered(renderer, shaded: false, model: true);
+        float shaded = Sheltered(renderer, shaded: true, model: false);
+        float shadedWithModel = Sheltered(renderer, shaded: true, model: true);
+
+        float inTheLight = open - openWithModel;
+        float inTheShade = shaded - shadedWithModel;
+
+        Assert.True(
+            inTheLight > 10f,
+            $"the model cast no shadow in the open, so there is nothing to compare: " +
+            $"{open} to {openWithModel}");
+
+        // A twentieth, measured: the model takes 41 luminance off the floor it stands on in
+        // the light and, once the two shadows are one question, 0.9 off the same floor in
+        // the room's shadow — which is the contact shadow and is meant to be there. Traced
+        // without reference to the room it took 7.8, nearly a fifth of a full shadow, out
+        // of ground with no light on it.
+        Assert.True(
+            inTheShade < inTheLight * 0.06f,
+            $"a model standing in the room's own shadow shadowed it again: it took " +
+            $"{inTheShade} off a floor the room already shades ({shaded} to " +
+            $"{shadedWithModel}) against {inTheLight} off the same floor in the light");
     }
 
     /// <summary>Renders a model panel, with whatever else is standing over it.</summary>

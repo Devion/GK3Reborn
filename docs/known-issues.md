@@ -203,6 +203,130 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### A character cast a full shadow on ground a building already shaded — fixed 2026-08-27
+
+**Reported:** 2026-08-27, as the sun appearing to shine through the hotel: Gabriel steps out
+of the lobby on the first morning, and he and the hotel's own door pick up a hard cast
+shadow in a place the hotel has already taken every ray of sun out of. **Fixed the same
+day.**
+
+The two shadows are traced separately and for a good reason — `Shadow` is the room's own
+occlusion, the half a bake already contains and the only half subtracted against it, and
+`DynamicShadow` is what characters and props take away, which multiplies the result. What
+the trace pass never did was let the second answer depend on the first. It asked "does a
+model stand between this pixel and the light" without asking whether anything else already
+did, and `CompositePipeline` spends that answer on `residual`, the bake-shaped part of the
+indirect term:
+
+    residual *= mix(1.0, unblocked, rig.a);
+
+So on ground a wall shades, `shadow` is nought, `arrived` is nought, the pixel is the bake —
+and then a person standing on it multiplies that bake by their silhouette against a sun
+that does not reach them. A second shadow, hard-edged, laid inside the first.
+
+**RC1 at 110A is the case.** The hotel stands between the square and the morning sun:
+tracing the scene's own occluders against the replacement sun, every ground point from
+x 2000 to 2700 and z -1350 to -1800 — the whole of the square outside the front door — is
+blocked by `rc1_hotel`, at 168 units from the doorstep. Rendered at High, the ground beside
+Gabriel came out 15% darker than the bake in the shape of his silhouette, and the woman by
+the van and the van itself each laid one of their own.
+
+**The two calls are about one ray.** `ShadowRay` is deterministic in the pixel and the
+sample index, so the room call and the models call pick the same light and the same point on
+its emitter. So the fix is to answer for that ray: where the room stopped this sample, the
+models are not asked and the sample counts as clear. Nobody can take away light that never
+arrived.
+
+Where the sun does arrive nothing moves — RC1 at 202P, with Gabriel in the open and casting
+a full shadow, renders to within one level of its old self across the whole frame. Where it
+does not, all that is left under him is the contact darkening ambient occlusion gives, which
+is meant to be there: measured on the test room, a model takes 41 luminance off the floor it
+stands on in the light and 0.9 off the same floor in the room's shadow, against 7.8 before.
+
+`A_model_in_the_room_s_own_shadow_takes_no_more_light_away` is the regression, and it needs a
+bake to show anything: `rig.a` is written only where a lightmap is, so a synthetic room
+without one composites identically either way. `MulFile.FromParts` is new, for the same
+reason `BspFile.FromParts` is.
+
+### The binoculars and everything else anybody holds were at the world origin — fixed 2026-08-27
+
+**Reported:** 2026-08-27, from Poussin's Tomb on the second morning: the NPCs raise and
+lower binoculars correctly and do it in mid-air at the far corner of the map. **Fixed the
+same day.**
+
+**A held prop is not animated in the room's coordinates.** POU207A declares six props with
+no position at all —
+
+    model=abebinocs, type=prop, hidden
+    model=bino1, type=prop, hidden
+    model=vpencil, type=prop, hidden
+    model=pad_, type=prop, hidden
+    model=cam, type=prop, hidden
+    model=lens, type=prop, hidden
+
+— because their position is meant to come from the person holding them. Each is a second
+model exported from the same 3ds Max scene the character was, so its clip is authored around
+**the character's own origin** rather than the room's. `AbeBinocUp.ANM` is two clips and no
+placement:
+
+    [ACTIONS]
+    2
+    0,abebinocs_AbeBinocUp
+    0,abe_AbeBinocUp
+
+`SceneUpdate.Playing.Correction` plays a prop's clip exactly as authored, which is right for
+the 92% of prop clips that *are* in room coordinates and wrong for these. Measured through
+the real loader at POU 207A, before the fix:
+
+| clip | prop landed at | its owner stood at | apart |
+| --- | --- | --- | ---: |
+| `AbeBinocBreath` | (0, 63, −6) | abe (337, 259, −469) | **604.9** |
+| `VitMagBinoc1` | (3, 66, −11) | vit (211, 259, −441) | **515.7** |
+| `VitRc2Write` | (−1, 50, −16) | vit (213, 259, −441) | **520.2** |
+| `Lh2FidgetWithCam` | (−3, 44, −93) | lh2 (140, 255, −430) | **422.2** |
+
+Every one of them is within about a hundred units of the world origin, at chest height,
+animating perfectly.
+
+**Who a clip belongs to is in the animation's name.** The original reads the first three
+letters, finds that model in the scene, and copies its space onto everything else the file
+animates, every frame — `VertexAnimNode::Play` picks the holder and
+`VertexAnimator::OnLateUpdate` copies the transform. `SceneUpdate.Holder`, `Carry` and
+`ModelSpace` are that, and `_carried` is the binding.
+
+The rule is safe because the data says so. Across the whole corpus, **455 clips** sit in an
+animation whose three-letter prefix it also animates, and **every one of them is authored
+within 94.3 units of that character**, at a median of 27.6 — arm's length. Not one is in
+room coordinates. Even `MADSMOKING`'s cigarette, 642 units from the world origin, is 42.2
+units from Madeline, because both were exported with her parked out there.
+
+Three details are the original's and each of them showed up as a defect first:
+
+- **The binding outlives the clip.** `VertexAnimator::Stop` clears the animation and leaves
+  the parent. `AbeBinocIdle.gas` is a loop of eight separate animations, so dropping it
+  between each pair blinks the binoculars back to the origin between every one of them.
+  `_space` keeps the last correction for the same reason: a character's space is their
+  placement *plus* their clip's correction, and the correction dies with the clip.
+- **A carried clip is not corrected.** For a prop the correction was the identity anyway,
+  but a clip that carries a *person* — `DemTe6KillGabe` moves `gab` — would otherwise be
+  shifted to their own rest and undo the binding.
+- **The prefix has to be the animation's subject.** This asks that the animation carry a
+  clip for the model it names, which the original does not. It is narrower by exactly four
+  action lines in the corpus — `GabJmpOffPen` and `GabJmpPndulm` — and the original excludes
+  those by hand with `noParenting` in `Pendulum`. So the two rules agree on every line of
+  the game's data, and this one says so without the pendulum ported.
+
+**Still open: a prop carried while walking.** `WalkCycle` plays the character's own stride
+clip and nothing else, so the three props that ride along in a walk animation — Prince
+James's `cane`, Roxanne's `dust`, Buchelli's `papernew` — do not animate at all while their
+owner is walking, rather than animating in the wrong place. Fixing it means a walk playing
+its whole `.ANM` rather than one clip, which is what the original's other parenting branch
+(`Walker` setting `animParams.parent`) exists to serve. The other 47 stride animations that
+name a second model name a `dor_` facing helper, which no scene places.
+
+`HeldPropTests` covers it: five tests, three of which reproduce the reported fault exactly
+when the binding is disabled.
+
 ### The synthesised sun pointed somewhere the room was never lit from — fixed 2026-08-27
 
 **Reported:** 2026-08-27, as the ray-traced light arriving from nearly straight up rather

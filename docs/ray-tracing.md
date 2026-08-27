@@ -532,6 +532,24 @@ from inside one hotel room a great many of them are in the rooms next door. They
 contribute on paper and are stopped by a wall in fact, so subtracting the unshadowed term
 takes out light the bake never had — tried that way, the room fell to 32.
 
+### The room's shadow and the moving one
+
+The visibility above is traced twice, against one half of the acceleration structure each
+time: `Shadow` is what the room itself blocks, and `DynamicShadow` is what characters and
+props block. They are kept apart because they are spent differently — a bake already
+contains the room's own shadows, so only that half may be subtracted against it, while a
+person who walked in after 1999 is not in the bake at all and has to be taken off the
+result, including off the bake-shaped part of the ambient term.
+
+**The second question is asked only where the first let the light through.** Both calls are
+deterministic in the pixel and the sample index, so they pick the same light and the same
+point on its emitter: they are two answers about one ray. Asked independently, a person
+standing on ground a building shades was blocking a sun that never reached that ground, and
+the composite multiplied the bake by their silhouette — a second shadow inside the first,
+hard-edged, on ground with no light left on it. Outside the hotel on `RC1` at 110A, where
+the building stands between the square and the morning sun, that was Gabriel's full shadow
+laid across the doorstep and the door.
+
 `RayTracingSettings.LightmapIndirect` is now the gate as well as the weight. At
 Medium and High it is zero, the mesh pass emits the ambient floor in place of a
 bake, and every pixel arrives at the compositing pass with the ambient alpha — so

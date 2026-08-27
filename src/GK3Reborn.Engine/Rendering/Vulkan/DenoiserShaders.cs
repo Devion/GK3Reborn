@@ -465,19 +465,33 @@ internal static class DenoiserShaders
                     // both calls pick the same light and the same point on its emitter —
                     // the two answers are about one ray, which is what makes it sound to
                     // treat them as the static and moving halves of its visibility.
-                    litCount += ShadowRay(
-                        position, normal, vec2(pixel), i, samples, kRoomOnly) ? 1 : 0;
+                    bool room = ShadowRay(
+                        position, normal, vec2(pixel), i, samples, kRoomOnly);
+
+                    litCount += room ? 1 : 0;
 
                     // The same ray against the models. From a model this is the person's
                     // own arm across their own chest and the person standing between them
                     // and the lamp, which needs the shells skipped; from the room it is
                     // whoever is standing there, and every face of them counts.
-                    clearCount += (onModel
+                    //
+                    // Only where the room let this sample through. Nobody can take away
+                    // light that never arrived, and the composite spends this fraction on
+                    // the bake-shaped part of the indirect term — so on ground a building
+                    // already shades, a person standing on it was subtracting the sun from
+                    // a pixel the sun does not reach, and laid a second shadow inside the
+                    // first. Outside a hotel whose own wall stands between the square and
+                    // the morning sun, that is a hard-edged figure on the ground and on the
+                    // door beside it, in a place with no light left to block. The two calls
+                    // are about one ray, so answering for that ray is the whole of the fix:
+                    // where the room let it through nothing changes, and where the room
+                    // stopped it the models are not asked.
+                    clearCount += (!room || (onModel
                         ? ShadowRay(
                             position, normal, vec2(pixel), i, samples,
                             kModelsOnly, kSkipShells, kSelfBias)
                         : ShadowRay(
-                            position, normal, vec2(pixel), i, samples, kModelsOnly))
+                            position, normal, vec2(pixel), i, samples, kModelsOnly)))
                         ? 1 : 0;
 
                     openCount +=

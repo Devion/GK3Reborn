@@ -249,6 +249,13 @@ GK3Reborn.Tools render-scene --source <GK3>/Data --model R25 --timeblock 202P --
 GK3Reborn --scene R25 --timeblock 202P --data <GK3>/Data
 ```
 
+`--camera` takes a room camera, a cinematic or dialogue camera, or one of the close-up
+views the artists keyed by what it looks at rather than named — `--camera HOTEL_DOOR` is
+the only shot in `RC1` pointed at the hotel's front door. Failing all of those it takes a
+viewpoint spelt out, `at=x,y,z,heading[,pitch]`, the angles in degrees as a scene file
+writes them, for the shots nobody framed: looking down on a square to see where a
+building's shadow falls is not a camera the game has.
+
 `--walk-overlay` lays the scene's walk boundary over the floor, each texel at the height
 of the ground beneath it and coloured by region: green for open floor, darkening towards
 the walls, amber for the regions a script opens. It draws through the same self-lit path
