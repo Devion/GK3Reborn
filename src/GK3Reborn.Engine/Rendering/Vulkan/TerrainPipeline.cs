@@ -130,6 +130,18 @@ public sealed unsafe class TerrainPipeline : IDisposable
                         + (w.b * tile2(tileGrass, uv))
                         + (w.a * tile2(tileDirt, uv));
 
+            // Distant ground keeps its colour and loses its texture. High-contrast
+            // detail a kilometre out is smaller than a pixel, and what sub-pixel detail
+            // does under a turning camera is shimmer - it reads as crawling light even
+            // though the sun never moves. The far colour is the same tiles almost all
+            // the way down their own mip chains.
+            float away = length(vWorld - push.eye.xyz);
+            vec3 calm = (w.r * textureLod(tileForest, uv, 7.0).rgb)
+                      + (w.g * textureLod(tileRock, uv, 7.0).rgb)
+                      + (w.b * textureLod(tileGrass, uv, 7.0).rgb)
+                      + (w.a * textureLod(tileDirt, uv, 7.0).rgb);
+            albedo = mix(calm, albedo, exp(-away / 700.0));
+
             // Hue only: the vista's colour mood without the old painting's darkness.
             vec3 mood = texture(tint, gridUv).rgb;
             float luminance = dot(mood, vec3(0.299, 0.587, 0.114));
@@ -148,7 +160,6 @@ public sealed unsafe class TerrainPipeline : IDisposable
             // Distance haze against the sky's own horizon colour, from where the camera
             // stands in the backdrop rather than from its centre.
             vec3 haze = mix(vec3(0.05, 0.06, 0.09), vec3(0.75, 0.82, 0.88), push.sun.w);
-            float away = length(vWorld - push.eye.xyz);
             float fog = 1.0 - exp(-push.params.z * push.params.z * away * away);
             outColor = vec4(mix(lit, haze, fog), 1.0);
         }
@@ -186,7 +197,15 @@ public sealed unsafe class TerrainPipeline : IDisposable
             vSeed = fract(inTurn * 7.13 + inPlace.x * 0.017);
             vec3 shaped = inPosition * vec3(1.0, mix(0.75, 1.35, fract(vSeed * 9.7)), 1.0);
 
-            vec3 world = inPlace.xyz + (turn * (shaped * inPlace.w));
+            // A tree a couple of kilometres out is thinner than a pixel, and sub-pixel
+            // triangles shimmer under a turning camera. Those trees sink away over a
+            // distance band; the forest colour in the ground tiles carries the far
+            // hillsides from there.
+            float fadeFrom = max(700.0, push.params.w * 0.30);
+            float keep = 1.0 - smoothstep(
+                fadeFrom, fadeFrom * 1.9, length(inPlace.xyz - push.eye.xyz));
+
+            vec3 world = inPlace.xyz + (turn * (shaped * (inPlace.w * keep)));
             vWorld = world;
             vNormal = turn * inNormal;
             vCrown = clamp(inPosition.y / 14.0, 0.0, 1.0);
