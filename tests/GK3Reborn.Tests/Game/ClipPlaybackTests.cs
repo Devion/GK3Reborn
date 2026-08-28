@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Text;
 using GK3Reborn.Content;
 using GK3Reborn.Formats;
@@ -34,6 +34,8 @@ public sealed class ClipPlaybackTests
     private sealed class Sink : ISceneSink
     {
         private readonly HeadlessSceneSink _inner = new();
+
+        public Action? Progress { get; set; }
 
         public Vector3 Minimum => _inner.Minimum;
 

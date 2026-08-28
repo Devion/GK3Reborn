@@ -579,6 +579,69 @@ public sealed class FoliageTests : IDisposable
     }
 
     [Fact]
+    public void A_crown_drawn_as_stacked_discs_is_one_tree()
+    {
+        // How 1999 draws a broad crown, and RC1's hotel maple is the case: three horizontal
+        // discs up the trunk — 284, 172 and 115 units across — with gaps of six and twelve
+        // units between them. Asked to *overlap* in height, the three came out as three
+        // trees, two of them hanging in the air over the first with boles of their own. The
+        // same picture the polygon-clustering bug used to produce, by a different route.
+        TreeLibrary library = Library();
+
+        Foliage.FoliageObject found = Assert.Single(Foliage.InGeometry(
+            Faces(
+                ("PINE2", new Vector3(-142, 135, -142), new Vector3(142, 179, 142)),
+                ("PINE2", new Vector3(-86, 185, -86), new Vector3(86, 219, 86)),
+                ("PINE2", new Vector3(-57, 231, -57), new Vector3(57, 268, 57))),
+            library));
+
+        TreeSite site = Assert.Single(found.Sites);
+
+        Assert.Equal(135f, site.Foot.Y);
+        Assert.Equal(133f, site.Height);
+    }
+
+    [Fact]
+    public void A_spray_standing_in_a_bole_s_own_crown_is_part_of_that_tree()
+    {
+        // The other half of the same shape: the side sprays hung off the branches, which
+        // are too far from the widest disc's centre to cluster with it. A bole is what
+        // settles them — it says where one tree stands, so anything inside its crown
+        // belongs to it. CEM's and PLO's maples are all drawn this way.
+        TreeLibrary library = Library();
+
+        Foliage.FoliageObject found = Assert.Single(Foliage.InGeometry(
+            Faces(
+                ("PINE2", new Vector3(-140, 120, -140), new Vector3(140, 180, 140)),
+                ("PINE2", new Vector3(40, 150, 40), new Vector3(110, 200, 110)),
+                ("Woodbark", new Vector3(-14, 0, -14), new Vector3(14, 150, 14))),
+            library));
+
+        TreeSite site = Assert.Single(found.Sites);
+
+        Assert.True(site.Trunked);
+        Assert.Equal(0f, site.Foot.Y);
+        Assert.Equal(200f, site.Height);
+    }
+
+    [Fact]
+    public void A_stand_with_no_bole_in_it_keeps_every_tree()
+    {
+        // The rule above is licensed by the bole and by nothing else. Two spruces standing
+        // a crown's width apart, with no bark anywhere, stay two spruces — which is the
+        // mistake a looser rule makes, and it turns a wood into a clearing.
+        TreeLibrary library = Library();
+
+        Foliage.FoliageObject found = Assert.Single(Foliage.InGeometry(
+            Faces(
+                ("PINE2", new Vector3(-140, 0, -140), new Vector3(140, 320, 140)),
+                ("PINE2", new Vector3(60, 40, 60), new Vector3(200, 300, 200))),
+            library));
+
+        Assert.Equal(2, found.Sites.Count);
+    }
+
+    [Fact]
     public void Bark_with_no_crown_over_it_keeps_its_wood()
     {
         // A fence sharing an object with a tree, which is the case that stops this rule

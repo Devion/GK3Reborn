@@ -142,7 +142,7 @@ SPECIES = {
         "limbSplits": 4,
         "limbSpread": 0.60,
         "limbRise": 0.72,
-        "branchSides": 4,
+        "branchSides": 5,
         "branchSegments": 3,
         "crownHeight": 0.68,
         "crownRadius": 0.29,
@@ -173,7 +173,7 @@ SPECIES = {
         "limbSplits": 4,
         "limbSpread": 0.70,
         "limbRise": 0.66,
-        "branchSides": 4,
+        "branchSides": 5,
         "branchSegments": 3,
         "crownHeight": 0.72,
         "crownRadius": 0.35,
@@ -200,7 +200,7 @@ SPECIES = {
         "limbSplits": 4,
         "limbSpread": 0.64,
         "limbRise": 0.70,
-        "branchSides": 4,
+        "branchSides": 5,
         "branchSegments": 3,
         "crownHeight": 0.74,
         "crownRadius": 0.32,
@@ -503,11 +503,22 @@ def grow_broadleaf(spec, rng):
             branch(tip, heading_next, length * rng.uniform(0.55, 0.72),
                    radius * 0.62, depth - 1)
 
-        # Leaves along the fork itself, so the crown is not hollow in the middle.
-        for _ in range(rng.randint(1, 3)):
-            at = start.lerp(tip, rng.uniform(0.4, 1.0)) + _jitter(rng, length * 0.3)
+        # Leaves along the whole of the limb, not only near where it forks.
+        #
+        # A limb is painted in bark, and bark is pale where a leaf card is dark: a bare one
+        # running out through a crown reads as a stick pushed into a bush, which is what the
+        # first broadleaves looked like from ten feet away. Clothing it is cheaper than
+        # shading it - there is nowhere to put a per-vertex occlusion on the bark either -
+        # and a real limb inside a crown is not visible at all.
+        #
+        # Enough clumps to cover its length rather than a fixed one or two, so a long first
+        # limb is covered as well as a short twig at the end of it.
+        along = max(2, int(length / (spec["clumpScale"] * 0.85)))
+
+        for step in range(along):
+            at = start.lerp(tip, (step + rng.uniform(0.1, 0.9)) / along)                 + _jitter(rng, length * 0.16)
             _fan(growth, rng, at, out,
-                 spec["clumpScale"] * rng.uniform(0.7, 1.0), spec, 0.12,
+                 spec["clumpScale"] * rng.uniform(0.7, 1.05), spec, 0.12,
                  facing=at - centre)
 
     top = trunk[-1]
@@ -519,8 +530,8 @@ def grow_broadleaf(spec, rng):
         heading = Vector((math.cos(angle) * spec["limbSpread"],
                           math.sin(angle) * spec["limbSpread"],
                           spec["limbRise"])).normalized()
-        branch(top, heading, spec["crownHeight"] * rng.uniform(0.42, 0.55),
-               spec["trunkTopRadius"] * rng.uniform(0.62, 0.85), spec["limbSplits"])
+        branch(top, heading, spec["crownHeight"] * rng.uniform(0.34, 0.46),
+               spec["trunkTopRadius"] * rng.uniform(0.50, 0.68), spec["limbSplits"])
 
     # Leaves through the body of the crown, and not only on the twigs that reach the
     # outside of it. Branching alone leaves a hollow: the limbs spread outwards, every

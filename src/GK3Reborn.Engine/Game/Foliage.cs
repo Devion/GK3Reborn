@@ -469,6 +469,15 @@ public static class Foliage
                 }
             }
 
+            // Everything standing in a bole's own crown is that tree, whatever the cards
+            // looked like. Done here rather than in the clustering because the bole is the
+            // evidence: without one there is no way to tell a spray hanging off a branch
+            // from the next tree along, and a rule loose enough to catch the first swallows
+            // stands of the second. Measured over the corpus: 922 crowns become 819, every
+            // one of the 103 it folds in is a piece of a tree that has a bole, and the 618
+            // conifer crowns — which have none — are untouched.
+            Absorb(crowns);
+
             List<TreeSite> sites = [];
 
             foreach (Crown crown in crowns)
@@ -572,6 +581,83 @@ public static class Foliage
         return found;
     }
 
+    /// <summary>
+    /// Folds every crown standing inside a bole's own crown into it.
+    /// </summary>
+    /// <param name="crowns">The trees found in one object, boles already claimed.</param>
+    /// <remarks>
+    /// <para>
+    /// The 1999 way to draw a broad tree is a few horizontal discs stacked up the trunk
+    /// with side sprays hung off the branches — CEM's maples, PLO's five, RC1's hotel tree.
+    /// Clustering sees the discs and the sprays as separate crowns, because they are: they
+    /// do not touch, and no rule written from the cards alone can tell one tree drawn in
+    /// pieces from two trees standing close together without also gathering a stand of
+    /// spruces into one spruce six trees wide, which is a mistake this has made before.
+    /// </para>
+    /// <para>
+    /// A bole settles it. It says where one tree stands and how far up it goes, so anything
+    /// inside its crown belongs to it — and the crowns that have no bole under them, the
+    /// conifer stands, are left exactly as the clustering found them.
+    /// </para>
+    /// </remarks>
+    private static void Absorb(List<Crown> crowns)
+    {
+        for (int small = crowns.Count - 1; small >= 0; small--)
+        {
+            Crown spray = crowns[small];
+            var at = new Vector2(
+                (spray.Least.X + spray.Most.X) * 0.5f, (spray.Least.Z + spray.Most.Z) * 0.5f);
+            float middle = (spray.Least.Y + spray.Most.Y) * 0.5f;
+
+            for (int whole = 0; whole < crowns.Count; whole++)
+            {
+                Crown tree = crowns[whole];
+
+                if (!tree.Trunked || whole == small ||
+                    !ReferenceEquals(tree.Species, spray.Species))
+                {
+                    continue;
+                }
+
+                // A crown with no bole under it is a piece of this tree by definition —
+                // nothing else could be holding it up. One that claimed a bole of its own
+                // has to be much the smaller of the two before it is folded in, or two real
+                // trees drawn in one object would become one: CEM's maples each carry a
+                // fifty-unit spray that took a branch for a trunk, on a tree of two hundred
+                // and eighty.
+                if (spray.Trunked &&
+                    spray.Most.Y - spray.Least.Y >= (tree.Most.Y - tree.Least.Y) * 0.5f)
+                {
+                    continue;
+                }
+
+                var centre = new Vector2(
+                    (tree.Least.X + tree.Most.X) * 0.5f, (tree.Least.Z + tree.Most.Z) * 0.5f);
+
+                float radius = MathF.Max(
+                    tree.Most.X - tree.Least.X, tree.Most.Z - tree.Least.Z) * 0.5f;
+
+                // Over its ground and somewhere up its height. Taken at the spray's middle
+                // rather than at its whole extent, because a spray on an outer branch hangs
+                // a little past the crown it belongs to in every direction.
+                if (Vector2.Distance(centre, at) > radius ||
+                    middle < tree.Least.Y || middle > tree.Most.Y)
+                {
+                    continue;
+                }
+
+                crowns[whole] = tree with
+                {
+                    Least = Vector3.Min(tree.Least, spray.Least),
+                    Most = Vector3.Max(tree.Most, spray.Most),
+                };
+
+                crowns.RemoveAt(small);
+                break;
+            }
+        }
+    }
+
     /// <summary>Gathers cards that stand over the same ground into one tree each.</summary>
     private static List<Crown> Cluster(List<Card> cards)
     {
@@ -621,11 +707,24 @@ public static class Foliage
                 var at = new Vector2(
                     (card.Least.X + card.Most.X) * 0.5f, (card.Least.Z + card.Most.Z) * 0.5f);
 
-                // Over the same ground and overlapping in height. Height matters: a room
-                // built on a hillside has cards above cards, and ground position alone
-                // would gather a tree and the one on the terrace above it into one.
-                if (Vector2.Distance(centre, at) > reach ||
-                    card.Least.Y > most.Y || card.Most.Y < least.Y)
+                // Within reach on the ground and within the same reach above or below it.
+                //
+                // Height still matters — a room built on a hillside has cards above cards,
+                // and ground position alone would gather a tree and the one on the terrace
+                // above it into one — but *touching* in height is too strict, and RC1's
+                // hotel maple is why. It is drawn the way 1999 drew a broad crown: three
+                // horizontal discs stacked up the trunk, 284, 172 and 115 units across,
+                // with gaps of six and twelve units between them. Asked to overlap, the
+                // three came out as three trees, two of them hanging in the air over the
+                // first with trunks of their own — the same picture the polygon-clustering
+                // bug used to produce, arriving by a different route.
+                //
+                // A crown is about as tall as it is wide, so the same reach serves both:
+                // six units of gap on a card 284 across is one tree, and the terrace above
+                // is a couple of hundred units up and off to one side as well.
+                float apart = MathF.Max(card.Least.Y - most.Y, least.Y - card.Most.Y);
+
+                if (Vector2.Distance(centre, at) > reach || apart > reach)
                 {
                     continue;
                 }

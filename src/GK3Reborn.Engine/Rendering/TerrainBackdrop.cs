@@ -3,6 +3,65 @@ using GK3Reborn.Formats.Bitmaps;
 
 namespace GK3Reborn.Rendering;
 
+/// <summary>One corner of a modelled tree, in its own normalised frame.</summary>
+/// <param name="Position">Where it is: base at the origin, one unit tall, +Y up.</param>
+/// <param name="Normal">Which way the surface faces.</param>
+/// <param name="TexCoord">Where it reads from its part's texture.</param>
+public readonly record struct TerrainTreeVertex(
+    Vector3 Position, Vector3 Normal, Vector2 TexCoord);
+
+/// <summary>The triangles of one tree that share a texture.</summary>
+/// <param name="Texture">Index into <see cref="TerrainBackdrop.TreeTextures"/>.</param>
+/// <param name="FirstIndex">Where this part starts in its model's indices.</param>
+/// <param name="IndexCount">How many indices it has.</param>
+/// <param name="Leaves">
+/// Whether it is foliage rather than bark, which decides whether it is drawn with the
+/// alpha test and whether it takes the crown's light or the trunk's shade.
+/// </param>
+public readonly record struct TerrainTreePart(
+    int Texture, uint FirstIndex, uint IndexCount, bool Leaves);
+
+/// <summary>
+/// One of the grown trees, at one level of detail, for the backdrop to draw.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The same models the rooms plant — see <see cref="Content.TreeLibrary"/> — brought
+/// across the seam into the backdrop's own space. A wood on a hillside four hundred
+/// metres out is a field of impostors and always will be; a wood on the slope just
+/// beyond the wall the player is leaning on is not, and drawing that one as cones is
+/// what makes a reconstructed horizon read as scenery rather than as country.
+/// </para>
+/// <para>
+/// Normalised: base at the origin and exactly one unit tall, so the placement's own
+/// scale and the impostor's height for that kind are what size it. That is the same
+/// frame the room's trees are fitted in, which is what lets one library serve both.
+/// </para>
+/// </remarks>
+public sealed record TerrainTreeModel
+{
+    /// <summary>Which of the renderer's impostor shapes this stands in for.</summary>
+    public required int Kind { get; init; }
+
+    /// <summary>Nought for the full tree, one for the cheap one grown for a far hillside.</summary>
+    public required int Detail { get; init; }
+
+    /// <summary>What to call it in a report.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Its corners.</summary>
+    public required TerrainTreeVertex[] Vertices { get; init; }
+
+    /// <summary>Its triangles, three indices each, into <see cref="Vertices"/>.</summary>
+    public required uint[] Indices { get; init; }
+
+    /// <summary>Its parts, one per texture.</summary>
+    public required IReadOnlyList<TerrainTreePart> Parts { get; init; }
+
+    /// <summary>How many triangles it costs to draw one of these.</summary>
+    public int Triangles => Indices.Length / 3;
+}
+
 /// <summary>
 /// A reconstructed horizon: real terrain standing where the painted skybox was.
 /// </summary>
@@ -78,4 +137,17 @@ public sealed record TerrainBackdrop
     /// a set written before it says zero, which is the conifer every tree used to be.
     /// </remarks>
     public float[] Trees { get; init; } = [];
+
+    /// <summary>
+    /// The grown trees the nearest of that forest is drawn as, coarsest last.
+    /// </summary>
+    /// <remarks>
+    /// Empty when the player has turned modelled trees off, or when the library that
+    /// grows them is not installed — in which case the whole forest is impostors, which
+    /// is what it was.
+    /// </remarks>
+    public IReadOnlyList<TerrainTreeModel> TreeModels { get; init; } = [];
+
+    /// <summary>The bark and foliage those models are painted with.</summary>
+    public IReadOnlyList<DecodedImage> TreeTextures { get; init; } = [];
 }

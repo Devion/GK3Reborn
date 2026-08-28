@@ -306,6 +306,26 @@ public sealed class SceneLoader
     }
 
     /// <summary>
+    /// Something to do between pieces of work, offered often while the scene is read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What keeps the window alive across a load, and what lets the transition's fade run
+    /// while the room is being built rather than before it. See
+    /// <see cref="Rendering.ScreenFade"/>: a cold arrival with the packs to read and ray
+    /// tracing turned up is well over a second, and a window that presents nothing for that
+    /// long is a window the desktop puts a "not responding" title on.
+    /// </para>
+    /// <para>
+    /// Called from the loading thread, which is the caller's own — nothing here is
+    /// concurrent, so whatever this does may touch the renderer. It is offered rather than
+    /// paced: the texture loop calls it once a texture, and it is the caller's business to
+    /// decide that most of those are too soon to be worth a frame.
+    /// </para>
+    /// </remarks>
+    public Action? Progress { get; set; }
+
+    /// <summary>
     /// Higher-resolution textures to use in place of the archives', if there are any.
     /// </summary>
     /// <remarks>
@@ -466,6 +486,19 @@ public sealed class SceneLoader
         string scene = request.Scene;
         string? timeblock = request.AssetSuffix;
 
+        // The other side of the seam gets the same hook. Two of the longest single calls
+        // of a cold load are the sink's — cutting the floor into a million triangles, and
+        // building the buffers the room is drawn from — and neither can offer a frame it
+        // was never given. See Progress.
+        geometry.Progress = Progress;
+
+        // And one straight away, before any of it. What follows before the first texture
+        // is read — the scene's two initialisation files, its asset, its geometry and its
+        // bake — is a quarter of a second on a cold room, which is most of a fade: without
+        // this the picture is still whole when the loader first speaks and the fade has
+        // nothing left to do but cut.
+        Progress?.Invoke();
+
         // Where this room's trees are, and nowhere else. A loader is meant to be built per
         // scene, but one that was not would carry the last room's trees into this one and
         // refuse to plant anything near where they stood — in a different room, at
@@ -475,7 +508,10 @@ public sealed class SceneLoader
         _trunked.Clear();
 
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
+        Progress?.Invoke();
+
         SceneAssetFile? asset = ReadAsset(scene, timeblock, init, diagnostics);
+        Progress?.Invoke();
 
         string bspName = asset?.BspName ?? scene;
 
@@ -488,10 +524,17 @@ public sealed class SceneLoader
             return null;
         }
 
+        // Between reading it and parsing it. The two are a tenth of a second together on a
+        // large outdoor room and neither can be interrupted, so this is the only place a
+        // frame fits — and without it the fade takes a third of itself in one step.
+        Progress?.Invoke();
+
         BspFile bsp = BspFile.Parse(bspBytes, bspName + ".BSP");
         _log?.Invoke($"geometry: {bspName}.BSP, {bsp.TriangleCount} triangles, {bsp.Surfaces.Count} surfaces");
+        Progress?.Invoke();
 
         MulFile? lightmaps = ReadLightmaps(asset?.Name, scene, timeblock, diagnostics);
+        Progress?.Invoke();
 
         if (lightmaps is not null && lightmaps.Lightmaps.Count != bsp.Surfaces.Count)
         {
@@ -564,6 +607,11 @@ public sealed class SceneLoader
 
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject, replaced);
 
+        // The four long stretches with nothing in them to offer a frame of their own: the
+        // room's own batches above, and the sky, the horizon and the woods below. Each is
+        // one call that can run for a hundred milliseconds or more. See Progress.
+        Progress?.Invoke();
+
         // The sun, decided once and used by everything that has to agree with it: the room's
         // rig, and the reconstructed horizon standing behind the sky. It is aimed by the
         // artists' own scenekey wherever the asset ships one - see Sunlight - so it has to
@@ -587,10 +635,12 @@ public sealed class SceneLoader
         if (asset?.Skybox is { IsEmpty: false } sky)
         {
             LoadSkybox(geometry, sky, diagnostics);
+            Progress?.Invoke();
 
             // The reconstructed horizon rides the same choice: the terrain set is named
             // after the sky's own faces, so day and night come free here too.
             LoadTerrain(geometry, sky, sun?.Direction, diagnostics);
+            Progress?.Invoke();
         }
 
         ReportDisputedVisibility(init, diagnostics);
@@ -605,6 +655,7 @@ public sealed class SceneLoader
         // trees in the same place are a mess, so the props win and the room's copies of
         // them are left out.
         PlantWoods(geometry, woods, diagnostics);
+        Progress?.Invoke();
         placed.AddRange(
             PlaceActors(geometry, init, diagnostics, request.State?.LastLocation));
         _log?.Invoke(
@@ -1149,6 +1200,11 @@ public sealed class SceneLoader
 
         foreach (SceneModel model in declared)
         {
+            // A model whose textures are all resident already reads and uploads without
+            // ever reaching the texture loop's own offer, and a room full of those is most
+            // of a return trip. See Progress.
+            Progress?.Invoke();
+
             if (IsBakedIn(model))
             {
                 continue;
@@ -1943,6 +1999,12 @@ public sealed class SceneLoader
                 }
             }
 
+            // And the grown trees the nearest of that forest is drawn as, when the
+            // library that grows them is installed and the player has them on.
+            List<DecodedImage> modelTextures = [];
+            List<TerrainTreeModel> models =
+                trees.Length > 0 ? TerrainTrees(modelTextures, diagnostics) : [];
+
             geometry.SetTerrain(new TerrainBackdrop
             {
                 Grid = meta.Grid,
@@ -1956,6 +2018,8 @@ public sealed class SceneLoader
                 TileDirt = dirt.Value,
                 SunDirection = sunDirection,
                 Azimuth = sky.Azimuth,
+                TreeModels = models,
+                TreeTextures = modelTextures,
 
                 // The scene's own centre, which is where the painted sky was
                 // conceptually seen from.
@@ -1963,10 +2027,15 @@ public sealed class SceneLoader
                 Trees = trees,
             });
 
+            string grown = models.Count > 0
+                ? $", the nearest grown from {models.Count} model(s): " +
+                  string.Join(", ", models.Select(m => $"{m.Name} {m.Triangles}t"))
+                : ", impostors only";
+
             _log?.Invoke(string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"terrain: {set}, {meta.Grid}x{meta.Grid} over {meta.ExtentMeters:F0} m, " +
-                $"{trees.Length / 6} trees"));
+                $"{trees.Length / 6} trees{grown}"));
         }
         catch (Exception error) when (
             error is IOException or JsonException or Formats.FormatParseException)
@@ -1977,6 +2046,214 @@ public sealed class SceneLoader
                 set, null, "readable heightfield, splat and tint", error.Message,
                 "The scene keeps its painted horizon."));
         }
+    }
+
+    /// <summary>
+    /// Which species stands in for each of the backdrop's impostor shapes.
+    /// </summary>
+    /// <remarks>
+    /// The offline placement numbers its trees by silhouette — a conifer, a broadleaf, a
+    /// cypress, and scrub — and the library grows them by species. Three of the four have
+    /// an obvious answer; scrub does not, and a bush the size of a person is under a pixel
+    /// at any range the backdrop is seen from, so it stays an impostor and is left out.
+    /// </remarks>
+    private static readonly string[] TerrainTreeSpecies = ["spruce", "broadleaf", "cypress"];
+
+    /// <summary>
+    /// The grown trees the backdrop draws its nearest forest as.
+    /// </summary>
+    /// <param name="textures">Receives the bark and foliage they are painted with.</param>
+    /// <param name="diagnostics">Receives anything that would not read.</param>
+    /// <returns>Two levels of detail per species, or nothing at all.</returns>
+    /// <remarks>
+    /// <para>
+    /// Two of each, and the pair is the point: the library grows a full tree of twenty
+    /// thousand triangles and a cheap one of four, and a backdrop needs both — the full
+    /// one for the slope beyond the wall the player is leaning on, the cheap one for the
+    /// hillside behind it, and the impostor cone for everything past that. Which a given
+    /// tree gets is decided by how far away it is, and that is the renderer's business
+    /// because the camera moves and the trees do not.
+    /// </para>
+    /// <para>
+    /// One variant per species rather than four. The rooms pick a variant per tree so that
+    /// no two trees within arm's reach are the same tree; at backdrop range that
+    /// distinction is carried by the per-instance scale, height jitter and yaw the
+    /// impostors already vary, and four variants would be four copies of twenty thousand
+    /// triangles resident for something nobody can see.
+    /// </para>
+    /// </remarks>
+    private List<TerrainTreeModel> TerrainTrees(
+        List<DecodedImage> textures, DiagnosticBag diagnostics)
+    {
+        if (Trees is not { IsEmpty: false } library)
+        {
+            return [];
+        }
+
+        var models = new List<TerrainTreeModel>();
+        var named = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        int Texture(string name)
+        {
+            if (named.TryGetValue(name, out int already))
+            {
+                return already;
+            }
+
+            // The foliage cards ship with the trees and no archive holds them; the bark is
+            // one of the game's own. Enhanced first for both, which is the order everything
+            // else here takes.
+            DecodedImage? image =
+                library.Textures.Read(name, diagnostics)
+                ?? Enhanced?.Read(name, diagnostics)
+                ?? TerrainTile(name, diagnostics);
+
+            if (image is not { } found)
+            {
+                return -1;
+            }
+
+            named[name] = textures.Count;
+            textures.Add(found);
+
+            return textures.Count - 1;
+        }
+
+        for (int kind = 0; kind < TerrainTreeSpecies.Length; kind++)
+        {
+            TreeSpecies? species = library.Species.FirstOrDefault(
+                s => string.Equals(
+                    s.Name, TerrainTreeSpecies[kind], StringComparison.OrdinalIgnoreCase));
+
+            if (species is null)
+            {
+                continue;
+            }
+
+            for (int detail = 0; detail < 2; detail++)
+            {
+                IReadOnlyList<GrownTree> band = detail == 0 ? species.Near : species.Distant;
+
+                if (band.Count == 0 || library.Read(band[0], diagnostics) is not { } grown)
+                {
+                    continue;
+                }
+
+                if (Flatten(grown, kind, detail, band[0].Name, Texture) is { } model)
+                {
+                    models.Add(model);
+                }
+            }
+        }
+
+        return models;
+    }
+
+    /// <summary>
+    /// Turns a grown tree into one buffer of corners and one of triangles.
+    /// </summary>
+    /// <param name="grown">The model, as the library read it.</param>
+    /// <param name="kind">Which impostor shape it stands in for.</param>
+    /// <param name="detail">Nought for the full tree, one for the cheap one.</param>
+    /// <param name="name">What to call it in a report.</param>
+    /// <param name="texture">Resolves a texture name to its place in the shared list.</param>
+    /// <returns>The model, or null when nothing in it could be painted.</returns>
+    /// <remarks>
+    /// The submeshes are merged and regrouped by texture, so a tree is two draws — its
+    /// bark and its leaves — rather than one per clump. The per-mesh transforms are baked
+    /// in here: a backdrop instance carries a position, a scale and a yaw and nothing else,
+    /// and a matrix has nowhere to live in that.
+    /// </remarks>
+    private static TerrainTreeModel? Flatten(
+        ModFile grown, int kind, int detail, string name, Func<string, int> texture)
+    {
+        var corners = new List<TerrainTreeVertex>();
+        var byTexture = new Dictionary<string, (int Texture, List<uint> Indices)>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (ModMesh mesh in grown.Meshes)
+        {
+            foreach (ModSubmesh part in mesh.Submeshes)
+            {
+                if (part.Indices.Length == 0 || part.Positions.Length == 0)
+                {
+                    continue;
+                }
+
+                if (!byTexture.TryGetValue(
+                        part.TextureName, out (int Texture, List<uint> Indices) group))
+                {
+                    int found = texture(part.TextureName);
+
+                    if (found < 0)
+                    {
+                        continue;
+                    }
+
+                    group = (found, []);
+                    byTexture[part.TextureName] = group;
+                }
+
+                uint first = (uint)corners.Count;
+
+                for (int i = 0; i < part.Positions.Length; i++)
+                {
+                    corners.Add(new TerrainTreeVertex(
+                        Vector3.Transform(part.Positions[i], mesh.MeshToLocal),
+                        Vector3.Normalize(Vector3.TransformNormal(
+                            i < part.Normals.Length ? part.Normals[i] : Vector3.UnitY,
+                            mesh.MeshToLocal)),
+                        i < part.TexCoords.Length ? part.TexCoords[i] : Vector2.Zero));
+                }
+
+                foreach (ushort index in part.Indices)
+                {
+                    group.Indices.Add(first + index);
+                }
+            }
+        }
+
+        if (corners.Count == 0 || byTexture.Count == 0)
+        {
+            return null;
+        }
+
+        var indices = new List<uint>();
+        var parts = new List<TerrainTreePart>();
+
+        foreach ((string what, (int found, List<uint> block)) in byTexture)
+        {
+            if (block.Count == 0)
+            {
+                continue;
+            }
+
+            parts.Add(new TerrainTreePart(
+                found,
+                (uint)indices.Count,
+                (uint)block.Count,
+
+                // Bark is the one thing in a grown tree that is not a clump of leaves, and
+                // it is always one of the game's own trunk bitmaps. Everything else is a
+                // card cut out of a spray, and needs the alpha test the trunk must not
+                // have: a trunk drawn with it loses its own dark edges to the cutout.
+                !what.StartsWith("TRUNK", StringComparison.OrdinalIgnoreCase) &&
+                !what.Contains("BARK", StringComparison.OrdinalIgnoreCase)));
+
+            indices.AddRange(block);
+        }
+
+        return parts.Count == 0
+            ? null
+            : new TerrainTreeModel
+            {
+                Kind = kind,
+                Detail = detail,
+                Name = name,
+                Vertices = [.. corners],
+                Indices = [.. indices],
+                Parts = parts,
+            };
     }
 
     /// <summary>One of the terrain's ground tiles: enhanced first, the archives after.</summary>
@@ -2109,112 +2386,135 @@ public sealed class SceneLoader
         // threads happened to finish.
         var bags = new DiagnosticBag[wanted.Count];
 
-        Parallel.For(0, wanted.Count, new ParallelOptions { MaxDegreeOfParallelism = Decoders }, i =>
+        // In batches, with a frame offered between them. The decode is the one long
+        // stretch of a load with nothing serial in it to offer from — a room's worth of
+        // textures is a tenth of a second across every core — and a fade that goes a
+        // third of the way down in one step is a fade with a visible corner in it. A
+        // batch still saturates the decoders; only the tail of each one idles, and that
+        // costs a fraction of what the offer buys. See Progress.
+        const int DecodeBatch = 64;
+
+        for (int batch = 0; batch < wanted.Count; batch += DecodeBatch)
         {
-            (string texture, bool normal, bool orm, bool height, bool colour) = wanted[i];
-            var bag = new DiagnosticBag();
-            bags[i] = bag;
+            Progress?.Invoke();
 
-            // The generated map first and the compressed build of it second, which is the
-            // order the whole loader now takes: see Compressed for why. A .png is what the
-            // generator produced this morning; a .dds is what somebody compressed at some
-            // point, and while these sets are still moving the two are not the same file.
-            DecodedImage? bumps = normal ? Normals?.Read(texture, bag) : null;
-            CompressedImage? blockBumps =
-                normal && bumps is null ? Compressed?.ReadNormal(texture, bag) : null;
-
-            DecodedImage? finish = orm ? Orms?.Read(texture, bag) : null;
-            CompressedImage? blockFinish =
-                orm && finish is null ? Compressed?.ReadOrm(texture, bag) : null;
-
-            DecodedImage? relief = height ? Heights?.Read(texture, bag) : null;
-            CompressedImage? blockRelief =
-                height && relief is null ? Compressed?.ReadHeight(texture, bag) : null;
-
-            if (!colour)
+            Parallel.For(
+                batch,
+                Math.Min(batch + DecodeBatch, wanted.Count),
+                new ParallelOptions { MaxDegreeOfParallelism = Decoders },
+                i =>
             {
-                read[i] = (
-                    bumps, blockBumps,
-                    finish, blockFinish,
-                    relief, blockRelief,
-                    null, null, Source.Original, null);
+                (string texture, bool normal, bool orm, bool height, bool colour) = wanted[i];
+                var bag = new DiagnosticBag();
+                bags[i] = bag;
 
-                return;
-            }
+                // The generated map first and the compressed build of it second, which is the
+                // order the whole loader now takes: see Compressed for why. A .png is what the
+                // generator produced this morning; a .dds is what somebody compressed at some
+                // point, and while these sets are still moving the two are not the same file.
+                DecodedImage? bumps = normal ? Normals?.Read(texture, bag) : null;
+                CompressedImage? blockBumps =
+                    normal && bumps is null ? Compressed?.ReadNormal(texture, bag) : null;
 
-            // The original, read whatever else happens: it is small, and it is the only
-            // thing that can say whether this texture uses GK3 magenta. A colour key cannot
-            // be applied to blocks, so a texture that needs one must not take that path — it
-            // would come out with magenta painted where its holes should be.
-            byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
-            bool readable = bytes is not null && BitmapDecoder.CanDecode(bytes);
-            DecodedImage? original = readable ? BitmapDecoder.Decode(bytes!, texture) : null;
+                DecodedImage? finish = orm ? Orms?.Read(texture, bag) : null;
+                CompressedImage? blockFinish =
+                    orm && finish is null ? Compressed?.ReadOrm(texture, bag) : null;
 
-            // Foliage drawn for the modelled trees, which no archive holds and no enhanced
-            // set replaces: a needle spray is not a better version of a 1999 bitmap, it is
-            // a new one. Asked first, and only for names the tree pack actually carries,
-            // so it costs one dictionary lookup for every other texture in the game.
-            if (Trees?.Textures.Read(texture, bag) is { } foliage)
-            {
-                read[i] = (
-                    bumps, blockBumps,
-                    finish, blockFinish,
-                    relief, blockRelief,
-                    foliage, null, Source.Enhanced, null);
+                DecodedImage? relief = height ? Heights?.Read(texture, bag) : null;
+                CompressedImage? blockRelief =
+                    height && relief is null ? Compressed?.ReadHeight(texture, bag) : null;
 
-                return;
-            }
-
-            // The enhanced picture. It falls back on its own if it will not decode, so a bad
-            // file in the enhanced set costs that texture and nothing else.
-            if (Enhanced?.Read(texture, bag) is { } better)
-            {
-                read[i] = (
-                    bumps, blockBumps,
-                    finish, blockFinish,
-                    relief, blockRelief,
-                    better, null, Source.Enhanced, null);
-
-                return;
-            }
-
-            // A colour key cannot be applied to blocks, so a texture whose original uses
-            // GK3 magenta normally has to take the decoded path. Unless the compressed set
-            // holds it: that set is built from the enhanced textures, which resolved the
-            // magenta into a real alpha channel before it was ever encoded, so the key is
-            // already applied and there is nothing left to key.
-            //
-            // The distinction matters more than it used to. When this check was written the
-            // pilot set was 324 textures and three of them were keyed; the set is now 2,926
-            // and 398 are, so refusing all of them meant one texture in seven silently
-            // rendering as its 1999 original — the hotel sign at Rennes-le-Chateau among
-            // them. `pack-content` leaves out any keyed texture whose replacement has no
-            // alpha, which is what makes "the pack holds it" enough to know it is safe.
-            if (original is not { } first
-                || !TextureKeying.NeedsKey(first)
-                || Compressed?.Has(texture) == true)
-            {
-                if (Compressed?.Read(texture, bag) is { } blocks)
+                if (!colour)
                 {
                     read[i] = (
                         bumps, blockBumps,
                         finish, blockFinish,
                         relief, blockRelief,
-                        null, blocks, Source.Compressed, null);
+                        null, null, Source.Original, null);
 
                     return;
                 }
-            }
 
-            read[i] = original is null
-                ? (bumps, blockBumps, finish, blockFinish, relief, blockRelief,
-                   null, null, Source.Original, texture)
-                : (bumps, blockBumps, finish, blockFinish, relief, blockRelief,
-                   original, null, Source.Original, null);
-        });
+                // The original, read whatever else happens: it is small, and it is the only
+                // thing that can say whether this texture uses GK3 magenta. A colour key cannot
+                // be applied to blocks, so a texture that needs one must not take that path — it
+                // would come out with magenta painted where its holes should be.
+                byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
+                bool readable = bytes is not null && BitmapDecoder.CanDecode(bytes);
+                DecodedImage? original = readable ? BitmapDecoder.Decode(bytes!, texture) : null;
+
+                // Foliage drawn for the modelled trees, which no archive holds and no enhanced
+                // set replaces: a needle spray is not a better version of a 1999 bitmap, it is
+                // a new one. Asked first, and only for names the tree pack actually carries,
+                // so it costs one dictionary lookup for every other texture in the game.
+                if (Trees?.Textures.Read(texture, bag) is { } foliage)
+                {
+                    read[i] = (
+                        bumps, blockBumps,
+                        finish, blockFinish,
+                        relief, blockRelief,
+                        foliage, null, Source.Enhanced, null);
+
+                    return;
+                }
+
+                // The enhanced picture. It falls back on its own if it will not decode, so a bad
+                // file in the enhanced set costs that texture and nothing else.
+                if (Enhanced?.Read(texture, bag) is { } better)
+                {
+                    read[i] = (
+                        bumps, blockBumps,
+                        finish, blockFinish,
+                        relief, blockRelief,
+                        better, null, Source.Enhanced, null);
+
+                    return;
+                }
+
+                // A colour key cannot be applied to blocks, so a texture whose original uses
+                // GK3 magenta normally has to take the decoded path. Unless the compressed set
+                // holds it: that set is built from the enhanced textures, which resolved the
+                // magenta into a real alpha channel before it was ever encoded, so the key is
+                // already applied and there is nothing left to key.
+                //
+                // The distinction matters more than it used to. When this check was written the
+                // pilot set was 324 textures and three of them were keyed; the set is now 2,926
+                // and 398 are, so refusing all of them meant one texture in seven silently
+                // rendering as its 1999 original — the hotel sign at Rennes-le-Chateau among
+                // them. `pack-content` leaves out any keyed texture whose replacement has no
+                // alpha, which is what makes "the pack holds it" enough to know it is safe.
+                if (original is not { } first
+                    || !TextureKeying.NeedsKey(first)
+                    || Compressed?.Has(texture) == true)
+                {
+                    if (Compressed?.Read(texture, bag) is { } blocks)
+                    {
+                        read[i] = (
+                            bumps, blockBumps,
+                            finish, blockFinish,
+                            relief, blockRelief,
+                            null, blocks, Source.Compressed, null);
+
+                        return;
+                    }
+                }
+
+                read[i] = original is null
+                    ? (bumps, blockBumps, finish, blockFinish, relief, blockRelief,
+                       null, null, Source.Original, texture)
+                    : (bumps, blockBumps, finish, blockFinish, relief, blockRelief,
+                       original, null, Source.Original, null);
+            });
+        }
 
         for (int i = 0; i < wanted.Count; i++)
         {
+            // Uploading is the serial half of this and the long one: the decode above runs
+            // across every core the machine has, and everything below goes one at a time
+            // through the one queue. So this is where a transition gets most of its
+            // frames from. See Progress.
+            Progress?.Invoke();
+
             foreach (Diagnostic diagnostic in bags[i].Items)
             {
                 diagnostics.Add(diagnostic);

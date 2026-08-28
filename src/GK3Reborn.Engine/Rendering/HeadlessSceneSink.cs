@@ -28,6 +28,9 @@ public sealed class HeadlessSceneSink : ISceneSink
     private Vector3 _maximum = new(float.MinValue);
 
     /// <inheritdoc/>
+    public Action? Progress { get; set; }
+
+    /// <inheritdoc/>
     public Vector3 Minimum => _textures.Count == 0 && TriangleCount == 0 ? Vector3.Zero : _minimum;
 
     /// <inheritdoc/>

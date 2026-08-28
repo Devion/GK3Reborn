@@ -233,6 +233,23 @@ mixtures are one of four bark textures: `NewBranch` 38, `Woodbark` 33, `Trunk01`
 no species named — is now the maple's, which is what makes the RC1, CEM, RC2 and RC4 trees
 foliage at all.
 
+The tree that came out of that was still wrong, and for a second reason. A 1999 broadleaf
+is drawn as **horizontal discs stacked up the trunk** — RC1's is three, 284, 172 and 115
+units across, six and twelve units apart — with side sprays hung off the branches. The
+clustering was written for conifers, which are two cards crossed at the trunk, and it asked
+cards to *overlap* in height: the two upper discs failed, started clusters of their own, and
+grew as two more trees hanging in the air over the first with boles of their own. A crown is
+about as tall as it is wide, so the vertical gap now gets the same reach as the horizontal
+one; and the side sprays, which no reach can catch without also gathering a stand of spruces
+into one tree, are settled by the bole — anything standing inside a trunked crown belongs to
+it. Across the corpus, 922 crowns become 819; all 103 folded in are pieces of a tree that
+has a bole, and the 618 conifer crowns are untouched.
+
+The last of it was cosmetic and just as visible: the grown tree's own **limbs ran bare
+through its crown**, and bark is pale where a leaf card is dark, so they read as sticks
+pushed into a bush. Leaves are now hung along the whole length of a limb rather than at its
+ends.
+
 ### Riding the moped never went by way of the map — fixed 2026-08-28
 
 Reported as arriving at Larry Chester's house with no moped in the yard and no way out

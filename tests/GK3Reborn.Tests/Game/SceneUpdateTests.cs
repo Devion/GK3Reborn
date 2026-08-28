@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
@@ -28,6 +28,8 @@ public sealed class SceneUpdateTests
     private sealed class Watcher : ISceneSink
     {
         private int _next;
+
+        public Action? Progress { get; set; }
 
         public Dictionary<(int Placement, int Mesh), Matrix4x4> Turns { get; } = [];
 

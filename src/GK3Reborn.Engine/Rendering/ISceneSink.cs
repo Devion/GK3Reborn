@@ -39,6 +39,19 @@ public readonly record struct ModelPlacement(int Id)
 /// </remarks>
 public interface ISceneSink
 {
+    /// <summary>
+    /// Something to do between pieces of work, offered often while a scene is assembled.
+    /// </summary>
+    /// <remarks>
+    /// The same hook <see cref="Game.SceneLoader.Progress"/> carries, and set from it, for
+    /// the same reason: two of the longest stretches of a cold load are one call each on
+    /// this side of the seam — cutting an outdoor floor into a million triangles, and
+    /// building what the whole room is drawn from — and a window that presents nothing for
+    /// five seconds is a window the desktop marks as hung. Null by default, and never
+    /// called concurrently: assembling a scene happens on the caller's own thread.
+    /// </remarks>
+    Action? Progress { get; set; }
+
     /// <summary>Lower corner of everything loaded, in world space.</summary>
     Vector3 Minimum { get; }
 

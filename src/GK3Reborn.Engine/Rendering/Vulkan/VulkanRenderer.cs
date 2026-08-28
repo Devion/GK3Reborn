@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Platform;
 using Silk.NET.Core;
@@ -98,6 +99,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// a session never plays one and a pipeline nobody uses is a pipeline nobody has tested.
     /// </remarks>
     private MoviePipeline? _movie;
+
+    /// <summary>The colour drawn over the finished picture, when the picture is fading.</summary>
+    /// <remarks>
+    /// Last of everything, over the interface as well as the room, because a scene change
+    /// fades the picture rather than what is in it. See <see cref="Fade"/>.
+    /// </remarks>
+    private FadePipeline? _fadePipeline;
     private SceneGeometry? _skyOwner;
     private OverlayAtlas? _overlayAtlas;
 
@@ -594,6 +602,38 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <summary>Whether an interface can be drawn.</summary>
     public bool HasOverlay => _overlay is not null;
 
+    /// <summary>
+    /// How far the picture is faded out, from nought for the picture itself to one for
+    /// nothing but <see cref="FadeColour"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Held on the renderer rather than passed to <see cref="DrawFrame"/> because the
+    /// frames a fade covers are drawn from several places — the room's own loop, and the
+    /// pump that keeps the window alive while the next room is being read — and every one
+    /// of them has to agree about how dark the screen is.
+    /// </para>
+    /// <para>
+    /// Clamped rather than checked: a fade driven from a clock will overshoot its end by
+    /// however long the last frame took, and a transition is not the place to throw.
+    /// </para>
+    /// </remarks>
+    public float Fade
+    {
+        get => _fade;
+        set => _fade = Math.Clamp(value, 0f, 1f);
+    }
+
+    /// <summary>What the picture fades to. Black, unless something says otherwise.</summary>
+    /// <remarks>
+    /// Written straight into the target, which is sRGB — so this is the colour a picker
+    /// would give rather than its linear form, and black is black either way. A white flash
+    /// would want <see cref="OverlayPipeline"/>'s conversion; nothing asks for one yet.
+    /// </remarks>
+    public Vector3 FadeColour { get; set; }
+
+    private float _fade;
+
     /// <summary>Gives the renderer an interface to draw on top of the room.</summary>
     /// <param name="atlas">The sheet it is drawn from.</param>
     /// <remarks>
@@ -829,6 +869,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _skybox?.Dispose();
             _terrain?.Dispose();
             _overlay?.Dispose();
+            _fadePipeline?.Dispose();
             _triangle?.Dispose();
             _shaderCompiler?.Dispose();
             DestroySynchronization();
@@ -1533,6 +1574,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
             // in the depth buffer, and starting a second pass to say so would cost a store
             // and a load of the whole colour target.
             _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+
+            // And last of all, over the interface as well as the room. See Fade.
+            RecordFade(buffer);
         }
 
         _vk.CmdEndRendering(buffer);
@@ -1816,7 +1860,29 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _vk.CmdBeginRendering(buffer, in overlayRendering);
         _movie?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
         _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+        RecordFade(buffer);
         _vk.CmdEndRendering(buffer);
+    }
+
+    /// <summary>Draws the fade over whatever the frame ended up as.</summary>
+    /// <param name="buffer">Command buffer being recorded.</param>
+    /// <remarks>
+    /// Both places the interface is recorded call this straight afterwards, because a fade
+    /// covers the whole picture and the picture is finished in two different passes
+    /// depending on whether the room was traced.
+    /// </remarks>
+    private void RecordFade(CommandBuffer buffer)
+    {
+        if (_fadePipeline is null || _fade <= 0f)
+        {
+            return;
+        }
+
+        _fadePipeline.Record(
+            buffer,
+            (int)_extent.Width,
+            (int)_extent.Height,
+            new Vector4(FadeColour, _fade));
     }
 
     private void Transition(CommandBuffer buffer, Image image, ImageLayout from, ImageLayout to)
@@ -1870,6 +1936,26 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _context, _format, SceneRenderer.DepthFormat, _shaderCompiler);
 
         _frames = FrameUniformSet.Create(_context, _meshPipeline, FramesInFlight);
+
+        // Built at startup rather than the first time something fades, because the first
+        // time something fades is a scene change — the one moment in the game where a
+        // shader compile would be a stall the player sees. It is one triangle and no
+        // descriptors, so building it always costs nothing.
+        try
+        {
+            _fadePipeline = FadePipeline.Create(
+                _context, _format, SceneRenderer.DepthFormat, _shaderCompiler);
+        }
+        catch (VulkanException error)
+        {
+            // A transition that cuts rather than fades is a transition. Losing the room
+            // over it would not be.
+            Console.Error.WriteLine(
+                "WARNING GK3R3421: The fade pipeline could not be built, so scene changes "
+                + "cut rather than fade. (" + error.Message + ")");
+
+            _fadePipeline = null;
+        }
 
         if (_context.SupportsRayTracing)
         {

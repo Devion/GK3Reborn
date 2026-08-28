@@ -84,6 +84,34 @@ An object that mixes foliage with a wall still cannot be touched, and the reason
 it always was: what would have to be drawn in the wall's place cannot be worked out from
 here.
 
+## A crown drawn in pieces is still one tree
+
+The clustering was written against a *conifer*: two or three cards crossed at the trunk,
+touching, agreeing on where their centres are to within three units. A 1999 **broadleaf**
+is drawn nothing like that. RC1's hotel maple is three horizontal discs stacked up the
+trunk — 284, 172 and 115 units across — with gaps of six and twelve units between them, and
+fourteen small side sprays hung off the branches out to fifty units from the middle.
+
+Clustered by the conifer's rules that comes out as **three trees**: the two upper discs
+fail the "overlapping in height" test, start clusters of their own, and grow trees hanging
+in the air over the first with boles of their own. It is the same picture the
+polygon-clustering bug produced, arriving by a different route, and it is what the RC1 tree
+looked like. Two rules fix it, and the second is the interesting one:
+
+1. **Within reach above and below, not touching.** A crown is about as tall as it is wide,
+   so the vertical gap is allowed the same reach as the horizontal one. Six units of gap on
+   a card 284 across is one tree; the terrace above is a couple of hundred units up *and*
+   off to one side.
+2. **A bole is what licenses the rest.** The side sprays are too far from the widest disc's
+   centre for any reach that does not also gather a stand of spruces into one spruce six
+   trees wide. What settles them is the trunk: it says where one tree stands and how far up
+   it goes, so a crown standing inside it belongs to it. Crowns with no bole under them —
+   the conifer stands — are left exactly as the clustering found them.
+
+Measured across the corpus: **922 crowns become 819**. All 103 folded in are pieces of a
+tree that has a bole; the 618 conifer crowns, which have none, are untouched. `WOD` reports
+24 trees where it used to report 36, and the twelve that went were never there.
+
 ## One card, however it was cut
 
 This is the one mistake in the feature that reached a screenshot, and it is worth writing
@@ -176,11 +204,11 @@ inside it, which is the part that stops being visible first.
 
 | | near | far |
 | --- | ---: | ---: |
-| spruce | 10,100 | 920 |
-| cypress | 11,200 | 1,120 |
-| broadleaf | 19,400 | 2,790 |
-| maple | 16,200 | 2,520 |
-| darkbroadleaf | 18,900 | 3,050 |
+| spruce | 10,150 | 920 |
+| cypress | 11,190 | 1,110 |
+| broadleaf | 19,280 | 3,890 |
+| maple | 18,230 | 2,960 |
+| darkbroadleaf | 21,320 | 3,890 |
 
 The near figures roughly doubled when the leaves became bowed patches rather than quads,
 and the far figures did not move: a far tree is grown flat, because four times the
@@ -197,12 +225,12 @@ Measured on the reference installation, with everything else enhanced:
 
 | room | trees grown | of those, from the room | triangles, flat → grown |
 | --- | ---: | ---: | --- |
-| CSD | 38 | 6 | 1,840,950 → 2,230,742 |
-| WOD | 36 | 18 | 1,872,674 → 2,245,001 |
-| LHM | 34 | 2 | 1,812,015 → 2,204,285 |
-| RC4 | 30 | 2 | 1,834,499 → 2,158,769 |
-| PL1 | 27 | 1 | 1,778,078 → 2,096,052 |
-| BAL | 24 | 16 | 101,689 → 402,153 |
+| CSD | 38 | 6 | 1,840,950 → 2,235,142 |
+| LHM | 34 | 2 | 1,812,015 → 2,205,673 |
+| RC4 | 28 | 0 | 1,834,499 → 2,137,317 |
+| PL1 | 27 | 1 | 1,778,078 → 2,097,440 |
+| WOD | 24 | 6 | 1,872,674 → 2,175,017 |
+| BAL | 22 | 16 | 101,689 → 393,933 |
 
 Those totals are the whole scene, floor displacement included, which is why they are
 millions: the wood itself is the difference, between three and four hundred thousand
@@ -233,7 +261,7 @@ dotnet run --project tools/GK3Reborn.Tools -- pack-content --workspace ../Conten
 `--only` exists because filtering by *kind* cannot reach the trees on their own: any filter
 that catches them also drags in every enhanced texture in the game, and re-encoding six
 thousand of those to check that a tree packed is an hour. Packed on their own the trees are
-**42 entries and 24.1 MB** — 35 GLBs, 5 cards, 2 manifests. It was half that before the leaves were bowed and the cards grew their occlusion tiles.
+**42 entries and 25.7 MB** — 35 GLBs, 5 cards, 2 manifests. It was 11.7 MB before the leaves were bowed and the cards grew their occlusion tiles.
 
 The cards go through the ordinary texture encoder on purpose. Packed as `Texture` under
 their own names, the scene loader finds `RBN_SPRUCE_SPRAY` through the compressed-texture
@@ -319,6 +347,13 @@ independently, so two leaves cannot share a plane however they land.
 **Leaves face out of the crown rather than along the twig.** Facing along the twig points
 half of them back into the tree. Facing outward gives the mass a shell that catches the
 light and an inside that does not, which is most of what makes a crown read as a volume.
+
+**A limb is clothed, not left bare.** Bark is pale where a leaf card is dark, so a limb
+running out through a crown reads as a stick pushed into a bush — which is what a broadleaf
+looked like from ten feet away. Clumps are hung along the whole length of every limb rather
+than at its ends, enough of them to cover it, because clothing a limb is cheaper than
+shading one: there is nowhere to put a per-vertex occlusion on the bark either, and a real
+limb inside a crown is not visible at all.
 
 **Occlusion is baked into the picture, because there is nowhere else to put it.** A crown
 is dark at its heart and bright at its shell. The engine's vertex is position, normal and

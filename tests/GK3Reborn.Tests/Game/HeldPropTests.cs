@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Text;
 using GK3Reborn.Content;
 using GK3Reborn.Formats;
@@ -37,6 +37,8 @@ public sealed class HeldPropTests
     private sealed class Sink : ISceneSink
     {
         private readonly HeadlessSceneSink _inner = new();
+
+        public Action? Progress { get; set; }
 
         /// <summary>Where each mesh of each model was last posed to, in the model's space.</summary>
         public Dictionary<(int Placement, int Mesh), Matrix4x4> Poses { get; } = [];

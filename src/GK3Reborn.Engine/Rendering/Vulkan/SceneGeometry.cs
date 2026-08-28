@@ -230,6 +230,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     public int TraceableTriangleCount => _traceable.Sum(m => m.Indices.Length / 3);
 
+    /// <inheritdoc/>
+    public Action? Progress { get; set; }
+
     /// <summary>Lower corner of everything loaded, in world space.</summary>
     public Vector3 Minimum => _batches.Count > 0 ? _minimum : Vector3.Zero;
 
@@ -1084,8 +1087,21 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         HashSet<int> roundedOff = [];
         HashSet<int> consideredRound = [];
 
+        // How often the caller is offered a frame. Once every few hundred polygons: this
+        // loop is where an outdoor room spends most of a cold load — RC1's floor comes out
+        // of it as 1.7 million triangles — and offering on every one of forty thousand
+        // polygons would cost more in the offer than in the work. See ISceneSink.Progress.
+        const int PolygonsBetweenOffers = 256;
+        int since = 0;
+
         foreach (BspPolygon polygon in scene.Polygons)
         {
+            if (++since >= PolygonsBetweenOffers)
+            {
+                since = 0;
+                Progress?.Invoke();
+            }
+
             if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= scene.Surfaces.Count)
             {
                 continue;

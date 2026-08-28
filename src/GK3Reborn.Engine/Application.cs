@@ -822,8 +822,19 @@ public static class Application
         // itself knows how to do.
         var finishes = SurfaceFinishes.Empty;
 
+        // What covers the gap between one room and the next. Held outside the loop because
+        // it spans two passes of it: the picture is caught and starts darkening at the end
+        // of one room, and it comes back once the next is standing.
+        var fade = new Rendering.ScreenFade(window, renderer);
+
         while (true)
         {
+            // The first frame of the transition, before anything is read. What follows —
+            // the material library, the enhanced sets, the packs — is opened before the
+            // loader exists to offer frames of its own, and on a cold start it is long
+            // enough to eat most of the fade.
+            fade.Tick();
+
             using SceneGeometry geometry = renderer.CreateGeometry();
 
             // What each texture's surface is like. Read once and shared by every room:
@@ -877,6 +888,12 @@ public static class Application
             // enhanced textures, and neither belongs to the next one.
             var loader = new SceneLoader(archives, Console.WriteLine)
             {
+                // What keeps the window drawing while the room is read, and what the
+                // transition's fade is driven by. Only when there is a fade to drive: the
+                // first room of a run is loaded behind the menu or behind nothing at all,
+                // and there is no picture of anywhere to darken. See ScreenFade.
+                Progress = fade.Leaving ? fade.Tick : null,
+
                 // The player's preference, with a command-line override so a screenshot can
                 // be taken of the same room both ways without editing a settings file.
                 SmoothHeads = HeadLevels(args, settings),
@@ -1022,6 +1039,8 @@ public static class Application
                 Console.WriteLine($"Compressed textures: {sets}");
             }
 
+            fade.Tick();
+
             var loading = Stopwatch.StartNew();
 
             if (loader.Load(geometry, request, diagnostics) is not { } scene)
@@ -1032,12 +1051,14 @@ public static class Application
                 }
 
                 audio?.Dispose();
+                fade.Cancel();
                 return 3;
             }
 
             // Before the report, so that it describes something that exists. Finish is
             // idempotent and the renderer calls it again when the scene is set.
             geometry.Finish();
+            fade.Tick();
 
             // With the geometry's extent, so the rig can tell a lamp that decays from the
             // scene's key light — placed tens of thousands of units away with the two
@@ -1392,7 +1413,21 @@ public static class Application
             // of its own: what is done is read from the score events the story records.
             var journal = new Game.Story.Journal(api.State);
 
+            // The room is standing and about to be drawn, so this is where the two halves
+            // of the transition meet: the picture finishes going out, and the way back is
+            // armed for the room's own loop to run — over a live room rather than over a
+            // still of one, so everything in it is moving while the fade lifts.
+            //
+            // Only when there was something to go out from. The first room of a run is
+            // loaded behind the menu or behind nothing at all, and arming a fade there
+            // would make the first frame of a headless render black.
+            if (fade.Leaving)
+            {
+                fade.ArriveOver(fade.Black());
+            }
+
             RoomExit exit = FlyScene(
+                fade,
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
                 new SceneInteraction(scene, api)
                 {
@@ -1411,6 +1446,12 @@ public static class Application
                 break;
             }
 
+            // Before the room is taken down, because what the fade darkens is a photograph
+            // of it and the photograph comes off the swapchain. From here on the picture on
+            // screen owes nothing to the geometry, which is what lets the next room be read
+            // while this one is still going dark. See ScreenFade.
+            fade.Begin();
+
             // The geometry is about to go. Frames are still in flight reading its buffers,
             // and freeing those underneath the device is a crash somewhere else entirely.
             renderer.SetScene(null, null);
@@ -1428,6 +1469,13 @@ public static class Application
             if (Complete(api) is { Length: > 0 } instead)
             {
                 next = instead;
+
+                // The screen belongs to the film and the card from here, and both of them
+                // are the picture rather than something drawn over it — a fade left
+                // standing at black would draw black over the card. So the room finishes
+                // going out now, and the card takes over from the black it leaves.
+                fade.Black();
+                fade.Clear();
 
                 // The film the timeblock goes out on, where it has one. Four of the
                 // sixteen do — the ones that end on something the player is meant to have
@@ -1461,6 +1509,10 @@ public static class Application
                             : null,
                         diagnostics,
                         $"TBT{api.State.Timeblock}.BMP"));
+
+                // And the card goes out into the next room the same way a room does, which
+                // also gives the load that follows something to draw frames of.
+                fade.Begin();
             }
 
             request = SceneRequest.Continuing(api, next);
@@ -2127,6 +2179,10 @@ public static class Application
     /// What the game calls places and times, for the corner of the screen.
     /// </param>
     /// <param name="journal">The quest log, which the journal screen draws and the hint button asks.</param>
+    /// <param name="fade">
+    /// The transition into this room, which the loop lifts one frame at a time so that the
+    /// room is live underneath it rather than a still.
+    /// </param>
     /// <returns>Why the room was left, and where for.</returns>
     /// <remarks>
     /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
@@ -2134,6 +2190,7 @@ public static class Application
     /// while the player watches rather than having always been turned.
     /// </remarks>
     private static RoomExit FlyScene(
+        Rendering.ScreenFade fade,
         Platform.SilkGameWindow window,
         VulkanRenderer renderer,
         SceneGeometry geometry,
@@ -2160,6 +2217,7 @@ public static class Application
         GameStrings strings,
         Game.Story.Journal journal)
     {
+        ArgumentNullException.ThrowIfNull(fade);
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(cut);
@@ -3038,6 +3096,11 @@ public static class Application
                 window.EndFrame();
                 renderer.SetScene(geometry, view);
 
+                // Here as well as below: a player who opens the inventory on the frame they
+                // arrive takes this branch instead, and a fade nobody advances is a screen
+                // that stays black.
+                fade.Advance();
+
                 // Counted like any other frame, so a run with a frame limit still ends and
                 // its screenshot is of the screen rather than of the room behind it.
                 if (renderer.DrawFrame(0f, 0f, 0f))
@@ -3288,6 +3351,10 @@ public static class Application
             window.EndFrame();
 
             renderer.SetScene(geometry, view);
+
+            // The other half of the transition, one frame at a time. A no-op once the
+            // fade is up, and on every frame of a room nobody faded into.
+            fade.Advance();
 
             if (renderer.DrawFrame(0f, 0f, 0f))
             {
@@ -3625,6 +3692,12 @@ public static class Application
     {
         FrontEndPage showing = front.Page;
         int laidOutFor = window.FramebufferHeight;
+
+        // The menu owns the screen while it is up, so nothing left over from a transition
+        // gets to darken it: pausing on the frame a room was still fading in used to open
+        // a menu somewhere between grey and black. The room's loop puts the fade back where
+        // it belongs when it comes round again.
+        renderer.Fade = 0f;
 
         pages.Behind = behind;
 

@@ -64,8 +64,9 @@ public sealed unsafe class TerrainPipeline : IDisposable
         {
             mat4 viewProjection;  // terrain space to clip, camera offset included
             vec4 sun;             // xyz: toward the sun, in terrain space; w: 1 by day
-            vec4 params;          // x: tile metres, y: tint amount, z: fog density, w: extent
+            vec4 params;          // x: tile metres, y: tint amount, z: haze per metre, w: extent
             vec4 eye;             // xyz: camera in terrain space; w: mean cloud cover
+            vec4 haze;            // w: how many metres the haze thins over
         } push;
 
         layout(location = 0) out vec3 vWorld;
@@ -104,6 +105,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             vec4 sun;
             vec4 params;
             vec4 eye;
+            vec4 haze;
         } push;
 
         layout(location = 0) in vec3 vWorld;
@@ -136,6 +138,67 @@ public sealed unsafe class TerrainPipeline : IDisposable
             return (texture(t, at.zy).rgb * blend.x)
                  + (tile2(t, at.xz) * blend.y)
                  + (texture(t, at.xy).rgb * blend.z);
+        }
+
+        // ---- Aerial perspective ------------------------------------------------------
+        //
+        // What makes a valley read as a valley. Air is not clear: over a kilometre it
+        // takes most of the contrast out of a hillside and leaves it the colour of the
+        // sky, and the eye reads how much of that has happened as distance. Without it
+        // a ridge two kilometres away is drawn as crisply as the wall in front of the
+        // camera, and the whole backdrop reads as a painted flat rather than as country.
+        //
+        // Two things it has to get right, and the first is the one a constant fog gets
+        // wrong. **Density falls off with height.** The haze pools in the bottom of a
+        // valley and thins over the ridges, so a distant crest stands clear of the murk
+        // its own foot is buried in — which is exactly the shape the eye reads as depth
+        // in real hill country. A fog that ignores height paints the crest and the floor
+        // the same grey and flattens the two together.
+        //
+        // The integral is exact rather than sampled. Density along the ray is
+        // rho * exp(-y / H), so what is wanted is its integral between the eye and the
+        // fragment; over a straight segment that has a closed form in the two endpoint
+        // heights, and it costs two exponentials instead of a loop.
+
+        float airMass(vec3 at, vec3 eye, float density, float scaleHeight)
+        {
+            float run = length(at - eye);
+
+            if (run < 1e-3 || density <= 0.0)
+            {
+                return 0.0;
+            }
+
+            // Clamped, because the heights are relative to a camera that may stand near
+            // the top of the reconstruction: an unbounded exponential below it would put
+            // a hundred times the density in the bottom of a gorge.
+            float low = clamp(eye.y / scaleHeight, -2.0, 12.0);
+            float high = clamp(at.y / scaleHeight, -2.0, 12.0);
+            float rise = high - low;
+
+            // The limit of the integral as the two ends level out, which is the common
+            // case for anything near the horizon and the branch that would divide by
+            // nothing.
+            float column = abs(rise) < 1e-4
+                ? exp(-low)
+                : (exp(-low) - exp(-high)) / rise;
+
+            return density * run * max(column, 0.0);
+        }
+
+        // What the air is the colour of. Away from the sun that is the sky at the
+        // horizon, which is what the terrain has to dissolve into or it ends at a line.
+        // Toward it the haze is forward-scattering and goes bright and warm, which is
+        // the other half of what makes distance read — and it is why a hill looks
+        // further away when the sun is behind it.
+        vec3 airColour(vec3 towards, vec3 sun, float day)
+        {
+            vec3 cool = mix(vec3(0.045, 0.055, 0.085), vec3(0.74, 0.81, 0.88), day);
+            vec3 warm = mix(vec3(0.055, 0.060, 0.090), vec3(0.98, 0.94, 0.86), day);
+
+            float facing = max(dot(towards, sun), 0.0);
+
+            return mix(cool, warm, pow(facing, 3.0) * 0.65 * day);
         }
 
         void main()
@@ -210,10 +273,11 @@ public sealed unsafe class TerrainPipeline : IDisposable
             // hillside, which is what visually plants the trees standing on it.
             lit *= 1.0 - (0.32 * w.r);
 
-            // Distance haze against the sky's own horizon colour, from where the camera
-            // stands in the backdrop rather than from its centre.
-            vec3 haze = mix(vec3(0.05, 0.06, 0.09), vec3(0.75, 0.82, 0.88), push.sun.w);
-            float fog = 1.0 - exp(-push.params.z * push.params.z * away * away);
+            // And then the air in the way, measured from where the camera stands in the
+            // backdrop rather than from its centre. See airMass.
+            vec3 towards = normalize(vWorld - push.eye.xyz);
+            vec3 haze = airColour(towards, push.sun.xyz, push.sun.w);
+            float fog = 1.0 - exp(-airMass(vWorld, push.eye.xyz, push.params.z, push.haze.w));
             outColor = vec4(mix(lit, haze, fog), 1.0);
         }
         """;
@@ -233,6 +297,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             vec4 sun;
             vec4 params;
             vec4 eye;
+            vec4 haze;
         } push;
 
         layout(location = 0) out vec3 vWorld;
@@ -259,8 +324,25 @@ public sealed unsafe class TerrainPipeline : IDisposable
             // distance band; the forest colour in the ground tiles carries the far
             // hillsides from there.
             float fadeFrom = max(700.0, push.params.w * 0.30);
-            float keep = 1.0 - smoothstep(
-                fadeFrom, fadeFrom * 1.9, length(inPlace.xyz - push.eye.xyz));
+            float away = length(inPlace.xyz - push.eye.xyz);
+            float keep = 1.0 - smoothstep(fadeFrom, fadeFrom * 1.9, away);
+
+            // And the near end, where the modelled trees take over. haze.x is how far out
+            // the renderer's own selection actually reached this frame — not a constant,
+            // because it is bounded by a triangle budget and so retreats in a dense wood
+            // and runs further in a thin one. haze.y says which species have a model at
+            // all: scrub has none, and cutting it here would leave bare ground.
+            //
+            // Both ends of the swap are a band rather than a line. A cone that vanished
+            // in one frame and a tree that appeared in the next would be the pop this
+            // whole arrangement exists to avoid; over a fifth of the distance they cross
+            // through each other and the eye reads one tree.
+            float has = mod(floor(push.haze.y / exp2(clamp(inKind, 0.0, 3.0))), 2.0);
+
+            if (push.haze.x > 0.0 && has > 0.5)
+            {
+                keep *= smoothstep(push.haze.x * 0.80, push.haze.x, away);
+            }
 
             vec3 world = inPlace.xyz + (turn * (shaped * (inPlace.w * keep)));
             vWorld = world;
@@ -289,6 +371,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             vec4 sun;
             vec4 params;
             vec4 eye;
+            vec4 haze;
         } push;
 
         layout(location = 0) in vec3 vWorld;
@@ -298,6 +381,67 @@ public sealed unsafe class TerrainPipeline : IDisposable
         layout(location = 4) in float vKind;
 
         layout(location = 0) out vec4 outColor;
+
+        // ---- Aerial perspective ------------------------------------------------------
+        //
+        // What makes a valley read as a valley. Air is not clear: over a kilometre it
+        // takes most of the contrast out of a hillside and leaves it the colour of the
+        // sky, and the eye reads how much of that has happened as distance. Without it
+        // a ridge two kilometres away is drawn as crisply as the wall in front of the
+        // camera, and the whole backdrop reads as a painted flat rather than as country.
+        //
+        // Two things it has to get right, and the first is the one a constant fog gets
+        // wrong. **Density falls off with height.** The haze pools in the bottom of a
+        // valley and thins over the ridges, so a distant crest stands clear of the murk
+        // its own foot is buried in — which is exactly the shape the eye reads as depth
+        // in real hill country. A fog that ignores height paints the crest and the floor
+        // the same grey and flattens the two together.
+        //
+        // The integral is exact rather than sampled. Density along the ray is
+        // rho * exp(-y / H), so what is wanted is its integral between the eye and the
+        // fragment; over a straight segment that has a closed form in the two endpoint
+        // heights, and it costs two exponentials instead of a loop.
+
+        float airMass(vec3 at, vec3 eye, float density, float scaleHeight)
+        {
+            float run = length(at - eye);
+
+            if (run < 1e-3 || density <= 0.0)
+            {
+                return 0.0;
+            }
+
+            // Clamped, because the heights are relative to a camera that may stand near
+            // the top of the reconstruction: an unbounded exponential below it would put
+            // a hundred times the density in the bottom of a gorge.
+            float low = clamp(eye.y / scaleHeight, -2.0, 12.0);
+            float high = clamp(at.y / scaleHeight, -2.0, 12.0);
+            float rise = high - low;
+
+            // The limit of the integral as the two ends level out, which is the common
+            // case for anything near the horizon and the branch that would divide by
+            // nothing.
+            float column = abs(rise) < 1e-4
+                ? exp(-low)
+                : (exp(-low) - exp(-high)) / rise;
+
+            return density * run * max(column, 0.0);
+        }
+
+        // What the air is the colour of. Away from the sun that is the sky at the
+        // horizon, which is what the terrain has to dissolve into or it ends at a line.
+        // Toward it the haze is forward-scattering and goes bright and warm, which is
+        // the other half of what makes distance read — and it is why a hill looks
+        // further away when the sun is behind it.
+        vec3 airColour(vec3 towards, vec3 sun, float day)
+        {
+            vec3 cool = mix(vec3(0.045, 0.055, 0.085), vec3(0.74, 0.81, 0.88), day);
+            vec3 warm = mix(vec3(0.055, 0.060, 0.090), vec3(0.98, 0.94, 0.86), day);
+
+            float facing = max(dot(towards, sun), 0.0);
+
+            return mix(cool, warm, pow(facing, 3.0) * 0.65 * day);
+        }
 
         void main()
         {
@@ -346,9 +490,219 @@ public sealed unsafe class TerrainPipeline : IDisposable
             vec3 lit = albedo * ((ambient * occlusion)
                                + (vec3(1.38, 1.26, 1.06) * toSun * mix(0.55, 1.0, vCrown)));
 
-            vec3 haze = mix(vec3(0.05, 0.06, 0.09), vec3(0.75, 0.82, 0.88), push.sun.w);
-            float away = length(vWorld - push.eye.xyz);
-            float fog = 1.0 - exp(-push.params.z * push.params.z * away * away);
+            // The same air the ground is behind, or a wood would stand out of the haze
+            // its own hillside is buried in. See airMass.
+            vec3 towards = normalize(vWorld - push.eye.xyz);
+            vec3 haze = airColour(towards, push.sun.xyz, push.sun.w);
+            float fog = 1.0 - exp(-airMass(vWorld, push.eye.xyz, push.params.z, push.haze.w));
+            outColor = vec4(mix(lit, haze, fog), 1.0);
+        }
+        """;
+
+    /// <remarks>
+    /// <para>
+    /// The near band of the same forest, drawn as the models the rooms plant rather than
+    /// as cones. The instance stream is the impostors' own, six floats a tree, so a tree
+    /// that crosses the band changes only what it is built out of — the placement, the
+    /// scale, the yaw and the height jitter are read the same way on both sides, and a
+    /// silhouette that moved as it swapped would be the one thing worse than the cone.
+    /// </para>
+    /// <para>
+    /// Scaled uniformly by its own height. A grown tree is normalised to one unit tall
+    /// with its base at the origin, and the impostor's height for that species is what a
+    /// scale of one means, so the two agree about how tall a given tree is by
+    /// construction.
+    /// </para>
+    /// </remarks>
+    private const string TreeModelVertexSource = """
+        #version 450
+
+        layout(location = 0) in vec3 inPosition;
+        layout(location = 1) in vec3 inNormal;
+        layout(location = 2) in vec2 inTexCoord;
+        layout(location = 3) in vec4 inPlace;   // xyz: base of the tree; w: scale
+        layout(location = 4) in float inTurn;   // yaw, radians
+        layout(location = 5) in float inKind;   // which species this is
+
+        layout(push_constant) uniform Push
+        {
+            mat4 viewProjection;
+            vec4 sun;
+            vec4 params;
+            vec4 eye;
+            vec4 haze;
+        } push;
+
+        layout(location = 0) out vec3 vWorld;
+        layout(location = 1) out vec3 vNormal;
+        layout(location = 2) out vec2 vTexCoord;
+        layout(location = 3) out float vSeed;
+        layout(location = 4) out float vCrown;
+
+        void main()
+        {
+            float c = cos(inTurn);
+            float s = sin(inTurn);
+            mat3 turn = mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
+
+            // The impostors' seed and the impostors' stretch, so a tree is the same
+            // height whichever of the two is drawing it.
+            vSeed = fract(inTurn * 7.13 + inPlace.x * 0.017);
+
+            float tall = inKind > 2.5 ? 3.6 : (inKind > 1.5 ? 17.0 : (inKind > 0.5 ? 11.0 : 14.0));
+            float size = tall * inPlace.w * mix(0.75, 1.35, fract(vSeed * 9.7));
+
+            vec3 world = inPlace.xyz + (turn * (inPosition * size));
+
+            vWorld = world;
+            vNormal = turn * inNormal;
+            vTexCoord = inTexCoord;
+
+            // The model is one unit tall, so its own y is how far up the tree this is.
+            vCrown = clamp(inPosition.y, 0.0, 1.0);
+
+            vec4 clip = push.viewProjection * vec4(world, 1.0);
+            float zNdc = clamp(clip.z / max(clip.w, 1e-4), 0.0, 1.0);
+            clip.z = (0.9990 + 0.000999 * zNdc) * clip.w;
+            gl_Position = clip;
+        }
+        """;
+
+    private const string TreeModelFragmentSource = """
+        #version 450
+
+        layout(binding = 4) uniform sampler2D splat;
+        layout(binding = 5) uniform sampler2D tint;
+
+        // The one thing this tree is painted with, bound per part: a trunk bitmap for the
+        // bole and a cut-out spray of leaves for everything else.
+        layout(set = 1, binding = 0) uniform sampler2D sheet;
+
+        layout(push_constant) uniform Push
+        {
+            mat4 viewProjection;
+            vec4 sun;
+            vec4 params;
+            vec4 eye;
+            vec4 haze;
+        } push;
+
+        layout(location = 0) in vec3 vWorld;
+        layout(location = 1) in vec3 vNormal;
+        layout(location = 2) in vec2 vTexCoord;
+        layout(location = 3) in float vSeed;
+        layout(location = 4) in float vCrown;
+
+        layout(location = 0) out vec4 outColor;
+
+        // ---- Aerial perspective ------------------------------------------------------
+        //
+        // What makes a valley read as a valley. Air is not clear: over a kilometre it
+        // takes most of the contrast out of a hillside and leaves it the colour of the
+        // sky, and the eye reads how much of that has happened as distance. Without it
+        // a ridge two kilometres away is drawn as crisply as the wall in front of the
+        // camera, and the whole backdrop reads as a painted flat rather than as country.
+        //
+        // Two things it has to get right, and the first is the one a constant fog gets
+        // wrong. **Density falls off with height.** The haze pools in the bottom of a
+        // valley and thins over the ridges, so a distant crest stands clear of the murk
+        // its own foot is buried in — which is exactly the shape the eye reads as depth
+        // in real hill country. A fog that ignores height paints the crest and the floor
+        // the same grey and flattens the two together.
+        //
+        // The integral is exact rather than sampled. Density along the ray is
+        // rho * exp(-y / H), so what is wanted is its integral between the eye and the
+        // fragment; over a straight segment that has a closed form in the two endpoint
+        // heights, and it costs two exponentials instead of a loop.
+
+        float airMass(vec3 at, vec3 eye, float density, float scaleHeight)
+        {
+            float run = length(at - eye);
+
+            if (run < 1e-3 || density <= 0.0)
+            {
+                return 0.0;
+            }
+
+            // Clamped, because the heights are relative to a camera that may stand near
+            // the top of the reconstruction: an unbounded exponential below it would put
+            // a hundred times the density in the bottom of a gorge.
+            float low = clamp(eye.y / scaleHeight, -2.0, 12.0);
+            float high = clamp(at.y / scaleHeight, -2.0, 12.0);
+            float rise = high - low;
+
+            // The limit of the integral as the two ends level out, which is the common
+            // case for anything near the horizon and the branch that would divide by
+            // nothing.
+            float column = abs(rise) < 1e-4
+                ? exp(-low)
+                : (exp(-low) - exp(-high)) / rise;
+
+            return density * run * max(column, 0.0);
+        }
+
+        // What the air is the colour of. Away from the sun that is the sky at the
+        // horizon, which is what the terrain has to dissolve into or it ends at a line.
+        // Toward it the haze is forward-scattering and goes bright and warm, which is
+        // the other half of what makes distance read — and it is why a hill looks
+        // further away when the sun is behind it.
+        vec3 airColour(vec3 towards, vec3 sun, float day)
+        {
+            vec3 cool = mix(vec3(0.045, 0.055, 0.085), vec3(0.74, 0.81, 0.88), day);
+            vec3 warm = mix(vec3(0.055, 0.060, 0.090), vec3(0.98, 0.94, 0.86), day);
+
+            float facing = max(dot(towards, sun), 0.0);
+
+            return mix(cool, warm, pow(facing, 3.0) * 0.65 * day);
+        }
+
+        void main()
+        {
+            vec4 texel = texture(sheet, vTexCoord);
+
+            // One rule for both kinds of part. A leaf card is a shape cut out of a spray
+            // and needs the test; a trunk bitmap has no alpha channel at all, so it is
+            // opaque everywhere and the test never fires on it. That is what lets the
+            // bark and the leaves share one pipeline.
+            if (texel.a < 0.35)
+            {
+                discard;
+            }
+
+            vec3 albedo = texel.rgb;
+
+            // The same two variations the impostors carry, at a quarter of the strength:
+            // a modelled tree already differs from its neighbour in silhouette, and a
+            // wood whose greens are as spread as the cones' were reads as painted.
+            albedo *= mix(0.86, 1.14, fract(vSeed * 31.7));
+
+            vec2 gridUv = (vWorld.xz / (2.0 * push.params.w)) + 0.5;
+            vec3 mood = texture(tint, gridUv).rgb;
+            float luminance = dot(mood, vec3(0.299, 0.587, 0.114));
+            albedo = mix(albedo, albedo * (mood / max(luminance, 1e-3)), 0.25);
+
+            // Crowd shade, as the impostors have it: a tree deep in the wood is shaded by
+            // its neighbours and one on the edge stands in the open. The models carry
+            // their own baked occlusion in the card, so this is the part of it the card
+            // cannot know — how much wood is around this tree.
+            float density = texture(splat, gridUv).r;
+            float occlusion = mix(0.55, 1.0, vCrown) * (1.0 - (0.34 * density * (1.0 - vCrown)));
+
+            float overcast = clamp(push.eye.w, 0.0, 1.0);
+
+            // Two-sided: a leaf card is one triangle and the sun is behind half of them.
+            vec3 facing = normalize(vNormal);
+            float toSun = abs(dot(facing, push.sun.xyz)) * push.sun.w * mix(1.0, 0.56, overcast);
+
+            vec3 ambient = mix(vec3(0.045, 0.055, 0.085), vec3(0.26, 0.30, 0.38), push.sun.w);
+            ambient *= mix(1.0, 1.16, overcast);
+
+            vec3 lit = albedo * ((ambient * occlusion)
+                               + (vec3(1.38, 1.26, 1.06) * toSun * mix(0.6, 1.0, vCrown)));
+
+            vec3 towards = normalize(vWorld - push.eye.xyz);
+            vec3 haze = airColour(towards, push.sun.xyz, push.sun.w);
+            float fog = 1.0 - exp(-airMass(vWorld, push.eye.xyz, push.params.z, push.haze.w));
             outColor = vec4(mix(lit, haze, fog), 1.0);
         }
         """;
@@ -498,9 +852,23 @@ public sealed unsafe class TerrainPipeline : IDisposable
     private VulkanBuffer? _treeVertices;
     private VulkanBuffer? _treeIndices;
     private VulkanBuffer? _treeInstances;
+    private ShaderModule _modelVertexModule;
+    private ShaderModule _modelFragmentModule;
+    private DescriptorSetLayout _sheetLayout;
+    private DescriptorPool _sheetPool;
+    private PipelineLayout _modelLayout;
+    private Pipeline _modelPipeline;
+    private VulkanBuffer? _modelVertices;
+    private VulkanBuffer? _modelIndices;
+    private VulkanBuffer? _modelInstances;
+    private uint _modelCount;
+    private readonly List<VulkanTexture> _sheets = [];
+    private readonly List<DescriptorSet> _sheetSets = [];
     private uint _treeCount;
     private readonly VulkanTexture?[] _textures = new VulkanTexture?[6];
     private float _extent;
+    private float[] _heights = [];
+    private int _grid;
     private Vector3? _sunDirection;
     private float _azimuth;
     private Vector3 _anchorUnits;
@@ -514,6 +882,15 @@ public sealed unsafe class TerrainPipeline : IDisposable
     /// <summary>How many metres of ground one tile of texture covers.</summary>
     public float TileMeters { get; set; } = 60f;
 
+    /// <summary>How far the camera is kept above the backdrop's own ground, in metres.</summary>
+    /// <remarks>
+    /// About a person's eye height. What it guards is not the view from a hill — where
+    /// the camera stands tens of metres over the terrain and should — but the case where
+    /// <see cref="LiftMeters"/> is larger than the ground under the viewpoint, which
+    /// buries the camera and turns the whole horizon into a rising wall.
+    /// </remarks>
+    public float ClearanceMeters { get; set; } = 2f;
+
     /// <summary>How far the whole backdrop is raised against the camera, in metres.</summary>
     /// <remarks>
     /// The offline heights put the panorama's own camera at zero, but the room's
@@ -525,6 +902,36 @@ public sealed unsafe class TerrainPipeline : IDisposable
 
     /// <summary>How strongly the vista's colour is laid over the tiles, zero to one.</summary>
     public float TintAmount { get; set; } = 0.6f;
+
+    /// <summary>
+    /// How much of the light a metre of air at the valley floor takes out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set so that a hillside half a kilometre off has lost about a third of its
+    /// contrast and one two kilometres off is very nearly the colour of the sky. That is
+    /// a clear day in hill country rather than a foggy one, and it is the number the
+    /// backdrop was missing: at the 1.6e-4 it carried before, a ridge at the far rim of
+    /// a 1.5 km reconstruction was still 94% itself, which is to say the fog was not
+    /// there.
+    /// </para>
+    /// <para>
+    /// Per metre, and deliberately not scaled to the size of the set. What decides how
+    /// hazy a mountain looks is how far away it is, and a reconstruction that reaches
+    /// six kilometres should have a hazier rim than one that reaches one.
+    /// </para>
+    /// </remarks>
+    public float HazeDensity { get; set; } = 6.5e-4f;
+
+    /// <summary>How many metres the haze thins over, above the camera.</summary>
+    /// <remarks>
+    /// The scale height of the air, and what makes this aerial perspective rather than
+    /// distance fog. At a hundred and thirty metres a ridge rising two hundred above the
+    /// camera sits in a fifth of the density its own foot does, so it stands clear of
+    /// the murk in the valley below it — which is the shape the eye reads as depth in
+    /// real country, and the reason a flat fog makes hills look like a painted flat.
+    /// </remarks>
+    public float HazeHeight { get; set; } = 130f;
 
     /// <summary>Fraction of the procedural sky occupied by cloud, zero to one.</summary>
     public float CloudCoverage { get; set; } = 0.78f;
@@ -573,6 +980,14 @@ public sealed unsafe class TerrainPipeline : IDisposable
             pipeline._skyFragmentModule = pipeline.CreateModule(compiler.Compile(
                 SkyFragmentSource, ShaderStage.Fragment, "horizon-sky.frag", "main", ShaderLanguage.Glsl));
 
+            pipeline._modelVertexModule = pipeline.CreateModule(compiler.Compile(
+                TreeModelVertexSource, ShaderStage.Vertex, "horizon-tree-model.vert", "main",
+                ShaderLanguage.Glsl));
+
+            pipeline._modelFragmentModule = pipeline.CreateModule(compiler.Compile(
+                TreeModelFragmentSource, ShaderStage.Fragment, "horizon-tree-model.frag",
+                "main", ShaderLanguage.Glsl));
+
             pipeline.BuildMesh(backdrop);
             pipeline.BuildTrees(backdrop);
 
@@ -598,6 +1013,10 @@ public sealed unsafe class TerrainPipeline : IDisposable
                 context, backdrop.Tint, mipmaps: true, SamplerAddressMode.ClampToEdge);
 
             pipeline.CreateDescriptors();
+
+            // Before the pipelines, because the models' own descriptor layout is one of
+            // the two the pipeline that draws them is built against.
+            pipeline.BuildTreeModels(backdrop);
             pipeline.BuildPipelines(colorFormat, depthFormat);
 
             return pipeline;
@@ -638,6 +1057,15 @@ public sealed unsafe class TerrainPipeline : IDisposable
 
         offset.Y -= LiftMeters;
 
+        // And never below the ground it is standing on. The lift is a constant and the
+        // reconstruction is not: a set whose panorama saw almost nothing is nearly all
+        // fill, and its fill sits close to zero — so twelve metres of lift put the camera
+        // a few metres *under* the surface, and every direction became a wall of hillside
+        // rising out of the bottom of the frame. CSD is the set that did it. Raising
+        // rather than clamping, because a lookout genuinely stands sixty metres over its
+        // own valley and that has to survive.
+        offset.Y = MathF.Max(offset.Y, Ground(offset.X, offset.Z) + ClearanceMeters);
+
         Vector3 forward = Vector3.Normalize(camera.Target - camera.Position);
         Vector3 forwardT = Vector3.TransformNormal(forward, intoTerrain);
         Vector3 upT = Vector3.TransformNormal(camera.Up, intoTerrain);
@@ -654,12 +1082,18 @@ public sealed unsafe class TerrainPipeline : IDisposable
                 Vector3.TransformNormal(Vector3.Normalize(-travelling), intoTerrain), 1f)
             : new Vector4(0f, 1f, 0f, 0f);
 
+        // Before the push, because how far the modelled trees reached is one of the
+        // numbers in it: the impostors are told to start where the models ran out.
+        SelectTreeModels(offset);
+
         var push = new TerrainPush
         {
             ViewProjection = view * projection,
             Sun = sun,
-            Params = new Vector4(TileMeters, TintAmount, 1.6e-4f, _extent),
+            Params = new Vector4(TileMeters, TintAmount, HazeDensity, _extent),
             Eye = new Vector4(offset, Math.Clamp(CloudCoverage, 0f, 1f)),
+            Haze = new Vector4(
+                _modelReach, _modelKinds, 0f, MathF.Max(1f, HazeHeight)),
         };
 
         var viewport = new Viewport { Width = width, Height = height, MaxDepth = 1f };
@@ -707,6 +1141,57 @@ public sealed unsafe class TerrainPipeline : IDisposable
                 _vk.CmdDrawIndexed(
                     command, indexCount, _stands[kind].Count,
                     firstIndex, vertexOffset, _stands[kind].First);
+            }
+        }
+
+        // And the near band as real trees. After the impostors rather than before, so the
+        // cheap pass has already put its depth down and the alpha-tested cards — which are
+        // the expensive fragments here — are rejected wherever a cone is already nearer.
+        if (_modelPipeline.Handle != 0 && _modelInstances is not null && _modelCount > 0)
+        {
+            _vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, _modelPipeline);
+
+            DescriptorSet ground = _set;
+            _vk.CmdBindDescriptorSets(
+                command, PipelineBindPoint.Graphics, _modelLayout, 0, 1, in ground, 0, null);
+            _vk.CmdPushConstants(
+                command, _modelLayout, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+                0, (uint)Marshal.SizeOf<TerrainPush>(), &push);
+
+            Silk.NET.Vulkan.Buffer* modelStreams = stackalloc Silk.NET.Vulkan.Buffer[2]
+            {
+                _modelVertices!.Handle,
+                _modelInstances.Handle,
+            };
+            ulong* modelOffsets = stackalloc ulong[2] { 0, 0 };
+            _vk.CmdBindVertexBuffers(command, 0, 2, modelStreams, modelOffsets);
+            _vk.CmdBindIndexBuffer(command, _modelIndices!.Handle, 0, IndexType.Uint32);
+
+            int bound = -1;
+
+            for (int model = 0; model < _models.Length; model++)
+            {
+                if (_modelStands[model].Count == 0)
+                {
+                    continue;
+                }
+
+                foreach ((int sheet, uint firstIndex, uint indexCount) in _models[model].Parts)
+                {
+                    if (sheet != bound)
+                    {
+                        DescriptorSet painted = _sheetSets[sheet];
+                        _vk.CmdBindDescriptorSets(
+                            command, PipelineBindPoint.Graphics, _modelLayout, 1, 1,
+                            in painted, 0, null);
+
+                        bound = sheet;
+                    }
+
+                    _vk.CmdDrawIndexed(
+                        command, indexCount, _modelStands[model].Count, firstIndex,
+                        _models[model].VertexOffset, _modelStands[model].First);
+                }
             }
         }
 
@@ -787,6 +1272,56 @@ public sealed unsafe class TerrainPipeline : IDisposable
         _treeVertices = null;
         _treeIndices?.Dispose();
         _treeIndices = null;
+        _modelVertices?.Dispose();
+        _modelVertices = null;
+        _modelIndices?.Dispose();
+        _modelIndices = null;
+        _modelInstances?.Dispose();
+        _modelInstances = null;
+
+        foreach (VulkanTexture sheet in _sheets)
+        {
+            sheet.Dispose();
+        }
+
+        _sheets.Clear();
+        _sheetSets.Clear();
+
+        if (_modelPipeline.Handle != 0)
+        {
+            _vk.DestroyPipeline(_context.Device, _modelPipeline, null);
+            _modelPipeline = default;
+        }
+
+        if (_modelLayout.Handle != 0)
+        {
+            _vk.DestroyPipelineLayout(_context.Device, _modelLayout, null);
+            _modelLayout = default;
+        }
+
+        if (_sheetPool.Handle != 0)
+        {
+            _vk.DestroyDescriptorPool(_context.Device, _sheetPool, null);
+            _sheetPool = default;
+        }
+
+        if (_sheetLayout.Handle != 0)
+        {
+            _vk.DestroyDescriptorSetLayout(_context.Device, _sheetLayout, null);
+            _sheetLayout = default;
+        }
+
+        if (_modelVertexModule.Handle != 0)
+        {
+            _vk.DestroyShaderModule(_context.Device, _modelVertexModule, null);
+            _modelVertexModule = default;
+        }
+
+        if (_modelFragmentModule.Handle != 0)
+        {
+            _vk.DestroyShaderModule(_context.Device, _modelFragmentModule, null);
+            _modelFragmentModule = default;
+        }
         _treeInstances?.Dispose();
         _treeInstances = null;
 
@@ -828,11 +1363,22 @@ public sealed unsafe class TerrainPipeline : IDisposable
         /// <summary>Toward the sun in the backdrop's frame; w is zero for a sunless hour.</summary>
         public Vector4 Sun;
 
-        /// <summary>Tile metres, tint amount, fog density, grid extent.</summary>
+        /// <summary>Tile metres, tint amount, haze per metre, grid extent.</summary>
         public Vector4 Params;
 
         /// <summary>The camera in backdrop metres; w is the mean cloud cover.</summary>
         public Vector4 Eye;
+
+        /// <summary>
+        /// The air: w is the height the haze thins over, and xyz are spare.
+        /// </summary>
+        /// <remarks>
+        /// A whole vector for one number, and it takes the push block to the 128 bytes
+        /// every Vulkan implementation is required to offer — which is the ceiling this
+        /// has to live under. The three spare floats are where the next thing about the
+        /// air goes, and there will be one.
+        /// </remarks>
+        public Vector4 Haze;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -876,6 +1422,10 @@ public sealed unsafe class TerrainPipeline : IDisposable
 
         int side = ((grid - 1) / Stride) + 1;
         float step = (2f * extent) / (grid - 1);
+
+        // Kept, so the camera can be told what the ground under it is doing. See Ground.
+        _heights = heights;
+        _grid = grid;
 
         var vertices = new TerrainVertex[side * side];
 
@@ -1120,6 +1670,435 @@ public sealed unsafe class TerrainPipeline : IDisposable
         _treeCount = written;
     }
 
+    /// <summary>How far the modelled trees may reach, in metres from the camera.</summary>
+    /// <remarks>
+    /// Past this the impostors have it, whatever the budget would allow. Three hundred
+    /// metres is where a fourteen-metre tree is about forty pixels tall on a 720-line
+    /// screen — small enough that a cone with the right silhouette is honestly as good,
+    /// and small enough that the alpha-tested cards start to shimmer rather than resolve.
+    /// </remarks>
+    public float ModelReachMeters { get; set; } = 460f;
+
+    /// <summary>
+    /// How many triangles a frame may spend on the near forest.
+    /// </summary>
+    /// <remarks>
+    /// The budget rather than a count of trees, because the two levels of detail differ
+    /// by five times: a full tree is twenty thousand triangles and the cheap one four,
+    /// so "the nearest two hundred" means something very different depending on which is
+    /// drawn. Spending it nearest-first means the trees the player is looking at get the
+    /// full model and the rest get whatever is left.
+    /// </remarks>
+    public int ModelTriangleBudget { get; set; } = 3_000_000;
+
+    /// <summary>How many of the nearest may be the full model rather than the cheap one.</summary>
+    /// <remarks>
+    /// Both a count and a distance, and the distance is what stops the count being silly.
+    /// A full broadleaf is twenty-two thousand triangles against the cheap one's four, and
+    /// spending the first forty of those on trees a quarter of a kilometre out — where the
+    /// two are indistinguishable — is most of the budget gone before the band that can
+    /// actually use it. Seventy metres is about where the difference stops showing.
+    /// </remarks>
+    public int FullDetailTrees { get; set; } = 48;
+
+    /// <summary>How near a tree must be to be worth the full model.</summary>
+    public float FullDetailMeters { get; set; } = 70f;
+
+    /// <summary>Where one model's geometry sits, and what it is painted with.</summary>
+    private readonly record struct TreeModelDraw(
+        int Kind,
+        int Detail,
+        int Triangles,
+        uint FirstIndex,
+        int VertexOffset,
+        (int Sheet, uint FirstIndex, uint IndexCount)[] Parts);
+
+    private TreeModelDraw[] _models = [];
+
+    /// <summary>How many instances of each model there are this frame, and where.</summary>
+    private (uint First, uint Count)[] _modelStands = [];
+
+    /// <summary>The placements, kept on the host so the near ones can be picked out.</summary>
+    private float[] _placements = [];
+
+    /// <summary>Scratch for the selection, so a camera move allocates nothing.</summary>
+    private (float Away, int At)[] _candidates = [];
+
+    private float[] _modelInstanceData = [];
+
+    /// <summary>Where the camera was when the selection was last made.</summary>
+    private Vector3 _selectedAt = new(float.MaxValue);
+
+    /// <summary>How far the models actually reached, and which species have one.</summary>
+    private float _modelReach;
+    private float _modelKinds;
+
+    /// <summary>
+    /// Builds the modelled trees, their textures and the pipeline that draws them.
+    /// </summary>
+    /// <param name="backdrop">The backdrop, which carries the models the loader read.</param>
+    private void BuildTreeModels(TerrainBackdrop backdrop)
+    {
+        if (backdrop.TreeModels.Count == 0 || backdrop.Trees.Length < Stride)
+        {
+            return;
+        }
+
+        // One texture and one descriptor set apiece. There are four of them at most — a
+        // trunk and three sprays — so a set each is simpler than an array of samplers and
+        // asks nothing of the device that a 1.0 driver does not already offer.
+        foreach (Formats.Bitmaps.DecodedImage image in backdrop.TreeTextures)
+        {
+            _sheets.Add(VulkanTexture.Create(_context, image));
+        }
+
+        if (_sheets.Count > 0)
+        {
+            CreateSheetSets();
+        }
+
+        var corners = new List<TerrainTreeVertex>();
+        var indices = new List<uint>();
+        var draws = new List<TreeModelDraw>();
+
+        foreach (TerrainTreeModel model in backdrop.TreeModels)
+        {
+            if (model.Kind is < 0 or >= 4 || model.Vertices.Length == 0)
+            {
+                continue;
+            }
+
+            int vertexOffset = corners.Count;
+            uint firstIndex = (uint)indices.Count;
+
+            corners.AddRange(model.Vertices);
+            indices.AddRange(model.Indices);
+
+            var parts = new List<(int, uint, uint)>();
+
+            foreach (TerrainTreePart part in model.Parts)
+            {
+                if (part.Texture >= 0 && part.Texture < _sheets.Count && part.IndexCount > 0)
+                {
+                    parts.Add((part.Texture, firstIndex + part.FirstIndex, part.IndexCount));
+                }
+            }
+
+            if (parts.Count == 0)
+            {
+                continue;
+            }
+
+            draws.Add(new TreeModelDraw(
+                model.Kind, model.Detail, model.Triangles, firstIndex, vertexOffset, [.. parts]));
+
+            _modelKinds = (int)_modelKinds | (1 << model.Kind);
+        }
+
+        if (draws.Count == 0)
+        {
+            return;
+        }
+
+        _models = [.. draws];
+        _modelStands = new (uint, uint)[_models.Length];
+        _placements = backdrop.Trees;
+
+        _modelVertices = VulkanBuffer.CreateDeviceLocal<TerrainTreeVertex>(
+            _context, [.. corners], BufferUsageFlags.VertexBufferBit);
+        _modelIndices = VulkanBuffer.CreateDeviceLocal<uint>(
+            _context, [.. indices], BufferUsageFlags.IndexBufferBit);
+
+        // Room for every tree the budget could ever reach at the cheapest model, so the
+        // selection never has to grow it and a frame never allocates.
+        int cheapest = _models.Min(m => Math.Max(1, m.Triangles));
+        int capacity = Math.Clamp(ModelTriangleBudget / cheapest, 64, 20_000);
+
+        _modelInstanceData = new float[capacity * Stride];
+        _modelInstances = VulkanBuffer.CreateHostVisible(
+            _context,
+            (ulong)(_modelInstanceData.Length * sizeof(float)),
+            BufferUsageFlags.VertexBufferBit);
+    }
+
+    /// <summary>
+    /// Picks which trees are near enough to be drawn as models, and where.
+    /// </summary>
+    /// <param name="eye">The camera, in backdrop metres.</param>
+    /// <remarks>
+    /// <para>
+    /// Nearest first, spending a triangle budget: the closest handful get the full model,
+    /// the next few hundred get the cheap one, and the budget stops wherever it stops.
+    /// What that leaves is <see cref="_modelReach"/> — how far the models actually got —
+    /// and the impostors are told to start there rather than at a constant, so a dense
+    /// wood and a thin one both hand over exactly where the models ran out.
+    /// </para>
+    /// <para>
+    /// Only when the camera has moved. A room camera is a fixed viewpoint and the trees
+    /// do not move, so the answer is the same frame after frame; recomputing it would
+    /// sort twenty thousand distances sixty times a second to arrive back where it was.
+    /// </para>
+    /// </remarks>
+    private void SelectTreeModels(Vector3 eye)
+    {
+        if (_models.Length == 0 || _modelInstances is null)
+        {
+            return;
+        }
+
+        // Eight metres. Small enough that the band never visibly lags the camera, large
+        // enough that a glide is a handful of rebuilds rather than one a frame.
+        if ((eye - _selectedAt).LengthSquared() < 64f)
+        {
+            return;
+        }
+
+        _selectedAt = eye;
+
+        int trees = _placements.Length / Stride;
+        float reach = ModelReachMeters;
+        float reachSquared = reach * reach;
+
+        if (_candidates.Length < trees)
+        {
+            _candidates = new (float, int)[trees];
+        }
+
+        int found = 0;
+
+        for (int i = 0; i < trees; i++)
+        {
+            int at = i * Stride;
+            int kind = (int)_placements[at + 5];
+
+            if (kind is < 0 or >= 4 || ((int)_modelKinds & (1 << kind)) == 0)
+            {
+                continue;
+            }
+
+            float dx = _placements[at] - eye.X;
+            float dy = _placements[at + 1] - eye.Y;
+            float dz = _placements[at + 2] - eye.Z;
+            float away = (dx * dx) + (dy * dy) + (dz * dz);
+
+            if (away < reachSquared)
+            {
+                _candidates[found++] = (away, at);
+            }
+        }
+
+        Array.Sort(_candidates, 0, found, CandidateOrder.Instance);
+
+        // Grouped by model, because a draw is one model and one slice of the buffer. The
+        // pass below decides each tree's detail from its rank, and the pass after gathers
+        // them: two cheap walks rather than a sort inside every group.
+        int capacity = _modelInstanceData.Length / Stride;
+        float full = FullDetailMeters * FullDetailMeters;
+        var wanted = new int[_models.Length];
+        int spent = 0;
+        int taken = 0;
+        float last = 0;
+
+        var detail = new byte[found];
+
+        for (int rank = 0; rank < found && taken < capacity; rank++)
+        {
+            int at = _candidates[rank].At;
+            int kind = (int)_placements[at + 5];
+            int want = rank < FullDetailTrees && _candidates[rank].Away < full ? 0 : 1;
+            int model = Model(kind, want);
+
+            // A species with only one of the two levels grown uses it for both bands.
+            if (model < 0)
+            {
+                model = Model(kind, 1 - want);
+            }
+
+            if (model < 0 || spent + _models[model].Triangles > ModelTriangleBudget)
+            {
+                break;
+            }
+
+            detail[rank] = (byte)model;
+            wanted[model]++;
+            spent += _models[model].Triangles;
+            last = _candidates[rank].Away;
+            taken++;
+        }
+
+        uint first = 0;
+
+        for (int model = 0; model < _models.Length; model++)
+        {
+            _modelStands[model] = (first, (uint)wanted[model]);
+            first += (uint)wanted[model];
+            wanted[model] = 0;
+        }
+
+        for (int rank = 0; rank < taken; rank++)
+        {
+            int model = detail[rank];
+            uint slot = _modelStands[model].First + (uint)wanted[model]++;
+
+            _placements.AsSpan(_candidates[rank].At, Stride)
+                .CopyTo(_modelInstanceData.AsSpan((int)slot * Stride, Stride));
+        }
+
+        _modelCount = (uint)taken;
+
+        // Where the impostors are told to take over. The farthest tree the budget reached
+        // when it ran out, and the full reach when it did not: a wood that fits entirely
+        // inside the budget should hand over at the distance, not at its own last tree.
+        _modelReach = taken == 0
+            ? 0f
+            : (taken < found ? MathF.Sqrt(last) : reach);
+
+        _modelInstances.Write<float>(_modelInstanceData.AsSpan(0, (int)_modelCount * Stride));
+    }
+
+    /// <summary>
+    /// The height of the backdrop's ground at a point, in its own metres.
+    /// </summary>
+    /// <param name="x">Where, east.</param>
+    /// <param name="z">Where, north.</param>
+    /// <returns>The height, or nought when there is no grid to ask.</returns>
+    /// <remarks>
+    /// Bilinear, and off the full-resolution grid rather than the drawn mesh: this is
+    /// asked once a frame and what it is for is keeping the camera out of the hill, so
+    /// it should agree with the ground rather than with the stride the ground is drawn
+    /// at.
+    /// </remarks>
+    private float Ground(float x, float z)
+    {
+        if (_grid < 2 || _heights.Length != _grid * _grid || _extent <= 0f)
+        {
+            return 0f;
+        }
+
+        float at = ((x / _extent) + 1f) * 0.5f * (_grid - 1);
+        float down = ((z / _extent) + 1f) * 0.5f * (_grid - 1);
+
+        int left = Math.Clamp((int)MathF.Floor(at), 0, _grid - 2);
+        int top = Math.Clamp((int)MathF.Floor(down), 0, _grid - 2);
+        float acrossFraction = Math.Clamp(at - left, 0f, 1f);
+        float downFraction = Math.Clamp(down - top, 0f, 1f);
+
+        float upper = float.Lerp(
+            _heights[(top * _grid) + left], _heights[(top * _grid) + left + 1], acrossFraction);
+        float lower = float.Lerp(
+            _heights[((top + 1) * _grid) + left],
+            _heights[((top + 1) * _grid) + left + 1],
+            acrossFraction);
+
+        return float.Lerp(upper, lower, downFraction);
+    }
+
+    /// <summary>Which model draws a given species at a given level of detail.</summary>
+    private int Model(int kind, int detail)
+    {
+        for (int i = 0; i < _models.Length; i++)
+        {
+            if (_models[i].Kind == kind && _models[i].Detail == detail)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>Nearest first.</summary>
+    private sealed class CandidateOrder : IComparer<(float Away, int At)>
+    {
+        public static readonly CandidateOrder Instance = new();
+
+        public int Compare((float Away, int At) a, (float Away, int At) b) =>
+            a.Away.CompareTo(b.Away);
+    }
+
+    /// <summary>A descriptor set for each of the trees' own textures.</summary>
+    private void CreateSheetSets()
+    {
+        var binding = new DescriptorSetLayoutBinding
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        var layoutInfo = new DescriptorSetLayoutCreateInfo
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &binding,
+        };
+
+        if (_vk.CreateDescriptorSetLayout(_context.Device, in layoutInfo, null, out _sheetLayout)
+            != Result.Success)
+        {
+            throw new VulkanException("Could not create the tree texture descriptor layout.");
+        }
+
+        var size = new DescriptorPoolSize
+        {
+            Type = DescriptorType.CombinedImageSampler,
+            DescriptorCount = (uint)_sheets.Count,
+        };
+
+        var poolInfo = new DescriptorPoolCreateInfo
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            MaxSets = (uint)_sheets.Count,
+            PoolSizeCount = 1,
+            PPoolSizes = &size,
+        };
+
+        if (_vk.CreateDescriptorPool(_context.Device, in poolInfo, null, out _sheetPool)
+            != Result.Success)
+        {
+            throw new VulkanException("Could not create the tree texture descriptor pool.");
+        }
+
+        foreach (VulkanTexture texture in _sheets)
+        {
+            DescriptorSetLayout layout = _sheetLayout;
+            var allocate = new DescriptorSetAllocateInfo
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = _sheetPool,
+                DescriptorSetCount = 1,
+                PSetLayouts = &layout,
+            };
+
+            if (_vk.AllocateDescriptorSets(_context.Device, in allocate, out DescriptorSet set)
+                != Result.Success)
+            {
+                throw new VulkanException("Could not allocate a tree texture descriptor set.");
+            }
+
+            var image = new DescriptorImageInfo
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = texture.View,
+                Sampler = texture.Sampler,
+            };
+
+            var write = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = set,
+                DstBinding = 0,
+                DescriptorCount = 1,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                PImageInfo = &image,
+            };
+
+            _vk.UpdateDescriptorSets(_context.Device, 1, in write, 0, null);
+            _sheetSets.Add(set);
+        }
+    }
+
     private ShaderModule CreateModule(byte[] spirv)
     {
         fixed (byte* code = spirv)
@@ -1327,6 +2306,65 @@ public sealed unsafe class TerrainPipeline : IDisposable
         _treePipeline = BuildOne(
             colorFormat, depthFormat, _treeVertexModule, _treeFragmentModule, _layout,
             2, treeBindings, 5, treeAttributes, depthWrite: true);
+
+        // The modelled trees of the near band. Two descriptor sets rather than one: the
+        // splat and the tint it shares with the ground, and the one sheet it is painted
+        // with, which changes per part.
+        if (_models.Length > 0 && _sheetLayout.Handle != 0)
+        {
+            DescriptorSetLayout* modelSets = stackalloc DescriptorSetLayout[2]
+            {
+                _setLayout,
+                _sheetLayout,
+            };
+
+            var modelLayoutInfo = new PipelineLayoutCreateInfo
+            {
+                SType = StructureType.PipelineLayoutCreateInfo,
+                SetLayoutCount = 2,
+                PSetLayouts = modelSets,
+                PushConstantRangeCount = 1,
+                PPushConstantRanges = &pushConstants,
+            };
+
+            if (_vk.CreatePipelineLayout(_context.Device, in modelLayoutInfo, null, out _modelLayout)
+                != Result.Success)
+            {
+                throw new VulkanException("Could not create the horizon tree pipeline layout.");
+            }
+
+            VertexInputBindingDescription* modelBindings =
+                stackalloc VertexInputBindingDescription[2]
+                {
+                    new()
+                    {
+                        Binding = 0,
+                        Stride = (uint)Marshal.SizeOf<TerrainTreeVertex>(),
+                        InputRate = VertexInputRate.Vertex,
+                    },
+                    new()
+                    {
+                        Binding = 1,
+                        Stride = Stride * sizeof(float),
+                        InputRate = VertexInputRate.Instance,
+                    },
+                };
+
+            VertexInputAttributeDescription* modelAttributes =
+                stackalloc VertexInputAttributeDescription[6]
+                {
+                    new() { Location = 0, Binding = 0, Format = Format.R32G32B32Sfloat, Offset = 0 },
+                    new() { Location = 1, Binding = 0, Format = Format.R32G32B32Sfloat, Offset = 12 },
+                    new() { Location = 2, Binding = 0, Format = Format.R32G32Sfloat, Offset = 24 },
+                    new() { Location = 3, Binding = 1, Format = Format.R32G32B32A32Sfloat, Offset = 0 },
+                    new() { Location = 4, Binding = 1, Format = Format.R32Sfloat, Offset = 16 },
+                    new() { Location = 5, Binding = 1, Format = Format.R32Sfloat, Offset = 20 },
+                };
+
+            _modelPipeline = BuildOne(
+                colorFormat, depthFormat, _modelVertexModule, _modelFragmentModule, _modelLayout,
+                2, modelBindings, 6, modelAttributes, depthWrite: true);
+        }
 
         // The sky: no vertex input at all, and no depth writes — it must lose to
         // everything and stop nothing.

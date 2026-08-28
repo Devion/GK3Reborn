@@ -725,3 +725,136 @@ authored (see [ADR 0007](adr/0007-authored-light-rigs-from-scene-assets.md)). Ra
 shadows and occlusion are available on hardware that supports them — see
 [ray-tracing.md](ray-tracing.md) for the quality ladder and what it does and does not
 compute yet.
+
+## Between one room and the next
+
+Walking through a door frees a room and builds another. That is a couple of hundred
+milliseconds warm and well over a second cold — a large outdoor scene with the packed
+content set to read, its floor cut into a million triangles for relief, and an
+acceleration structure to build on top. Nothing is drawn while it happens, so what the
+player used to see was the last frame of the old room held still for a second and then
+replaced, in one frame, by somewhere else.
+
+`ScreenFade` covers it, and the shape of it is worth stating because it is not the obvious
+one:
+
+- The last frame of the room being left is **read back off the swapchain and hung behind
+  everything as a backdrop**, so the room's own buffers can be freed immediately. Keeping
+  two scenes resident to fade between them would double the texture memory of a
+  transition, and an outdoor room is 900 MB of it.
+- **The load runs inside the fade rather than before it.** `SceneLoader.Progress` and
+  `ISceneSink.Progress` are offered between pieces of work — per texture uploaded, per
+  batch decoded, every few hundred polygons of the room — and the fade presents a frame
+  from those, at thirty a second. A finer cadence would be worse, not better: the
+  swapchain presents in FIFO, so a frame per texture would make the room wait on vsync
+  once per texture.
+- A **load that beats the fade stops it where it is.** The remainder is then taken to
+  black over at most 80 ms and the way back takes as long as the way out actually did, so
+  a fast transition is a blink and a slow one is a fade with the load hidden inside it.
+  The swap itself always happens at black; cutting from a half-dark room to a half-dark
+  different room is the hard cut a fade exists to avoid.
+- The way out is presented from `ScreenFade` because there is nothing to update; the way
+  back is a number the room's own loop reads while it draws, so the room is live under it.
+
+**The ramp is gamma-corrected, and has to be.** The swapchain is sRGB, so blending happens
+in linear light: an alpha of a half leaves the screen at 73% of its brightness, and an
+alpha of 0.995 still has the room faintly visible in it. Driven straight the fade looks
+like nothing happening and then the picture falling off a cliff. `ScreenFade.Curve` asks
+instead for the alpha that darkens the *encoded* value in a straight line, and
+`ScreenFadeTests` is what keeps it that way.
+
+The same offers keep the window pumping, which is worth having on its own: five seconds
+without presenting a frame is how a window comes to be marked as not responding.
+
+## The reconstructed horizon
+
+The skybox is real geometry: each of the game's 59 painted cube sets was stitched into a
+panorama offline, its depth inferred, and the result fitted as a heightfield with a splat
+map, a colour tint and a forest. The pipeline that produces it lives outside this
+repository — see `ContentWorkspace/enhanced/skyboxes/terrain-plan.md` — and
+`TerrainPipeline` is what draws it, in its own metres, around a camera anchored to the
+scene's centre.
+
+### Aerial perspective
+
+Air is not clear, and until 2026-08-28 the backdrop behaved as though it were: the haze
+density was 1.6e-4 per metre, which leaves a ridge at the far rim of a 1.5 km
+reconstruction 94% of itself. A hillside two kilometres away was drawn as crisply as the
+wall in front of the camera, and the whole horizon read as a painted flat.
+
+What is there now is the real thing, and two properties matter:
+
+- **Density falls off with height.** The haze pools in the bottom of a valley and thins
+  over the ridges, so a distant crest stands clear of the murk its own foot is buried in.
+  That is the shape the eye reads as depth in hill country, and it is the half a constant
+  fog cannot do — a flat fog paints the crest and the valley floor the same grey and
+  flattens the two together. The integral of `rho * exp(-y / H)` along the view ray has a
+  closed form in the two endpoint heights, so it costs two exponentials rather than a loop.
+- **The haze goes warm toward the sun.** Forward scattering, and the other half of what
+  makes distance read: a hill looks further away when the sun is behind it. Away from the
+  sun it is exactly the sky's own horizon colour, which is what lets the terrain dissolve
+  into the sky instead of ending at a line.
+
+`HazeDensity` (6.5e-4 per metre) and `HazeHeight` (130 m) are the two numbers, and they
+are per metre rather than scaled to the set: a reconstruction that reaches six kilometres
+*should* have a hazier rim than one that reaches one.
+
+### The near forest is modelled trees
+
+The forest was instanced cone impostors at every distance — sixteen to twenty-four
+triangles apiece, which is right for a hillside a kilometre out and plainly wrong for the
+slope just beyond the wall the player is leaning on. From the Tour Magdala lookout the
+whole valley read as green cones.
+
+The near band is now drawn with the same grown models the rooms plant (see
+[trees.md](trees.md)), in three tiers:
+
+| tier | what | when |
+| --- | --- | --- |
+| LOD0 | the full model, ~20k triangles | the nearest 48, within 70 m |
+| LOD1 | the library's own `_far` variant, ~4k | nearest-first until the triangle budget runs out |
+| LOD2 | the cone impostor | everything past where the budget stopped |
+
+Three things make that work:
+
+- **The instance stream is shared.** Both pipelines read the same six floats a tree —
+  position, scale, yaw, species — and derive the height jitter from the same seed, so a
+  tree that crosses a tier changes what it is built from and nothing else. A silhouette
+  that moved as it swapped would be worse than the cone.
+- **The budget decides the reach, not a constant.** `SelectTreeModels` sorts the
+  candidates by distance and spends `ModelTriangleBudget` nearest-first; where it stops is
+  pushed to the impostor shader as the distance at which the cones start. So a dense wood
+  and a thin one both hand over exactly where the models ran out, and there is never a
+  band drawn by neither.
+- **It is recomputed only when the camera moves** more than eight metres. A room camera is
+  a fixed viewpoint and the trees do not move.
+
+Both ends of the swap are a band rather than a line — the cone shrinks out over the last
+fifth of the distance while the model grows in.
+
+### Two things the heightfields had wrong
+
+Both were in the offline generator (`PbrLab/make_terrain.py`) and both needed all 59 sets
+regenerating; they are recorded here because the symptoms were reported as rendering bugs.
+
+**The ground fell away behind the first ridge.** The sight-line clamp — which keeps filled
+ground from occluding terrain the panorama actually shows — took the shallowest elevation
+ratio over the *whole* ray at each azimuth, when only points *beyond* a cell can be
+occluded by it. The nearest land at any azimuth is the lip of the black band, a hundred
+metres out and eighty below the camera: a ratio near -0.9. Extrapolated as a constant that
+puts the ceiling at -1,350 m by the rim of a 1.5 km grid. RLC_A, the vista from the
+Magdala lookout, had a median height of -1,063 m over land that sits between -85 and +180.
+It is a suffix minimum over radius now.
+
+**Nothing steeply above the horizon is ground.** Measured across the corpus, every set
+whose sky mask worked has not one land pixel above a quarter of the limit now applied.
+What is up there when there is anything is sky the mask missed — and a monocular depth
+model gives sky a small depth, so those pixels project to a tiny ground radius and an
+enormous height and max-splat into a dome sitting on the camera. CSD is the set that
+proves it: 89% of what it called land was above the line, and the result in game was a
+featureless wall standing behind the room and filling half the sky.
+
+A third guard is on this side of the seam. `ClearanceMeters` keeps the camera above the
+backdrop's own ground, because `LiftMeters` is a constant and the reconstruction is not: a
+set that is nearly all fill sits close to zero, and twelve metres of lift then put the
+camera *under* the surface, which turns every direction into a rising wall.
