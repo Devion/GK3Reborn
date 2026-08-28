@@ -49,13 +49,14 @@ public sealed class ScreenPainterTests
     private static ScreenPainter Painter() => new(new Overlay(MenuPageTests.Font()));
 
     /// <summary>The middle of whatever the painter recorded under an identifier.</summary>
-    private static Vector2? Middle(ScreenPainter painter, string id)
+    private static Vector2? Middle(
+        ScreenPainter painter, string id, int width = Width, int height = Height)
     {
         // Found by sweeping rather than by asking, because the painter deliberately exposes
         // where things are only through the hit test — which is the thing being checked.
-        for (int y = 0; y < Height; y += 3)
+        for (int y = 0; y < height; y += 3)
         {
-            for (int x = 0; x < Width; x += 3)
+            for (int x = 0; x < width; x += 3)
             {
                 if (painter.HitAt(new Vector2(x, y)) == id)
                 {
@@ -303,5 +304,118 @@ public sealed class ScreenPainterTests
         painter.Build(new ScreenView(new Screen(ScreenKind.Inventory), [], null), Width, Height);
 
         Assert.Null(Middle(painter, first));
+    }
+
+    /// <summary>
+    /// The drawn map names its places, so a player can tell one patch of countryside
+    /// from another.
+    /// </summary>
+    /// <remarks>
+    /// Reported as "drive map shows, but no labels so no clue what is what". A marker is a
+    /// lit copy of the map underneath it and says nothing about where it is; the names are
+    /// listed beside the painting and every row rides there.
+    /// </remarks>
+    [Fact]
+    public void The_drawn_map_names_the_places_beside_it()
+    {
+        IReadOnlyList<DrivingStop> stops = [.. DrivingMap.All.Take(4)];
+        ScreenPainter painter = Drawn(stops);
+
+        // Down the right-hand edge, well clear of the painting: what is found there is the
+        // list rather than a marker.
+        HashSet<string> listed = [];
+
+        for (int y = 0; y < Height; y += 2)
+        {
+            if (painter.HitAt(new Vector2(Width - 60, y)) is { Length: > 0 } id &&
+                id.StartsWith("drive:", StringComparison.Ordinal))
+            {
+                listed.Add(id);
+            }
+        }
+
+        Assert.Equal(
+            [.. stops.Select(s => "drive:" + s.Scene).Order(StringComparer.Ordinal)],
+            [.. listed.Order(StringComparer.Ordinal)]);
+    }
+
+    /// <summary>And the markers on the painting are still what they were.</summary>
+    /// <remarks>
+    /// The list is beside the map rather than over it: adding names must not have moved a
+    /// place out from under the pointer.
+    /// </remarks>
+    [Fact]
+    public void Naming_the_places_leaves_them_clickable_on_the_painting()
+    {
+        IReadOnlyList<DrivingStop> stops = [.. DrivingMap.All.Take(4)];
+        ScreenPainter painter = Drawn(stops);
+
+        foreach (DrivingStop stop in stops)
+        {
+            Assert.NotNull(Middle(painter, "drive:" + stop.Scene));
+        }
+    }
+
+    /// <summary>A window too narrow for both keeps the map.</summary>
+    /// <remarks>
+    /// The names are worth a third of the width and never worth the painting: at this shape
+    /// the list is dropped and the places are still there to point at.
+    /// </remarks>
+    [Fact]
+    public void A_narrow_window_keeps_the_map_rather_than_the_list()
+    {
+        IReadOnlyList<DrivingStop> stops = [.. DrivingMap.All.Take(4)];
+        ScreenPainter painter = Drawn(stops, width: 420, height: 640);
+
+        // The places are still on the painting.
+        foreach (DrivingStop stop in stops)
+        {
+            Assert.NotNull(Middle(painter, "drive:" + stop.Scene, 420, 640));
+        }
+
+        // And nothing is offered in the strip a column would have taken.
+        for (int y = 0; y < 640; y += 2)
+        {
+            for (int x = 370; x < 420; x += 2)
+            {
+                Assert.Null(painter.HitAt(new Vector2(x, y)));
+            }
+        }
+    }
+
+    /// <summary>The map with its art loaded, laid out.</summary>
+    /// <remarks>
+    /// The pictures are numbers to the painter and their sizes are told to it, so a test
+    /// needs neither a renderer nor the game's archives to lay the drawn map out — only a
+    /// number per name and a size to go with it.
+    /// </remarks>
+    private static ScreenPainter Drawn(
+        IReadOnlyList<DrivingStop> stops, int width = Width, int height = Height)
+    {
+        ScreenPainter painter = Painter();
+        var numbers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DrivingMap.Background] = 1,
+        };
+
+        foreach (DrivingStop stop in stops)
+        {
+            numbers[stop.Sprite] = numbers.Count + 1;
+
+            // Roughly what the game's own markers measure, in the map's own pixels.
+            painter.Sizes[stop.Sprite] = (40, 30);
+        }
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.Driving),
+                [],
+                null,
+                Stops: stops,
+                Pictures: name => numbers.GetValueOrDefault(name)),
+            width,
+            height);
+
+        return painter;
     }
 }

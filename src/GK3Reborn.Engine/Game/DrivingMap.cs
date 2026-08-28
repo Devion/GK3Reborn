@@ -76,6 +76,27 @@ public sealed class DrivingMap
     /// </remarks>
     public const string Background = "DM_BASE";
 
+    /// <summary>
+    /// What the map itself is called as a location.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The map is a room in the original, not a panel over one: the retail engine's
+    /// location table lists <c>map</c> alongside <c>lhe</c> and <c>mop</c>, and its driving
+    /// layer holds that entry's index as its own location. Riding the moped is therefore
+    /// leaving for the map and arriving from it, and that is what the game's own data
+    /// expects — <c>LHE.SIF</c> puts Gabriel's moped in the yard on
+    /// <c>WasLastLocation("Map")</c>, and ten of the compiled scene scripts ask the same
+    /// question to decide where the player is standing when they get there.
+    /// </para>
+    /// <para>
+    /// Written in capitals like every other location code this engine holds;
+    /// <c>WasLastLocation</c> compares without case, as does everything else that reads
+    /// one.
+    /// </para>
+    /// </remarks>
+    public const string Location = "MAP";
+
     /// <summary>How wide the map picture is, in its own pixels.</summary>
     public const int MapWidth = 640;
 
@@ -181,6 +202,55 @@ public sealed class DrivingMap
         }
 
         return open;
+    }
+
+    /// <summary>
+    /// The game variable that says where the moped is parked.
+    /// </summary>
+    /// <remarks>
+    /// Read by six of the game's scene files and three of its action files, and written by
+    /// two of its scripts. See <see cref="ParkedAt"/> for what the number in it means.
+    /// </remarks>
+    public const string Parked = "BikeLocation";
+
+    /// <summary>
+    /// The number that means "the moped is standing at this place".
+    /// </summary>
+    /// <param name="scene">The room the place loads.</param>
+    /// <returns>The number, or null when the moped cannot be ridden there.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>It is the place's own position in this list.</b> The game's data gives six of the
+    /// sixteen a number and every one of them is its index here: Coume Sourde is 3,
+    /// L'Homme Mort 4, Chateau de Serras 9, Rennes-le-Château 10, Larry Chester's house 11
+    /// and Blanchefort 12. The list is the retail driving layer's own order, recovered from
+    /// its constructor, so the agreement is not a coincidence — it is the same table read
+    /// two ways, and it is why this can be a lookup rather than sixteen more constants.
+    /// </para>
+    /// <para>
+    /// <b>Why the port writes it and the original did not.</b> Nothing in the retail engine
+    /// touches this variable — its name is in a table with no code reference — and only
+    /// <c>LHE.SHP</c> and <c>MOP_ALL.SHP</c> set it, to 11 and 10, from their own arrival
+    /// scripts. The other four places read a number nothing ever writes, so their moped is
+    /// never drawn and, at three of them, the exit that asks whether the moped is here
+    /// answers no: riding to Blanchefort, Coume Sourde or L'Homme Mort strands the player
+    /// there. Writing it on arrival is what the six readers were plainly written against,
+    /// and it agrees with both scripts that do write it rather than fighting them.
+    /// </para>
+    /// <para>
+    /// <b>The first marker wins where two share a room.</b> "The Site" and Blanchefort both
+    /// load <c>PLO</c>, and <c>PLO.SIF</c> asks for 12, which is Blanchefort's. Riding to
+    /// either parks the moped at the one the room asks about.
+    /// </para>
+    /// </remarks>
+    public static int? ParkedAt(string scene)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+
+        int at = Array.FindIndex(
+            Stops, s => string.Equals(s.Scene, scene, StringComparison.OrdinalIgnoreCase));
+
+        return at >= 0 ? at : null;
     }
 
     /// <summary>Puts a place on the map for good.</summary>

@@ -4075,9 +4075,12 @@ public static class Application
 
                 break;
 
+            // Riding the moped, which is arriving from the map rather than from the room
+            // the player left: scene files and scene scripts both ask which it was, and the
+            // moped standing in the yard when they get there is one of the answers.
             case "drive" when parts.Length > 1:
                 story.Screens.CloseAll();
-                story.Location = parts[1];
+                story.RideTo(parts[1]);
                 break;
 
             case "sidney" when sidney is not null && parts.Length > 2:

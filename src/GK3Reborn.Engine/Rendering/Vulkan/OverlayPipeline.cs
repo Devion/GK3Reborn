@@ -213,6 +213,61 @@ public sealed unsafe class OverlayPipeline : IDisposable
         return _pictures.Count;
     }
 
+    /// <summary>
+    /// Puts a different sheet of letters behind the same pipeline.
+    /// </summary>
+    /// <param name="atlas">The sheet to draw from now.</param>
+    /// <remarks>
+    /// <para>
+    /// The interface has more than one sheet — the room's captions and the menu are cut at
+    /// different sizes — and it swaps between them whenever the player opens the menu and
+    /// closes it again. Only the atlas texture and binding zero of its descriptor set
+    /// change; the shaders, the pipeline, the pool and <em>every picture already loaded</em>
+    /// stay exactly where they are.
+    /// </para>
+    /// <para>
+    /// <b>Which is the whole point.</b> This used to be done by disposing the pipeline and
+    /// building another, and a new pipeline has an empty descriptor pool: the driving map
+    /// and its sixteen markers, loaded once at startup, were thrown away the first time the
+    /// front end drew a frame. Nothing reloaded them, so the map the moped is ridden around
+    /// fell back to a list of place names for the rest of the session. Recompiling two
+    /// shaders every time somebody opens the menu was the smaller of the two costs.
+    /// </para>
+    /// <para>
+    /// The caller waits for the device to be idle first: the sheet being replaced may still
+    /// be read by a frame that has not finished.
+    /// </para>
+    /// </remarks>
+    public void SetAtlas(OverlayAtlas atlas)
+    {
+        ArgumentNullException.ThrowIfNull(atlas);
+
+        VulkanTexture replacement = VulkanTexture.Create(
+            _context, atlas.Image, mipmaps: false, SamplerAddressMode.ClampToEdge);
+
+        var image = new DescriptorImageInfo
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = replacement.View,
+            Sampler = replacement.Sampler,
+        };
+
+        var rebind = new WriteDescriptorSet
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = _set,
+            DstBinding = 0,
+            DescriptorCount = 1,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            PImageInfo = &image,
+        };
+
+        _vk.UpdateDescriptorSets(_context.Device, 1, in rebind, 0, null);
+
+        _atlas?.Dispose();
+        _atlas = replacement;
+    }
+
     /// <summary>Creates the pipeline.</summary>
     /// <param name="context">Device context.</param>
     /// <param name="colorFormat">Colour target format.</param>

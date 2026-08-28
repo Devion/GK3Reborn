@@ -586,9 +586,19 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <summary>Gives the renderer an interface to draw on top of the room.</summary>
     /// <param name="atlas">The sheet it is drawn from.</param>
     /// <remarks>
+    /// <para>
     /// Deferred rather than created with the renderer, because the sheet comes out of the
     /// game's archives and the renderer exists before anything has been read. Calling it
-    /// again replaces the sheet, which is what changing font would mean.
+    /// again replaces the sheet, which is what changing font — or opening the menu, which
+    /// is cut at its own size — means.
+    /// </para>
+    /// <para>
+    /// <b>The pictures survive it.</b> The screens' own art hangs off the pipeline's
+    /// descriptor pool, and this used to build a new pipeline with a new pool: the driving
+    /// map's seventeen pictures were loaded once at startup and dropped the first time the
+    /// front end drew, leaving the map to fall back to a list of names for the rest of the
+    /// session. Only the sheet changes now.
+    /// </para>
     /// </remarks>
     public void SetOverlayAtlas(OverlayAtlas atlas)
     {
@@ -601,16 +611,17 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         _vk.DeviceWaitIdle(_device);
 
-        _overlay?.Dispose();
-        _overlay = OverlayPipeline.Create(
-            _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler, atlas);
+        if (_overlay is null)
+        {
+            _overlay = OverlayPipeline.Create(
+                _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler, atlas);
+        }
+        else
+        {
+            _overlay.SetAtlas(atlas);
+        }
 
         _overlayAtlas = atlas;
-
-        // The sheet of letters is gone and with it every picture that hung off the old
-        // pipeline's descriptor pool. Whoever loaded them loads them again; saying so is
-        // better than handing out numbers that point at nothing.
-        _pictures.Clear();
     }
 
     /// <summary>

@@ -238,6 +238,60 @@ public sealed class GameState
     /// </remarks>
     public string LastLocation { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// Rides the moped somewhere, arriving from the driving map.
+    /// </summary>
+    /// <param name="location">The room the chosen place loads.</param>
+    /// <remarks>
+    /// <para>
+    /// The map is a location in the original rather than a panel over one, so a ride is two
+    /// moves: out of the room, onto the map, and off it again into the next room. Doing it
+    /// as two moves rather than one is the whole of this method, and it is what leaves
+    /// <see cref="LastLocation"/> saying <c>MAP</c> — which is the question the game's own
+    /// data asks about a ride.
+    /// </para>
+    /// <para>
+    /// <b>What went wrong without it.</b> Riding to Larry Chester's house set the location
+    /// straight to <c>LHE</c> from wherever the player had been, so the room was built as
+    /// though they had walked in from that room instead. <c>LHE.SIF</c> declares Gabriel's
+    /// moped under <c>WasLastLocation("Map")</c> and the yard had no moped in it; the
+    /// scene's only way back to the map is an <c>EXIT</c> guarded by the moped being
+    /// there, so there was no way out; and the room names no <c>FR_MOP</c>, so the player
+    /// stood at the origin rather than at <c>FR_MAP</c>. Ten more of the game's scene
+    /// scripts place the player by the same question.
+    /// </para>
+    /// <para>
+    /// <b>And the moped is now parked there.</b> Six of the game's scene files draw it from
+    /// <c>BikeLocation</c> and three of its action files let the player leave on it only
+    /// when that number is the room they are standing in, so a ride that does not move it
+    /// strands them: Blanchefort was reported exactly that way. See
+    /// <see cref="DrivingMap.ParkedAt"/> for what the number is and why the original never
+    /// wrote it.
+    /// </para>
+    /// <para>
+    /// Written before the room is built, which is what makes it count: a scene file's
+    /// conditions are decided as it is read, and the two scripts that set this variable
+    /// themselves do it from an arrival script that runs afterwards.
+    /// </para>
+    /// <para>
+    /// Passing through is not visiting: only the room loop records a location as somewhere
+    /// the player has been, so a ride does not put the map itself into the places they have
+    /// been to.
+    /// </para>
+    /// </remarks>
+    public void RideTo(string location)
+    {
+        ArgumentNullException.ThrowIfNull(location);
+
+        Location = DrivingMap.Location;
+        Location = location;
+
+        if (DrivingMap.ParkedAt(location) is { } parked)
+        {
+            SetVariable(DrivingMap.Parked, parked);
+        }
+    }
+
     private string _location = string.Empty;
 
     /// <summary>Name of the actor the player controls.</summary>

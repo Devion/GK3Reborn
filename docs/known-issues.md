@@ -203,6 +203,101 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Riding the moped never went by way of the map — fixed 2026-08-28
+
+Reported as arriving at Larry Chester's house with no moped in the yard and no way out
+of the scene.
+
+**The driving map is a location in the original, not a panel over one.** Its location
+table lists `map` beside `lhe` and `mop`, and the driving layer holds that entry's index
+as its own location — so a ride leaves the room for the map and arrives from it. This
+engine draws the map as one of the modal screens and set the destination straight from
+the room the player had been standing in, so nothing was ever "from the map". Three
+things followed from that at Larry's house alone:
+
+- **No moped.** `LHE.SIF` declares `bikebody` under
+  `GetGameVariableInt("BikeLocation")==11 || WasLastLocation("Map")`. Neither held on a
+  first arrival — the variable is set by the yard's own enter script a moment *later* —
+  so the model was never placed and the `GABES_MOPED` noun did not exist.
+- **No way out.** The yard's only route back to the map is
+  `EXIT_TO_MAP, EXIT, BIKE_HERE`, and `BIKE_HERE` is that same `BikeLocation==11`. The
+  other two cases play a line about the moped not being here. `EXIT_TO_CDB` and
+  `EXIT_TO_LMB` are `approach=WalkTo` to spots the far side of the yard.
+- **Standing at the origin.** Every one of the sixteen places the moped reaches names an
+  `FR_MAP` spot to arrive at, and three of them put it on the player's own actor line.
+  Arriving "from MOP" matched no `FR_MOP`, so `StartPosition` fell through to nothing and
+  the player stood at the origin until a script moved them.
+
+`GameState.RideTo` makes the ride two moves — into `DrivingMap.Location`, then on to the
+destination — which is all it takes: `LastLocation` says `MAP`, and every question the
+data asks about a ride has the answer it was written against.
+
+**And it parks the moped where it was ridden.** Larry's house was the only place a ride
+could be rescued by `WasLastLocation` alone; the other five that draw a moped ask only for
+`BikeLocation`, and Blanchefort, Coume Sourde and L'Homme Mort guard their way back to the
+map with the same number. Riding to Blanchefort therefore stranded the player in a field
+with no moped in it — reported, and reproduced.
+
+Nothing in the retail engine ever writes that variable: its name sits in a table with no
+code reference, and only `LHE.SHP` and `MOP_ALL.SHP` set it, to 11 and 10, from their own
+arrival scripts. The other four read a number nothing writes. `DrivingMap.ParkedAt` supplies
+it, and the number is the place's own index in the map's list — the six the data gives a
+number are 3, 4, 9, 10, 11 and 12, which are exactly their positions in the retail driving
+layer's own order. `RideTo` writes it before the room is built, because a scene file's
+conditions are decided as it is read while the two scripts that set it themselves run
+afterwards. One variable means one moped: parking it somewhere new is what empties the
+place it was, which is also why `CDB.SIF` draws it from Larry's number — the driveway
+overlooks the yard.
+
+**It was never only Larry's house.** Ten of the compiled scene scripts branch on
+`WasLastLocation("map")`, including `PL3` and `CSE_ALL`, and `PL4_ALL` asks
+`IsActorAtLocation("estelle","map")`. All of them were taking their fallthrough branch.
+
+`DrivingArrivalTests` covers it: seventeen tests over the ride itself, the moped's
+condition in both directions, the number parked at each of the six places that name one,
+riding away again, and the spot arrived at.
+
+Reproduce (before the fix):
+
+```bash
+GK3Reborn.Host --start MOP --timeblock 110A
+```
+
+Ride to Larry Chester's house and look for the moped, or for a way out.
+
+
+### The driving map was a list of place names — fixed 2026-08-28
+
+Reported as the map showing text where it should show the painting.
+
+`VulkanRenderer.SetOverlayAtlas` rebuilt the whole overlay pipeline to change the sheet
+of letters, and a new pipeline has a new descriptor pool, so it cleared every picture
+number it had handed out. The interface has more than one sheet — the room's captions and
+the menu are cut at different sizes — and `SetOverlay` swaps whenever a display list
+arrives from a different one. The front end draws at startup, so the driving map's
+seventeen pictures were loaded once, thrown away seconds later, and never reloaded:
+`Driving` found no background and fell back to the list it keeps for archives that have
+no art. Sidney's survey map went the same way.
+
+`OverlayPipeline.SetAtlas` now replaces the atlas texture and binding zero of its
+descriptor set and leaves the shaders, the pipeline, the pool and every loaded picture
+alone. Two shaders are no longer recompiled every time the player opens the menu either.
+
+**And the map now names its places.** A marker is a lit copy of the patch of painting
+under it, which says that something is there and nothing about what; the original left
+the player to hover each of the sixteen in turn. The open places are listed down the
+side, each row rides there, the one under the pointer is ringed and named on the map
+itself, and pointing at either the row or the marker lights up both. The names are the
+game's own, out of `ESTRINGS.TXT`. The column is dropped on a panel too narrow to hold it
+without taking the painting down to a thumbnail, where the name on hover still works.
+
+Reproduce (before the fix):
+
+```bash
+GK3Reborn.Host --start MOP --timeblock 110A --screen Driving
+```
+
+
 ### Room-to-room crossfade overlapped two beds audibly — removed 2026-08-27
 
 **Reported:** 2026-08-27, as significant overlap between sounds. The crossfade added on

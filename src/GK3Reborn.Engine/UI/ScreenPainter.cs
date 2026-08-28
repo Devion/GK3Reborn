@@ -896,6 +896,20 @@ public sealed class ScreenPainter
     /// the picture cannot drift apart at any window size.
     /// </para>
     /// <para>
+    /// <b>The places are named.</b> A marker is a patch of the painting lit a little
+    /// brighter, which tells the player that something is there and nothing whatever about
+    /// what — the original left them to hover each one in turn to find out, and sixteen
+    /// unlabelled smudges of countryside is exactly the interface <c>Plan/03</c> section 3
+    /// asks this port to be better than. So the open places are listed down the side, the
+    /// one under the pointer is named on the map itself, and pointing at either the row or
+    /// the marker lights up both. The names are the game's own, out of <c>ESTRINGS.TXT</c>.
+    /// </para>
+    /// <para>
+    /// The list is dropped when the panel is too narrow to hold one without taking the map
+    /// down to a thumbnail: a window that shape is one where the map wants every pixel, and
+    /// the names on hover are still there.
+    /// </para>
+    /// <para>
     /// Falls back to a list of names when the art is not loaded — a run against archives
     /// that do not have it, or before the pictures have been handed over.
     /// </para>
@@ -909,7 +923,7 @@ public sealed class ScreenPainter
         {
             // No art: the names, still carrying their scene codes.
             Places(
-                [.. stops.Select(s => (s.Scene, view.Map?.NameOf(s) ?? s.Code))],
+                [.. stops.Select(s => (s.Scene, Named(view, s)))],
                 body,
                 top,
                 unit,
@@ -920,13 +934,43 @@ public sealed class ScreenPainter
         }
 
         float room = body.Y + body.W - top - (Overlay.LineHeight * 2) - (16 * unit);
-        float scale = MathF.Min((body.Z - (32 * unit)) / DrivingMap.MapWidth, room / DrivingMap.MapHeight);
+
+        // The names down the side, wide enough for the longest of them rather than for a
+        // round number — "Southwest Arm of the Hexagram" is what the column has to hold —
+        // and never worth more than a third of the panel. Dropped altogether when what is
+        // left would take the map down to a thumbnail: at that shape the painting wants
+        // every pixel, and the name of whatever is under the pointer is still drawn on it.
+        //
+        // Nested rather than clamped: a panel narrower than the smallest useful column
+        // makes the floor larger than the ceiling, and the answer there is the ceiling and
+        // then the test below, not an exception.
+        float listWidth = stops.Count == 0
+            ? 0
+            : Math.Min(
+                Math.Max(
+                    stops.Max(s => Overlay.Measure(Named(view, s))) + (28 * unit),
+                    120 * unit),
+                body.Z * 0.34f);
+
+        if (body.Z - listWidth < 260 * unit)
+        {
+            listWidth = 0;
+        }
+
+        float across = body.Z - (32 * unit) - listWidth;
+        float scale = MathF.Min(across / DrivingMap.MapWidth, room / DrivingMap.MapHeight);
 
         float mapWidth = DrivingMap.MapWidth * scale;
         float mapHeight = DrivingMap.MapHeight * scale;
-        float left = body.X + ((body.Z - mapWidth) / 2);
+        float left = body.X + ((body.Z - listWidth - mapWidth) / 2);
 
         Overlay.Picture(background, left, top, mapWidth, mapHeight, Vector4.One);
+
+        // Which place the pointer is on, whether it found it on the map or in the list.
+        // Decided before anything is named so that the marker and its row agree, and so
+        // that the name can be drawn over its neighbours rather than under them.
+        DrivingStop? under = null;
+        List<(DrivingStop Stop, Vector4 Bounds)> marked = [];
 
         foreach (DrivingStop stop in stops)
         {
@@ -951,7 +995,33 @@ public sealed class ScreenPainter
 
             Overlay.Picture(marker, bounds.X, bounds.Y, bounds.Z, bounds.W, Vector4.One);
 
+            marked.Add((stop, bounds));
             _hits.Add(("drive:" + stop.Scene, bounds));
+
+            if (Inside(_pointer, bounds))
+            {
+                under = stop;
+            }
+        }
+
+        if (listWidth > 0)
+        {
+            under = DrivingList(
+                view,
+                stops,
+                new Vector4(body.X + body.Z - listWidth - (16 * unit), top, listWidth, room),
+                unit,
+                under) ?? under;
+        }
+
+        // The one being pointed at, ringed and named. Last, so its name is legible where
+        // the markers crowd together — Blanchefort, the dig and Larry's house are within
+        // sixty of the map's own pixels of each other.
+        if (under is { } chosen &&
+            marked.Find(m => m.Stop == chosen) is { Stop: not null } pointed)
+        {
+            Ring(pointed.Bounds, unit);
+            MarkerName(Named(view, chosen), pointed.Bounds, body, unit);
         }
 
         Overlay.Text(
@@ -959,6 +1029,120 @@ public sealed class ScreenPainter
             body.X + (20 * unit),
             top + mapHeight + (10 * unit),
             Dim);
+    }
+
+    /// <summary>What a place is called, falling back to its code.</summary>
+    private static string Named(ScreenView view, DrivingStop stop) =>
+        view.Map?.NameOf(stop) ?? stop.Code;
+
+    /// <summary>Draws a box around the marker the pointer is on.</summary>
+    /// <remarks>
+    /// Four lines rather than a tint over it: a marker is already a lit copy of the map
+    /// underneath, and lighting it further is a change the eye has nothing to compare
+    /// against, while a box around it is unambiguous over any part of the painting.
+    /// </remarks>
+    private void Ring(Vector4 bounds, float unit)
+    {
+        float thick = MathF.Max(1f, unit);
+
+        Overlay.Rect(bounds.X, bounds.Y, bounds.Z, thick, Accent);
+        Overlay.Rect(bounds.X, bounds.Y + bounds.W - thick, bounds.Z, thick, Accent);
+        Overlay.Rect(bounds.X, bounds.Y, thick, bounds.W, Accent);
+        Overlay.Rect(bounds.X + bounds.Z - thick, bounds.Y, thick, bounds.W, Accent);
+    }
+
+    /// <summary>Names the marker the pointer is on, beside it and inside the panel.</summary>
+    /// <remarks>
+    /// Under the marker where there is room and over it where there is not, and pushed back
+    /// inside the panel either way: several of the sixteen places sit within a marker's
+    /// width of an edge of the painting, and a name that runs off it is no name at all.
+    /// </remarks>
+    private void MarkerName(string name, Vector4 marker, Vector4 body, float unit)
+    {
+        float padding = 6 * unit;
+        float wide = Overlay.Measure(name) + (padding * 2);
+        float high = Overlay.LineHeight + padding;
+
+        float x = Math.Clamp(
+            marker.X + ((marker.Z - wide) / 2),
+            body.X + (8 * unit),
+            MathF.Max(body.X + (8 * unit), body.X + body.Z - wide - (8 * unit)));
+
+        float below = marker.Y + marker.W + (4 * unit);
+        float y = below + high > body.Y + body.W
+            ? marker.Y - high - (4 * unit)
+            : below;
+
+        Overlay.Rect(x, y, wide, high, PanelLit);
+        Overlay.Rect(x, y, wide, MathF.Max(1f, unit), Accent);
+        Overlay.Text(name, x + padding, y + (padding / 2), Ink);
+    }
+
+    /// <summary>
+    /// The open places, listed beside the map.
+    /// </summary>
+    /// <param name="view">What is being drawn.</param>
+    /// <param name="stops">The places, in the order the map draws them.</param>
+    /// <param name="column">Where the list goes.</param>
+    /// <param name="unit">How much bigger than the letters everything else is.</param>
+    /// <param name="lit">The place the pointer found on the map, if it found one.</param>
+    /// <returns>The place the pointer is on in the list, or null.</returns>
+    /// <remarks>
+    /// Every row is a way to ride there, so a player who knows the name they want never has
+    /// to find it on the painting first. In map order rather than alphabetical: the list is
+    /// a reading of the picture beside it, and two orderings of the same sixteen things is
+    /// one more thing to learn.
+    /// </remarks>
+    private DrivingStop? DrivingList(
+        ScreenView view,
+        IReadOnlyList<DrivingStop> stops,
+        Vector4 column,
+        float unit,
+        DrivingStop? lit)
+    {
+        // Tightened rather than truncated where the column is short: a place missing from
+        // the list is a place the player has no name for, which is the fault this list
+        // exists to fix. The floor is a row that still fits its own letters.
+        float row = Math.Clamp(
+            column.W / Math.Max(1, stops.Count),
+            Overlay.LineHeight + (2 * unit),
+            Overlay.LineHeight + (10 * unit));
+
+        DrivingStop? under = null;
+
+        for (int i = 0; i < stops.Count; i++)
+        {
+            float y = column.Y + (i * row);
+
+            if (y + row > column.Y + column.W)
+            {
+                break;
+            }
+
+            var bounds = new Vector4(column.X, y, column.Z, row - (2 * unit));
+            bool pointed = Inside(_pointer, bounds);
+
+            if (pointed)
+            {
+                under = stops[i];
+            }
+
+            bool hot = pointed || stops[i] == lit;
+
+            Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, hot ? PanelLit : Panel);
+            Overlay.Rect(
+                bounds.X, bounds.Y, MathF.Max(1f, 2 * unit), bounds.W, hot ? Accent : Rule);
+
+            Overlay.Text(
+                Named(view, stops[i]),
+                bounds.X + (12 * unit),
+                bounds.Y + (5 * unit),
+                hot ? Accent : Ink);
+
+            _hits.Add(("drive:" + stops[i].Scene, bounds));
+        }
+
+        return under;
     }
 
     /// <summary>How big each of the map's markers is, in the map's own pixels.</summary>

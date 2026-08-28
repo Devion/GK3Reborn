@@ -351,6 +351,40 @@ house, Blanchefort, Rennes-les-Bains and the Couiza train station — plus anywh
 player has been, plus anywhere a script has named with `EngineOpenOnMap`. All three are read
 out of the game's own state, so the map after a load is the map before the save.
 
+**The places are named.** A marker is a lit copy of the patch of painting under it, which
+tells the player that something is there and nothing whatever about what — the original
+left them to hover each of the sixteen in turn. The open places are listed down the side of
+the map, every row rides there, the one under the pointer is ringed and named on the
+painting itself, and pointing at either the row or the marker lights up both. The names are
+the game's own, from the `dm_*` entries in `ESTRINGS.TXT`. The column is dropped on a panel
+too narrow to hold it without taking the map down to a thumbnail, and the name on hover
+still works there.
+
+**The map is a location, not a panel.** The retail engine's location table lists `map`
+beside `lhe` and `mop`, and its driving layer holds that entry's index as its own location:
+riding the moped is leaving a room for the map and arriving somewhere else from it. That is
+what the game's data expects — `LHE.SIF` puts Gabriel's moped in the yard on
+`WasLastLocation("Map")`, every place the moped reaches names an `FR_MAP` spot to arrive at,
+and ten compiled scene scripts branch on the same question. `GameState.RideTo` makes the
+ride two moves rather than one so that all of it holds, while the map stays a screen here
+rather than becoming a room with nothing in it.
+
+**A ride parks the moped, which the original never did.** Six scene files draw the moped
+from `BikeLocation` and three action files let the player leave on it only when that number
+is where they are standing, but nothing in the retail engine ever writes it — only
+`LHE.SHP` and `MOP_ALL.SHP` do, from their own arrival scripts, so riding to Blanchefort,
+Coume Sourde or L'Homme Mort left no moped and no way off. `DrivingMap.ParkedAt` gives the
+number and it is simply the place's index in the list above: the six the data names are 3,
+4, 9, 10, 11 and 12, which are their positions in it. One variable means one moped, so
+riding on empties the place it was — and `CDB.SIF`, the driveway overlooking Larry's yard,
+draws it from the yard's own number.
+
+**The pictures outlive a change of font.** They hang off the overlay pipeline's descriptor
+pool, and changing the sheet of letters used to rebuild that pipeline — so opening the menu
+once, which happens before the player reaches a room, threw the map's art away and left it
+drawing the fallback list for the rest of the session. `OverlayPipeline.SetAtlas` swaps the
+sheet in place now and keeps everything else.
+
 `PATHDATA.TXT` is in the archives and describes twenty road junctions with their map
 positions and the roads between them. It is parsed and held; riding the moped along it
 rather than cutting straight there is the next step.
