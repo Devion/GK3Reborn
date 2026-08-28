@@ -158,6 +158,7 @@ public static class Program
                 options.Heads,
                 options.Relief,
                 options.Trees,
+                options.Wind,
                 options.Packs,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
@@ -730,6 +731,10 @@ public static class Program
               --no-trees           render-scene leaves the foliage cards flat rather
                                    than growing modelled trees in their place. What
                                    the wood looked like in 1999, for comparison.
+              --wind SECONDS       Where render-scene stops the wind's clock. A still
+                                   afternoon by default, so two renders of one room
+                                   are the same picture; give it two values to see
+                                   what the foliage does between them.
               --heads N            How far render-model subdivides a character's
                                    head, 0 to 3. The same refinement the game
                                    applies, so a before and after can be
@@ -812,6 +817,9 @@ public static class Program
 
         public double Advance { get; init; }
 
+        /// <summary>Where the wind's clock is stopped, in seconds. Zero is a still day.</summary>
+        public float Wind { get; init; }
+
         public string? Glance { get; init; }
 
         public string? Variant { get; init; }
@@ -856,6 +864,7 @@ public static class Program
             string? nounMap = null;
             string? perform = null;
             double advance = 0;
+            float wind = 0f;
             string? glance = null;
             string? variant = null;
             int heads = 0;
@@ -954,6 +963,9 @@ public static class Program
                     case "--advance" when i + 1 < args.Length:
                         advance = double.Parse(args[++i], CultureInfo.InvariantCulture);
                         break;
+                    case "--wind" when i + 1 < args.Length:
+                        wind = float.Parse(args[++i], CultureInfo.InvariantCulture);
+                        break;
                     case "--glance" when i + 1 < args.Length:
                         glance = args[++i];
                         break;
@@ -1001,6 +1013,7 @@ public static class Program
                 NounMap = nounMap,
                 Perform = perform,
                 Advance = advance,
+                Wind = wind,
                 Glance = glance,
                 Variant = variant,
                 Heads = heads,

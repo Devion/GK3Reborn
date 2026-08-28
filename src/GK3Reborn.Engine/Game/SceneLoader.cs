@@ -280,6 +280,21 @@ public sealed class SceneLoader
     /// <summary>Where a prop has already put a modelled tree, so the room does not too.</summary>
     private readonly List<(System.Numerics.Vector3 Foot, float Radius)> _standing = [];
 
+    /// <summary>
+    /// The trees the room draws whole — leaves on a modelled bole — for the props that are
+    /// pictures of the same trees to be measured against.
+    /// </summary>
+    /// <remarks>
+    /// A scene file and a room often describe one tree twice, and only the room's copy
+    /// reaches the ground: <c>rc1_vegitation</c> is the hotel maple's bole with its leaves
+    /// on it, and <c>rc1_hoteltreeleavesff</c> is a flat <c>MAPLESIDE1</c> card of the same
+    /// tree in the same place. The prop is still what gets grown — it is the thing the
+    /// scene placed, with whatever noun and script belong to it — but it is fitted to the
+    /// <em>room's</em> box, so the tree stands on the ground instead of hanging where the
+    /// leaves were, and the room's own copy is hidden underneath it.
+    /// </remarks>
+    private readonly List<TreeSite> _trunked = [];
+
     /// <summary>Creates a loader.</summary>
     /// <param name="archives">Where to read assets from.</param>
     /// <param name="log">Optional progress sink.</param>
@@ -457,6 +472,7 @@ public sealed class SceneLoader
         // coordinates that mean something else entirely.
         _standing.Clear();
         _nearTrees.Clear();
+        _trunked.Clear();
 
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
         SceneAssetFile? asset = ReadAsset(scene, timeblock, init, diagnostics);
@@ -528,6 +544,14 @@ public sealed class SceneLoader
         }
 
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
+
+        // Which batches are leaves, before any of them are made. Only the grown trees'
+        // own cards: a 1999 tree is one picture on a quad and bending its top corners
+        // folds the whole tree over. See ISceneSink.MoveInWind.
+        if (Trees is { IsEmpty: false } foliage)
+        {
+            geometry.MoveInWind(foliage.Cards);
+        }
 
         // Decided before the room is added, because growing a wood means not drawing the
         // cards it replaces, and the cards are hidden by naming them here.
@@ -1263,6 +1287,12 @@ public sealed class SceneLoader
                 $"trees: {unreadable} left flat; the grown trees for them will not load");
         }
 
+        // The whole trees among them, for the props that are pictures of the same trees.
+        // Only the objects the budget kept: a stand that was refused still draws its own
+        // bole, and a prop fitted to it would put a modelled trunk through a 1999 one.
+        _trunked.Clear();
+        _trunked.AddRange(afforded.SelectMany(w => w.Sites).Where(s => s.Trunked));
+
         // What is left after every stand is standing, spent on the tallest trees across all
         // of them. Tallest rather than nearest, because there is no camera yet and height is
         // the only thing in the data that says which tree a room is about.
@@ -1380,6 +1410,50 @@ public sealed class SceneLoader
         }
     }
 
+    /// <summary>
+    /// The room's own measurement of a tree a prop is a picture of, where there is one.
+    /// </summary>
+    /// <param name="site">What the prop's card says about the tree.</param>
+    /// <returns>The room's site, or the card's own when the room does not draw this tree.</returns>
+    /// <remarks>
+    /// <para>
+    /// Overlapping horizontally and in height, which is the same test that decides a room's
+    /// copy is a duplicate of a prop — and it has to be, because adopting the room's site
+    /// here is what makes <see cref="AlreadyStanding"/> suppress it afterwards. The two
+    /// answers agree exactly, so the room's stand is skipped and one tree is grown.
+    /// </para>
+    /// <para>
+    /// The prop keeps its own identity: it is still the model the scene placed, under its
+    /// own name, with whatever noun and script belong to it. All it takes from the room is
+    /// how tall the tree is and where its foot is.
+    /// </para>
+    /// </remarks>
+    private TreeSite Whole(TreeSite site)
+    {
+        foreach (TreeSite room in _trunked)
+        {
+            if (!ReferenceEquals(room.Species, site.Species))
+            {
+                continue;
+            }
+
+            float apart = System.Numerics.Vector2.Distance(
+                new System.Numerics.Vector2(room.Foot.X, room.Foot.Z),
+                new System.Numerics.Vector2(site.Foot.X, site.Foot.Z));
+
+            // The card hangs above the bole rather than beside it, so the feet are compared
+            // sideways only and the crown is asked to overlap the room's tree in height.
+            if (apart < MathF.Max(MathF.Min(room.Radius, site.Radius) * 0.5f, 12f) &&
+                site.Foot.Y < room.Foot.Y + room.Height &&
+                site.Foot.Y + site.Height > room.Foot.Y)
+            {
+                return room;
+            }
+        }
+
+        return site;
+    }
+
     /// <summary>Whether a prop has already grown a tree where this site is.</summary>
     /// <remarks>
     /// <para>
@@ -1440,6 +1514,12 @@ public sealed class SceneLoader
         {
             return null;
         }
+
+        // Where the room draws the same tree whole, the room's measurement wins. A leaves
+        // card knows how far the crown spread and nothing about where the trunk stands, so
+        // a tree grown from it alone hangs in the air with its bole inside the room's — the
+        // two trunks the hotel maple used to have. See _trunked.
+        site = Whole(site);
 
         GrownTree chosen = TreeLibrary.Variant(site.Species, site.Seed);
 
@@ -1753,7 +1833,13 @@ public sealed class SceneLoader
     private sealed record TerrainMeta(int Grid, float ExtentMeters);
 
     /// <summary>One tree of the backdrop's forest, as the offline placement wrote it.</summary>
-    private readonly record struct TerrainTree(float X, float Y, float Z, float S, float R);
+    /// <remarks>
+    /// <c>K</c> is which impostor shape it is — a spruce, a broadleaf, a cypress or scrub.
+    /// A set written before the shapes existed leaves it out, and zero is the conifer every
+    /// one of its trees used to be.
+    /// </remarks>
+    private readonly record struct TerrainTree(
+        float X, float Y, float Z, float S, float R, float K);
 
     /// <summary>One part of a terrain set: the loose file first, then the packs.</summary>
     private byte[]? ReadTerrainPart(string set, string part)
@@ -1831,7 +1917,7 @@ public sealed class SceneLoader
                 return;
             }
 
-            // The forest, five floats a tree. A set without one is a set without one.
+            // The forest, six floats a tree. A set without one is a set without one.
             float[] trees = [];
             if (ReadTerrainPart(set, "trees.json") is { } treesBytes)
             {
@@ -1840,15 +1926,19 @@ public sealed class SceneLoader
 
                 if (placed is { Count: > 0 })
                 {
-                    trees = new float[placed.Count * 5];
+                    trees = new float[placed.Count * 6];
                     for (int i = 0; i < placed.Count; i++)
                     {
                         TerrainTree tree = placed[i];
-                        trees[(i * 5) + 0] = tree.X;
-                        trees[(i * 5) + 1] = tree.Y;
-                        trees[(i * 5) + 2] = tree.Z;
-                        trees[(i * 5) + 3] = tree.S;
-                        trees[(i * 5) + 4] = tree.R;
+                        trees[(i * 6) + 0] = tree.X;
+                        trees[(i * 6) + 1] = tree.Y;
+                        trees[(i * 6) + 2] = tree.Z;
+                        trees[(i * 6) + 3] = tree.S;
+                        trees[(i * 6) + 4] = tree.R;
+
+                        // A set written before the shapes existed says nothing here, and
+                        // zero is the conifer every one of its trees used to be.
+                        trees[(i * 6) + 5] = tree.K;
                     }
                 }
             }
@@ -1876,7 +1966,7 @@ public sealed class SceneLoader
             _log?.Invoke(string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"terrain: {set}, {meta.Grid}x{meta.Grid} over {meta.ExtentMeters:F0} m, " +
-                $"{trees.Length / 5} trees"));
+                $"{trees.Length / 6} trees"));
         }
         catch (Exception error) when (
             error is IOException or JsonException or Formats.FormatParseException)

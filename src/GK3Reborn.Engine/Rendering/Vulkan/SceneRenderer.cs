@@ -166,6 +166,16 @@ public sealed unsafe class SceneRenderer : IDisposable
         LightGrid = _frames.Grid;
     }
 
+    /// <summary>
+    /// Where the wind stands, in seconds, when this renders.
+    /// </summary>
+    /// <remarks>
+    /// Zero, and it stays zero unless a caller moves it. A headless render is the thing
+    /// two versions of this engine are compared with, so it renders a still afternoon by
+    /// default; <c>render-scene --wind SECONDS</c> is how the movement itself is looked at.
+    /// </remarks>
+    public float Seconds { get; set; }
+
     /// <summary>Renders geometry and returns the image.</summary>
     /// <param name="geometry">What to draw.</param>
     /// <param name="width">Image width.</param>
@@ -203,6 +213,8 @@ public sealed unsafe class SceneRenderer : IDisposable
 
         MeshPipeline pipeline = tracing ? _rayTraced! : _pipeline;
         FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
+
+        frames.Seconds = Seconds;
 
         if (tracing)
         {
@@ -759,6 +771,6 @@ public static unsafe class SceneDraw
         vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, pipeline.Handle);
 
         frames.Bind(command, pipeline, frame, camera, (float)width / height, width, height);
-        geometry.Record(command, pipeline);
+        geometry.Record(command, pipeline, frames.PreviousSeconds);
     }
 }

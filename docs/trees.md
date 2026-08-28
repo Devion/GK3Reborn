@@ -20,6 +20,10 @@ dotnet run --project tools/GK3Reborn.Tools -- render-scene --source ../GK3/Data 
     --model LHM --workspace ../ContentWorkspace --enhanced enhanced/textures \
     --output with.png
 dotnet run --project tools/GK3Reborn.Tools -- render-scene ... --no-trees --output without.png
+
+# 5. Look at the wind, by rendering the same shot at two points on its clock.
+dotnet run --project tools/GK3Reborn.Tools -- render-scene ... --wind 0   --output still.png
+dotnet run --project tools/GK3Reborn.Tools -- render-scene ... --wind 1.6 --output moved.png
 ```
 
 Everything lands in `ContentWorkspace/enhanced/trees`, outside the repository, beside the
@@ -32,7 +36,8 @@ enhanced textures. The engine finds it there; `Settings.ModelledTrees` and the v
 | --- | ---: | --- |
 | Foliage props named by scene files | 431 placements | replaced |
 | Room objects that are **only** foliage | 3,790 in 64 objects | replaced, budget permitting |
-| Room objects mixing foliage with something else | 1,887 | left flat |
+| Room objects that are foliage **on a modelled bole** | 77 objects | replaced whole, bole included |
+| Room objects mixing foliage with anything else | the rest | left flat |
 | Background strips — `TREEGROUP01`, `TILEDTREES` | the remainder | left flat |
 
 **A card is the face an artist drew, not a polygon.** Counting polygons gives 43,136, and
@@ -48,10 +53,36 @@ across the twenty-five outdoor scenes measured it contributes 24 trees, sixteen 
 BAL and two in LHE, where the room carries trees no prop does. Worth having for those, and
 not where the bulk of the foliage is.
 
-A mixed object cannot be touched, and the reason is structural rather than a lack of
-effort: a room is hidden **by object name** and there is no way to hide half of one.
-`wod_dectree01` draws its leaves on cards and its bole with `TRUNK01`, so hiding it to
-replace the leaves would take the trunk with them.
+## Leaves on a modelled bole are one tree, and the bole goes too
+
+`rc1_vegitation` is the maple standing beside the bench outside the hotel: a bole painted
+in `Woodbark`, leaf cards in `maple1trileaf`, and nothing else. `RC1_HOTELTREELEAVESFF` is
+a flat `MAPLESIDE1` card of **the same tree**, placed by the scene file a few units away.
+
+Refusing the room's object because bark is not foliage meant the room went on drawing its
+1999 trunk while the prop grew a modelled tree with a trunk of its own beside it — two
+trunks through each other, under a crown of flat cards that had not gone anywhere. That is
+the shape of the bug, and it is not one room: **77 objects across the corpus mix foliage
+with something, and 108 of those mixtures are one of four bark textures** — `NewBranch`
+38, `Woodbark` 33, `Trunk01` 26, `Trunk02` 11. What is left over is bushes and buildings,
+and those still refuse the object.
+
+So an object that is foliage and bark and nothing else is a **whole tree**. Its cards
+cluster into crowns as usual; each bole is then claimed by the crown standing over it —
+under the crown's own spread, and rising into the bottom half of it — and what replaces
+the pair is fitted to both boxes together, so the tree stands on the ground the bole stood
+on instead of hanging where the leaves were. Bark that no crown claims is somebody else's:
+a fence sharing an object with a tree keeps its wood, and the tree is still replaced.
+
+Where a scene file also places a card of the same tree, **the prop is still what gets
+grown** — it is the thing the scene placed, with whatever noun and script belong to it —
+but it is fitted to the *room's* measurement, which is the only one of the two that knows
+where the ground is. The room's own copy is then suppressed by the rule that already
+suppressed it, because the two answers are now identical.
+
+An object that mixes foliage with a wall still cannot be touched, and the reason is what
+it always was: what would have to be drawn in the wall's place cannot be worked out from
+here.
 
 ## One card, however it was cut
 
@@ -93,8 +124,12 @@ broadleaf under three conventions, and all three draw `TREE00`.
 | `spruce` | `PINE2`, `PINE2FLAT`, `TALLPINE`, `ARMPINE`, `TREE03`–`TREE05` | crown only |
 | `cypress` | `TREE06` | crown only |
 | `broadleaf` | `TREE00`, `TREE01`, `TREE02`, `BUSHYTREESIDE1/TOP1` | whole tree |
-| `maple` | `MAPLESIDE1`, `MAPLETOP1`, `MAPLE` | whole tree |
+| `maple` | `MAPLESIDE1`, `MAPLETOP1`, `MAPLE`, `maple1trileaf` | whole tree |
 | `darkbroadleaf` | `WOODTREE3`, `MAGENTREE` | whole tree |
+
+`maple1trileaf` is in that table under `maple`, and it is worth naming: it is leaves on
+real geometry rather than on a card, and it is what the rooms paint their modelled maples
+with — RC1's hotel tree, CEM's three, RC2's and RC4's. Twenty-two objects draw it.
 
 **The conifers are grown as a crown and not as a tree**, and that is what removes the need
 to know where the ground is. `PINE2` is a *leaves* card: the rooms that place it draw the
@@ -141,11 +176,15 @@ inside it, which is the part that stops being visible first.
 
 | | near | far |
 | --- | ---: | ---: |
-| spruce | 3,900 | 900 |
-| cypress | 4,200 | 1,150 |
-| broadleaf | 9,000 | 2,500 |
-| maple | 8,200 | 2,800 |
-| darkbroadleaf | 8,500 | 3,200 |
+| spruce | 10,100 | 920 |
+| cypress | 11,200 | 1,120 |
+| broadleaf | 19,400 | 2,790 |
+| maple | 16,200 | 2,520 |
+| darkbroadleaf | 18,900 | 3,050 |
+
+The near figures roughly doubled when the leaves became bowed patches rather than quads,
+and the far figures did not move: a far tree is grown flat, because four times the
+triangles for a curve across a clump is four times nothing at a hundred metres.
 
 A room grows every stand it can afford at the far detail — all of an object or none of it,
 since a room is hidden by name — and spends what is left raising the **tallest** trees to
@@ -158,12 +197,17 @@ Measured on the reference installation, with everything else enhanced:
 
 | room | trees grown | of those, from the room | triangles, flat → grown |
 | --- | ---: | ---: | --- |
-| CSD | 37 | 5 | 7,177 → 200,793 |
-| LHM | 33 | 1 | 5,853 → 156,021 |
-| RC4 | 28 | 0 | — → 148,235 |
-| PL1 | 26 | 0 | — → 128,139 |
-| BAL | 22 | 16 | — → 168,835 |
-| WOD | 18 | 0 | 9,561 → 88,653 |
+| CSD | 38 | 6 | 1,840,950 → 2,230,742 |
+| WOD | 36 | 18 | 1,872,674 → 2,245,001 |
+| LHM | 34 | 2 | 1,812,015 → 2,204,285 |
+| RC4 | 30 | 2 | 1,834,499 → 2,158,769 |
+| PL1 | 27 | 1 | 1,778,078 → 2,096,052 |
+| BAL | 24 | 16 | 101,689 → 402,153 |
+
+Those totals are the whole scene, floor displacement included, which is why they are
+millions: the wood itself is the difference, between three and four hundred thousand
+triangles. A tree costs about twice what it did before the leaves were bowed, and the
+budget still has room in every room in the game.
 
 ## Packing
 
@@ -189,7 +233,7 @@ dotnet run --project tools/GK3Reborn.Tools -- pack-content --workspace ../Conten
 `--only` exists because filtering by *kind* cannot reach the trees on their own: any filter
 that catches them also drags in every enhanced texture in the game, and re-encoding six
 thousand of those to check that a tree packed is an hour. Packed on their own the trees are
-**42 entries and 11.7 MB** — 35 GLBs, 5 cards, 2 manifests.
+**42 entries and 24.1 MB** — 35 GLBs, 5 cards, 2 manifests. It was half that before the leaves were bowed and the cards grew their occlusion tiles.
 
 The cards go through the ordinary texture encoder on purpose. Packed as `Texture` under
 their own names, the scene loader finds `RBN_SPRUCE_SPRAY` through the compressed-texture
@@ -222,7 +266,8 @@ holding the manifest but no geometry, WOD draws **9,561 triangles**. With the fu
 
 ## The foliage is drawn, and its colour is measured
 
-`tools/foliage/make_cards.py` writes one RGBA card per species. **It is not a crop of the
+`tools/foliage/make_cards.py` writes one RGBA card per species — four of it, in fact,
+tiled two by two at four brightnesses; see *A crown is a volume*. **It is not a crop of the
 original sprite**, and the first attempt at this proved why: a GK3 tree sprite is a whole
 tree seen from one side, so a rectangle cut out of the middle of it is almost entirely
 opaque. Every card rendered as a solid green box with a hard edge and a spruce built from
@@ -251,17 +296,90 @@ trees were changed.
 The cards ship in `enhanced/trees` and the loader looks there before the archives, because
 `RBN_SPRUCE_SPRAY` is a new bitmap rather than a better version of an old one.
 
-## Leaf cards are lit as a mass, not as quads
+## A crown is a volume, and it took four things to stop being a heap of stickers
+
+The first modelled trees read as *sprites on a stick*: flat green plates at hard angles,
+with a flicker running through the crown whenever the camera moved. Four changes between
+them are what turned that into a mass of leaves, and each is worth its cost for a different
+reason.
+
+**A leaf is bowed, not flat.** Every clump is a three-by-three patch pushed out along its
+own normal into a shallow dome or saddle. It catches light across itself rather than all at
+once, which is what a flat card can never do — and because no two bowed patches can lie in
+the same plane, it is also what stopped the flicker.
+
+**The flicker was coplanar cards, and they were coplanar by construction.** The old code
+built a clump's frame from the twig it hung on: its long axis along the branch, its other
+axis at right angles to that, spun about the branch. So every clump on one twig lay in a
+plane *containing* that twig, and two of them a half turn apart at the same point on the
+branch were exactly coplanar, drawn over each other, fighting for the same depth. A leaf
+now faces where it is asked to face — out of the crown — with the spread and the roll drawn
+independently, so two leaves cannot share a plane however they land.
+
+**Leaves face out of the crown rather than along the twig.** Facing along the twig points
+half of them back into the tree. Facing outward gives the mass a shell that catches the
+light and an inside that does not, which is most of what makes a crown read as a volume.
+
+**Occlusion is baked into the picture, because there is nowhere else to put it.** A crown
+is dark at its heart and bright at its shell. The engine's vertex is position, normal and
+one texture coordinate, and widening it costs eight bytes on every vertex of every room —
+so `make_cards.py` draws each card **four times over at four brightnesses, tiled two by
+two**, and the generator gives each leaf the tile its own occlusion earned. What is
+measured is sky rather than density: for every leaf, the neighbours standing between it and
+the sky, counted by how directly overhead each one is. A leaf on top of the crown has
+nothing above it; one in the heart has forty clumps over it; and the underside of the
+canopy darkens on its own, which plain density never gives, because a leaf on the bottom of
+a crown has as many neighbours as one on the top. Four steps is not crude: the gradient a
+crown needs is between its shell and its heart, and inside one twelve-centimetre clump
+there is nothing to resolve.
+
+The occlusion factors are centred rather than capped at one — 1.15, 0.92, 0.72, 0.55 —
+because the shell of a crown catches more light than the flat card ever did, and a set that
+only darkens comes out duller than the sprite it replaces. Weighted by how many leaves land
+in each tile, the atlas still averages to the sprite's own colour, which is the measure
+that matters.
+
+## Leaf cards are lit as a mass, with the clumps still showing in it
 
 A leaf card's own normal is the wrong answer twice over. Nothing is back-face culled, so
 half the cards in any crown are seen from behind and would shade as though lit from the far
-side; and a crown of two hundred flat quads at two hundred angles reads as a heap of litter
-rather than as one mass with a lit side and a shaded one.
+side; and a crown of a thousand quads at a thousand angles reads as a heap of litter rather
+than as one mass with a lit side and a shaded one.
 
 `grow_trees.py` writes custom split normals pointing **out of the crown centre**, with a
 little upwards in the mix so the underside is shaded rather than black. It is the trick
 every foliage shader has used since trees stopped being sprites and it costs nothing at
 run time.
+
+Taking the crown's normal and *nothing else*, though, makes the mass so smooth that the
+clumps inside it disappear and a broadleaf comes out as a green sphere. So each patch keeps
+a share — a little under half — of its own bowed normal, flipped where it faces into the
+tree. The crown has clumps in it again without losing its shape.
+
+## Foliage moves
+
+The leaves of a grown tree sway, and nothing else in the game does.
+
+The displacement is applied in the model's own space, *before* the transform that places
+the tree. A grown tree is normalised — base at the origin, exactly one unit tall — so how
+far up its own height a leaf sits is the whole of what the shader needs, and one amplitude
+moves a four-hundred-unit maple and an eighty-unit shrub by the right amount each. Two
+waves at frequencies that do not divide into each other, so a crown breathes rather than
+metronomes; the phase comes from where the tree stands, which the transform already
+carries, so a stand of forty trees does not beat in time.
+
+Two things are deliberately left still. **The 1999 cards**, because a flat tree is one
+picture on a quad crossed at the trunk and swaying its top corners folds the whole tree
+over like a reed. And **bark**, because a grown trunk is opaque and is therefore in the
+ray-tracing acceleration structure, where it does not sway: a bole that moved on screen and
+stood still for the shadow rays would cast a shadow from where it used to be.
+
+The clock is the renderer's own — a paused game, a menu, a line of dialogue waiting all
+leave the trees moving, and nothing that reads it can affect anything the story can see. A
+**headless render leaves it at zero**, so two renders of one room are still the same
+picture, which is the basis on which everything here is compared. `render-scene --wind
+SECONDS` is how the movement itself is looked at: render the same shot at two values and
+diff them, and what has moved is the crowns and nothing else.
 
 ## What this needed from the engine
 
@@ -279,18 +397,20 @@ since a grown tree has to stand where the card it replaces stood.
 
 ## What this does not do
 
-**Nothing sways.** There is no wind and no vertex animation on foliage.
-
 **No dynamic level of detail.** Near and far are decided once, at load, by height. A tree
 the player walks up to is whatever the room decided it was.
 
 **Trees still do not cast ray-traced shadows** — alpha-tested geometry is left out of the
 acceleration structure, as it always was. The one thing that changed is that a grown
-broadleaf's **bark is opaque**, so its trunk is traced and does cast one.
+broadleaf's **bark is opaque**, so its trunk is traced and does cast one. The wind does not
+reach the bark for the same reason: see *Foliage moves*.
 
-**The mixed objects and every background strip stay flat** — 1,887 drawn cards, a third of
-what the rooms hold. Handling them needs surface-level rather than object-level hiding, and
-that is a change to `AddScene`.
+**A tree that sways does not sway its shadow.** The baked lightmap under it was authored
+against a still tree and stays where it is.
+
+**The background strips and the objects that mix foliage with masonry stay flat.** Bark is
+now taken with the leaves it carries, which was the large half of what was left; a wall is
+not, and cannot be.
 
 **Five species is not five species of tree.** It is five silhouettes fitted to eighteen
 sprites. `TREE01` and `TREE02` are drawn as the same broadleaf; nobody has looked at a

@@ -93,6 +93,10 @@ public sealed class ClipPlaybackTests
         {
         }
 
+        public void MoveInWind(IReadOnlySet<string> textures)
+        {
+        }
+
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,

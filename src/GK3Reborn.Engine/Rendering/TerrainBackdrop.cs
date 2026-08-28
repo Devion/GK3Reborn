@@ -69,6 +69,13 @@ public sealed record TerrainBackdrop
     /// </remarks>
     public required Vector3 AnchorUnits { get; init; }
 
-    /// <summary>The forest: five floats per tree — x, y, z, scale, yaw — in metres.</summary>
+    /// <summary>
+    /// The forest: six floats per tree — x, y, z, scale, yaw, and which shape — in metres.
+    /// </summary>
+    /// <remarks>
+    /// The shape is an index into the renderer's impostors: a spruce, a broadleaf, a
+    /// cypress and scrub. It is the last of the six because it was the last to exist, and
+    /// a set written before it says zero, which is the conifer every tree used to be.
+    /// </remarks>
     public float[] Trees { get; init; } = [];
 }

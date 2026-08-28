@@ -52,6 +52,14 @@ public sealed record TreeSpecies
     /// <summary>The original sprites this species replaces.</summary>
     public required IReadOnlyList<string> Sprites { get; init; }
 
+    /// <summary>The bitmap its leaves are painted with: <c>RBN_MAPLE_CLUMP</c>.</summary>
+    /// <remarks>
+    /// Drawn for this rather than shipped with the game, and it is the one thing that
+    /// tells a batch of leaves from a batch of anything else once the tree has become
+    /// geometry. That is what <see cref="Rendering.ISceneSink.MoveInWind"/> is given.
+    /// </remarks>
+    public required string Card { get; init; }
+
     /// <summary>The variants grown for it, in name order.</summary>
     public required IReadOnlyList<GrownTree> Variants { get; init; }
 
@@ -151,6 +159,13 @@ public sealed class TreeLibrary
     /// <summary>The species, in name order.</summary>
     public IReadOnlyList<TreeSpecies> Species =>
         [.. _species.Values.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>The leaf bitmaps of every species here, which is what moves in the wind.</summary>
+    public IReadOnlySet<string> Cards =>
+        _species.Values
+            .Select(s => Path.GetFileNameWithoutExtension(s.Card))
+            .Where(c => c.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Indexes a directory of grown trees and the manifest beside them.</summary>
     /// <param name="directory">Where they are.</param>
@@ -264,6 +279,7 @@ public sealed class TreeLibrary
                 Name = name,
                 Canopy = described.Canopy,
                 Sprites = described.Sprites ?? [],
+                Card = described.Card ?? string.Empty,
                 Variants = variants,
             };
 
@@ -388,6 +404,9 @@ public sealed class TreeLibrary
 
         [JsonPropertyName("sprites")]
         public List<string>? Sprites { get; init; }
+
+        [JsonPropertyName("card")]
+        public string? Card { get; init; }
     }
 
     private sealed record TreeManifestTree

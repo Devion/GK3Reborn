@@ -48,7 +48,7 @@ internal static class MeshShaders
             // shadowed lights, occlusion rays, rays per shadow, how much the bake counts
             vec4 rays;
 
-            // occlusion radius, unused, and the viewport in pixels
+            // occlusion radius, the clock in seconds, and the viewport in pixels
             vec4 tuning;
 
             // xyz where the light grid starts, w how wide one of its cells is
@@ -80,6 +80,16 @@ internal static class MeshShaders
             // z specular reflectance at normal incidence, w how much of the normal map to
             // believe. A map multiplies the first two rather than replacing them.
             vec4 material;
+
+            // How this batch moves in the wind: x how far, as a fraction of the model's own
+            // height, y how fast, and z the clock as it stood a frame ago. Zero for
+            // everything that is not foliage, which is almost everything.
+            //
+            // The old clock is here rather than in the frame block because it is only ever
+            // wanted beside the other two: it is what lets a swaying leaf report its own
+            // movement to the temporal filter instead of reporting none, and a leaf that
+            // claims to have been still is a leaf the filter smears.
+            vec4 wind;
         } draw;
         """;
 
@@ -105,9 +115,40 @@ internal static class MeshShaders
         layout(location = 4) out vec4 outClip;
         layout(location = 5) out vec4 outPreviousClip;
 
+        // Where a leaf has drifted to, in the model's own space.
+        //
+        // Two things make this cheap enough to do on every vertex of a wood. The sway is
+        // applied *before* the model transform, so it is in units of the tree's own height
+        // and a grown tree — base at the origin, exactly one unit tall — needs no constant
+        // of its own to be moved by the right amount whether it is forty units high or four
+        // hundred. And the phase comes from where the tree stands, which the transform
+        // already carries, so a stand of forty trees does not beat in time.
+        //
+        // Two waves rather than one, at frequencies that do not divide into each other, so
+        // a crown breathes rather than metronomes. The lower a leaf hangs the less it
+        // travels, which is what makes the movement read as a tree bending rather than as a
+        // texture sliding.
+        vec3 Sway(vec3 position, float seconds)
+        {
+            if (draw.wind.x <= 0.0)
+            {
+                return position;
+            }
+
+            float held = clamp(position.y, 0.0, 1.0);
+            float reach = draw.wind.x * held * held;
+            float phase = dot(draw.model[3].xyz, vec3(0.021, 0.017, 0.013));
+            float at = (seconds * draw.wind.y) + phase;
+
+            return position + vec3(
+                (sin(at) + (0.35 * sin(at * 2.7))) * reach,
+                sin(at * 1.9) * reach * 0.18,
+                (cos(at * 0.83) + (0.30 * cos(at * 2.3))) * reach * 0.7);
+        }
+
         void main()
         {
-            vec4 world = draw.model * vec4(inPosition, 1.0);
+            vec4 world = draw.model * vec4(Sway(inPosition, frame.tuning.y), 1.0);
             vec4 clip = frame.viewProjection * world;
 
             gl_Position = clip;
@@ -119,7 +160,7 @@ internal static class MeshShaders
 
             outPreviousClip =
                 frame.previousViewProjection *
-                (draw.previousModel * vec4(inPreviousPosition, 1.0));
+                (draw.previousModel * vec4(Sway(inPreviousPosition, draw.wind.z), 1.0));
         }
         """;
 

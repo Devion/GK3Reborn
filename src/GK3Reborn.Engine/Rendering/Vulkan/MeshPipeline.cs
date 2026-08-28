@@ -70,8 +70,13 @@ public readonly record struct FrameUniforms(
 /// The surface's finish where no map says otherwise: x roughness, y metalness,
 /// z specular reflectance at normal incidence, w how much of the normal map to believe.
 /// </param>
+/// <param name="Wind">
+/// How this batch moves: x how far a leaf at the top of it travels, as a fraction of the
+/// model's own height, y how fast, z the clock as it stood a frame ago. All zero for
+/// everything that is not foliage, which is almost everything in the game.
+/// </param>
 /// <remarks>
-/// A hundred and sixty bytes, which is past the hundred and twenty-eight Vulkan
+/// A hundred and seventy-six bytes, which is past the hundred and twenty-eight Vulkan
 /// guarantees. Every desktop driver this renderer has run on offers 256, and the two
 /// matrices alone were already past the floor — but it is the number to look at first if
 /// a device ever refuses the pipeline layout, and the fix is a uniform buffer rather than
@@ -79,7 +84,11 @@ public readonly record struct FrameUniforms(
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct DrawConstants(
-    Matrix4x4 Model, Matrix4x4 PreviousModel, Vector4 Shading, Vector4 Material);
+    Matrix4x4 Model,
+    Matrix4x4 PreviousModel,
+    Vector4 Shading,
+    Vector4 Material,
+    Vector4 Wind);
 
 /// <summary>
 /// A textured, lit mesh pipeline, optionally with ray tracing compiled in.

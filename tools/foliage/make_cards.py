@@ -37,6 +37,23 @@ except ImportError:  # pragma: no cover - the message is the whole point
 # generator hangs it: u follows the branch out from the trunk, v crosses it.
 SIZE = 256
 
+# The same card at four depths inside a crown, laid out two by two.
+#
+# A crown is dark at its heart and bright at its shell, and that gradient is most of what
+# makes a mass of leaves read as a volume rather than as a heap of stickers. There is
+# nowhere to put a per-leaf occlusion in the engine's vertex - position, normal and one
+# texture coordinate is the whole of it, and widening that costs eight bytes on every
+# vertex of every room - so the occlusion is baked into the picture instead and the
+# generator picks the tile each leaf has earned. It costs one mip level of resolution and
+# nothing at run time.
+#
+# The factors are centred rather than capped at one: the shell of a crown catches more
+# light than the flat card ever did, and a set that only darkens comes out as a duller tree
+# than the sprite it replaces. Weighted by how many leaves land in each tile, the atlas
+# still averages to the sprite's own colour, which is the measure that matters.
+AO_LEVELS = [1.15, 0.92, 0.72, 0.55]
+ATLAS = 2                       # tiles per side; ATLAS * ATLAS must cover AO_LEVELS
+
 CARDS = {
     "spruce": {
         "texture": "RBN_SPRUCE_SPRAY",
@@ -297,6 +314,28 @@ def finish(card):
     return Image.merge("RGBA", (red, green, blue, softened))
 
 
+def atlas(card):
+    """The card at every occlusion level, tiled into one texture.
+
+    Row-major from the top left, which is the order ``AO_LEVELS`` is written in and the
+    order ``grow_trees.py`` indexes. Alpha is the same in every tile - occlusion changes
+    how much light a leaf gets, not what shape it is - so the mip chain blurring one tile
+    into the next only ever averages two brightnesses of the same leaves, which is what a
+    tree seen from far enough away should look like anyway.
+    """
+    sheet = Image.new("RGBA", (SIZE * ATLAS, SIZE * ATLAS), (0, 0, 0, 0))
+    red, green, blue, alpha = card.split()
+
+    for index, factor in enumerate(AO_LEVELS):
+        shaded = Image.merge("RGBA", tuple(
+            channel.point(lambda v, f=factor: min(255, int(v * f)))
+            for channel in (red, green, blue)) + (alpha,))
+
+        sheet.paste(shaded, ((index % ATLAS) * SIZE, (index // ATLAS) * SIZE))
+
+    return sheet
+
+
 def coverage(card):
     """What fraction of the card the shader will keep."""
     alpha = card.split()[3]
@@ -343,7 +382,7 @@ def main(argv=None):
             drawn = leaf_clump(rng, colours, maple=card["kind"] == "maple")
 
         drawn = match(finish(drawn), mean_colour(sprite))
-        drawn.save(os.path.join(out, card["texture"] + ".PNG"))
+        atlas(drawn).save(os.path.join(out, card["texture"] + ".PNG"))
 
         record = {
             "species": species,
@@ -351,6 +390,8 @@ def main(argv=None):
             "source": card["source"],
             "kind": card["kind"],
             "size": SIZE,
+            "atlas": ATLAS,
+            "aoLevels": AO_LEVELS,
             "colours": len(colours[0]),
             "sourceColour": [round(c, 1) for c in mean_colour(sprite)],
             "coverage": round(coverage(drawn), 4),

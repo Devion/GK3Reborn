@@ -324,6 +324,26 @@ public interface ISceneSink
     /// </remarks>
     void ReliefEverywhere(IReadOnlySet<string> textures);
 
+    /// <summary>Says which textures are foliage, and so move in the wind.</summary>
+    /// <param name="textures">The colour texture names.</param>
+    /// <remarks>
+    /// <para>
+    /// The leaf cards of the grown trees and nothing else. It is deliberately not every
+    /// foliage bitmap in the game: a 1999 tree is one picture on one quad crossed at the
+    /// trunk, and swaying its top corners bends the whole tree over like a reed. A grown
+    /// tree is normalised — its base at the origin, exactly one unit tall — so how far up
+    /// its own height a leaf sits is the whole of what the shader needs to move it
+    /// correctly, whatever size the room stood it at.
+    /// </para>
+    /// <para>
+    /// Bark is left out on purpose as well, and for a reason that is not aesthetic: a
+    /// grown trunk is opaque and is therefore in the acceleration structure, where it does
+    /// not sway. A bole that moved on screen and stood still for the shadow rays would cast
+    /// a shadow from where it used to be.
+    /// </para>
+    /// </remarks>
+    void MoveInWind(IReadOnlySet<string> textures);
+
     /// <summary>
     /// Draws one of the room's own named objects, or stops drawing it.
     /// </summary>

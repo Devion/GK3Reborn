@@ -25,7 +25,6 @@ public sealed unsafe class FrameUniformSet : IDisposable
     private readonly DescriptorSet[] _sets;
     private readonly bool _rayTracing;
     private DescriptorPool _pool;
-    private int _frameCounter;
     private Matrix4x4? _previousViewProjection;
 
     private FrameUniformSet(
@@ -70,6 +69,27 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
     /// <summary>How much ray tracing the shader is asked to do.</summary>
     public RayTracingSettings Settings { get; set; } = RayTracingSettings.For(RayTracingQuality.None);
+
+    /// <summary>
+    /// The clock the wind runs on, in seconds since the renderer started.
+    /// </summary>
+    /// <remarks>
+    /// Set by whoever draws the frame rather than read from a clock here, because the two
+    /// callers want different things from it. A window runs it forward and the foliage
+    /// moves; a headless render leaves it where the caller put it — zero unless asked
+    /// otherwise — so that two renders of the same room are still the same picture, which
+    /// is the whole basis on which this project compares them.
+    /// </remarks>
+    public float Seconds { get; set; }
+
+    /// <summary>The same clock as it stood a frame ago, for the motion vectors.</summary>
+    /// <remarks>
+    /// Updated by <see cref="Bind"/>, so it is the previous frame's value for as long as
+    /// this frame's draws are being recorded — which is exactly when the foliage needs it.
+    /// </remarks>
+    public float PreviousSeconds { get; private set; }
+
+    private float? _wasAt;
 
     /// <summary>How many frames it covers.</summary>
     public int Count => _sets.Length;
@@ -409,6 +429,11 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
         _previousViewProjection = viewProjection;
 
+        // The same argument for the clock as for the matrix above: on the first frame there
+        // is no earlier one, and its own value is the honest answer.
+        PreviousSeconds = _wasAt ?? Seconds;
+        _wasAt = Seconds;
+
         var uniforms = new FrameUniforms(
             viewProjection,
             previous,
@@ -421,9 +446,12 @@ public sealed unsafe class FrameUniformSet : IDisposable
                 settings.LightmapIndirect),
 
             // The viewport in pixels, so the motion vectors come out in pixels rather than
-            // in a normalised space nobody can read.
+            // in a normalised space nobody can read — and the clock, which only the foliage
+            // reads. It used to be a frame counter seeding the sampling noise; that made
+            // the grain change every frame, which with no temporal filter to average it is
+            // a pattern crawling across the picture, and nothing has read it since.
             new Vector4(
-                settings.AmbientOcclusionRadius, _frameCounter++ % 64, width, height),
+                settings.AmbientOcclusionRadius, Seconds, width, height),
 
             // Where the light grid starts and how it is divided, so a fragment can work
             // out which cell it stands in. Constant for as long as a room is loaded.

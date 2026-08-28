@@ -11,8 +11,24 @@ namespace GK3Reborn.Game;
 /// <param name="Height">How tall it has to come out, in scene units.</param>
 /// <param name="Radius">How far the card reached from its centre, in scene units.</param>
 /// <param name="Seed">Something stable about the place, for choosing a variant.</param>
+/// <param name="Trunked">
+/// Whether the room drew this tree's bole as well as its leaves, so that the site covers a
+/// whole tree from the ground up rather than a crown hanging in the air.
+/// </param>
+/// <remarks>
+/// <see cref="Trunked"/> is what settles an argument between a room and a scene file that
+/// describe the same tree. RC1 draws the hotel maple twice: <c>rc1_vegitation</c> carries a
+/// modelled bole with leaf cards on it, and <c>rc1_hoteltreeleavesff</c> is a flat
+/// <c>MAPLESIDE1</c> card of the same tree standing in the same place. Only the room's copy
+/// knows where the ground is, so it is the one that gets grown and the prop is put away.
+/// </remarks>
 public readonly record struct TreeSite(
-    TreeSpecies Species, Vector3 Foot, float Height, float Radius, int Seed);
+    TreeSpecies Species,
+    Vector3 Foot,
+    float Height,
+    float Radius,
+    int Seed,
+    bool Trunked = false);
 
 /// <summary>
 /// Finds the trees hiding in a scene's flat foliage cards.
@@ -57,6 +73,35 @@ public static class Foliage
         "FULLTREE01", "FULLTREE01ENDS", "FULLTREE02", "FULLTREE02ENDS",
         "COUMETREES", "HOMMETREES", "HOMMETREES2", "MORTTREES",
         "RC1TREES2", "RC2TREESA", "RC2TREESB", "RC2TREESC", "ARMTREEFLD",
+    };
+
+    /// <summary>
+    /// The bitmaps a modelled bole or limb is painted with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Four textures, and between them they are what used to make a tree untouchable.
+    /// <c>rc1_vegitation</c> is a maple: a bole in <c>Woodbark</c>, leaf cards in
+    /// <c>maple1trileaf</c>, and nothing else. Refusing it because the bark is not foliage
+    /// left the room drawing a 1999 trunk while the scene file's card of the same tree grew
+    /// a modelled one beside it — two trunks through each other, which is the shape of the
+    /// bug this list removes.
+    /// </para>
+    /// <para>
+    /// Measured rather than guessed: across the corpus, 77 objects mix foliage with
+    /// something else and <b>108 of those mixtures are one of these four</b> —
+    /// <c>NewBranch</c> 38, <c>Woodbark</c> 33, <c>Trunk01</c> 26, <c>Trunk02</c> 11. What
+    /// is left over is bushes and buildings, and those still refuse the object.
+    /// </para>
+    /// <para>
+    /// Bark alone says nothing. A surface is only taken away when a <em>crown of leaves
+    /// stands over it</em> — see <see cref="Claims"/> — so a fence or a telegraph pole in
+    /// the same object as a tree keeps its wood.
+    /// </para>
+    /// </remarks>
+    private static readonly HashSet<string> Barks = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "TRUNK01", "TRUNK02", "WOODBARK", "NEWBRANCH",
     };
 
     /// <summary>The smallest card worth replacing, in scene units.</summary>
@@ -143,8 +188,10 @@ public static class Foliage
     /// <param name="species">The species the card was a picture of.</param>
     /// <param name="least">Lower corner of the card's box.</param>
     /// <param name="most">Upper corner of the card's box.</param>
+    /// <param name="trunked">Whether the box includes a bole the room drew for itself.</param>
     /// <returns>The site, or null when the box is too small or too flat to be a tree.</returns>
-    public static TreeSite? Site(TreeSpecies species, Vector3 least, Vector3 most)
+    public static TreeSite? Site(
+        TreeSpecies species, Vector3 least, Vector3 most, bool trunked = false)
     {
         ArgumentNullException.ThrowIfNull(species);
 
@@ -170,7 +217,7 @@ public static class Foliage
             (int)MathF.Round(height / 8f),
             species.Name);
 
-        return new TreeSite(species, foot, height, radius, seed & int.MaxValue);
+        return new TreeSite(species, foot, height, radius, seed & int.MaxValue, trunked);
     }
 
     /// <summary>A hash that is the same in every process, which is the whole point of it.</summary>
@@ -247,11 +294,13 @@ public static class Foliage
     /// where the bulk of the foliage is.
     /// </para>
     /// <para>
-    /// <b>Only objects that are nothing but foliage.</b> An object that mixes cards with
-    /// something else cannot be taken away, because a room is hidden by name and there is
-    /// no way to hide half of one: <c>wod_dectree01</c> draws its leaves on cards and its
-    /// bole with <c>TRUNK01</c>, and hiding it to replace the leaves would take the trunk
-    /// with them. 96 objects are mixed like that and they keep their cards.
+    /// <b>Foliage, bark, and nothing else.</b> An object holding a wall or a gravestone as
+    /// well is refused whole, because what it draws in place of the cards cannot be worked
+    /// out from here. Bark is the exception and it is the important one: an object that is
+    /// leaves on a modelled bole is a <em>whole tree</em>, and the tree that replaces it
+    /// stands on the ground the bole stood on rather than hanging where the leaves were.
+    /// Only bark with a crown of leaves over it is taken — see <see cref="Claims"/> — so a
+    /// fence sharing an object with a tree keeps its wood and the tree is still replaced.
     /// </para>
     /// <para>
     /// <b>A card is a surface, never a polygon.</b> A room's geometry has been through a BSP
@@ -281,7 +330,7 @@ public static class Foliage
         // The drawn face each polygon came off, put back together. Bounds only: what a tree
         // needs from a card is where it is and how big it was, and the polygons are the
         // same face however the splitter divided it.
-        var pieces = new Dictionary<int, (Vector3 Least, Vector3 Most)>();
+        var pieces = new Dictionary<int, (Vector3 Least, Vector3 Most, bool Bark)>();
         var refused = new HashSet<int>();
 
         foreach (BspPolygon polygon in scene.Polygons)
@@ -300,18 +349,28 @@ public static class Foliage
             }
 
             // One surface of something else disqualifies the whole object, and the check has
-            // to see all of them before any of it is used. A backdrop strip is not
-            // "something else": it stays drawn where it is and says nothing about whether
-            // the trees beside it can be replaced.
+            // to see all of them before any of it is used. Two things are not "something
+            // else": a backdrop strip, which stays drawn where it is and says nothing about
+            // whether the trees beside it can be replaced, and bark, which is the tree's own
+            // bole and is measured along with its leaves.
+            bool bark = false;
+
             if (trees.For(surface.TextureName) is null)
             {
-                if (!Backdrops.Contains(
-                        Path.GetFileNameWithoutExtension(surface.TextureName)))
+                string plain = Path.GetFileNameWithoutExtension(surface.TextureName);
+
+                if (Backdrops.Contains(plain))
                 {
-                    refused.Add(owner);
+                    continue;
                 }
 
-                continue;
+                if (!Barks.Contains(plain))
+                {
+                    refused.Add(owner);
+                    continue;
+                }
+
+                bark = true;
             }
 
             var least = new Vector3(float.MaxValue);
@@ -341,30 +400,35 @@ public static class Foliage
             }
 
             pieces[polygon.SurfaceIndex] = pieces.TryGetValue(
-                polygon.SurfaceIndex, out (Vector3 Least, Vector3 Most) already)
-                ? (Vector3.Min(already.Least, least), Vector3.Max(already.Most, most))
-                : (least, most);
+                polygon.SurfaceIndex, out (Vector3 Least, Vector3 Most, bool Bark) already)
+                ? (Vector3.Min(already.Least, least), Vector3.Max(already.Most, most), bark)
+                : (least, most, bark);
         }
 
         var cards = new Dictionary<int, List<Card>>();
+        var boles = new Dictionary<int, List<Card>>();
 
-        foreach ((int index, (Vector3 least, Vector3 most)) in pieces)
+        foreach ((int index, (Vector3 least, Vector3 most, bool bark)) in pieces)
         {
             BspSurface surface = scene.Surfaces[index];
 
-            if (refused.Contains(surface.ObjectIndex) ||
-                trees.For(surface.TextureName) is not { } species)
+            if (refused.Contains(surface.ObjectIndex))
             {
                 continue;
             }
 
-            if (!cards.TryGetValue(surface.ObjectIndex, out List<Card>? owned))
+            if (bark)
             {
-                owned = [];
-                cards[surface.ObjectIndex] = owned;
+                Owned(boles, surface.ObjectIndex).Add(new Card(null, least, most, index));
+                continue;
             }
 
-            owned.Add(new Card(species, least, most, index));
+            if (trees.For(surface.TextureName) is not { } species)
+            {
+                continue;
+            }
+
+            Owned(cards, surface.ObjectIndex).Add(new Card(species, least, most, index));
         }
 
         List<FoliageObject> found = [];
@@ -376,7 +440,44 @@ public static class Foliage
                 continue;
             }
 
-            List<TreeSite> sites = Cluster(owned);
+            List<Crown> crowns = Cluster(owned);
+
+            // The boles under those crowns, and only those. A bark surface with no leaves
+            // over it is somebody else's — a fence, a telegraph pole, the wooden frame of a
+            // sign — and it stays exactly where it is.
+            List<int> hidden = [.. owned.Select(c => c.Surface).Distinct()];
+
+            if (boles.TryGetValue(owner, out List<Card>? wood))
+            {
+                foreach (Card bole in wood)
+                {
+                    int claimed = Claims(crowns, bole);
+
+                    if (claimed < 0)
+                    {
+                        continue;
+                    }
+
+                    crowns[claimed] = crowns[claimed] with
+                    {
+                        Least = Vector3.Min(crowns[claimed].Least, bole.Least),
+                        Most = Vector3.Max(crowns[claimed].Most, bole.Most),
+                        Trunked = true,
+                    };
+
+                    hidden.Add(bole.Surface);
+                }
+            }
+
+            List<TreeSite> sites = [];
+
+            foreach (Crown crown in crowns)
+            {
+                if (Site(crown.Species, crown.Least, crown.Most, crown.Trunked) is { } site)
+                {
+                    sites.Add(site);
+                }
+            }
 
             if (sites.Count > 0)
             {
@@ -385,7 +486,7 @@ public static class Foliage
                     sites,
                     owned.Count,
                     sites.Sum(s => TreeLibrary.Variant(s.Species, s.Seed).Triangles),
-                    [.. owned.Select(c => c.Surface).Distinct()]));
+                    hidden));
             }
         }
 
@@ -394,12 +495,85 @@ public static class Foliage
         return [.. found.OrderByDescending(f => f.Cards)];
     }
 
-    /// <summary>One drawn face of a room's foliage, before its tree is known.</summary>
+    /// <summary>One drawn face of a room's foliage or bark, before its tree is known.</summary>
+    /// <remarks>The species is null for bark, which belongs to whichever crown stands over it.</remarks>
     private readonly record struct Card(
-        TreeSpecies Species, Vector3 Least, Vector3 Most, int Surface);
+        TreeSpecies? Species, Vector3 Least, Vector3 Most, int Surface);
+
+    /// <summary>One tree's worth of cards, gathered but not yet measured.</summary>
+    private record struct Crown(
+        TreeSpecies Species, Vector3 Least, Vector3 Most, bool Trunked);
+
+    /// <summary>The list an object's cards go in, made on first use.</summary>
+    private static List<Card> Owned(Dictionary<int, List<Card>> by, int owner)
+    {
+        if (!by.TryGetValue(owner, out List<Card>? already))
+        {
+            already = [];
+            by[owner] = already;
+        }
+
+        return already;
+    }
+
+    /// <summary>
+    /// Which crown, if any, a piece of bark is the bole of.
+    /// </summary>
+    /// <param name="crowns">The trees found in the same object.</param>
+    /// <param name="bole">The bark surface.</param>
+    /// <returns>Its crown's index, or -1 when nothing stands over it.</returns>
+    /// <remarks>
+    /// <para>
+    /// Under the leaves and reaching up towards them. Both halves are needed: horizontal
+    /// position alone would claim a fence running past the foot of a tree, and height alone
+    /// would claim a rafter in the same object.
+    /// </para>
+    /// <para>
+    /// The margin is generous because the two measurements are of the same tree drawn by
+    /// the same artist — RC1's maple has its bole's centre <b>thirteen units</b> from its
+    /// crown's, where the crown is 283 units across — and because the cost of missing is
+    /// only that the bole stays drawn under a tree that also has one.
+    /// </para>
+    /// </remarks>
+    private static int Claims(List<Crown> crowns, Card bole)
+    {
+        var foot = new Vector2(
+            (bole.Least.X + bole.Most.X) * 0.5f, (bole.Least.Z + bole.Most.Z) * 0.5f);
+
+        int found = -1;
+        float nearest = float.MaxValue;
+
+        for (int index = 0; index < crowns.Count; index++)
+        {
+            Crown crown = crowns[index];
+            var centre = new Vector2(
+                (crown.Least.X + crown.Most.X) * 0.5f, (crown.Least.Z + crown.Most.Z) * 0.5f);
+
+            float radius = MathF.Max(
+                crown.Most.X - crown.Least.X, crown.Most.Z - crown.Least.Z) * 0.5f;
+            float apart = Vector2.Distance(centre, foot);
+
+            // Under the crown's own spread, and rising into the bottom half of it. A bole
+            // that stops well below its leaves is a post standing near a tree.
+            if (apart > (radius * 1.1f) + 16f ||
+                bole.Most.Y < crown.Least.Y - ((crown.Most.Y - crown.Least.Y) * 0.5f) ||
+                bole.Least.Y > crown.Most.Y)
+            {
+                continue;
+            }
+
+            if (apart < nearest)
+            {
+                nearest = apart;
+                found = index;
+            }
+        }
+
+        return found;
+    }
 
     /// <summary>Gathers cards that stand over the same ground into one tree each.</summary>
-    private static List<TreeSite> Cluster(List<Card> cards)
+    private static List<Crown> Cluster(List<Card> cards)
     {
         // Widest first. A tree's widest card is the one that says how far it spread, and
         // starting from it means the narrow crossing quad is drawn into the cluster rather
@@ -408,7 +582,7 @@ public static class Foliage
             c => MathF.Max(c.Most.X - c.Least.X, c.Most.Z - c.Least.Z))];
 
         bool[] taken = new bool[order.Count];
-        List<TreeSite> sites = [];
+        List<Crown> crowns = [];
 
         for (int seed = 0; seed < order.Count; seed++)
         {
@@ -464,13 +638,13 @@ public static class Foliage
                 most = grownMost;
             }
 
-            if (Site(first.Species, least, most) is { } site)
+            if (first.Species is { } species)
             {
-                sites.Add(site);
+                crowns.Add(new Crown(species, least, most, Trunked: false));
             }
         }
 
-        return sites;
+        return crowns;
     }
 
     /// <summary>Where a grown tree has to be put to fill a site.</summary>

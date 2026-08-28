@@ -36,8 +36,8 @@ UP = Vector((0.0, 0.0, 1.0))
 # Species
 # --------------------------------------------------------------------------------------
 
-# A leaf card is the whole of one drawn foliage texture, mirrored at random so that two
-# hundred of them on one tree are not two hundred copies of the same picture. The four
+# A leaf card is one whole tile of a drawn foliage texture, mirrored at random so that a
+# thousand of them on one tree are not a thousand copies of the same picture. The four
 # entries are (u0, v0, u1, v1) with the axes flipped or not; glTF's v grows downwards, and
 # a mirrored card is still the right way up.
 #
@@ -53,6 +53,31 @@ MIRRORS = [
     (0.0, 1.0, 1.0, 0.0),
     (1.0, 1.0, 0.0, 0.0),
 ]
+
+
+def tiles(atlas, levels):
+    """The mirrors of every occlusion tile, darkest level last.
+
+    ``make_cards.py`` writes the same clump four times over at four brightnesses, tiled two
+    by two. A leaf takes the tile its own occlusion has earned, so the crown carries a real
+    gradient from a dark heart to a lit shell without the engine's vertex having anywhere
+    to keep a per-leaf number. See AO_LEVELS there for why the picture holds it.
+    """
+    if atlas <= 1 or levels <= 1:
+        return [MIRRORS]
+
+    step = 1.0 / atlas
+    out = []
+
+    for level in range(levels):
+        u0 = (level % atlas) * step
+        v0 = (level // atlas) * step
+        out.append([
+            (u0 + u * step, v0 + v * step, u0 + s * step, v0 + t * step)
+            for u, v, s, t in MIRRORS
+        ])
+
+    return out
 
 
 # Which sprites a species stands in for. The engine matches a card's texture against
@@ -74,7 +99,9 @@ SPECIES = {
         "leaf": "PINE2",
         "sprites": ["PINE2", "PINE2FLAT", "TALLPINE", "ARMPINE", "TREE03", "TREE04", "TREE05"],
         "canopy": True,
-        "cards": MIRRORS,
+        "bowed": True,
+        "leafSpread": 0.34,
+        "leafAspect": 0.62,
         "trunkRadius": 0.014,
         "trunkTopRadius": 0.0020,
         "trunkSegments": 16,
@@ -91,8 +118,8 @@ SPECIES = {
         "branchSides": 3,
         "branchSegments": 3,
         "branchRadius": 0.35,
-        "fansPerBranch": (5, 8),
-        "fanScale": 0.34,
+        "fansPerBranch": (7, 10),
+        "fanScale": 0.26,
         "fanDroop": 0.12,
     },
     # The rounded broadleaf of TREE00: a short bole, three or four rising limbs, leaf
@@ -103,7 +130,9 @@ SPECIES = {
         "leaf": "TREE00",
         "sprites": ["TREE00", "TREE01", "TREE02", "BUSHYTREESIDE1", "BUSHYTREETOP1"],
         "canopy": False,
-        "cards": MIRRORS,
+        "bowed": True,
+        "leafSpread": 0.40,
+        "leafAspect": 0.86,
         "trunkRadius": 0.045,
         "trunkTopRadius": 0.024,
         "trunkSegments": 7,
@@ -117,18 +146,24 @@ SPECIES = {
         "branchSegments": 3,
         "crownHeight": 0.68,
         "crownRadius": 0.29,
-        "clumpsPerTwig": (2, 3),
-        "clumpScale": 0.12,
-        "crownFill": 70,
+        "clumpsPerTwig": (3, 5),
+        "clumpScale": 0.082,
+        "crownFill": 260,
     },
     # The maple of MAPLESIDE1, which is the same tree grown wider and lower.
     "maple": {
         "kind": "broadleaf",
         "bark": "TRUNK01",
         "leaf": "MAPLE",
-        "sprites": ["MAPLESIDE1", "MAPLETOP1", "MAPLE"],
+        # MAPLE1TRILEAF is leaves on real geometry rather than on a card, and it is the
+        # texture the rooms paint their modelled maples with - RC1's hotel tree, CEM's
+        # three, RC2's and RC4's. Twenty-two objects across the corpus draw it, and until
+        # it was named here every one of them kept its 1999 leaves under a grown tree.
+        "sprites": ["MAPLESIDE1", "MAPLETOP1", "MAPLE", "MAPLE1TRILEAF"],
         "canopy": False,
-        "cards": MIRRORS,
+        "bowed": True,
+        "leafSpread": 0.40,
+        "leafAspect": 0.86,
         "trunkRadius": 0.048,
         "trunkTopRadius": 0.026,
         "trunkSegments": 7,
@@ -142,9 +177,9 @@ SPECIES = {
         "branchSegments": 3,
         "crownHeight": 0.72,
         "crownRadius": 0.35,
-        "clumpsPerTwig": (2, 3),
-        "clumpScale": 0.13,
-        "crownFill": 80,
+        "clumpsPerTwig": (3, 5),
+        "clumpScale": 0.088,
+        "crownFill": 280,
     },
     # WOODTREE3's dark, dense broadleaf: a heavier crown on a shorter bole.
     "darkbroadleaf": {
@@ -153,7 +188,9 @@ SPECIES = {
         "leaf": "WOODTREE3",
         "sprites": ["WOODTREE3", "MAGENTREE"],
         "canopy": False,
-        "cards": MIRRORS,
+        "bowed": True,
+        "leafSpread": 0.40,
+        "leafAspect": 0.86,
         "trunkRadius": 0.050,
         "trunkTopRadius": 0.028,
         "trunkSegments": 7,
@@ -167,9 +204,9 @@ SPECIES = {
         "branchSegments": 3,
         "crownHeight": 0.74,
         "crownRadius": 0.32,
-        "clumpsPerTwig": (2, 3),
-        "clumpScale": 0.12,
-        "crownFill": 85,
+        "clumpsPerTwig": (3, 5),
+        "clumpScale": 0.082,
+        "crownFill": 300,
     },
     # The columnar conifer of TREE06 - narrower and taller-crowned than the spruce.
     "cypress": {
@@ -178,7 +215,9 @@ SPECIES = {
         "leaf": "TREE06",
         "sprites": ["TREE06"],
         "canopy": True,
-        "cards": MIRRORS,
+        "bowed": True,
+        "leafSpread": 0.32,
+        "leafAspect": 0.62,
         "trunkRadius": 0.016,
         "trunkTopRadius": 0.003,
         "trunkSegments": 16,
@@ -195,8 +234,8 @@ SPECIES = {
         "branchSides": 3,
         "branchSegments": 3,
         "branchRadius": 0.30,
-        "fansPerBranch": (4, 6),
-        "fanScale": 0.38,
+        "fansPerBranch": (6, 8),
+        "fanScale": 0.30,
         "fanDroop": 0.06,
     },
 }
@@ -212,19 +251,25 @@ SPECIES = {
 FAR = {
     "whorls": 0.55,
     "branchesPerWhorl": 0.70,
-    "fansPerBranch": 0.45,
-    "fanScale": 1.75,
+    "fansPerBranch": 0.34,
+    "fanScale": 2.10,
     "trunkSegments": 0.55,
     "branchSegments": 0.70,
     "limbSplits": 0.70,
-    "clumpsPerTwig": 0.50,
-    "clumpScale": 1.90,
-    "crownFill": 0.22,
+    "clumpsPerTwig": 0.34,
+    "clumpScale": 2.30,
+    "crownFill": 0.10,
 }
 
 
 def thin(spec, factors):
-    """A species grown with fewer, larger pieces."""
+    """A species grown with fewer, larger pieces.
+
+    The far tree is also grown **flat**. Bowing a card is four times the triangles for a
+    curve across a leaf clump, and a clump on a hillside a hundred metres away is two
+    pixels: nothing there can show it, and the whole point of the far tree is to keep the
+    silhouette and pay for nothing else.
+    """
     out = dict(spec)
 
     for key, factor in factors.items():
@@ -234,11 +279,14 @@ def thin(spec, factors):
         value = out[key]
         if isinstance(value, tuple):
             out[key] = tuple(max(1, int(round(part * factor))) for part in value)
+        elif isinstance(value, bool):
+            continue
         elif isinstance(value, int):
             out[key] = max(1, int(round(value * factor)))
         else:
             out[key] = value * factor
 
+    out["bowed"] = False
     return out
 
 
@@ -247,19 +295,35 @@ def thin(spec, factors):
 # --------------------------------------------------------------------------------------
 
 
+class Leaf:
+    """One clump of foliage: a bowed card, and how deep in the crown it sits."""
+
+    __slots__ = ("centre", "right", "up", "facing", "bow", "twist", "mirror", "level")
+
+    def __init__(self, centre, right, up, facing, bow, twist, mirror):
+        self.centre = centre
+        self.right = right
+        self.up = up
+        self.facing = facing
+        self.bow = bow
+        self.twist = twist
+        self.mirror = mirror
+        self.level = 0
+
+
 class Growth:
-    """The tubes and cards a tree is made of, before any of it becomes a mesh."""
+    """The tubes and leaves a tree is made of, before any of it becomes a mesh."""
 
     def __init__(self):
-        self.tubes = []   # (points, radii, sides)
-        self.cards = []   # (centre, right, up, rect)
+        self.tubes = []    # (points, radii, sides)
+        self.leaves = []   # Leaf
 
     def tube(self, points, radii, sides):
         if len(points) >= 2:
             self.tubes.append((points, radii, sides))
 
-    def card(self, centre, right, up, rect):
-        self.cards.append((centre, right, up, rect))
+    def leaf(self, leaf):
+        self.leaves.append(leaf)
 
 
 def _jitter(rng, amount):
@@ -292,15 +356,46 @@ def _limb(growth, rng, start, direction, length, radius, sides, segments, curve)
     return at, heading
 
 
-def _fan(growth, rng, centre, along, size, rects, droop):
-    """Hangs one needle fan or leaf clump, facing outwards from the trunk."""
+def _fan(growth, rng, centre, along, size, spec, droop, facing=None):
+    """Hangs one needle fan or leaf clump.
+
+    Two things about this are the whole difference between a crown and a heap of stickers,
+    and both were learnt the hard way.
+
+    **The card is bowed, not flat.** Every quad is a three-by-three patch pushed out along
+    its own normal into a shallow dome or saddle. It catches light across itself rather than
+    all at once, which is what stops a clump reading as a printed sticker — and, because no
+    two bowed patches can lie in the same plane, it is also what stops the crown flickering.
+
+    **Its plane is turned freely, never about a shared axis.** The old fan built its frame
+    from the branch it hung on: ``right`` along the twig and ``up`` at right angles to it,
+    spun about the twig. So every clump on one twig lay in a plane *containing* that twig,
+    and two of them a half turn apart were exactly coplanar — at the same point on the
+    branch, drawn over each other, fighting for the same depth. That is the flicker a crown
+    used to show whenever the camera moved. A leaf now faces where it is asked to face, out
+    of the crown, with the spread and the roll drawn independently.
+    """
     if along.length < 1e-6:
         along = UP.copy()
-    right = along.normalized() * size
-    outward = _perpendicular(along)
-    up = (outward - UP * droop).normalized() * (size * 0.62)
-    spin = Matrix.Rotation(rng.uniform(0.0, math.tau), 3, along.normalized())
-    growth.card(centre, spin @ right, spin @ up, rng.choice(rects))
+
+    # Outwards from the trunk unless the caller knows better - the crown fill does, because
+    # it knows where the middle of the tree is.
+    out = facing if facing is not None and facing.length > 1e-6 else along
+    normal = (out.normalized() - UP * droop + _jitter(rng, spec["leafSpread"]))
+
+    if normal.length < 1e-6:
+        normal = UP.copy()
+
+    normal.normalize()
+
+    right = Matrix.Rotation(rng.uniform(0.0, math.tau), 3, normal) @ _perpendicular(normal)
+    up = normal.cross(right).normalized() * (size * spec["leafAspect"])
+
+    growth.leaf(Leaf(
+        centre, right.normalized() * size, up, normal,
+        rng.uniform(0.20, 0.55) * rng.choice((-1.0, 1.0)) if spec["bowed"] else 0.0,
+        rng.uniform(-0.35, 0.35) if spec["bowed"] else 0.0,
+        rng.randrange(len(MIRRORS))))
 
 
 def grow_conifer(spec, rng):
@@ -354,13 +449,13 @@ def grow_conifer(spec, rng):
                      base.lerp(tip, along) + _jitter(rng, length * 0.10),
                      (tip - base),
                      spec["crownRadius"] * spec["fanScale"] * rng.uniform(0.75, 1.15),
-                     spec["cards"], spec["fanDroop"])
+                     spec, spec["fanDroop"])
 
         # A crowning fan, so the leader does not end in a bare spike.
         if whorl == spec["whorls"] - 1:
             _fan(growth, rng, on_trunk(1.0) - UP * 0.03,
                  Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), 0.35)),
-                 spec["crownRadius"] * 0.5, spec["cards"], 0.0)
+                 spec["crownRadius"] * 0.5, spec, 0.0)
 
     return growth
 
@@ -379,6 +474,13 @@ def grow_broadleaf(spec, rng):
 
     crown_top = bole + spec["crownHeight"]
 
+    # The middle of the crown, decided before anything is hung in it. Every leaf is turned
+    # to face away from this point, so the mass has a shell that catches the light and an
+    # inside that does not - which is the whole of what makes a crown read as a volume
+    # rather than as a heap of stickers. Facing along the twig instead, as this used to,
+    # points half the leaves back into the tree.
+    centre = Vector((0.0, 0.0, bole + spec["crownHeight"] * 0.48)) + lean
+
     def branch(start, heading, length, radius, depth):
         tip, out = _limb(
             growth, rng, start, heading, length, radius,
@@ -386,8 +488,10 @@ def grow_broadleaf(spec, rng):
 
         if depth == 0 or tip.z > crown_top:
             for _ in range(rng.randint(*spec["clumpsPerTwig"])):
-                _fan(growth, rng, tip + _jitter(rng, length * 0.35), out,
-                     spec["clumpScale"] * rng.uniform(0.8, 1.25), spec["cards"], 0.12)
+                at = tip + _jitter(rng, length * 0.35)
+                _fan(growth, rng, at, out,
+                     spec["clumpScale"] * rng.uniform(0.8, 1.25), spec, 0.12,
+                     facing=at - centre)
             return
 
         for _ in range(rng.randint(2, 3)):
@@ -400,13 +504,15 @@ def grow_broadleaf(spec, rng):
                    radius * 0.62, depth - 1)
 
         # Leaves along the fork itself, so the crown is not hollow in the middle.
-        for _ in range(rng.randint(1, 2)):
-            _fan(growth, rng,
-                 start.lerp(tip, rng.uniform(0.4, 1.0)) + _jitter(rng, length * 0.3),
-                 out, spec["clumpScale"] * rng.uniform(0.7, 1.0), spec["cards"], 0.12)
+        for _ in range(rng.randint(1, 3)):
+            at = start.lerp(tip, rng.uniform(0.4, 1.0)) + _jitter(rng, length * 0.3)
+            _fan(growth, rng, at, out,
+                 spec["clumpScale"] * rng.uniform(0.7, 1.0), spec, 0.12,
+                 facing=at - centre)
 
     top = trunk[-1]
     limbs = rng.randint(*spec["limbs"])
+
     offset = rng.uniform(0.0, math.tau)
     for index in range(limbs):
         angle = offset + math.tau * index / limbs + rng.uniform(-0.25, 0.25)
@@ -420,7 +526,6 @@ def grow_broadleaf(spec, rng):
     # outside of it. Branching alone leaves a hollow: the limbs spread outwards, every
     # clump ends up on the rim, and the tree comes out as a ring with a gap down the
     # middle that the sky shows through. A real crown is full, so it is filled.
-    centre = Vector((0.0, 0.0, bole + spec["crownHeight"] * 0.48)) + lean
     across = spec["crownRadius"]
     down = spec["crownHeight"] * 0.50
 
@@ -434,7 +539,7 @@ def grow_broadleaf(spec, rng):
 
         at = centre + Vector((u.x * across, u.y * across, u.z * down))
         _fan(growth, rng, at, Vector((u.x, u.y, u.z * 0.5)) if u.length > 1e-3 else UP,
-             spec["clumpScale"] * rng.uniform(0.75, 1.20), spec["cards"], 0.10)
+             spec["clumpScale"] * rng.uniform(0.75, 1.20), spec, 0.10)
 
     return growth
 
@@ -442,6 +547,87 @@ def grow_broadleaf(spec, rng):
 # --------------------------------------------------------------------------------------
 # Meshing
 # --------------------------------------------------------------------------------------
+
+
+def shade_leaves(growth, levels, reach=0.24, weight=0.75):
+    """Decides how deep in the crown each leaf sits, and so which tile it is painted from.
+
+    What is measured is **sky, not density**: for every leaf, the neighbours standing
+    between it and the sky, each counted by how directly overhead it is and how close. A
+    leaf on the top of the crown has nothing above it and comes out lit; one in the heart of
+    the tree has forty clumps over it and comes out dark; and the underside of the canopy
+    darkens on its own, which plain density never gives because a leaf on the *bottom* of
+    the crown has just as many neighbours as one on the top.
+
+    Quantised to whatever tiles the card carries. Four steps sound crude and are not: the
+    gradient a crown needs is between its shell and its heart, and inside one twelve
+    centimetre clump there is nothing to resolve.
+    """
+    if levels <= 1 or not growth.leaves:
+        return [len(growth.leaves)]
+
+    # A grid of one reach per cell, so each leaf only asks about the twenty-seven cells
+    # around it rather than about all fifteen hundred.
+    cells = {}
+    for leaf in growth.leaves:
+        key = (int(leaf.centre.x / reach), int(leaf.centre.y / reach),
+               int(leaf.centre.z / reach))
+        cells.setdefault(key, []).append(leaf)
+
+    counted = []
+
+    for leaf in growth.leaves:
+        key = (int(leaf.centre.x / reach), int(leaf.centre.y / reach),
+               int(leaf.centre.z / reach))
+        over = 0.0
+
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (0, 1):
+                    for other in cells.get((key[0] + dx, key[1] + dy, key[2] + dz), ()):
+                        apart = other.centre - leaf.centre
+
+                        if apart.z <= 0.0:
+                            continue
+
+                        far = apart.length
+                        if far < 1e-6 or far > reach:
+                            continue
+
+                        # Straight overhead and close counts for most; off to one side and
+                        # at arm's length counts for little.
+                        over += (1.0 - far / reach) * (apart.z / far)
+
+        counted.append(over)
+
+    # Thresholds taken from the tree's own spread rather than from a constant, because a
+    # spruce carries three times the clumps of a maple in the same volume and a fixed cut
+    # would paint one of them entirely from a single tile.
+    # Where the cuts fall barely changes what the tree looks like, and that is worth
+    # knowing rather than rediscovering. Moving them a tenth towards the light shifts a
+    # hundred and fifty of a maple's leaves one tile brighter and the rendered crown does
+    # not move at all: the leaves that change are the buried ones, and the shell - which is
+    # all that is ever seen - was in the brightest tile either way. A grown tree that reads
+    # darker than the flat card beside it is darker for a different reason, which is that
+    # the 1999 card carries IgnoreLightmapFlag and is drawn at full brightness.
+    order = sorted(counted)
+    shares = [order[min(len(order) - 1, int(len(order) * at))]
+              for at in (0.30, 0.60, 0.85)]
+
+    tally = [0] * levels
+
+    for leaf, over in zip(growth.leaves, counted):
+        level = 0
+        for cut in shares[:levels - 1]:
+            if over > cut:
+                level += 1
+
+        # Pulled back towards the light a little, so a crown is not a quarter black. The
+        # deepest tile is for leaves that are genuinely buried.
+        leaf.level = level if over > shares[0] * weight else 0
+        tally[leaf.level] += 1
+
+    return tally
 
 
 def build_mesh(growth, spec, name):
@@ -488,15 +674,46 @@ def build_mesh(growth, spec, name):
                     loop[uvs].uv = (u, v)
             run = run_next
 
-    for centre, right, up, rect in growth.cards:
-        corners = [centre - right - up, centre + right - up,
-                   centre + right + up, centre - right + up]
-        verts = [bm.verts.new(corner) for corner in corners]
-        face = bm.faces.new(verts)
-        face.material_index = 1
+    # One leaf clump is a three-by-three patch bowed out of its own plane: a shallow dome
+    # or a saddle, drawn per clump. Four quads instead of one, and worth every triangle of
+    # it twice over. It shades across itself, which is what a flat card can never do; and
+    # because no two bowed patches can lie in the same plane, two clumps drawn over each
+    # other stop fighting for the same depth. Far trees are grown flat - `bow` and `twist`
+    # are zero - and the same code lays down a plain quad for them.
+    span = 2 if spec["bowed"] else 1
+
+    for leaf in growth.leaves:
+        size = leaf.right.length
+        rect = spec["tiles"][min(leaf.level, len(spec["tiles"]) - 1)][leaf.mirror]
         u0, v0, u1, v1 = rect
-        for loop, (u, v) in zip(face.loops, ((u0, v1), (u1, v1), (u1, v0), (u0, v0))):
-            loop[uvs].uv = (u, v)
+
+        grid = []
+        for row in range(span + 1):
+            line = []
+            for column in range(span + 1):
+                u = (column / span * 2.0) - 1.0
+                v = (row / span * 2.0) - 1.0
+                out = (leaf.bow * (1.0 - u * u) * (1.0 - v * v)) + (leaf.twist * u * v)
+                line.append(bm.verts.new(
+                    leaf.centre + (leaf.right * u) + (leaf.up * v)
+                    + (leaf.facing * (out * size))))
+            grid.append(line)
+
+        for row in range(span):
+            for column in range(span):
+                face = bm.faces.new((
+                    grid[row][column], grid[row][column + 1],
+                    grid[row + 1][column + 1], grid[row + 1][column]))
+                face.material_index = 1
+
+                # Across the card with `right` and up it with `up`, which runs the other
+                # way in texture space: glTF's v grows downwards.
+                for loop, (u, v) in zip(face.loops, (
+                        (column / span, 1.0 - row / span),
+                        ((column + 1) / span, 1.0 - row / span),
+                        ((column + 1) / span, 1.0 - (row + 1) / span),
+                        (column / span, 1.0 - (row + 1) / span))):
+                    loop[uvs].uv = (u0 + (u1 - u0) * u, v0 + (v1 - v0) * v)
 
     bm.normal_update()
     bm.to_mesh(mesh)
@@ -509,15 +726,20 @@ def build_mesh(growth, spec, name):
     return obj
 
 
-def _round_the_leaves(mesh):
-    """Points every leaf card's normals out of the crown instead of out of the quad.
+def _round_the_leaves(mesh, curve=0.42):
+    """Shades the leaves as one mass, with the curve of each clump still showing in it.
 
     A card's own normal is the wrong answer twice over. Nothing here is culled, so half
-    the cards in any crown are seen from behind and shade as though lit from the far side;
-    and a crown of two hundred flat quads at two hundred angles reads as a heap of litter
+    the cards in any crown are seen from behind and would shade as though lit from the far
+    side; and a crown of a thousand quads at a thousand angles reads as a heap of litter
     rather than as one mass with a lit side and a shaded one. Normals taken from the crown
     centre outwards give the mass back - it is the same trick every foliage shader has used
-    since trees stopped being sprites, and it costs nothing at runtime.
+    since trees stopped being sprites, and it costs nothing at run time.
+
+    What is new is the second term. Taking the crown's normal and *nothing else* makes the
+    mass so smooth that the clumps inside it disappear: a broadleaf comes out as a green
+    sphere. So each patch keeps a share of its own bowed normal, flipped where it faces
+    into the tree, and the crown has clumps in it again without losing its shape.
     """
     leaves = [polygon for polygon in mesh.polygons if polygon.material_index == 1]
 
@@ -532,12 +754,25 @@ def _round_the_leaves(mesh):
     normals = [tuple(mesh.loops[index].normal) for index in range(len(mesh.loops))]
 
     for polygon in leaves:
+        # A little upwards in the mix, so that the underside of a crown is shaded rather
+        # than black: a leaf below the middle of the tree still sees the sky.
+        outward = polygon.center - centre
+        outward = (outward.normalized() + UP * 0.35).normalized() \
+            if outward.length > 1e-6 else UP.copy()
+
+        own = polygon.normal.copy()
+        if own.length < 1e-6:
+            own = outward.copy()
+        elif own.dot(outward) < 0.0:
+            own = -own
+
+        mixed = (outward * (1.0 - curve)) + (own.normalized() * curve)
+
+        if mixed.length < 1e-6:
+            mixed = outward
+
         for index in polygon.loop_indices:
-            out = mesh.vertices[mesh.loops[index].vertex_index].co - centre
-            # A little upwards in the mix, so that the underside of a crown is shaded
-            # rather than black: a leaf below the middle of the tree still sees the sky.
-            out = out.normalized() + UP * 0.35 if out.length > 1e-6 else UP.copy()
-            normals[index] = tuple(out.normalized())
+            normals[index] = tuple(mixed.normalized())
 
     mesh.normals_split_custom_set(normals)
 
@@ -613,14 +848,20 @@ def main(argv):
         return 2
 
     with open(drawn, encoding="utf-8") as handle:
-        cards = {entry["species"]: entry["texture"]
-                 for entry in json.load(handle).get("cards", [])}
+        cards = {entry["species"]: entry for entry in json.load(handle).get("cards", [])}
 
     for species in wanted:
         if species not in cards:
             print("no card drawn for " + species, file=sys.stderr)
             return 2
-        SPECIES[species]["card"] = cards[species]
+
+        card = cards[species]
+        SPECIES[species]["card"] = card["texture"]
+        # However many occlusion tiles the card was drawn with, and one if it has none.
+        # An older card still works and its trees come out evenly lit, which is what they
+        # were before the tiles existed.
+        SPECIES[species]["tiles"] = tiles(
+            card.get("atlas", 1), len(card.get("aoLevels", [1.0])))
 
     records = []
     for species in wanted:
@@ -637,6 +878,7 @@ def main(argv):
             growth = (grow_conifer if spec["kind"] == "conifer" else grow_broadleaf)(spec, rng)
             name = (species + "_" + format(variant, "02d")
                     + ("" if detail == "near" else "_far"))
+            tally = shade_leaves(growth, len(spec["tiles"]))
             obj = build_mesh(growth, spec, name)
             shape = normalise(obj)
 
@@ -653,12 +895,15 @@ def main(argv):
                 "canopy": spec["canopy"],
                 "triangles": triangles,
                 "vertices": len(obj.data.vertices),
-                "cards": len(growth.cards),
+                "cards": len(growth.leaves),
+                "shade": tally,
             }
             record.update(shape)
             records.append(record)
             print(name + ": " + str(triangles) + " triangles, "
-                  + str(len(growth.cards)) + " cards, radius " + str(shape["radius"]))
+                  + str(len(growth.leaves)) + " leaves "
+                  + "/".join(str(count) for count in tally)
+                  + ", radius " + str(shape["radius"]))
 
             if not options.dry_run:
                 bpy.ops.export_scene.gltf(

@@ -417,6 +417,41 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
+    /// <summary>The leaf cards that move, by the texture they are painted with.</summary>
+    private readonly HashSet<string> _wind = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <inheritdoc/>
+    public void MoveInWind(IReadOnlySet<string> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+
+        _wind.Clear();
+
+        foreach (string texture in textures)
+        {
+            _wind.Add(texture);
+        }
+    }
+
+    /// <summary>
+    /// How far the top of a tree travels, as a fraction of its own height.
+    /// </summary>
+    /// <remarks>
+    /// Two per cent, which on a two-hundred-unit maple is four units and on a room's
+    /// eighty-unit shrub is one and a half. It is meant to be noticed only when it stops:
+    /// a still tree beside a fountain and a walking character is the thing that says
+    /// nothing in this room is alive.
+    /// </remarks>
+    private const float LeafSway = 0.020f;
+
+    /// <summary>How fast the wind runs, in radians a second.</summary>
+    /// <remarks>
+    /// A gust every five or six seconds once the two waves in the shader have beaten
+    /// against each other. Faster than this reads as a gale in what is, in every scene
+    /// that has a tree in it, a still summer afternoon.
+    /// </remarks>
+    private const float WindSpeed = 1.05f;
+
     /// <summary>The material constants for one batch's texture.</summary>
     /// <remarks>
     /// Scalars, and a map multiplies them rather than replacing them — which is what makes
@@ -1648,6 +1683,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Records the draws for every loaded batch.</summary>
     /// <param name="command">Command buffer, inside an active rendering scope.</param>
     /// <param name="pipeline">The pipeline currently bound.</param>
+    /// <param name="previousSeconds">
+    /// The wind's clock as it stood a frame ago, so that a leaf reports its own movement to
+    /// the temporal filter rather than reporting none.
+    /// </param>
     /// <remarks>
     /// <para>
     /// The caller binds the pipeline, the viewport and the frame's descriptor set first;
@@ -1662,7 +1701,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// drawing nothing at all.
     /// </para>
     /// </remarks>
-    public void Record(CommandBuffer command, MeshPipeline pipeline)
+    public void Record(CommandBuffer command, MeshPipeline pipeline, float previousSeconds = 0f)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
 
@@ -1713,7 +1752,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 // the shader uses where no ORM map overrides it. A texture nobody has
                 // measured comes back matte and non-metallic, which is the surface the
                 // renderer assumed before any of this existed.
-                MaterialOf(batch.TextureName)));
+                MaterialOf(batch.TextureName),
+
+                // Nothing at all for everything that is not a leaf, which switches the
+                // whole of the sway off in the vertex shader on its first line.
+                batch.Foliage
+                    ? new Vector4(LeafSway, WindSpeed, previousSeconds, 0f)
+                    : Vector4.Zero));
 
             // The animated buffer when something has reshaped this batch, and the one the
             // model was built with otherwise.
@@ -1909,6 +1954,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             SelfLit = selfLit,
             IsModel = isModel,
             Displaced = displaced,
+
+            // By the texture rather than by the model, because that is what the loader
+            // knows: a grown tree is two batches, one of bark and one of leaves, and only
+            // the leaves move. See MoveInWind.
+            Foliage = _wind.Contains(Path.GetFileNameWithoutExtension(texture)),
         });
 
     private VulkanTexture TextureFor(string name) =>
@@ -2138,6 +2188,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         /// <summary>The surface carries its own brightness and the bake does not touch it.</summary>
         public bool SelfLit { get; init; }
+
+        /// <summary>Whether this batch is foliage, and so moves in the wind.</summary>
+        public bool Foliage { get; init; }
 
         /// <summary>A model standing in the room, rather than the room itself.</summary>
         /// <remarks>

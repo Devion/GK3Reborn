@@ -153,6 +153,16 @@ public sealed class HeadlessSceneSink : ISceneSink
         EverywhereReliefCount = textures.Count;
     }
 
+    /// <summary>How many textures were named as foliage that moves.</summary>
+    public int WindTextureCount { get; private set; }
+
+    /// <inheritdoc/>
+    public void MoveInWind(IReadOnlySet<string> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+        WindTextureCount = textures.Count;
+    }
+
     /// <summary>How many sides of a sky the scene gave, for a sweep that wants to count.</summary>
     public int SkyboxFaces { get; private set; }
 

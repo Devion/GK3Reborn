@@ -33,16 +33,20 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// </para>
 /// <para>
 /// Texturing is four tileable ground textures blended by the offline splat weights,
-/// with rock forced onto steep faces, each sampled at two scales so the repeat period
-/// never shows, and the vista's colour applied hue-only over the top. The forest is the
-/// offline tree instances drawn as cone impostors in one instanced call — stand-ins at
-/// backdrop distances, to be traded for the modelled trees when a LOD path exists. The
-/// full recipe and why each rule exists:
-/// <c>ContentWorkspace/enhanced/skyboxes/terrain-plan.md</c>.
+/// with rock forced onto steep faces, projected from above on a hillside and from the
+/// side on a cliff, each sampled at two scales so the repeat period never shows, and the
+/// vista's colour applied hue-only over the top. The forest is the offline tree instances
+/// drawn as four impostor silhouettes — a spruce, a broadleaf, a cypress and scrub — one
+/// instanced draw apiece over slices of one buffer; stand-ins at backdrop distances, to
+/// be traded for the modelled trees when a LOD path exists. The full recipe and why each
+/// rule exists: <c>ContentWorkspace/enhanced/skyboxes/terrain-plan.md</c>.
 /// </para>
 /// </remarks>
 public sealed unsafe class TerrainPipeline : IDisposable
 {
+    /// <summary>Floats per placed tree: where it is, how big, which way round, which shape.</summary>
+    private const int Stride = 6;
+
     /// <summary>How many metres of backdrop one unit of room is worth.</summary>
     /// <remarks>
     /// GK3's people are about seventy units for a grown adult, so a unit is roughly an
@@ -114,34 +118,75 @@ public sealed unsafe class TerrainPipeline : IDisposable
             return mix(texture(t, uv).rgb, texture(t, uv * 0.23 + vec2(7.31, 3.7)).rgb, 0.45);
         }
 
+        // Ground texture projected down onto the terrain, and from the side where the
+        // terrain is a wall.
+        //
+        // Projecting from above alone is right for a hillside and catastrophic for a cliff:
+        // a face at eighty degrees moves almost nothing in x or z as it climbs, so one row
+        // of texels is smeared from the foot of the crag to its top. Every ridge in the
+        // reconstruction came out combed with vertical streaks, and no amount of filtering
+        // touches it, because the stretch is in the coordinate rather than in the sampling.
+        //
+        // The two side projections are single-scale where the downward one is doubled. The
+        // second scale is there to hide the repeat over a kilometre of open ground, and a
+        // rock face carries no such run; a cliff needs a coordinate that climbs, which is
+        // all this gives it.
+        vec3 ground(sampler2D t, vec3 at, vec3 blend)
+        {
+            return (texture(t, at.zy).rgb * blend.x)
+                 + (tile2(t, at.xz) * blend.y)
+                 + (texture(t, at.xy).rgb * blend.z);
+        }
+
         void main()
         {
             vec2 gridUv = (vWorld.xz / (2.0 * push.params.w)) + 0.5;
             vec4 w = texture(splat, gridUv);
 
+            float away = length(vWorld - push.eye.xyz);
+
             // A cliff is rock whatever grew on the map: the weights were read off a
             // painting seen from face on, and a face-on painting has no slopes in it.
+            //
+            // Let go of with distance, and that is not a saving. The rule turns a smooth
+            // interpolated normal into a hard step between two very different colours, so
+            // on a ridge whose faces are a pixel wide it flips grey-green-grey across the
+            // slope and reads as a weave crawling over the mountain. Near enough to see the
+            // rock face it is worth having; a kilometre out the ground colour already
+            // carries what the far hillside is.
             float slope = 1.0 - clamp(vNormal.y, 0.0, 1.0);
-            w.g = max(w.g, smoothstep(0.5, 0.8, slope));
+            w.g = max(w.g, smoothstep(0.5, 0.8, slope) * exp(-away / 500.0));
             w /= max(w.r + w.g + w.b + w.a, 1e-4);
 
             vec2 uv = vWorld.xz / push.params.x;
-            vec3 albedo = (w.r * tile2(tileForest, uv))
-                        + (w.g * tile2(tileRock, uv))
-                        + (w.b * tile2(tileGrass, uv))
-                        + (w.a * tile2(tileDirt, uv));
+            vec3 at = vWorld / push.params.x;
+
+            // Sharpened, so that a hillside is projected from above and only a face steep
+            // enough to streak pays for the other two samples.
+            vec3 blend = pow(abs(normalize(vNormal)), vec3(4.0));
+            blend /= max(blend.x + blend.y + blend.z, 1e-4);
+
+            vec3 albedo = (w.r * ground(tileForest, at, blend))
+                        + (w.g * ground(tileRock, at, blend))
+                        + (w.b * ground(tileGrass, at, blend))
+                        + (w.a * ground(tileDirt, at, blend));
 
             // Distant ground keeps its colour and loses its texture. High-contrast
             // detail a kilometre out is smaller than a pixel, and what sub-pixel detail
             // does under a turning camera is shimmer - it reads as crawling light even
             // though the sun never moves. The far colour is the same tiles almost all
             // the way down their own mip chains.
-            float away = length(vWorld - push.eye.xyz);
             vec3 calm = (w.r * textureLod(tileForest, uv, 7.0).rgb)
                       + (w.g * textureLod(tileRock, uv, 7.0).rgb)
                       + (w.b * textureLod(tileGrass, uv, 7.0).rgb)
                       + (w.a * textureLod(tileDirt, uv, 7.0).rgb);
-            albedo = mix(calm, albedo, exp(-away / 700.0));
+            //
+            // Four hundred metres rather than the seven hundred it was. A tile repeats
+            // every few metres, so by half a kilometre one period is a pixel or two wide
+            // and beating against the pixel grid — which is the interference the far
+            // hillsides showed. Fixed rather than scaled to the terrain, because what
+            // decides it is the size of a texel on the screen and not how wide the map is.
+            albedo = mix(calm, albedo, exp(-away / 400.0));
 
             // Hue only: the vista's colour mood without the old painting's darkness.
             vec3 mood = texture(tint, gridUv).rgb;
@@ -180,6 +225,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
         layout(location = 1) in vec3 inNormal;
         layout(location = 2) in vec4 inPlace;   // xyz: base of the tree; w: scale
         layout(location = 3) in float inTurn;   // yaw, radians
+        layout(location = 4) in float inKind;   // which impostor shape this is
 
         layout(push_constant) uniform Push
         {
@@ -193,9 +239,12 @@ public sealed unsafe class TerrainPipeline : IDisposable
         layout(location = 1) out vec3 vNormal;
         layout(location = 2) out float vSeed;
         layout(location = 3) out float vCrown;
+        layout(location = 4) out float vKind;
 
         void main()
         {
+            vKind = inKind;
+
             float c = cos(inTurn);
             float s = sin(inTurn);
             mat3 turn = mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
@@ -216,7 +265,10 @@ public sealed unsafe class TerrainPipeline : IDisposable
             vec3 world = inPlace.xyz + (turn * (shaped * (inPlace.w * keep)));
             vWorld = world;
             vNormal = turn * inNormal;
-            vCrown = clamp(inPosition.y / 14.0, 0.0, 1.0);
+            // Against the shape's own height rather than a constant fourteen metres, or a
+            // shrub is shaded as though it were the bottom quarter of a fir.
+            float tall = inKind > 2.5 ? 3.6 : (inKind > 1.5 ? 17.0 : (inKind > 0.5 ? 11.0 : 14.0));
+            vCrown = clamp(inPosition.y / tall, 0.0, 1.0);
 
             vec4 clip = push.viewProjection * vec4(world, 1.0);
             float zNdc = clamp(clip.z / max(clip.w, 1e-4), 0.0, 1.0);
@@ -243,14 +295,37 @@ public sealed unsafe class TerrainPipeline : IDisposable
         layout(location = 1) in vec3 vNormal;
         layout(location = 2) in float vSeed;
         layout(location = 3) in float vCrown;
+        layout(location = 4) in float vKind;
 
         layout(location = 0) out vec4 outColor;
 
         void main()
         {
-            // A conifer's green, varied per tree, pulled toward the vista's own colour
-            // so a wood follows the painting the way the ground does.
-            vec3 albedo = mix(vec3(0.075, 0.13, 0.07), vec3(0.13, 0.19, 0.09), vSeed);
+            // Each shape's own green, varied per tree, pulled toward the vista's own
+            // colour so a wood follows the painting the way the ground does. A conifer is
+            // darker and bluer than a broadleaf and scrub is browner than either, and
+            // across a valley that difference reads before the silhouette does.
+            vec3 dark = vec3(0.030, 0.062, 0.038);
+            vec3 pale = vec3(0.105, 0.158, 0.072);
+
+            if (vKind > 0.5 && vKind < 1.5)
+            {
+                dark = vec3(0.046, 0.088, 0.032);
+                pale = vec3(0.152, 0.205, 0.080);
+            }
+            else if (vKind > 2.5)
+            {
+                dark = vec3(0.068, 0.082, 0.036);
+                pale = vec3(0.158, 0.164, 0.078);
+            }
+
+            // Two draws from the same seed rather than one: the mix says which green this
+            // tree is, and the second says how much light it gets at all. A wood whose
+            // trees differ only in hue still reads as one painted surface, because what
+            // the eye picks a tree out by across a valley is that it is darker or lighter
+            // than the one beside it.
+            vec3 albedo = mix(dark, pale, vSeed)
+                        * mix(0.62, 1.30, fract(vSeed * 31.7));
             vec2 gridUv = (vWorld.xz / (2.0 * push.params.w)) + 0.5;
             vec3 mood = texture(tint, gridUv).rgb;
             float luminance = dot(mood, vec3(0.299, 0.587, 0.114));
@@ -261,7 +336,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             // the wood is shaded by its neighbours — the forest weight under it says
             // how deep — while a tree on the edge stands in the open.
             float density = texture(splat, gridUv).r;
-            float occlusion = mix(0.42, 1.0, vCrown) * (1.0 - (0.45 * density * (1.0 - vCrown)));
+            float occlusion = mix(0.28, 1.0, vCrown) * (1.0 - (0.50 * density * (1.0 - vCrown)));
 
             float overcast = clamp(push.eye.w, 0.0, 1.0);
             float toSun = max(dot(normalize(vNormal), push.sun.xyz), 0.0) * push.sun.w
@@ -422,7 +497,6 @@ public sealed unsafe class TerrainPipeline : IDisposable
     private uint _indexCount;
     private VulkanBuffer? _treeVertices;
     private VulkanBuffer? _treeIndices;
-    private uint _treeIndexCount;
     private VulkanBuffer? _treeInstances;
     private uint _treeCount;
     private readonly VulkanTexture?[] _textures = new VulkanTexture?[6];
@@ -504,15 +578,24 @@ public sealed unsafe class TerrainPipeline : IDisposable
 
             // The tiles repeat and are colour; the splat is data and must not be
             // sRGB-decoded or wrapped; the tint is colour but clamped like the splat.
+            //
+            // **All six carry a mip chain, and the last two are why the ridges used to
+            // crawl.** A thousand-cell splat map is stretched over a kilometre and a half
+            // of terrain, so a mountain at the far edge of it puts twenty cells inside one
+            // pixel. Sampled from the top level with no chain to fall back on, that pixel
+            // takes whichever cell it happens to land in — rock here, forest at the
+            // neighbouring pixel, rock again at the next — and a hillside a kilometre away
+            // comes out as a shimmering grey-and-green weave that moves with the camera.
+            // It is the most visible thing in an outdoor scene and it is one flag.
             pipeline._textures[0] = VulkanTexture.Create(context, backdrop.TileForest);
             pipeline._textures[1] = VulkanTexture.Create(context, backdrop.TileRock);
             pipeline._textures[2] = VulkanTexture.Create(context, backdrop.TileGrass);
             pipeline._textures[3] = VulkanTexture.Create(context, backdrop.TileDirt);
             pipeline._textures[4] = VulkanTexture.Create(
-                context, backdrop.Splat, mipmaps: false,
+                context, backdrop.Splat, mipmaps: true,
                 SamplerAddressMode.ClampToEdge, linear: true);
             pipeline._textures[5] = VulkanTexture.Create(
-                context, backdrop.Tint, mipmaps: false, SamplerAddressMode.ClampToEdge);
+                context, backdrop.Tint, mipmaps: true, SamplerAddressMode.ClampToEdge);
 
             pipeline.CreateDescriptors();
             pipeline.BuildPipelines(colorFormat, depthFormat);
@@ -611,7 +694,20 @@ public sealed unsafe class TerrainPipeline : IDisposable
             ulong* treeOffsets = stackalloc ulong[2] { 0, 0 };
             _vk.CmdBindVertexBuffers(command, 0, 2, treeStreams, treeOffsets);
             _vk.CmdBindIndexBuffer(command, _treeIndices!.Handle, 0, IndexType.Uint16);
-            _vk.CmdDrawIndexed(command, _treeIndexCount, _treeCount, 0, 0, 0);
+
+            for (int kind = 0; kind < _stands.Length; kind++)
+            {
+                if (_stands[kind].Count == 0)
+                {
+                    continue;
+                }
+
+                (uint firstIndex, int vertexOffset, uint indexCount) = _impostors[kind];
+
+                _vk.CmdDrawIndexed(
+                    command, indexCount, _stands[kind].Count,
+                    firstIndex, vertexOffset, _stands[kind].First);
+            }
         }
 
         // The sky last, at the far plane, over exactly the pixels nothing claimed. Its
@@ -791,15 +887,23 @@ public sealed unsafe class TerrainPipeline : IDisposable
             {
                 int gx = Math.Min(column * Stride, grid - 1);
 
-                // Central differences on the full-resolution grid, so a vertex the
-                // stride skipped still bends the normals of its neighbours.
-                float left = heights[(gz * grid) + Math.Max(gx - 1, 0)];
-                float right = heights[(gz * grid) + Math.Min(gx + 1, grid - 1)];
-                float near = heights[(Math.Max(gz - 1, 0) * grid) + gx];
-                float far = heights[(Math.Min(gz + 1, grid - 1) * grid) + gx];
+                // Central differences over the vertices that are actually drawn.
+                //
+                // They used to be taken over single cells of the full-resolution grid, on
+                // the reasoning that a vertex the stride skipped should still bend its
+                // neighbours' normals. It does — and the detail it bends them by is finer
+                // than the surface carrying it, so neighbouring vertices a stride apart get
+                // normals from unrelated cells. On a ridge whose faces are a pixel or two
+                // wide, that lights adjacent triangles differently for no reason the shape
+                // shows, and the ridge crawls. The normal has to describe the surface that
+                // is there.
+                float left = heights[(gz * grid) + Math.Max(gx - Stride, 0)];
+                float right = heights[(gz * grid) + Math.Min(gx + Stride, grid - 1)];
+                float near = heights[(Math.Max(gz - Stride, 0) * grid) + gx];
+                float far = heights[(Math.Min(gz + Stride, grid - 1) * grid) + gx];
 
                 var normal = Vector3.Normalize(
-                    new Vector3(left - right, 2f * step, near - far));
+                    new Vector3(left - right, 2f * Stride * step, near - far));
 
                 vertices[(row * side) + column] = new TerrainVertex(
                     new Vector3(
@@ -838,54 +942,182 @@ public sealed unsafe class TerrainPipeline : IDisposable
         _indexCount = (uint)indices.Length;
     }
 
+    /// <summary>
+    /// The shapes a distant wood is made of, in the order the offline placement numbers
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Four silhouettes rather than one. A hillside of identical cones is the tell that
+    /// gave the reconstructed horizon away from across a valley: a real wood is conifers
+    /// and broadleaves mixed, with scrub where it thins out, and at a kilometre the only
+    /// thing that survives of a tree <em>is</em> its silhouette — so the silhouette is the
+    /// one thing worth spending geometry on.
+    /// </para>
+    /// <para>
+    /// Sixteen to twenty-four triangles apiece, which is what an impostor can afford when
+    /// there are twenty thousand of them. The measurements are metres at a scale of one,
+    /// and the offline placement varies that per tree.
+    /// </para>
+    /// </remarks>
+    private static readonly (int Sides, float Height, (float At, float Radius)[] Rings)[]
+        Impostors =
+    [
+        // A spruce: widest at the foot, drawn straight to a point.
+        (8, 14f, [(0.00f, 3.6f), (0.45f, 2.2f)]),
+
+        // A broadleaf: a round crown carried clear of the ground, widest a third of the
+        // way up and closed underneath. Three rings, because two make a diamond and a
+        // diamond at this range is a cone with a pointed bottom.
+        (10, 11f, [(0.24f, 2.9f), (0.44f, 4.5f), (0.74f, 3.5f)]),
+
+        // A cypress: kept narrow and run tall.
+        (6, 17f, [(0.00f, 1.7f), (0.55f, 1.4f)]),
+
+        // Scrub, for the fringe of a wood and the open ground beyond it.
+        (6, 3.6f, [(0.10f, 2.6f), (0.45f, 3.0f)]),
+    ];
+
+    /// <summary>Where each shape's geometry sits in the shared buffers.</summary>
+    private (uint FirstIndex, int VertexOffset, uint IndexCount)[] _impostors = [];
+
+    /// <summary>How many instances of each shape there are, and where they start.</summary>
+    private (uint First, uint Count)[] _stands = [];
+
     private void BuildTrees(TerrainBackdrop backdrop)
     {
         float[] trees = backdrop.Trees;
 
-        if (trees.Length < 5)
+        if (trees.Length < Stride)
         {
             return;
         }
 
-        // A cone, eight sides, fourteen metres for a scale of one: a conifer impostor
-        // at distances where a conifer is a silhouette. Base ring at y 0, tip at the top.
-        const int Sides = 8;
-        const float CrownRadius = 3.5f;
-        const float CrownHeight = 14f;
+        List<TerrainVertex> mesh = [];
+        List<ushort> shapes = [];
+        var ranges = new (uint, int, uint)[Impostors.Length];
 
-        var mesh = new TerrainVertex[Sides + 1];
-
-        for (int i = 0; i < Sides; i++)
+        for (int kind = 0; kind < Impostors.Length; kind++)
         {
-            float angle = i * (2f * MathF.PI / Sides);
-            var outward = new Vector3(MathF.Cos(angle), 0f, MathF.Sin(angle));
-            mesh[i] = new TerrainVertex(
-                outward * CrownRadius,
-                Vector3.Normalize(outward + new Vector3(0f, CrownRadius / CrownHeight, 0f)));
+            (int sides, float height, (float At, float Radius)[] rings) = Impostors[kind];
+            int vertexOffset = mesh.Count;
+            uint firstIndex = (uint)shapes.Count;
+
+            foreach ((float at, float radius) in rings)
+            {
+                for (int i = 0; i < sides; i++)
+                {
+                    float angle = i * (2f * MathF.PI / sides);
+                    var outward = new Vector3(MathF.Cos(angle), 0f, MathF.Sin(angle));
+
+                    mesh.Add(new TerrainVertex(
+                        (outward * radius) + new Vector3(0f, at * height, 0f),
+                        Vector3.Normalize(outward + new Vector3(0f, radius / height, 0f))));
+                }
+            }
+
+            // Relative to this shape's first vertex, because the draw adds the shape's
+            // vertex offset for us. Absolute here and it would be added twice, and every
+            // shape but the first would be built from another shape's corners.
+            int tip = mesh.Count - vertexOffset;
+            mesh.Add(new TerrainVertex(new Vector3(0f, height, 0f), Vector3.UnitY));
+
+            // A crown lifted off the ground is closed underneath; one standing on it is
+            // not, because nothing ever sees the bottom of a fir.
+            bool skirted = rings[0].At > 0.001f;
+            int foot = mesh.Count - vertexOffset;
+
+            if (skirted)
+            {
+                mesh.Add(new TerrainVertex(
+                    new Vector3(0f, rings[0].At * height * 0.35f, 0f), -Vector3.UnitY));
+            }
+
+            void Band(int lower, int upper)
+            {
+                for (int i = 0; i < sides; i++)
+                {
+                    int next = (i + 1) % sides;
+
+                    shapes.Add((ushort)(lower + i));
+                    shapes.Add((ushort)(lower + next));
+                    shapes.Add((ushort)(upper + next));
+
+                    shapes.Add((ushort)(lower + i));
+                    shapes.Add((ushort)(upper + next));
+                    shapes.Add((ushort)(upper + i));
+                }
+            }
+
+            for (int ring = 0; ring + 1 < rings.Length; ring++)
+            {
+                Band(ring * sides, (ring + 1) * sides);
+            }
+
+            int last = (rings.Length - 1) * sides;
+
+            for (int i = 0; i < sides; i++)
+            {
+                int next = (i + 1) % sides;
+
+                shapes.Add((ushort)(last + i));
+                shapes.Add((ushort)(last + next));
+                shapes.Add((ushort)tip);
+
+                if (skirted)
+                {
+                    shapes.Add((ushort)next);
+                    shapes.Add((ushort)i);
+                    shapes.Add((ushort)foot);
+                }
+            }
+
+            ranges[kind] = (firstIndex, vertexOffset, (uint)shapes.Count - firstIndex);
         }
 
-        mesh[Sides] = new TerrainVertex(new Vector3(0f, CrownHeight, 0f), Vector3.UnitY);
+        // The instances, straight from the offline placement but gathered by shape, so
+        // that one wood is four draws over four slices of one buffer rather than four
+        // buffers or a branch in the vertex shader. A cap far above any real set, purely
+        // so a malformed file cannot ask for the moon.
+        uint count = Math.Min((uint)(trees.Length / Stride), 800_000u);
+        var placed = new float[count * Stride];
+        var stands = new (uint First, uint Count)[Impostors.Length];
+        uint written = 0;
 
-        ushort[] cone = new ushort[Sides * 3];
-        for (int i = 0; i < Sides; i++)
+        for (int kind = 0; kind < Impostors.Length; kind++)
         {
-            cone[(i * 3) + 0] = (ushort)i;
-            cone[(i * 3) + 1] = (ushort)((i + 1) % Sides);
-            cone[(i * 3) + 2] = (ushort)Sides;
-        }
+            uint first = written;
 
-        // The instances, five floats each, straight from the offline placement. A cap
-        // far above any real set, purely so a malformed file cannot ask for the moon.
-        uint count = Math.Min((uint)(trees.Length / 5), 800_000u);
+            for (uint at = 0; at < count; at++)
+            {
+                // Anything the file numbers past the shapes that exist falls to the first,
+                // which is a conifer: an unknown species is still a tree.
+                int wanted = (int)trees[(at * Stride) + 5];
+
+                if (wanted != kind && !(kind == 0 && (wanted < 0 || wanted >= Impostors.Length)))
+                {
+                    continue;
+                }
+
+                trees.AsSpan((int)(at * Stride), Stride)
+                    .CopyTo(placed.AsSpan((int)(written * Stride), Stride));
+
+                written++;
+            }
+
+            stands[kind] = (first, written - first);
+        }
 
         _treeVertices = VulkanBuffer.CreateDeviceLocal<TerrainVertex>(
-            _context, mesh, BufferUsageFlags.VertexBufferBit);
+            _context, mesh.ToArray(), BufferUsageFlags.VertexBufferBit);
         _treeIndices = VulkanBuffer.CreateDeviceLocal<ushort>(
-            _context, cone, BufferUsageFlags.IndexBufferBit);
+            _context, shapes.ToArray(), BufferUsageFlags.IndexBufferBit);
         _treeInstances = VulkanBuffer.CreateDeviceLocal<float>(
-            _context, trees.AsSpan(0, (int)count * 5), BufferUsageFlags.VertexBufferBit);
-        _treeIndexCount = (uint)cone.Length;
-        _treeCount = count;
+            _context, placed, BufferUsageFlags.VertexBufferBit);
+
+        _impostors = ranges;
+        _stands = stands;
+        _treeCount = written;
     }
 
     private ShaderModule CreateModule(byte[] spirv)
@@ -1062,7 +1294,9 @@ public sealed unsafe class TerrainPipeline : IDisposable
             colorFormat, depthFormat, _vertexModule, _fragmentModule, _layout,
             1, &terrainBinding, 2, terrainAttributes, depthWrite: true);
 
-        // Trees: the cone in stream 0, one 20-byte placement per instance in stream 1.
+        // Trees: every impostor shape in stream 0, one 24-byte placement per instance in
+        // stream 1. The shapes share a buffer and are drawn as ranges of it, so a hillside
+        // of four species is four draws rather than four pipelines.
         VertexInputBindingDescription* treeBindings =
             stackalloc VertexInputBindingDescription[2]
             {
@@ -1075,23 +1309,24 @@ public sealed unsafe class TerrainPipeline : IDisposable
                 new()
                 {
                     Binding = 1,
-                    Stride = 5 * sizeof(float),
+                    Stride = 6 * sizeof(float),
                     InputRate = VertexInputRate.Instance,
                 },
             };
 
         VertexInputAttributeDescription* treeAttributes =
-            stackalloc VertexInputAttributeDescription[4]
+            stackalloc VertexInputAttributeDescription[5]
             {
                 new() { Location = 0, Binding = 0, Format = Format.R32G32B32Sfloat, Offset = 0 },
                 new() { Location = 1, Binding = 0, Format = Format.R32G32B32Sfloat, Offset = 12 },
                 new() { Location = 2, Binding = 1, Format = Format.R32G32B32A32Sfloat, Offset = 0 },
                 new() { Location = 3, Binding = 1, Format = Format.R32Sfloat, Offset = 16 },
+                new() { Location = 4, Binding = 1, Format = Format.R32Sfloat, Offset = 20 },
             };
 
         _treePipeline = BuildOne(
             colorFormat, depthFormat, _treeVertexModule, _treeFragmentModule, _layout,
-            2, treeBindings, 4, treeAttributes, depthWrite: true);
+            2, treeBindings, 5, treeAttributes, depthWrite: true);
 
         // The sky: no vertex input at all, and no depth writes — it must lose to
         // everything and stop nothing.

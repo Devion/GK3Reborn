@@ -497,14 +497,105 @@ public sealed class FoliageTests : IDisposable
         }
     }
 
+    /// <summary>A room whose one object draws each of these boxes as its own surface.</summary>
+    private static BspFile Faces(params (string Texture, Vector3 Low, Vector3 High)[] drawn)
+    {
+        List<Vector3> vertices = [];
+        List<ushort> indices = [];
+        List<BspPolygon> polygons = [];
+        List<BspSurface> surfaces = [];
+
+        foreach ((string texture, Vector3 low, Vector3 high) in drawn)
+        {
+            var corner = (ushort)vertices.Count;
+
+            vertices.Add(new Vector3(low.X, low.Y, low.Z));
+            vertices.Add(new Vector3(high.X, low.Y, high.Z));
+            vertices.Add(new Vector3(high.X, high.Y, high.Z));
+            vertices.Add(new Vector3(low.X, high.Y, low.Z));
+
+            polygons.Add(new BspPolygon
+            {
+                VertexIndexOffset = indices.Count,
+                VertexIndexCount = 4,
+                SurfaceIndex = surfaces.Count,
+            });
+
+            surfaces.Add(new BspSurface
+            {
+                ObjectIndex = 0,
+                TextureName = texture,
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            });
+
+            indices.AddRange(
+                [corner, (ushort)(corner + 1), (ushort)(corner + 2), (ushort)(corner + 3)]);
+        }
+
+        return BspFile.FromParts(
+            "TEST.BSP", ["test_vegitation"], surfaces, polygons,
+            [.. vertices], [], [.. indices]);
+    }
+
     [Fact]
     public void An_object_holding_anything_but_foliage_is_left_alone()
     {
-        // A room is hidden by object name and there is no way to hide half of one, so an
-        // object that draws its leaves on cards and its bole with TRUNK01 has to keep both.
+        // A room is hidden by object name, and hiding by surface can only take away things
+        // this knows how to put back. Leaves it can, and the bole under them; a wall it
+        // cannot, so an object holding one keeps its cards.
         TreeLibrary library = Library();
 
-        Assert.Empty(Foliage.InGeometry(Room("TRUNK01", 3), library));
+        Assert.Empty(Foliage.InGeometry(
+            Faces(
+                ("PINE2", new Vector3(-100, 100, 0), new Vector3(100, 320, 0)),
+                ("csehousestone2", new Vector3(-100, 0, 40), new Vector3(100, 200, 40))),
+            library));
+    }
+
+    [Fact]
+    public void A_room_that_draws_a_whole_tree_has_its_bole_taken_with_its_leaves()
+    {
+        // The double trunk. RC1's hotel maple is a bole in Woodbark with its leaves on it,
+        // and refusing the object because bark is not foliage left the room drawing a 1999
+        // trunk while the scene file's card of the same tree grew a modelled one beside it.
+        // Taken together they are one tree, and the tree that replaces it stands on the
+        // ground the bole stood on rather than hanging where the leaves were.
+        TreeLibrary library = Library();
+
+        Foliage.FoliageObject found = Assert.Single(Foliage.InGeometry(
+            Faces(
+                ("PINE2", new Vector3(-100, 120, 0), new Vector3(100, 320, 0)),
+                ("Woodbark", new Vector3(-12, 0, -12), new Vector3(12, 150, 12))),
+            library));
+
+        TreeSite site = Assert.Single(found.Sites);
+
+        Assert.True(site.Trunked);
+        Assert.Equal(0f, site.Foot.Y);
+        Assert.Equal(320f, site.Height);
+        Assert.Equal(2, found.Surfaces.Count);
+    }
+
+    [Fact]
+    public void Bark_with_no_crown_over_it_keeps_its_wood()
+    {
+        // A fence sharing an object with a tree, which is the case that stops this rule
+        // from being "hide every plank in the room that happens to sit beside foliage".
+        // The tree is still replaced; the fence is still drawn.
+        TreeLibrary library = Library();
+
+        Foliage.FoliageObject found = Assert.Single(Foliage.InGeometry(
+            Faces(
+                ("PINE2", new Vector3(-100, 0, 0), new Vector3(100, 320, 0)),
+                ("TRUNK01", new Vector3(900, 0, 900), new Vector3(1100, 90, 900))),
+            library));
+
+        TreeSite site = Assert.Single(found.Sites);
+
+        Assert.False(site.Trunked);
+        Assert.Single(found.Surfaces);
     }
 
     [Fact]

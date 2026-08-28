@@ -109,6 +109,17 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private SceneGeometry? _scene;
     private Camera? _camera;
 
+    /// <summary>
+    /// What the wind runs on: wall-clock seconds since the renderer was made.
+    /// </summary>
+    /// <remarks>
+    /// The renderer's own rather than the game's, because it drives presentation and not
+    /// state. A paused game, a menu over the room and a conversation waiting on a line of
+    /// dialogue all leave the trees moving, which is what they should do; nothing that
+    /// reads this can affect anything the story can see.
+    /// </remarks>
+    private readonly System.Diagnostics.Stopwatch _wind = System.Diagnostics.Stopwatch.StartNew();
+
     private bool _rayTracingEnabled;
 
     /// <summary>What the device offered of what was asked for, as the device was made.</summary>
@@ -1455,6 +1466,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
             MeshPipeline pipeline = tracing ? _rayTracedPipeline! : _meshPipeline;
             FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
+
+            frames.Seconds = (float)_wind.Elapsed.TotalSeconds;
 
             if (tracing)
             {

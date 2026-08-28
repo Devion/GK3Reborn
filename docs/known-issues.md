@@ -203,6 +203,36 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### The maple beside the bench outside the hotel had two trunks — fixed 2026-08-28
+
+**Reported** as the tree next to the bench in RC1 not being replaced, and as a double trunk
+on the existing modelled trees.
+
+Both, and they were the same fault. `rc1_vegitation` is that maple as the room draws it: a
+bole in `Woodbark` with its leaves on it in `maple1trileaf`. `RC1_HOTELTREELEAVESFF` is a
+flat `MAPLESIDE1` card of the same tree, placed by the scene file. Refusing the room's
+object because bark is not foliage left the room drawing its 1999 trunk while the prop grew
+a modelled tree with a trunk of its own beside it — and the 1999 leaf cards were still there
+over both of them.
+
+Bark is now read as part of the tree it carries, not as a reason to refuse it. An object of
+foliage and bark and nothing else is a **whole tree**: its cards cluster into crowns, each
+bole is claimed by the crown standing over it, and one tree replaces the pair, fitted to
+both boxes together so it stands on the ground the bole stood on. Bark that no crown claims
+is somebody else's and keeps its wood, which is what stops a fence sharing an object with a
+tree from being taken away with it.
+
+Where a prop is a card of the same tree, the prop is still what gets grown — it is what the
+scene placed — but it is fitted to the room's measurement, which is the only one of the two
+that knows where the ground is. The room's own copy is then suppressed by the rule that
+already suppressed duplicates.
+
+**Seventy-seven objects across the corpus** mix foliage with something, and 108 of those
+mixtures are one of four bark textures: `NewBranch` 38, `Woodbark` 33, `Trunk01` 26,
+`Trunk02` 11. `maple1trileaf` — leaves on real geometry, which twenty-two objects draw and
+no species named — is now the maple's, which is what makes the RC1, CEM, RC2 and RC4 trees
+foliage at all.
+
 ### Riding the moped never went by way of the map — fixed 2026-08-28
 
 Reported as arriving at Larry Chester's house with no moped in the yard and no way out
@@ -705,9 +735,11 @@ texture that is neither a species nor a known backdrop strip. **Nineteen objects
 corpus are shaped that way — `background_trees`, `pl2_trees`, `pou_trees01`, `vgr_bushes` —
 and every one of them now grows its trees and keeps its backdrop.
 
-The line is drawn deliberately short of the dangerous case. An object carrying `NEWBRANCH`
-or `TRUNK01` is still refused whole, because those are the branch cards of a tree that is
-already modelled, and growing a tree from them puts a second trunk through the first.
+The line was drawn deliberately short of the dangerous case: an object carrying `NEWBRANCH`
+or `TRUNK01` was still refused whole, because growing a tree from its leaves alone puts a
+second trunk through the modelled one. That was the right call with only the leaves to work
+from, and it is superseded — *The maple beside the bench outside the hotel had two trunks*
+takes the bole away with them instead.
 
 
 ### A .gk3 in the game's own saves folder was never imported — fixed 2026-08-25
