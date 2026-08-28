@@ -98,12 +98,28 @@ public sealed class ContentPackStage
         new(RebarnKind.Texture, "enhanced/trees", "BC7_UNORM_SRGB", true, 0, "Reborn"),
 
         // The reconstructed horizon, flat on disk as <set>.<part>.<ext> because a pack
-        // key carries no directory. Heights and JSON deflate well and get it by payload;
-        // the splat and tint PNGs are already compressed and data rather than colour, so
-        // nothing here goes near the texture encoder.
+        // key carries no directory. Heights, forests and JSON deflate well and get it by
+        // payload.
+        //
+        // The forest is the raw instance stream `publish_terrain.py` writes, not the
+        // scatter's own JSON: parsed at load it was 95 ms of a 2.4 s outdoor scene and
+        // 196 MB of the pack, against 4 ms and about 36 MB as floats. See
+        // SceneLoader.ForestFor.
         new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.r32"),
+        new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.f32"),
         new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.json"),
-        new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.png"),
+
+        // **The two maps go through the encoder, and the splat is not colour.** Both are
+        // always 1024 square, so decoding them cost a fixed 160 ms of every outdoor scene
+        // load — spent inside the screen fade, which offers no frame for the length of it.
+        // As blocks they upload as they arrive, with the chain already built.
+        //
+        // The splat is four blend weights and must not be gamma-converted on the way in;
+        // the tint is the vista's colour and must. Measured against the sources: the tint
+        // round-trips at 0.58/255 RMSE and the splat at 1.55, both far under a visible step
+        // on a smooth blend. Encoding the tint *without* the colour flag gives 56.
+        new(RebarnKind.Raw, "enhanced/terrain", "BC7_UNORM", false, 0, "Reborn", "*.splat.png"),
+        new(RebarnKind.Raw, "enhanced/terrain", "BC7_UNORM_SRGB", true, 0, "Reborn", "*.tint.png"),
         new(RebarnKind.Normal, "enhanced/normals", "BC5_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Orm, "enhanced/orm", "BC7_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Height, "enhanced/height", "BC4_UNORM", false, 512, "RebornMaterials"),
@@ -352,7 +368,13 @@ public sealed class ContentPackStage
         int verbatim = 0;
         int keyed = 0;
 
-        foreach (string png in Directory.EnumerateFiles(source, "*.PNG"))
+        // The kind's own pattern, so that one directory can hold two things encoded
+        // differently — the terrain's splat is data and its tint is colour, and the two
+        // differ by exactly the sRGB flag that a whole gamma step of brightness hangs on.
+        // Filtered to PNGs afterwards rather than by the pattern, because the default
+        // pattern is "*" and the encoder has nothing to say about anything else.
+        foreach (string png in Directory.EnumerateFiles(source, kind.Files)
+                     .Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase)))
         {
             string name = Path.GetFileNameWithoutExtension(png);
 

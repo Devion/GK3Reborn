@@ -9,6 +9,7 @@ using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Formats.Terrain;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
@@ -1897,6 +1898,100 @@ public sealed class SceneLoader
     private readonly record struct TerrainTree(
         float X, float Y, float Z, float S, float R, float K);
 
+    /// <summary>
+    /// The backdrop's forest, as the instance stream both tree pipelines read.
+    /// </summary>
+    /// <param name="set">The terrain set.</param>
+    /// <param name="diagnostics">Receives anything wrong with what was found.</param>
+    /// <returns>Six floats a tree, or empty for a set with no forest.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The raw stream first, and it is the whole reason this is not JSON any more.</b>
+    /// The published form is exactly the array this returns, so reading it is a length
+    /// check and a copy. As objects it was the single most expensive thing in an outdoor
+    /// scene load: 91,766 trees took <b>95 ms</b> to deserialise for LER and 129 ms for the
+    /// worst set in the corpus, against 4 ms for the same forest as floats — and the load
+    /// runs inside the screen fade, offering it no frame for the whole of that.
+    /// </para>
+    /// <para>
+    /// The JSON remains readable because it is what the offline scatter writes and what a
+    /// person reads when a forest looks wrong; a workspace published before the raw form
+    /// existed still loads, just slowly.
+    /// </para>
+    /// </remarks>
+    private float[] ForestFor(string set, DiagnosticBag diagnostics)
+    {
+        if (ReadTerrainPart(set, "trees.f32") is { } raw)
+        {
+            if (TerrainForest.Read(raw) is not { } trees)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE025", DiagnosticSeverity.Warning,
+                    "A terrain set's forest is not a whole number of trees.",
+                    set, null, $"a multiple of {TerrainForest.BytesPerTree} bytes",
+                    $"{raw.Length} bytes",
+                    "The scene keeps its horizon and draws no forest on it."));
+
+                return [];
+            }
+
+            return trees;
+        }
+
+        if (ReadTerrainPart(set, "trees.json") is not { } treesBytes ||
+            JsonSerializer.Deserialize<List<TerrainTree>>(treesBytes, TerrainJson)
+                is not { Count: > 0 } placed)
+        {
+            return [];
+        }
+
+        float[] fromJson = new float[placed.Count * TerrainForest.FloatsPerTree];
+
+        for (int i = 0; i < placed.Count; i++)
+        {
+            TerrainTree tree = placed[i];
+            fromJson[(i * TerrainForest.FloatsPerTree) + 0] = tree.X;
+            fromJson[(i * TerrainForest.FloatsPerTree) + 1] = tree.Y;
+            fromJson[(i * TerrainForest.FloatsPerTree) + 2] = tree.Z;
+            fromJson[(i * TerrainForest.FloatsPerTree) + 3] = tree.S;
+            fromJson[(i * TerrainForest.FloatsPerTree) + 4] = tree.R;
+
+            // A set written before the shapes existed says nothing here, and zero is the
+            // conifer every one of its trees used to be.
+            fromJson[(i * TerrainForest.FloatsPerTree) + 5] = tree.K;
+        }
+
+        return fromJson;
+    }
+
+    /// <summary>One of a terrain set's two maps as blocks, where anything holds it so.</summary>
+    /// <param name="set">The terrain set.</param>
+    /// <param name="part">"splat" or "tint".</param>
+    /// <returns>The compressed map, or null to fall back to the PNG beside it.</returns>
+    /// <remarks>
+    /// A DDS that will not parse is treated as absent rather than as a fault: the PNG is
+    /// still there and still right, so the scene keeps its horizon and loses only the
+    /// speed. It is the same reading everything else in this file takes of missing
+    /// enhanced content.
+    /// </remarks>
+    private CompressedImage? TerrainBlocks(string set, string part)
+    {
+        if (ReadTerrainPart(set, $"{part}.DDS") is not { } bytes ||
+            !DdsFile.CanDecode(bytes))
+        {
+            return null;
+        }
+
+        try
+        {
+            return DdsFile.Read(bytes, $"{set}.{part}.DDS");
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>One part of a terrain set: the loose file first, then the packs.</summary>
     private byte[]? ReadTerrainPart(string set, string part)
     {
@@ -1927,10 +2022,18 @@ public sealed class SceneLoader
         // optional content, and every scene without it keeps its painted horizon.
         byte[]? metaBytes = ReadTerrainPart(set, "terrain.json");
         byte[]? raw = ReadTerrainPart(set, "heights.r32");
-        byte[]? splatBytes = ReadTerrainPart(set, "splat.png");
-        byte[]? tintBytes = ReadTerrainPart(set, "tint.png");
 
-        if (metaBytes is null || raw is null || splatBytes is null || tintBytes is null)
+        // Blocks first for both maps. They are always 1024 square, so decoding the PNGs
+        // was a fixed 160 ms of every outdoor load; the blocks upload as they arrive.
+        CompressedImage? splatBlocks = TerrainBlocks(set, "splat");
+        CompressedImage? tintBlocks = TerrainBlocks(set, "tint");
+
+        byte[]? splatBytes = splatBlocks is null ? ReadTerrainPart(set, "splat.png") : null;
+        byte[]? tintBytes = tintBlocks is null ? ReadTerrainPart(set, "tint.png") : null;
+
+        if (metaBytes is null || raw is null ||
+            (splatBlocks is null && splatBytes is null) ||
+            (tintBlocks is null && tintBytes is null))
         {
             return;
         }
@@ -1974,30 +2077,7 @@ public sealed class SceneLoader
             }
 
             // The forest, six floats a tree. A set without one is a set without one.
-            float[] trees = [];
-            if (ReadTerrainPart(set, "trees.json") is { } treesBytes)
-            {
-                List<TerrainTree>? placed =
-                    JsonSerializer.Deserialize<List<TerrainTree>>(treesBytes, TerrainJson);
-
-                if (placed is { Count: > 0 })
-                {
-                    trees = new float[placed.Count * 6];
-                    for (int i = 0; i < placed.Count; i++)
-                    {
-                        TerrainTree tree = placed[i];
-                        trees[(i * 6) + 0] = tree.X;
-                        trees[(i * 6) + 1] = tree.Y;
-                        trees[(i * 6) + 2] = tree.Z;
-                        trees[(i * 6) + 3] = tree.S;
-                        trees[(i * 6) + 4] = tree.R;
-
-                        // A set written before the shapes existed says nothing here, and
-                        // zero is the conifer every one of its trees used to be.
-                        trees[(i * 6) + 5] = tree.K;
-                    }
-                }
-            }
+            float[] trees = ForestFor(set, diagnostics);
 
             // And the grown trees the nearest of that forest is drawn as, when the
             // library that grows them is installed and the player has them on.
@@ -2010,8 +2090,14 @@ public sealed class SceneLoader
                 Grid = meta.Grid,
                 ExtentMeters = meta.ExtentMeters,
                 Heights = heights,
-                Splat = PngReader.Decode(splatBytes, $"{set}.splat.png"),
-                Tint = PngReader.Decode(tintBytes, $"{set}.tint.png"),
+                Splat = splatBytes is null
+                    ? default
+                    : PngReader.Decode(splatBytes, $"{set}.splat.png"),
+                Tint = tintBytes is null
+                    ? default
+                    : PngReader.Decode(tintBytes, $"{set}.tint.png"),
+                SplatBlocks = splatBlocks,
+                TintBlocks = tintBlocks,
                 TileForest = forest.Value,
                 TileRock = rock.Value,
                 TileGrass = grass.Value,

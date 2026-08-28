@@ -1006,11 +1006,21 @@ public sealed unsafe class TerrainPipeline : IDisposable
             pipeline._textures[1] = VulkanTexture.Create(context, backdrop.TileRock);
             pipeline._textures[2] = VulkanTexture.Create(context, backdrop.TileGrass);
             pipeline._textures[3] = VulkanTexture.Create(context, backdrop.TileDirt);
-            pipeline._textures[4] = VulkanTexture.Create(
-                context, backdrop.Splat, mipmaps: true,
-                SamplerAddressMode.ClampToEdge, linear: true);
-            pipeline._textures[5] = VulkanTexture.Create(
-                context, backdrop.Tint, mipmaps: true, SamplerAddressMode.ClampToEdge);
+            //
+            // Blocks where the pack holds them, which is the same picture with its chain
+            // already built and no PNG decode in front of it. The linear/sRGB choice moves
+            // into the block format there — BC7_UNORM for the weights, BC7_UNORM_SRGB for
+            // the tint — so it is stated once either way.
+            pipeline._textures[4] = backdrop.SplatBlocks is { } splat
+                ? VulkanTexture.Create(context, splat, SamplerAddressMode.ClampToEdge)
+                : VulkanTexture.Create(
+                    context, backdrop.Splat, mipmaps: true,
+                    SamplerAddressMode.ClampToEdge, linear: true);
+
+            pipeline._textures[5] = backdrop.TintBlocks is { } tint
+                ? VulkanTexture.Create(context, tint, SamplerAddressMode.ClampToEdge)
+                : VulkanTexture.Create(
+                    context, backdrop.Tint, mipmaps: true, SamplerAddressMode.ClampToEdge);
 
             pipeline.CreateDescriptors();
 

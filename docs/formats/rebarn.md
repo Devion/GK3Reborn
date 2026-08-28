@@ -169,6 +169,9 @@ so a later full run does not generate maps for it either.
 | models | `.glb`, stored | — | Already compact. |
 | video | `.mp4`, stored | — | Already a compressed video stream. |
 | manifests | `.json`, deflated | — | Text, and text deflates. |
+| raw: `*.splat.png` | `BC7_UNORM` | source | Four blend weights. Data, so **not** colour. |
+| raw: `*.tint.png` | `BC7_UNORM_SRGB` | source | The vista's colour. |
+| raw: everything else | stored or deflated by payload | — | Heightfields and forests. |
 
 ### One directory, three kinds
 
@@ -178,6 +181,19 @@ encoded like any other colour texture) and a manifest saying which is which (`*.
 manifests). They are produced, reviewed and shipped together, and splitting them into three
 directories to suit the packer would put a tree's parts three places apart for no reason a
 person would recognise. `PackKind.Files` is the search pattern that divides them.
+
+`enhanced/terrain` divides the same way, and it is the reason `PackKind.Files` reaches the
+*encoder* and not only the verbatim path: one directory holds two maps that must go through
+texconv with different formats and, crucially, opposite answers to `Colour`. A splat map
+gamma-converted on the way in is a whole step of brightness in a file that is valid and
+loads; the tint *not* converted is the same error the other way. Measured against the
+sources, the tint round-trips at 0.58/255 RMSE and the splat at 1.55; with the flag wrong,
+56.
+
+**Nothing in a terrain set is parsed at load any more** — see
+[rendering.md](../rendering.md#what-ships-and-why-none-of-it-is-parsed-at-load). It used to
+cost 190–293 ms of every outdoor scene, spent inside the screen fade with no frame offered
+for the length of it, and the raw section fell from 657 MB to 399 in the same change.
 
 That is also why `--only` exists. Filtering by *kind* cannot reach the trees on their own —
 any filter that catches them drags in every enhanced texture in the game — and re-encoding

@@ -775,6 +775,43 @@ repository — see `ContentWorkspace/enhanced/skyboxes/terrain-plan.md` — and
 `TerrainPipeline` is what draws it, in its own metres, around a camera anchored to the
 scene's centre.
 
+### What ships, and why none of it is parsed at load
+
+A set is five files, flat in `enhanced/terrain/` as `<set>.<part>` because a ReBarn key
+carries no directory. `publish_terrain.py` is the one road there.
+
+| part | form | why |
+|---|---|---|
+| `heights.r32` | raw `float32`, grid squared | already the right form; a `BlockCopy` |
+| `terrain.json` | 90 bytes of grid and extent | too small to matter |
+| `trees.f32` | six `float32` a tree | was JSON, at 95–129 ms a load |
+| `splat.DDS` | BC7_UNORM + mips | was PNG, at 80 ms a load |
+| `tint.DDS` | BC7_UNORM_SRGB + mips | was PNG, at 82 ms a load |
+
+**The forms are the point.** Everything here was already packed, and every outdoor scene
+still paid to turn it back into memory: 190 ms for RC1's set and 293 ms for the worst in
+the corpus, against whole-scene loads of 2.4 s. Worse than the time, the load runs inside
+the screen fade and `SceneLoader` offers `Progress` only *between* pieces of work — so
+that quarter-second was one gap with no frame presented, about nine of them missed at the
+fade's 30 fps. As raw floats and blocks the same work is 1–4 ms, and the pack's raw
+section fell from 657 MB to 399.
+
+Two things worth keeping straight:
+
+- **The splat is data and the tint is colour**, which in `ContentPackStage.DefaultPlan` is
+  the `Colour` flag and downstream of it texconv's `-srgbi`. Measured against the sources,
+  the tint round-trips at 0.58/255 RMSE and the splat at 1.55 — both far under a visible
+  step on a blend that is smooth in the shader. Encoding the tint *without* the flag gives
+  56/255, which is a whole gamma step in a file that is valid and loads.
+- **Do not bake the mesh.** It is the obvious next thing to precompute and it is not worth
+  it: `BuildMesh` is 17 ms for 262,144 vertices and 522,242 triangles, and the result is
+  12 MB a set against the 4 MB heightfield it comes from — 708 MB across the corpus to
+  save a sixtieth of what the parsing did.
+
+The loose workspace stays PNG and JSON, because that is what the offline pipeline writes
+and what anybody debugging a splat map or a forest opens; the loader prefers the packed
+form and falls back, so a workspace published before the encoder ran still loads.
+
 ### Aerial perspective
 
 Air is not clear, and until 2026-08-28 the backdrop behaved as though it were: the haze

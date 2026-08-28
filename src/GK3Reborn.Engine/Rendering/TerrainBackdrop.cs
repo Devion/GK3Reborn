@@ -93,14 +93,38 @@ public sealed record TerrainBackdrop
     public required float[] Heights { get; init; }
 
     /// <summary>Blend weights per cell: forest, rock, grass, dirt in R, G, B, A.</summary>
+    /// <remarks>
+    /// Read only where <see cref="SplatBlocks"/> is null; see it for why there are two.
+    /// </remarks>
     public required DecodedImage Splat { get; init; }
 
     /// <summary>Low-frequency colour per cell, from the vista the terrain replaces.</summary>
     /// <remarks>
     /// Applied hue-only — normalised by its own luminance — because carrying the old
     /// painting's darkness onto the modern tiles reads as dirt on the lens, not mood.
+    /// Read only where <see cref="TintBlocks"/> is null.
     /// </remarks>
     public required DecodedImage Tint { get; init; }
+
+    /// <summary>The same two maps block-compressed, where the pack holds them that way.</summary>
+    /// <remarks>
+    /// <para>
+    /// Both maps are always 1024 square, so decoding the PNGs cost a fixed <b>160 ms of
+    /// every outdoor scene load</b> — more than the whole rest of the terrain put together
+    /// on most sets, and spent inside the screen fade with no frame offered for the length
+    /// of it. As blocks they are uploaded exactly as they arrive, with the mip chain the
+    /// encoder already built, so the cost is an inflate and nothing else.
+    /// </para>
+    /// <para>
+    /// Kept beside the decoded pair rather than replacing it, because the loose workspace
+    /// is still PNG — that is what the offline pipeline writes and what anybody looking at
+    /// a splat map opens — and a set published before the encoder ran must keep loading.
+    /// </para>
+    /// </remarks>
+    public CompressedImage? SplatBlocks { get; init; }
+
+    /// <inheritdoc cref="SplatBlocks"/>
+    public CompressedImage? TintBlocks { get; init; }
 
     /// <summary>The four tileable ground textures, in splat channel order.</summary>
     public required DecodedImage TileForest { get; init; }
