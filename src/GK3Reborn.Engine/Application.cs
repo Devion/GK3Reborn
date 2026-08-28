@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Content;
@@ -1408,6 +1408,66 @@ public static class Application
                 return true;
             };
 
+            // What lets a script light the room a second way. The bake is named after the
+            // scene asset rather than the geometry, which is the whole trick: several
+            // timeblocks and both states of a light switch share one BSP and differ only in
+            // their .MUL.
+            string standing = scene.Asset?.BspName ?? scene.Name;
+
+            update.Relight = name =>
+            {
+                Formats.Scenes.SceneAssetFile? asset =
+                    archives.ReadText(name + ".SCN") is { } declared
+                        ? Formats.Scenes.SceneAssetFile.Parse(declared, name + ".SCN")
+                        : null;
+
+                // The asset has to be baked for the geometry that is standing. One call in
+                // the corpus is not — CEM's, at 106P, which names a whole different room —
+                // and swapping only its bake would lay one room's lighting over another's.
+                if (asset?.BspName is { Length: > 0 } named &&
+                    !named.Equals(standing, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                if (archives.Read(name + ".MUL") is not { } baked ||
+                    !geometry.SwapLightmaps(Formats.Lightmaps.MulFile.Parse(baked, name + ".MUL")))
+                {
+                    return false;
+                }
+
+                // And the rig with the bake, because they are two halves of one lighting.
+                // The bake lights the room and the rig lights everything standing in it, so
+                // swapping only the bake leaves the people lit by the scene the room has
+                // just left — Gabriel under warm bar lamps on a floor gone blue. RL2's
+                // disco asset is fifteen coloured omnis and a key over the ball, and none
+                // of them reached anybody until this.
+                if (asset is { Lights.Count: > 0 })
+                {
+                    var extent = new SceneExtent(geometry.Minimum, geometry.Maximum);
+
+                    // With the same substitution the room was loaded under: on a daytime
+                    // exterior the artists' key light is replaced by a synthesized sun, and
+                    // a rig swapped in without that is a room that loses its sun the moment
+                    // a script turns a light on. Every SetScene in the game is indoors, so
+                    // this is a rule kept rather than a case seen.
+                    IReadOnlyList<Formats.Scenes.AuthoredLight> rig = scene.Sun is { } daylight
+                        ? [.. asset.Lights.Where(l => !Game.Sunlight.IsAuthoredSun(
+                               l, geometry.Minimum, geometry.Maximum)), daylight]
+                        : asset.Lights;
+
+                    renderer.SetLights(rig, extent);
+
+                    Log.Info($"Relit: {name}, {rig.Count} lights and its bake");
+                }
+                else
+                {
+                    Log.Info($"Relit: {name}, its bake");
+                }
+
+                return true;
+            };
+
             // The faces in this room. Everybody the scene placed who has an entry in
             // FACES.TXT and is actually painted with their own face bitmap, which is what
             // tells a person from a portrait of one.
@@ -2125,6 +2185,11 @@ public static class Application
     /// </remarks>
     private static void Opening(string[] args, Gk3SheepApi api, LoadedScene scene)
     {
+        // Before any of them, because it says what has already happened and an action's
+        // case is a question about exactly that. --do BARTENDER:EGG finds no rule at all
+        // until --did EGG has set the flag the rule is written against.
+        Already(args, api);
+
         // Several, separated by semicolons, because one action is often the setup for the
         // one worth looking at: inspecting a thing and then walking away from it needs both
         // to have happened before the picture is taken.
@@ -2134,6 +2199,51 @@ public static class Application
         }
 
         Opened(args, api, scene);
+    }
+
+    /// <summary>
+    /// Writes into the story whatever <c>--did</c> says has already happened.
+    /// </summary>
+    /// <param name="args">The command line.</param>
+    /// <param name="api">The host.</param>
+    /// <remarks>
+    /// Marks a timeblock's completion rules as met, for looking at what happens next
+    /// without playing the two hours that lead up to it. Whatever the rules ask about — a
+    /// noun and verb done, a topic raised, a flag set — is written straight into the story,
+    /// which is what a save would have held.
+    /// </remarks>
+    private static void Already(string[] args, Gk3SheepApi api)
+    {
+        if (Option(args, "--did") is not { Length: > 0 } already)
+        {
+            return;
+        }
+
+        foreach (string done in already.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            switch (done.Trim().Split(':'))
+            {
+                case [string noun, string verb, string count]
+                    when int.TryParse(count, CultureInfo.InvariantCulture, out int times):
+                    api.State.SetNounVerbCount(noun, verb, times);
+                    api.State.SetTopicCount(noun, verb, times);
+                    break;
+
+                case [string noun, string verb]:
+                    api.State.SetNounVerbCount(noun, verb, 1);
+                    api.State.SetTopicCount(noun, verb, 1);
+                    break;
+
+                case [string flag]:
+                    api.State.SetFlag(flag);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        Log.Info($"Did: {already}");
     }
 
     /// <summary>Performs one <c>--do</c>.</summary>
@@ -2170,39 +2280,6 @@ public static class Application
         {
             Sheep.SheepExpression.Evaluate($"StartAnimation(\"{clip}\")", api);
             Log.Info($"Playing {clip}");
-        }
-
-        // Marks a timeblock's completion rules as met, for looking at what happens next
-        // without playing the two hours that lead up to it. Whatever the rules ask about —
-        // a noun and verb done, a topic raised, a flag set — is written straight into the
-        // story, which is what a save would have held.
-        if (Option(args, "--did") is { Length: > 0 } already)
-        {
-            foreach (string done in already.Split(',', StringSplitOptions.RemoveEmptyEntries))
-            {
-                switch (done.Trim().Split(':'))
-                {
-                    case [string noun, string verb, string count]
-                        when int.TryParse(count, CultureInfo.InvariantCulture, out int times):
-                        api.State.SetNounVerbCount(noun, verb, times);
-                        api.State.SetTopicCount(noun, verb, times);
-                        break;
-
-                    case [string noun, string verb]:
-                        api.State.SetNounVerbCount(noun, verb, 1);
-                        api.State.SetTopicCount(noun, verb, 1);
-                        break;
-
-                    case [string flag]:
-                        api.State.SetFlag(flag);
-                        break;
-
-                    default:
-                        break;
-                }
-            }
-
-            Log.Info($"Did: {already}");
         }
 
         // Things in the bag, for looking at what carrying them changes. Half of what the

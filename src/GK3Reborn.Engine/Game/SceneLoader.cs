@@ -667,6 +667,12 @@ public sealed class SceneLoader
         List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
         Timeline?.Stamp("place models");
 
+        // And the props the room's own scripts build rather than the scene file: the disco
+        // ball over the bar, the monkey in the fridge. Staged hidden, so they cost the room
+        // nothing until a script shows one. See StageConstructed.
+        placed.AddRange(StageConstructed(geometry, scene, placed, diagnostics));
+        Timeline?.Stamp("stage constructed props");
+
         // After the props, because the two overlap. A room's shadow-caster cards are a
         // second copy of the trees the scene file also places as props - WOD draws ten
         // pines twice, once in `wod_treeshadowcasters` and once as ten `_pineleavesff`
@@ -1238,69 +1244,247 @@ public sealed class SceneLoader
                 continue;
             }
 
-            byte[]? bytes = _archives.Read(model.Name + ".MOD");
-            if (bytes is null)
+            if (PlaceProp(geometry, model, diagnostics) is { } prop)
             {
+                placed.Add(prop);
+            }
+        }
+
+        return placed;
+    }
+
+    /// <summary>
+    /// Stages the props this room's scripts build for themselves.
+    /// </summary>
+    /// <param name="geometry">Where to put them.</param>
+    /// <param name="scene">The room, for finding the scripts that belong to it.</param>
+    /// <param name="already">What the scene file has already placed, so nothing is placed twice.</param>
+    /// <param name="diagnostics">Receives anything that could not be read.</param>
+    /// <returns>The props staged, hidden, waiting to be shown.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>AddModel("model=discoball_pole,type=prop")</c> is GK3's construction mode: a
+    /// script putting something into a room the scene file never mentioned. Six scripts in
+    /// the game use it and every one of them is an easter egg — the disco ball that comes
+    /// down over the bar, the monkey in Grace's fridge, the propeller on Mosely's hat.
+    /// </para>
+    /// <para>
+    /// <b>They are staged at load rather than built when the call arrives.</b> Adding a
+    /// model to a room that is already standing means new vertex buffers, new descriptor
+    /// sets and a new acceleration structure mid-frame, and the reward for all of it is a
+    /// prop that would then be lit and shadowed differently from everything around it. A
+    /// room's scripts are a closed set and its construction calls are string constants in
+    /// them, so what will be built can simply be read before the room opens — and then the
+    /// disco ball is an ordinary prop that happens to start hidden.
+    /// </para>
+    /// <para>
+    /// Hidden is the safe way round and the faithful one. Every construction call in the
+    /// game is followed immediately by <c>ShowModel</c> or by <c>HideModel</c>, so nothing
+    /// depends on what a freshly added model looks like — while a prop staged visible would
+    /// stand in the room from the moment the player walked in.
+    /// </para>
+    /// </remarks>
+    private List<PlacedModel> StageConstructed(
+        ISceneSink geometry,
+        string scene,
+        IEnumerable<PlacedModel> already,
+        DiagnosticBag diagnostics)
+    {
+        List<PlacedModel> staged = [];
+        HashSet<string> placed = new(already.Select(m => m.Name), StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in ConstructedProps(scene, diagnostics))
+        {
+            if (!placed.Add(name))
+            {
+                continue;
+            }
+
+            if (PlaceProp(geometry, new SceneModel(name, null, "prop", Hidden: true), diagnostics)
+                is { } prop)
+            {
+                staged.Add(prop);
+            }
+        }
+
+        if (staged.Count > 0)
+        {
+            _log?.Invoke(
+                $"construction: {staged.Count} prop{(staged.Count == 1 ? string.Empty : "s")} " +
+                $"staged for scripts — {string.Join(", ", staged.Select(p => p.Name))}");
+        }
+
+        return staged;
+    }
+
+    /// <summary>
+    /// The models this room's compiled scripts ask to have built.
+    /// </summary>
+    /// <param name="scene">The room's name, which its scripts are named after.</param>
+    /// <param name="diagnostics">Receives a script that will not parse.</param>
+    /// <returns>Model names, in the order the scripts name them, without duplicates.</returns>
+    /// <remarks>
+    /// <para>
+    /// A script belongs to a room when its name begins with the room's — <c>RL2_ALL</c>,
+    /// <c>RL2312P</c>, <c>LBYEGG</c> — which is the convention the whole corpus keeps and
+    /// the only thing that relates the two. Reading every script in the game instead would
+    /// stage the monkey from Grace's fridge in the bar.
+    /// </para>
+    /// <para>
+    /// The specification is <c>model=NAME,type=prop</c>, written with whatever spaces and
+    /// tabs the author felt like. Only <c>type=prop</c> is staged: the other kind is
+    /// <c>AddActor</c>'s, which wants a character rather than a model and is not this.
+    /// </para>
+    /// </remarks>
+    private List<string> ConstructedProps(string scene, DiagnosticBag diagnostics)
+    {
+        HashSet<string> found = new(StringComparer.OrdinalIgnoreCase);
+        List<string> order = [];
+
+        foreach (string script in _archives.Names(".SHP"))
+        {
+            if (!Path.GetFileNameWithoutExtension(script)
+                    .StartsWith(scene, StringComparison.OrdinalIgnoreCase) ||
+                _archives.Read(script) is not { } bytes)
+            {
+                continue;
+            }
+
+            Sheep.SheepScriptFile compiled;
+
+            try
+            {
+                compiled = Sheep.SheepScriptFile.Parse(bytes, script);
+            }
+            catch (Formats.FormatParseException)
+            {
+                // A script that will not parse is a prop that will not be staged, not a
+                // room that will not load. The call that would have built it reports its
+                // own absence when it arrives.
                 diagnostics.Add(new Diagnostic(
-                    "SCENE006",
-                    DiagnosticSeverity.Warning,
-                    $"The scene places {model.Name}, which no archive contains."));
+                    "SCENE026", DiagnosticSeverity.Info,
+                    "A script belonging to this scene could not be read, so anything it " +
+                    "builds for itself is not staged.",
+                    script));
 
                 continue;
             }
 
-            ModFile parsed = ModFile.Parse(bytes, model.Name + ".MOD");
-            Matrix4x4 standing = Matrix4x4.Identity;
-
-            // A flat tree becomes a modelled one here, before anything else is decided
-            // about it. Everything downstream — the noun the player clicks, whether the
-            // scene starts it hidden, the script that shows it again — is about the
-            // placement rather than about the shape, so a tree that grew is still the
-            // same prop under the same name.
-            if (GrowTree(parsed, diagnostics) is { } grown)
+            foreach (string constant in compiled.StringConstants.Values)
             {
-                parsed = grown.Model;
-                standing = grown.Standing;
-                _treesGrown++;
+                if (ConstructedProp(constant) is { } model && found.Add(model))
+                {
+                    order.Add(model);
+                }
             }
-
-            LoadTextures(
-                geometry,
-                parsed.Meshes.SelectMany(m => m.Submeshes).Select(s => s.TextureName),
-                model.Name,
-                diagnostics);
-
-            // A model the scene declares hidden is loaded and placed all the same, and
-            // then not drawn. It has to be: the story brings it out with ShowModel, and
-            // RC1's moped — which waits out of sight for the scripted moment it rides
-            // past the hotel — was never loaded at all, so the show did nothing and the
-            // player heard Gabriel remark on a bike that was not there.
-            ModelPlacement placement = geometry.Add(
-                parsed, standing.IsIdentity ? null : standing);
-
-            if (model.Hidden)
-            {
-                geometry.SetVisible(placement, false);
-            }
-
-            placed.Add(new PlacedModel(
-                model.Name,
-                model.Noun,
-                model.Verb,
-                parsed,
-                standing,
-                PlacedModelKind.Prop,
-                placement)
-            {
-                Stage = geometry,
-                Gas = model.Gas,
-                Idle = ReadBehaviour(model.Gas, model.Name, diagnostics),
-                Visible = !model.Hidden,
-                InitialAnimation = model.InitialAnimation,
-            });
         }
 
-        return placed;
+        return order;
+    }
+
+    /// <summary>Reads a construction specification, if that is what a string is.</summary>
+    /// <param name="specification">A string constant out of a compiled script.</param>
+    /// <returns>The model named, or null when this is not a prop specification.</returns>
+    public static string? ConstructedProp(string specification)
+    {
+        ArgumentNullException.ThrowIfNull(specification);
+
+        string? model = null;
+        bool prop = false;
+
+        foreach (string field in specification.Split(','))
+        {
+            int equals = field.IndexOf('=', StringComparison.Ordinal);
+
+            if (equals < 0)
+            {
+                continue;
+            }
+
+            string key = field[..equals].Trim();
+            string value = field[(equals + 1)..].Trim();
+
+            if (key.Equals("model", StringComparison.OrdinalIgnoreCase))
+            {
+                model = value;
+            }
+            else if (key.Equals("type", StringComparison.OrdinalIgnoreCase))
+            {
+                prop = value.Equals("prop", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        return prop && model is { Length: > 0 } ? model : null;
+    }
+
+    /// <summary>Reads one prop, puts it in the room and says where it went.</summary>
+    /// <param name="geometry">Where to put it.</param>
+    /// <param name="model">What the scene, or a script, says to place.</param>
+    /// <param name="diagnostics">Receives anything that could not be read.</param>
+    /// <returns>The prop as placed, or null when the archives have no such model.</returns>
+    private PlacedModel? PlaceProp(
+        ISceneSink geometry, SceneModel model, DiagnosticBag diagnostics)
+    {
+        byte[]? bytes = _archives.Read(model.Name + ".MOD");
+        if (bytes is null)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE006",
+                DiagnosticSeverity.Warning,
+                $"The scene places {model.Name}, which no archive contains."));
+
+            return null;
+        }
+
+        ModFile parsed = ModFile.Parse(bytes, model.Name + ".MOD");
+        Matrix4x4 standing = Matrix4x4.Identity;
+
+        // A flat tree becomes a modelled one here, before anything else is decided
+        // about it. Everything downstream — the noun the player clicks, whether the
+        // scene starts it hidden, the script that shows it again — is about the
+        // placement rather than about the shape, so a tree that grew is still the
+        // same prop under the same name.
+        if (GrowTree(parsed, diagnostics) is { } grown)
+        {
+            parsed = grown.Model;
+            standing = grown.Standing;
+            _treesGrown++;
+        }
+
+        LoadTextures(
+            geometry,
+            parsed.Meshes.SelectMany(m => m.Submeshes).Select(s => s.TextureName),
+            model.Name,
+            diagnostics);
+
+        // A model the scene declares hidden is loaded and placed all the same, and
+        // then not drawn. It has to be: the story brings it out with ShowModel, and
+        // RC1's moped — which waits out of sight for the scripted moment it rides
+        // past the hotel — was never loaded at all, so the show did nothing and the
+        // player heard Gabriel remark on a bike that was not there.
+        ModelPlacement placement = geometry.Add(
+            parsed, standing.IsIdentity ? null : standing);
+
+        if (model.Hidden)
+        {
+            geometry.SetVisible(placement, false);
+        }
+
+        return new PlacedModel(
+            model.Name,
+            model.Noun,
+            model.Verb,
+            parsed,
+            standing,
+            PlacedModelKind.Prop,
+            placement)
+        {
+            Stage = geometry,
+            Gas = model.Gas,
+            Idle = ReadBehaviour(model.Gas, model.Name, diagnostics),
+            Visible = !model.Hidden,
+            InitialAnimation = model.InitialAnimation,
+        };
     }
 
     /// <summary>

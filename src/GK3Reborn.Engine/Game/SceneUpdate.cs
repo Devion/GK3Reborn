@@ -146,6 +146,16 @@ public sealed class SceneUpdate
     private readonly List<Footfall> _steps = [];
 
     private readonly List<Swap> _swaps = [];
+
+    /// <summary>What animations are about to repaint and reveal about the room itself.</summary>
+    /// <remarks>
+    /// Separate from <see cref="_swaps"/> and <see cref="_showings"/> because the subject is
+    /// different: those name a model the scene loaded from a file, these name a run of
+    /// surfaces inside the room's own geometry. See <see cref="AnimationSceneTexture"/>.
+    /// </remarks>
+    private readonly List<Scheduled<AnimationSceneTexture>> _roomSwaps = [];
+
+    private readonly List<Scheduled<AnimationSceneVisibility>> _roomShowings = [];
     private readonly List<Turning> _actors = [];
     private readonly Dictionary<string, Walking> _walking =
         new(StringComparer.OrdinalIgnoreCase);
@@ -450,6 +460,25 @@ public sealed class SceneUpdate
 
         Repaint(animation.Textures.Where(t => t.Frame <= 0));
 
+        // And what it repaints about the room rather than about a model. The bar's dance
+        // floor is nine of these, cycling three checker patterns on a loop; the light
+        // coming on in Grace's office is one.
+        foreach (AnimationSceneTexture swap in animation.SceneTextures)
+        {
+            _roomSwaps.Add(new Scheduled<AnimationSceneTexture>(
+                swap, swap.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+        }
+
+        PaintRoom(animation.SceneTextures.Where(t => t.Frame <= 0));
+
+        foreach (AnimationSceneVisibility change in animation.SceneVisibility)
+        {
+            _roomShowings.Add(new Scheduled<AnimationSceneVisibility>(
+                change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+        }
+
+        RevealRoom(animation.SceneVisibility.Where(v => v.Frame <= 0));
+
         // Then what it shows and hides, for the same reason and one of its own: an
         // animation that brings somebody into the room does it here, and the clip that
         // opens the door in front of them is a separate line of the same file. Emilio
@@ -481,6 +510,8 @@ public sealed class SceneUpdate
                 animation.Sounds.Count > 0 ||
                 animation.Visibility.Count > 0 ||
                 animation.Textures.Count > 0 ||
+                animation.SceneTextures.Count > 0 ||
+                animation.SceneVisibility.Count > 0 ||
                 animation.Steps.Count > 0)
             {
                 return animation.Duration;
@@ -1360,6 +1391,59 @@ public sealed class SceneUpdate
     }
 
     /// <summary>
+    /// Applies an animation's repaints of the room itself.
+    /// </summary>
+    /// <param name="swaps">The changes due now.</param>
+    /// <remarks>
+    /// <para>
+    /// The scene name each line carries is read past. It records the variant the artist had
+    /// open when they wrote it — every one of the bar's says <c>rl2_disco_a</c> — and an
+    /// animation is only ever played by the room that owns it, so matching on it would
+    /// reject the same lines the room is currently asking for.
+    /// </para>
+    /// <para>
+    /// An object the room does not have is skipped in silence, as an <c>[MTEXTURES]</c>
+    /// line naming an absent model is: the lobby's window animations are played by three
+    /// timeblocks' worth of scenes and name whichever one the artist was in.
+    /// </para>
+    /// </remarks>
+    private void PaintRoom(IEnumerable<AnimationSceneTexture> swaps)
+    {
+        foreach (AnimationSceneTexture swap in swaps)
+        {
+            if (Textures?.Invoke(swap.Texture) == false)
+            {
+                Diagnostics.Add(new Diagnostic(
+                    "GK3R3345", DiagnosticSeverity.Info,
+                    "An animation repaints part of a room with a texture the archives do not have.",
+                    swap.ObjectName, null, "a .BMP of that name", swap.Texture,
+                    "The surface keeps the picture it had."));
+
+                continue;
+            }
+
+            if (!_geometry.PaintSceneObject(swap.ObjectName, swap.Texture))
+            {
+                Diagnostics.Add(new Diagnostic(
+                    "GK3R3346", DiagnosticSeverity.Info,
+                    "An animation repaints part of a room that has no such part.",
+                    _scene.Name, null, "an object in the geometry", swap.ObjectName,
+                    "Common and usually harmless: animations are shared between rooms."));
+            }
+        }
+    }
+
+    /// <summary>Applies an animation's visibility changes to the room itself.</summary>
+    /// <param name="changes">The changes due now.</param>
+    private void RevealRoom(IEnumerable<AnimationSceneVisibility> changes)
+    {
+        foreach (AnimationSceneVisibility change in changes)
+        {
+            ShowObject(change.ObjectName, change.Visible);
+        }
+    }
+
+    /// <summary>
     /// Makes a texture resident, and says whether it could be.
     /// </summary>
     /// <remarks>
@@ -1367,6 +1451,53 @@ public sealed class SceneUpdate
     /// libraries: without one nothing repaints, which is what a test with no device wants.
     /// </remarks>
     public Func<string, bool>? Textures { get; set; }
+
+    /// <summary>
+    /// Gives the room a different bake of its own lighting, and says whether it could be.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What <c>SetScene</c> asks for. A function rather than the archives, for the same
+    /// reason <see cref="Textures"/> is one: reading a scene asset and its bake is the
+    /// launcher's business, and a test with no archives wants the call to be answered
+    /// rather than to fail.
+    /// </para>
+    /// <para>
+    /// The argument is the scene asset's name — <c>rl2_disco_a</c> — and the answer is
+    /// whether the room now has that bake on. False covers all of "no such asset", "it
+    /// belongs to different geometry" and "this room was never baked", which are the same
+    /// thing to a caller: the room looks how it looked.
+    /// </para>
+    /// </remarks>
+    public Func<string, bool>? Relight { get; set; }
+
+    /// <summary>Hands the room a second bake of its lighting, by scene-asset name.</summary>
+    /// <param name="asset">The scene asset — <c>rl2_disco_a</c>, <c>gri_b</c>.</param>
+    /// <returns>True when the room is now lit by it.</returns>
+    /// <remarks>
+    /// The whole of what <c>SetScene</c> does that anybody can see. The original reloads
+    /// the named asset's geometry as well, which matters for the one call in the game that
+    /// names a different BSP — CEM's, at 106P; every other call in the corpus is the same
+    /// room lit a second way, which is the case the bar's disco and Grace's light switch
+    /// both are.
+    /// </remarks>
+    public bool Relit(string asset)
+    {
+        ArgumentNullException.ThrowIfNull(asset);
+
+        if (Relight?.Invoke(asset) == true)
+        {
+            return true;
+        }
+
+        Diagnostics.Add(new Diagnostic(
+            "GK3R3347", DiagnosticSeverity.Info,
+            "A script asked for a different bake of the room and did not get one.",
+            _scene.Name, null, "a scene asset baked for this geometry", asset,
+            "The room keeps the lighting it had."));
+
+        return false;
+    }
 
     /// <summary>Whether a model is walking somewhere, under either of its names.</summary>
     /// <remarks>
@@ -2043,6 +2174,8 @@ public sealed class SceneUpdate
             _showings.Clear();
             _steps.Clear();
             _swaps.Clear();
+            _roomSwaps.Clear();
+            _roomShowings.Clear();
             _cues.Clear();
             return;
         }
@@ -2073,6 +2206,13 @@ public sealed class SceneUpdate
         // And whatever it was about to be shown or hidden by. A clip that is stopped
         // half-way should not still turn its model off four seconds later.
         _showings.RemoveAll(v => v.Concerns(model));
+
+        // And whatever it was about to do to the room. These are stopped by the
+        // animation's own name rather than by a model's, because they name no model:
+        // `disco_flashdance_a` is nothing but a floor flashing on a loop, and
+        // `StopAnimation("disco_flashdance_a")` is the only thing that ever ends it.
+        _roomSwaps.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
+        _roomShowings.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
 
         // Whatever it does on its own is its own again. A hold outliving the clip that
         // asked for it leaves a character standing perfectly still for the rest of the
@@ -2902,6 +3042,34 @@ public sealed class SceneUpdate
             if (_swaps[i].Finished)
             {
                 _swaps.RemoveAt(i);
+            }
+        }
+
+        // And what it repaints about the room. Told apart from the models' swaps above
+        // because a room object is reached by name rather than through a placement.
+        for (int i = _roomSwaps.Count - 1; i >= 0; i--)
+        {
+            if (_roomSwaps[i].Step(seconds) is { } swap)
+            {
+                PaintRoom([swap]);
+            }
+
+            if (_roomSwaps[i].Finished)
+            {
+                _roomSwaps.RemoveAt(i);
+            }
+        }
+
+        for (int i = _roomShowings.Count - 1; i >= 0; i--)
+        {
+            if (_roomShowings[i].Step(seconds) is { } change)
+            {
+                RevealRoom([change]);
+            }
+
+            if (_roomShowings[i].Finished)
+            {
+                _roomShowings.RemoveAt(i);
             }
         }
 
@@ -3741,6 +3909,74 @@ public sealed class SceneUpdate
             }
 
             return _swap;
+        }
+    }
+
+    /// <summary>Something an animation does to the room, waiting for its frame.</summary>
+    /// <remarks>
+    /// <para>
+    /// The same clock as <see cref="Cue"/>, <see cref="Swap"/> and <see cref="Showing"/>,
+    /// written once because the two things it carries — a repaint of a room object and a
+    /// showing of one — differ in nothing but their payload. A period of zero is a change
+    /// that happens once; anything else is a looping animation coming round again.
+    /// </para>
+    /// <para>
+    /// It remembers which animation asked, which the older three do not all do. Room
+    /// changes name no model, so the animation's own name is the only handle
+    /// <c>StopAnimation</c> has on them.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="T">What is due.</typeparam>
+    private sealed class Scheduled<T>
+        where T : struct
+    {
+        private readonly T _what;
+        private readonly double _at;
+        private readonly double _period;
+
+        private double _elapsed;
+
+        public Scheduled(T what, int frame, double period, int rate, string owner)
+        {
+            _what = what;
+            _at = Math.Max(0, frame) / (double)Math.Max(1, rate);
+            _period = period;
+            Owner = owner;
+            Finished = _period <= 0 && frame <= 0;
+        }
+
+        /// <summary>The animation that scheduled it.</summary>
+        public string Owner { get; }
+
+        /// <summary>Whether it has happened and will not come round again.</summary>
+        public bool Finished { get; private set; }
+
+        /// <summary>Advances the clock and says whether it is due this frame.</summary>
+        public T? Step(double seconds)
+        {
+            if (Finished)
+            {
+                return null;
+            }
+
+            double before = _elapsed;
+            _elapsed += seconds;
+
+            if (before > _at || _elapsed < _at)
+            {
+                return null;
+            }
+
+            if (_period > 0)
+            {
+                _elapsed -= _period;
+            }
+            else
+            {
+                Finished = true;
+            }
+
+            return _what;
         }
     }
 

@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering;
 using Xunit;
@@ -48,6 +48,53 @@ public sealed class LightmapAtlasTests
             Assert.InRange(region.X + region.Z, 0f, 1f);
             Assert.InRange(region.Y + region.W, 0f, 1f);
         }
+    }
+
+    [Fact]
+    public void A_second_bake_lands_where_the_first_one_did()
+    {
+        // What a light switch and a disco ball both are: the same room lit again. Where
+        // each tile sits is written into the vertices, so a replacement that repacked would
+        // light every surface with some other surface's bake.
+        DecodedImage[] first = [Solid(8, 8, 10), Solid(16, 4, 20), Solid(4, 4, 30)];
+        DecodedImage[] second = [Solid(8, 8, 110), Solid(16, 4, 120), Solid(4, 4, 130)];
+
+        LightmapAtlas atlas = LightmapAtlas.Pack(first);
+        DecodedImage relit = atlas.Repack(second);
+
+        Assert.Equal(atlas.Image.Width, relit.Width);
+        Assert.Equal(atlas.Image.Height, relit.Height);
+
+        for (int tile = 0; tile < second.Length; tile++)
+        {
+            Assert.Equal(second[tile].Pixels[0], At(relit, atlas.Regions[tile]));
+        }
+    }
+
+    [Fact]
+    public void A_second_bake_whose_tiles_are_a_different_size_is_sampled_into_the_slot()
+    {
+        // 86 of RL2's 479 surfaces are a different size between its ordinary bake and its
+        // disco one: a wall lit evenly exports as a single texel and the same wall under a
+        // mirror ball as eight. Skipping those would leave a fifth of the room lit by the
+        // scene it has just left.
+        DecodedImage[] first = [Solid(8, 8, 10), Solid(1, 1, 20)];
+        DecodedImage[] second = [Solid(2, 2, 110), Solid(16, 16, 120)];
+
+        LightmapAtlas atlas = LightmapAtlas.Pack(first);
+        DecodedImage relit = atlas.Repack(second);
+
+        Assert.Equal(110, At(relit, atlas.Regions[0]));
+        Assert.Equal(120, At(relit, atlas.Regions[1]));
+    }
+
+    /// <summary>Reads the middle of a region out of a packed atlas.</summary>
+    private static byte At(DecodedImage atlas, Vector4 region)
+    {
+        int x = (int)((region.X + (region.Z / 2f)) * atlas.Width);
+        int y = (int)((region.Y + (region.W / 2f)) * atlas.Height);
+
+        return atlas.Pixels[(((y * atlas.Width) + x) * 4) + 1];
     }
 
     [Fact]

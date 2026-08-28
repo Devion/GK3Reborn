@@ -41,7 +41,8 @@ that happen on a frame, opening with how many of them there are.
 | `[MTEXTURES]` | `<frame>,<model>,<mesh>,<submesh>,<texture>` | Repaint one submesh of a model |
 | `[OPTIONS]` | `<frame>,FRAMERATE,<n>` | Run at this rate rather than fifteen |
 | `[OPTIONS]` | `<frame>,SIMPLE,<n>` / `<frame>,NOINTERPOLATE` | Read past. `NOINTERPOLATE` is now a real instruction rather than a curiosity — see below — and is still not obeyed: nine clips ask for it, all of them the moped and the van. |
-| `[STEXTURES]` | | 78 files; scene textures, not read |
+| `[STEXTURES]` | `<frame>,<scene>,<object>,<texture>` | Repaint a run of surfaces in the room itself |
+| `[SVISIBILITY]` | `<frame>,<scene>,<object>,<on\|off>` | Draw part of the room from this frame on, or stop |
 | `[MORPHS]` | | 7 files; not read |
 
 A caption is a sentence and contains commas, so everything past the fourth field belongs to
@@ -63,6 +64,25 @@ Frame zero is applied the moment the animation starts rather than a tick later, 
 change on the opening frame states what is true while the animation runs; waiting shows one
 frame of the old state, and for a character being brought into the room that is one frame of
 them standing at the origin.
+
+**`[STEXTURES]` is the room changing rather than a thing in it.** 198 lines across 78
+animations, and the two families are not interchangeable: `[MTEXTURES]` names a mesh group
+and a submesh of a model the scene loaded from a file of its own, while this names a run of
+surfaces inside the room's own geometry — `rl2floor`, `bartop`, `lbywindow` — the same
+objects `ShowSceneModel` addresses. The bar's dance floor under the disco ball is nine of
+them, `checker_01` through `checker_03` cycled on a two-second loop; the light coming on in
+Grace's office is one; the rest are the view through the lobby window gaining a parked car
+or van.
+
+**The scene name each line carries is read past.** Every one of the bar's says
+`rl2_disco_a`, which is the variant the artist had open, and an animation is only ever
+played by the room that owns it — so matching on it would reject exactly the lines the room
+is asking for. An object the room does not have is skipped and reported as `GK3R3346`, which
+is ordinary: the lobby's window animations are played by three timeblocks' worth of scenes.
+
+**An animation of nothing but these still takes time.** `disco_flashdance_a` names no clips,
+no sounds and no captions — it is a floor flashing and nothing else. Reporting it as taking
+no time makes `wait LoopAnimation(...)` walk straight past it.
 
 **A footstep node says only when and whose.** What it sounds like is three other files'
 business: the floor texture underfoot through `FLOORMAP.TXT`, the character's shoes through

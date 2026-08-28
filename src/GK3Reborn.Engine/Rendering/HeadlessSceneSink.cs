@@ -273,6 +273,39 @@ public sealed class HeadlessSceneSink : ISceneSink
         return _sceneObjects.Contains(objectName);
     }
 
+    /// <summary>The room's own objects a script or an animation has repainted, and with what.</summary>
+    /// <remarks>
+    /// Recorded rather than drawn, like everything else here, and for the same reason
+    /// <see cref="SceneObjectsToggled"/> is: an animation that repaints an object the room
+    /// does not have is a line that will silently do nothing in the game.
+    /// </remarks>
+    public List<(string Object, string? Texture)> SceneObjectsPainted { get; } = [];
+
+    /// <inheritdoc/>
+    public bool PaintSceneObject(string objectName, string? texture)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        SceneObjectsPainted.Add((objectName, texture));
+
+        return _sceneObjects.Contains(objectName);
+    }
+
+    /// <summary>The replacement bakes a script has handed the room, in order.</summary>
+    public List<string> LightmapsSwapped { get; } = [];
+
+    /// <inheritdoc/>
+    public bool SwapLightmaps(MulFile lightmaps)
+    {
+        ArgumentNullException.ThrowIfNull(lightmaps);
+
+        LightmapsSwapped.Add(lightmaps.Name);
+
+        return _baked;
+    }
+
+    private bool _baked;
+
     private readonly HashSet<string> _sceneObjects = new(StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
@@ -289,6 +322,8 @@ public sealed class HeadlessSceneSink : ISceneSink
         {
             _sceneObjects.Add(name);
         }
+
+        _baked = _baked || lightmaps is not null;
 
         TriangleCount += scene.TriangleCount;
 

@@ -103,6 +103,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private RayTracingScene? _rayTracing;
     private VulkanTexture? _lightmap;
     private IReadOnlyList<Vector4>? _lightmapRegions;
+    private LightmapAtlas? _lightmapAtlas;
     private DescriptorPool _descriptorPool;
 
     /// <summary>
@@ -126,7 +127,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// Kept because a face comes back to the same mouth shape a dozen times a sentence, and
     /// a set that is only a handful of image views is far cheaper to keep than to build.
     /// </remarks>
-    private readonly Dictionary<(string Painted, string Of), DescriptorSet> _repainted =
+    private readonly Dictionary<(string Painted, string Of, bool Lit), DescriptorSet> _repainted =
         new();
     private Vector3 _minimum = new(float.MaxValue);
     private Vector3 _maximum = new(float.MinValue);
@@ -682,25 +683,27 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>A material set drawing one picture with another surface's normal map.</summary>
     /// <remarks>
-    /// Never a lightmap: only the room's own geometry is baked, and the only things that
-    /// repaint are models. Cached, because a talking face comes back to the same eight
-    /// mouth shapes over and over.
+    /// A model's repaint takes no lightmap, because only the room's own geometry is baked.
+    /// The room repaints too — an animation may swap the picture on a wall or a floor — and
+    /// that one keeps the bake, or the surface it lands on goes flat and bright in a room
+    /// where everything around it is lit. Cached, because a talking face comes back to the
+    /// same eight mouth shapes over and over and a flashing floor to the same three.
     /// </remarks>
-    private DescriptorSet MaterialFor(string picture, string surface)
+    private DescriptorSet MaterialFor(string picture, string surface, bool lit = false)
     {
-        if (_repainted.TryGetValue((picture, surface), out DescriptorSet known))
+        if (_repainted.TryGetValue((picture, surface, lit), out DescriptorSet known))
         {
             return known;
         }
 
         DescriptorSet made = CreateMaterialSet(
             TextureFor(picture),
-            _whiteTexture,
+            lit ? _lightmap ?? _whiteTexture : _whiteTexture,
             _textures.GetNormal(surface),
             _textures.GetOrm(surface),
             _textures.GetHeight(surface));
 
-        _repainted[(picture, surface)] = made;
+        _repainted[(picture, surface, lit)] = made;
         return made;
     }
 
@@ -1041,6 +1044,53 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         return true;
     }
 
+    /// <inheritdoc/>
+    public bool PaintSceneObject(string objectName, string? texture)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        if (!_sceneObjects.TryGetValue(objectName, out List<int>? belonging))
+        {
+            return false;
+        }
+
+        foreach (int index in belonging)
+        {
+            Batch batch = _batches[index];
+
+            if (string.Equals(batch.Painted, texture, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _batches[index] = batch with
+            {
+                Painted = texture,
+                Material = texture is { Length: > 0 } picture
+                    ? MaterialFor(picture, batch.TextureName, batch.UseLightmap && !batch.SelfLit)
+                    : MaterialFor(batch.TextureName, batch.TextureName, batch.UseLightmap && !batch.SelfLit),
+            };
+        }
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public bool SwapLightmaps(MulFile lightmaps)
+    {
+        ArgumentNullException.ThrowIfNull(lightmaps);
+
+        if (_lightmap is null || _lightmapAtlas is null)
+        {
+            return false;
+        }
+
+        DecodedImage repacked = _lightmapAtlas.Repack(lightmaps.Lightmaps);
+
+        _lightmap.Refresh(repacked.Pixels, repacked.Width, repacked.Height);
+        return true;
+    }
+
     /// <summary>One triangle's relief, cut before the loop that lays it into a batch.</summary>
     /// <param name="Pieces">Its vertices, in the tessellator's own order.</param>
     /// <param name="Indices">Triangles over those, indexed from zero within this cut.</param>
@@ -1311,6 +1361,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 _context, atlas.Image, mipmaps: false, SamplerAddressMode.ClampToEdge);
 
             _lightmapRegions = atlas.Regions;
+
+            // Kept, because a script may hand the room a different bake part-way through —
+            // a light switch, the bar's disco — and the new one has to land in the layout
+            // the vertices were given, which is this one. See SwapLightmaps.
+            _lightmapAtlas = atlas;
         }
 
         Timeline?.Stamp("room: lightmap atlas");
@@ -2119,6 +2174,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         _whiteTexture.Dispose();
         _lightmap?.Dispose();
         _lightmap = null;
+        _lightmapAtlas = null;
         _rayTracing?.Dispose();
         _rayTracing = null;
         _traceable.Clear();

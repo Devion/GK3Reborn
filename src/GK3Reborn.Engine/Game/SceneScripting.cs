@@ -1496,6 +1496,42 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
+        // Construction mode: a script putting something into the room the scene file never
+        // mentioned. What it names has already been read and placed, hidden, while the room
+        // was loading — see SceneLoader.StageConstructed — so all that is left here is to
+        // say whether the thing the script asked for is actually in the room, because a
+        // model that is not is a moment that will not happen and nothing else would say so.
+        api.Register("AddModel", a =>
+        {
+            if (a.Count > 0 &&
+                SceneLoader.ConstructedProp(a[0].AsString()) is { } model &&
+                world.ModelNamed(model) is null)
+            {
+                api.Diagnostics.Add(new Diagnostic(
+                    "GK3R3348", DiagnosticSeverity.Warning,
+                    "A script built a model into the room that was not staged for it.",
+                    scene.Name, null, "a prop staged from this scene's scripts", model,
+                    "Scripts are found by name: this one's does not begin with the scene's."));
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
+        // The same room lit a second way. Grace's office has a light switch and the bar has
+        // a disco ball, and both are one geometry with two bakes.
+        SheepValue Relight(IReadOnlyList<SheepValue> arguments)
+        {
+            if (arguments.Count > 0)
+            {
+                world.Relit(arguments[0].AsString());
+            }
+
+            return SheepValue.FromInt(0);
+        }
+
+        api.Register("SetScene", Relight);
+        api.Register("SetSceneNoPreloadTextures", Relight);
+
         api.Register("ShowModel", a =>
         {
             Set(a, visible: true);

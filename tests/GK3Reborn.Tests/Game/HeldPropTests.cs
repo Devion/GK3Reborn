@@ -116,6 +116,10 @@ public sealed class HeldPropTests
 
         public bool SetSceneObjectVisible(string objectName, bool visible) => true;
 
+        public bool PaintSceneObject(string objectName, string? texture) => true;
+
+        public bool SwapLightmaps(GK3Reborn.Formats.Lightmaps.MulFile lightmaps) => true;
+
         public void SetVisible(ModelPlacement placement, bool visible) =>
             _inner.SetVisible(placement, visible);
 

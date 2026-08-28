@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
 using GK3Reborn.Foundation.Diagnostics;
@@ -47,6 +47,38 @@ public sealed class AnimationFileTests
         Assert.Equal(
             [new AnimationSound(0, "ClownTile1", 100), new AnimationSound(40, "ClownTile2", 60)],
             animation.Sounds);
+    }
+
+    [Fact]
+    public void The_room_surfaces_it_repaints_are_read()
+    {
+        // The bar's dance floor. Three checker patterns cycled on a loop is the whole of
+        // what makes a floor flash, and the section was walked past in silence.
+        AnimationFile animation = Parse(
+            "[HEADER]\n33\n\n[STEXTURES]\n2\n" +
+            "0,rl2_disco_a,rl2floor,checker_02\n\n4,rl2_disco_a,rl2floor,checker_03\n");
+
+        Assert.Equal(
+            [
+                new AnimationSceneTexture(0, "rl2_disco_a", "rl2floor", "checker_02"),
+                new AnimationSceneTexture(4, "rl2_disco_a", "rl2floor", "checker_03"),
+            ],
+            animation.SceneTextures);
+    }
+
+    [Fact]
+    public void The_room_objects_it_shows_and_hides_are_read()
+    {
+        AnimationFile animation = Parse(
+            "[HEADER]\n20\n\n[SVISIBILITY]\n2\n" +
+            "0,lhe_a,lhecurtain,off\n10,lhe_a,lhecurtain,on\n");
+
+        Assert.Equal(
+            [
+                new AnimationSceneVisibility(0, "lhe_a", "lhecurtain", false),
+                new AnimationSceneVisibility(10, "lhe_a", "lhecurtain", true),
+            ],
+            animation.SceneVisibility);
     }
 
     [Fact]

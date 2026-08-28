@@ -372,6 +372,46 @@ public interface ISceneSink
     /// </remarks>
     bool SetSceneObjectVisible(string objectName, bool visible);
 
+    /// <summary>
+    /// Paints one of the room's own named objects with something else.
+    /// </summary>
+    /// <param name="objectName">The object's name, as the geometry file records it.</param>
+    /// <param name="texture">What to draw on it, or null to put the room's own back.</param>
+    /// <returns>True when the room has an object by that name.</returns>
+    /// <remarks>
+    /// <para>
+    /// The room's counterpart of <see cref="Repaint"/>, and what an animation's
+    /// <c>[STEXTURES]</c> section asks for: 198 lines across 78 of the corpus's animations,
+    /// every one of them a room changing what it shows. The bar's floor cycling through
+    /// three checker patterns under a disco ball is nine of them.
+    /// </para>
+    /// <para>
+    /// By object rather than by texture, because that is what the animation names, and
+    /// because a room draws the same wood panelling in a dozen places and only the bar is
+    /// meant to flash.
+    /// </para>
+    /// </remarks>
+    bool PaintSceneObject(string objectName, string? texture);
+
+    /// <summary>
+    /// Gives the room a different bake of the lighting it already has.
+    /// </summary>
+    /// <param name="lightmaps">The replacement lightmaps, in surface order.</param>
+    /// <returns>True when the room had a bake to replace.</returns>
+    /// <remarks>
+    /// <para>
+    /// What <c>SetScene</c> is for: the same geometry lit a second way. Grace's office has
+    /// a light switch and the bar has a disco ball, and both are one room with two bakes
+    /// rather than two rooms.
+    /// </para>
+    /// <para>
+    /// The replacement is laid into the layout the first one was packed into, because where
+    /// each surface's lightmap sits in the atlas is written into the vertices. That is a
+    /// constraint on the caller too: this swaps the lighting of a room, not the room.
+    /// </para>
+    /// </remarks>
+    bool SwapLightmaps(MulFile lightmaps);
+
     /// <summary>Adds a scene's geometry and its baked lighting.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">Its lightmaps, in surface order, if any.</param>

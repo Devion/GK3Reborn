@@ -1064,6 +1064,9 @@ public sealed class Gk3SheepApi : ISheepApi
             ("PlayFullScreenMovieX", true),
 
             // Construction mode, which builds a scene from a script rather than a file.
+            // AddModel and the two SetScenes are registered over by SceneScripting once
+            // there is a room: what a script builds is staged while the room loads, and
+            // what a script relights is the bake the room is already wearing.
             ("AddModel", false),
             ("AddActor", false),
             ("AddPosition", false),

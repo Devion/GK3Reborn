@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 
 namespace GK3Reborn.Rendering;
@@ -28,10 +28,16 @@ public sealed class LightmapAtlas
 {
     private const int Gutter = 1;
 
-    private LightmapAtlas(DecodedImage image, IReadOnlyList<Vector4> regions)
+    private readonly (int X, int Y, int Width, int Height)[] _placements;
+
+    private LightmapAtlas(
+        DecodedImage image,
+        IReadOnlyList<Vector4> regions,
+        (int X, int Y, int Width, int Height)[] placements)
     {
         Image = image;
         Regions = regions;
+        _placements = placements;
     }
 
     /// <summary>The packed texture.</summary>
@@ -132,6 +138,83 @@ public sealed class LightmapAtlas
 
         return new LightmapAtlas(
             new DecodedImage(atlasWidth, atlasHeight, pixels, HasAlpha: false, "lightmap-atlas"),
-            regions);
+            regions,
+            placements);
+    }
+
+    /// <summary>Lays a different bake of the same room into this atlas's layout.</summary>
+    /// <param name="lightmaps">The replacement lightmaps, in surface order.</param>
+    /// <returns>An image the same size as <see cref="Image"/>, tile for tile.</returns>
+    /// <remarks>
+    /// <para>
+    /// A room may be handed a second bake while it is standing: <c>SetScene</c> is how the
+    /// light coming on in Grace's office and the bar's disco are drawn, and both are the
+    /// same geometry lit differently. Repacking from scratch would move every tile, and
+    /// where each tile sits is written into the vertices — so the replacement is laid into
+    /// the layout that is already there and nothing downstream has to change.
+    /// </para>
+    /// <para>
+    /// <b>The two bakes do not agree about tile sizes.</b> A surface the artists lit
+    /// evenly is exported as a single texel and the same surface under a disco ball as
+    /// eight; 86 of RL2's 479 differ. A tile that does not fit its slot is sampled into it
+    /// rather than skipped, which is sound because a lightmap is a low-frequency signal
+    /// stretched over a whole surface — the alternative is a wall that keeps the lighting
+    /// of the scene the room is no longer in.
+    /// </para>
+    /// </remarks>
+    public DecodedImage Repack(IReadOnlyList<DecodedImage> lightmaps)
+    {
+        ArgumentNullException.ThrowIfNull(lightmaps);
+
+        byte[] pixels = new byte[Image.Width * Image.Height * 4];
+
+        // As Pack does: a slot no tile reaches renders at full brightness rather than black.
+        Array.Fill(pixels, (byte)255);
+
+        for (int index = 0; index < _placements.Length; index++)
+        {
+            if (index >= lightmaps.Count)
+            {
+                continue;
+            }
+
+            (int x, int y, int width, int height) = _placements[index];
+            DecodedImage tile = lightmaps[index];
+
+            if (tile.Width <= 0 || tile.Height <= 0)
+            {
+                continue;
+            }
+
+            for (int row = 0; row < height; row++)
+            {
+                // Nearest, and deliberately: these are 1 to 64 texels across, and the tiles
+                // that need resampling are the ones small enough that any two filters agree.
+                int sourceRow = height == tile.Height
+                    ? row
+                    : Math.Min(tile.Height - 1, row * tile.Height / height);
+
+                for (int column = 0; column < width; column++)
+                {
+                    int sourceColumn = width == tile.Width
+                        ? column
+                        : Math.Min(tile.Width - 1, column * tile.Width / width);
+
+                    int source = ((sourceRow * tile.Width) + sourceColumn) * 4;
+                    int destination = (((y + row) * Image.Width) + x + column) * 4;
+
+                    if (source + 3 < tile.Pixels.Length && destination + 3 < pixels.Length)
+                    {
+                        pixels[destination] = tile.Pixels[source];
+                        pixels[destination + 1] = tile.Pixels[source + 1];
+                        pixels[destination + 2] = tile.Pixels[source + 2];
+                        pixels[destination + 3] = 255;
+                    }
+                }
+            }
+        }
+
+        return new DecodedImage(
+            Image.Width, Image.Height, pixels, HasAlpha: false, "lightmap-atlas");
     }
 }

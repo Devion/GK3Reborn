@@ -99,6 +99,38 @@ public readonly record struct AnimationStep(int Frame, string Actor, bool Scuff)
 public readonly record struct AnimationTexture(
     int Frame, string Model, int Mesh, int Submesh, string Texture);
 
+/// <summary>A texture an animation lays over part of the <em>room</em>, rather than a model.</summary>
+/// <param name="Frame">Which frame it changes on.</param>
+/// <param name="Scene">
+/// The scene asset the line was authored against — <c>rl2_disco_a</c>. Recorded and not
+/// matched against: an animation is only ever played by the room that owns it, and the
+/// name is the variant the artist happened to be looking at when they wrote the line.
+/// </param>
+/// <param name="ObjectName">The room object whose surfaces to repaint — <c>rl2floor</c>.</param>
+/// <param name="Texture">What to paint them with.</param>
+/// <remarks>
+/// 198 lines across 78 of the corpus's animations, and they are the room changing rather
+/// than a thing in it: the bar's dance floor cycling through three checker patterns, the
+/// view through the lobby window gaining a parked van, the light coming on in Grace's
+/// office. Distinct from <see cref="AnimationTexture"/>, which addresses a mesh group of a
+/// model the scene loaded from a file of its own.
+/// </remarks>
+public readonly record struct AnimationSceneTexture(
+    int Frame, string Scene, string ObjectName, string Texture);
+
+/// <summary>A part of the room an animation shows or hides part-way through.</summary>
+/// <param name="Frame">Which frame it changes on.</param>
+/// <param name="Scene">The scene asset the line was authored against.</param>
+/// <param name="ObjectName">The room object to show or hide.</param>
+/// <param name="Visible">Whether it is drawn from this frame on.</param>
+/// <remarks>
+/// The room's counterpart of <see cref="AnimationVisibility"/>, and rare: five lines in one
+/// animation. Read all the same, because the alternative is a section the parser walks past
+/// in silence.
+/// </remarks>
+public readonly record struct AnimationSceneVisibility(
+    int Frame, string Scene, string ObjectName, bool Visible);
+
 /// <summary>A model an animation shows or hides part-way through.</summary>
 /// <param name="Frame">Which frame it changes on.</param>
 /// <param name="Model">The model's own name, as the scene placed it.</param>
@@ -184,10 +216,14 @@ public sealed class AnimationFile
         IReadOnlyList<AnimationVisibility> visibility,
         IReadOnlyList<AnimationStep> steps,
         IReadOnlyList<AnimationTexture> textures,
+        IReadOnlyList<AnimationSceneTexture> sceneTextures,
+        IReadOnlyList<AnimationSceneVisibility> sceneVisibility,
         int rate)
     {
         Steps = steps;
         Textures = textures;
+        SceneTextures = sceneTextures;
+        SceneVisibility = sceneVisibility;
         Name = name;
         FrameCount = frames;
         Actions = actions;
@@ -224,6 +260,12 @@ public sealed class AnimationFile
 
     /// <summary>The textures it swaps, in file order.</summary>
     public IReadOnlyList<AnimationTexture> Textures { get; }
+
+    /// <summary>The room surfaces it repaints, in file order.</summary>
+    public IReadOnlyList<AnimationSceneTexture> SceneTextures { get; }
+
+    /// <summary>The room objects it shows and hides, in file order.</summary>
+    public IReadOnlyList<AnimationSceneVisibility> SceneVisibility { get; }
 
     /// <summary>Name this animation was read under.</summary>
     public string Name { get; }
@@ -305,6 +347,8 @@ public sealed class AnimationFile
         bool soundtrack = false;
         List<AnimationStep> steps = [];
         List<AnimationTexture> textures = [];
+        List<AnimationSceneTexture> sceneTextures = [];
+        List<AnimationSceneVisibility> sceneVisibility = [];
         int rate = FramesPerSecond;
 
         foreach (IniSection section in document.Sections)
@@ -347,6 +391,39 @@ public sealed class AnimationFile
                                 (int)(line.Entries[2].AsNumber() ?? 0),
                                 (int)(line.Entries[3].AsNumber() ?? 0),
                                 line.Entries[4].Key));
+                        }
+                    });
+
+                    break;
+
+                case "STEXTURES":
+                    // <frame>,<scene>,<object>,<texture>. The room rather than a model:
+                    // the bar's dance floor cycling, the lobby window gaining a van.
+                    Read(section, line =>
+                    {
+                        if (line.Entries.Count > 3)
+                        {
+                            sceneTextures.Add(new AnimationSceneTexture(
+                                (int)(line.Entries[0].AsNumber() ?? 0),
+                                line.Entries[1].Key,
+                                line.Entries[2].Key,
+                                line.Entries[3].Key));
+                        }
+                    });
+
+                    break;
+
+                case "SVISIBILITY":
+                    // <frame>,<scene>,<object>,<on/off>.
+                    Read(section, line =>
+                    {
+                        if (line.Entries.Count > 3)
+                        {
+                            sceneVisibility.Add(new AnimationSceneVisibility(
+                                (int)(line.Entries[0].AsNumber() ?? 0),
+                                line.Entries[1].Key,
+                                line.Entries[2].Key,
+                                Switched(line.Entries[3].Key)));
                         }
                     });
 
@@ -413,7 +490,7 @@ public sealed class AnimationFile
 
         return new AnimationFile(
             name, Math.Max(0, frames), actions, sounds, captions, mouths, faces,
-            visibility, steps, textures, rate)
+            visibility, steps, textures, sceneTextures, sceneVisibility, rate)
         {
             StartsSoundtrack = soundtrack,
         };

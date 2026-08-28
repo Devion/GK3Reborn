@@ -127,6 +127,24 @@ public sealed class ClipPlaybackTests
             return true;
         }
 
+        /// <summary>Which of the room's own objects an animation has repainted, and with what.</summary>
+        public List<(string Object, string? Texture)> ScenePainted { get; } = [];
+
+        public bool PaintSceneObject(string objectName, string? texture)
+        {
+            ScenePainted.Add((objectName, texture));
+            return true;
+        }
+
+        /// <summary>The replacement bakes a script has handed the room.</summary>
+        public List<string> Baked { get; } = [];
+
+        public bool SwapLightmaps(GK3Reborn.Formats.Lightmaps.MulFile lightmaps)
+        {
+            Baked.Add(lightmaps.Name);
+            return true;
+        }
+
         public void SetVisible(ModelPlacement placement, bool visible) =>
             Visible[placement.Id] = visible;
 

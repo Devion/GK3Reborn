@@ -203,6 +203,80 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### The Bartender easter egg had no disco ball, and no disco — fixed 2026-08-28
+
+**Reported:** "The Bartender easter egg should show a disco ball, but the disco ball isn't
+showing. Also it would be nice to add some colored lights and light effects on the wall when
+it happens."
+
+Turning the easter eggs on and asking the bartender for one runs `RL2_ALL:ShakeItBaby`,
+which is fifty lines of script and a complete nightclub: a ball comes down out of the
+ceiling on a pole, the room is relit, the floor turns into a lit dance floor, the bar front
+lights up, specks of light rotate across every wall, and the bartender gets up on the bar
+and dances. **None of it happened.** The camera cut to the bar, the music changed, the
+bartender danced on an ordinary floor in an ordinary room, and the ball went back up again.
+
+Three separate things were missing, and the reason it was all of them at once is that they
+are three things a script does to a *room* rather than to a model in one.
+
+**Construction mode was recorded and dropped.** `AddModel("model=discoball_pole,type=prop")`
+is a script putting something into a room the scene file never mentioned. Six scripts in the
+game use it and all six are easter eggs — the ball and its two light models here, the monkey
+in Grace's fridge, the red nose and propeller hat in the lobby, the stream Mosely falls in,
+the spinning props at Blanchefort. The call did nothing, so the `ShowModel` after it found
+nothing, so the animation after that had nothing to animate.
+
+**They are staged while the room loads rather than built when the call arrives.** Adding a
+model to a room that is already standing means new vertex buffers, new descriptor sets and a
+new acceleration structure mid-frame, and the reward for all of it is a prop lit and
+shadowed differently from everything around it. A room's scripts are a closed set and its
+construction calls are string constants in them, so what will be built is simply read before
+the room opens: `SceneLoader.StageConstructed` finds the scripts whose name begins with the
+scene's, scans their string tables for `model=NAME,type=prop`, and places each one hidden.
+The disco ball is then an ordinary prop that happens to start out of sight, and `AddModel`
+is left with nothing to do but say so if a script asks for one that was not staged
+(`GK3R3348`). Hidden is also the faithful state: every construction call in the game is
+followed immediately by `ShowModel` or `HideModel`.
+
+**`SetScene` was recorded and dropped, and it is the coloured light.** The room's lighting
+is baked, and a scene asset is a bake: `RL2_DISCO_A.MUL` is the bar lit by a mirror ball and
+`RL2_A.MUL` is the same 479 surfaces lit by its lamps. Swapping between them is what the
+call means — the reference implementation reloads the named asset's geometry, but every
+`SetScene` in the corpus except CEM's at 106P names the same `BSP` as the room already
+standing.
+
+**The two bakes disagree about tile sizes**, which is why this is not a texture swap: a
+surface the artists lit evenly exports as a single texel and the same surface under a
+mirror ball as eight, and 86 of RL2's 479 differ. Where each tile sits in the atlas is
+written into the vertices, so repacking would light every surface with some other surface's
+bake. `LightmapAtlas.Repack` lays the replacement into the layout that is already there,
+sampling a tile into its slot where the two do not agree, and the atlas texture is refreshed
+in place — no new descriptor sets, no vertices touched, and the way back is exact.
+
+**The rig goes with the bake.** The bake lights the room and the scene asset's own lights
+light everything standing in it, so swapping only the bake leaves the people lit by the
+scene the room has just left — Gabriel under warm bar lamps on a floor gone blue. RL2's
+disco asset carries 38 lights where its ordinary one carries 23: fifteen coloured omnis and
+a key over the ball, none of which reached anybody until now.
+
+**`[STEXTURES]` was parsed as an unknown section.** 198 lines across 78 animations, and they
+are the room changing what it shows rather than a model doing it. The bar's floor cycling
+`checker_01` through `checker_03` on a two-second loop is nine of them; the bar front and
+base lighting up are six more. An animation made of nothing else — `disco_flashdance_a` names
+no clips, no sounds and no captions — also has to report a duration, or the `wait` in front
+of it walks straight past. `[SVISIBILITY]`, its five-line sibling, is read now too.
+
+**Two more easter eggs and one ordinary puzzle came back with it.** The fridge monkey and
+the lobby's hat and nose are construction mode; the light switch in the Château de Serres
+garage is `SetScene("gri_b")`, and until now flipping it played the animation, said the
+line, and left the garage exactly as dark as it was.
+
+Reproducible headlessly, which needed one small ordering fix of its own — `--did` writes
+into the story what has already happened, and an action's case is a question about exactly
+that, so it now runs before `--do` rather than after:
+
+    dotnet run --project src/GK3Reborn.Host -- --scene RL2 --timeblock 112P         --did EGG --do BARTENDER:EGG --camera SEE_BAR --frames 1600 --screenshot disco.png
+
 ### Gabriel walked the ruins of Chateau de Blanchefort knee-deep in them — fixed 2026-08-28
 
 **Reported:** "at chateau de blachefort, gabriel is standing in the ruins geometry instead
@@ -2113,13 +2187,16 @@ now so a reader can tell them from the gaps.
 
 Recorded calls the game makes are down from **82 functions and about 3,600 calls to 23 and
 501** — and 317 of those 501 are `SetTimerSeconds`, which is a script sleeping and correctly
-has nothing to do but take the time.
+has nothing to do but take the time. Three of the 23 have gone since that count was taken:
+`AddModel`, `SetScene` and `SetSceneNoPreloadTextures`.
 
 **Still genuinely missing**, in order of how often they are called: model shadows
 (`EnableModelShadow`/`DisableModelShadow`, 54) and `SetModelLighting` (23), both of which
-want renderer work; construction mode (`AddModel`, `AddActor`, `AddPosition`, `SetScene`, 28
-between them), which builds a scene from a script rather than a file; and the two end-of-game
-screens, `ShowDeathLayer` and `FinishedScreen` (6).
+want renderer work; `AddActor` and `AddPosition`, the half of construction mode that builds
+a *character* into a room rather than a prop, which is RC3's parade of farm animals and
+nothing else; and the two end-of-game screens, `ShowDeathLayer` and `FinishedScreen` (6).
+`AddModel`, `SetScene` and `SetSceneNoPreloadTextures` are done — see the disco ball
+entry under Closed.
 
 ### The score was always nought — fixed 2026-08-23
 
