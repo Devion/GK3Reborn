@@ -34,12 +34,17 @@ public sealed class LogFile : IDisposable
     /// </remarks>
     public const string PreviousFileName = "log.previous.txt";
 
-    private readonly StreamWriter _writer;
+    /// <summary>What a name's claim file is called: the log's own name, and this.</summary>
+    private const string ClaimSuffix = ".lock";
 
-    private LogFile(string path, StreamWriter writer)
+    private readonly StreamWriter _writer;
+    private readonly FileStream _claim;
+
+    private LogFile(string path, StreamWriter writer, FileStream claim)
     {
         Path = path;
         _writer = writer;
+        _claim = claim;
     }
 
     /// <summary>The file being written.</summary>
@@ -56,7 +61,9 @@ public sealed class LogFile : IDisposable
     /// which is ordinary enough - a player comparing settings, a developer with a headless
     /// run beside a windowed one. Two processes interleaving lines into one file would
     /// produce something nobody can read, so the second one gets its own rather than
-    /// spoiling the first one's.
+    /// spoiling the first one's. Which run a name belongs to is settled by
+    /// <see cref="Claim"/> before anything on disk is touched, so a second copy neither
+    /// truncates the first one's file nor rotates it out from under it.
     /// </remarks>
     public static LogFile? Open(string directory, out string? failure)
     {
@@ -65,10 +72,6 @@ public sealed class LogFile : IDisposable
         try
         {
             Directory.CreateDirectory(directory);
-
-            Keep(
-                System.IO.Path.Combine(directory, FileName),
-                System.IO.Path.Combine(directory, PreviousFileName));
         }
         catch (Exception e) when (Expected(e))
         {
@@ -80,16 +83,39 @@ public sealed class LogFile : IDisposable
         foreach (string name in Names())
         {
             string path = System.IO.Path.Combine(directory, name);
+            LogFile? file = null;
 
             try
             {
-                failure = null;
+                FileStream claim = Claim(path);
 
-                return new LogFile(path, Create(path));
+                try
+                {
+                    // Only the run that holds log.txt rotates it. A second copy doing so
+                    // would rename the file the first one is still writing, which on Linux
+                    // and macOS succeeds: the first run would go on logging into a file now
+                    // called log.previous.txt, and the second would open a log.txt beside it.
+                    if (name == FileName)
+                    {
+                        Keep(path, System.IO.Path.Combine(directory, PreviousFileName));
+                    }
+
+                    failure = null;
+                    file = new LogFile(path, Create(path), claim);
+
+                    return file;
+                }
+                finally
+                {
+                    if (file is null)
+                    {
+                        claim.Dispose();
+                    }
+                }
             }
             catch (IOException)
             {
-                // Held by another process. Try the next name.
+                // Claimed by another run, or held by something else. Try the next name.
             }
             catch (Exception e) when (Expected(e))
             {
@@ -162,6 +188,12 @@ public sealed class LogFile : IDisposable
             // Nothing can be done about a file that will not close, and throwing on the way
             // out of a process would turn a clean shutdown into a crash report.
         }
+        finally
+        {
+            // After the writer and never before: the name belongs to this run until its
+            // last line is on disk.
+            _claim.Dispose();
+        }
     }
 
     /// <summary>The names to try, in order.</summary>
@@ -178,6 +210,29 @@ public sealed class LogFile : IDisposable
                 CultureInfo.InvariantCulture, $"log.{System.Environment.ProcessId}-{nth}.txt");
         }
     }
+
+    /// <summary>Claims a name for this run, for as long as the handle is held.</summary>
+    /// <param name="path">The log the claim is for.</param>
+    /// <returns>The handle to hold for the life of the file.</returns>
+    /// <exception cref="IOException">Another run holds the name.</exception>
+    /// <remarks>
+    /// A file of its own rather than the log itself, because the two things wanted of the
+    /// log pull apart. It has to stay readable while the game runs, which means opening it
+    /// with FileShare.Read - and that is the share mode the platforms disagree about.
+    /// Windows enforces it and refuses a second writer outright; on Linux and macOS a share
+    /// mode is an advisory flock, and everything short of FileShare.None is a shared one,
+    /// which two runs can hold at the same time. There the second copy of the game would
+    /// open the same log.txt, truncate it and interleave into it - the exact failure the
+    /// per-process names exist to prevent. FileShare.None is the one mode both platforms
+    /// enforce, and nothing ever needs to read a lock file.
+    /// </remarks>
+    private static FileStream Claim(string path) =>
+
+        // Not deleted on close. A claim outliving its run costs an empty file in the log
+        // folder; deleting one would let a third run create and claim a fresh file of the
+        // same name while a second still held the old one, which costs the guarantee the
+        // claim is here for.
+        new(path + ClaimSuffix, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
 
     /// <summary>Moves the last run's log aside, if there is one.</summary>
     private static void Keep(string current, string previous)
@@ -202,8 +257,8 @@ public sealed class LogFile : IDisposable
     private static StreamWriter Create(string path)
     {
         // FileShare.Read so the file can be tailed, copied or attached to a report while
-        // the game is still running. Not Write: refusing that is what makes a second
-        // instance fall through to a name of its own instead of scribbling over this one.
+        // the game is still running. Which run owns the name is settled by its claim rather
+        // than by this: see Claim for why the share mode cannot be asked to do both jobs.
         var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
 
         // Flushed per write. Buffering would lose exactly the last few lines before a
