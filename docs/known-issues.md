@@ -203,6 +203,186 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Every character's normals lay on their side, so their fronts never lit — fixed 2026-08-28
+
+**Reported** as a shadow that seemed inverted: "when gabriel is looking in the direction of
+the sun, he tends to have a shadow on his chest instead of his back", and then, more
+precisely, "fully face to shoes is in shadow ... in ANY rotation/direction" while his back
+did respond to the light.
+
+**A `.MOD` does not say which space its normals are in, and the corpus is not of one mind.**
+Positions are always in the mesh's own space and are placed by `MeshToLocal`. The normals
+beside them are in mesh space for a prop — and in the model's *local* space for a character,
+already placed. `SceneGeometry.Add` stored both untouched and the vertex shader multiplies
+by `mat3(draw.model)`, so a character's got the transform a second time.
+
+It is not a small turn. Every character mesh group carries about ninety degrees of it, which
+is 3ds Max's Z-up world written into GK3's Y-up one, baked per limb. Measured in the
+renderer against a frame where the floor read exactly (0, 1, 0), **Gabriel's chest read
+(-0.01, +0.98, +0.23)** — pointing at the sky. Every character was then shaded almost
+entirely by the vertical part of the rig: the sun lit them the same however they were
+turned, and their fronts, having no outward component left, never lit at all.
+
+Measured over the shipped corpus, mean agreement between an authored normal and its own
+triangle's winding:
+
+| | positions | normals | read as placed | read as needing the transform |
+|---|---|---|---|---|
+| props, 462 models | mesh space | mesh space | 0.68 | **1.000** |
+| characters, 23 models | mesh space | **already local** | **0.87–0.94** | 0.45–0.62 |
+
+In RC1 at 112P, with the afternoon sun full on his face, Gabriel's shirt measured 100.7
+against 99.5 at 110A with the sun on his back — no response — while the ground between the
+same two frames went 78.1 to 142.4. It is now 183.8 against 134.4, and the room composites
+byte-identically.
+
+**Not ray tracing**, though it looks like a shadow: `--rt none` showed the same flat front.
+A first pass at this blamed the models' winding against `kSkipShells` and was wrong — the
+existing `RayTracingTests` pass on hardware, and working `Cover(shell: false)` through shows
+counter-clockwise-from-the-ray is the front face here, so GK3's outward-wound shells are
+already correct. Do not add `TriangleFlipFacing`.
+
+**`ModNormals` measures it rather than declaring it.** `CHARACTERS.TXT` names most of them
+and the engine already reads it, but it lists the forty-five characters who *walk*, and the
+day-3 baby (`BAB`, 1,704 triangles over eight groups) is a character that does not. The
+reading is each triangle's authored normal against its own winding, compared as an absolute
+dot product because every mesh transform in the corpus has a determinant of -1 — the cross
+product flips under one and the normal does not. It selects 27 models of 1,878: the
+twenty-two characters, the baby, the chicken, and three flat cards.
+
+**The model decides and a group may overrule it.** Read alone a group is often mute —
+Vitorio's legs separate the two readings by 0.011 — and a character whose limbs disagreed
+would be lit in pieces. That is not a concession: it is the case that matters, because
+`HeadRefinement` rebuilds a subdivided head's normals from its mesh-space positions, so at
+`--heads 2` exactly one of Gabriel's thirteen groups needs the transform the other twelve do
+not, and a model-wide flag would lay that head on its side while fixing the body.
+
+**The correction is a basis, not a flag** — the normals are stored pre-multiplied by
+`inverse(MeshToLocal)`. The shader multiplies by the transform the mesh is posed by *now*,
+so cancelling the authored one leaves the clip's own turn on the normal, which is what a
+limb's normals should do when the limb moves. A flag would have fixed a standing character
+and broken a walking one.
+
+Still open, and separate: `SceneGeometry.Flush` updates only `Position` on a vertex-animated
+mesh, so normals stay at the rest pose *within* a group. `.ACT` carries no normals, so there
+is nothing better short of recomputing them per frame.
+
+### The horizon fell away behind the first ridge, and stood in fields of stone needles — fixed 2026-08-28
+
+**Reported** from the Tour Magdala lookout: "some mountains in the distance look horrible
+as well with very sharp drop offs instead of rolling hills filling the horizon."
+
+Two faults in the offline generator, `PbrLab/make_terrain.py`, and the first one is a
+single line.
+
+**The sight-line clamp read the whole ray.** Filled ground must stay below every sight line
+from the panorama's own viewpoint or the reconstruction hides terrain the painting shows —
+but only a point *beyond* a cell can be hidden by it, and the clamp took the shallowest
+elevation ratio over every seen point at that azimuth, near ones included. The nearest land
+at any azimuth is the lip of the black band under the camera: a hundred metres out, eighty
+metres below, a ratio near -0.9. Extrapolated as a constant, that puts the ceiling at
+-1,350 m by the rim of a 1.5 km grid.
+
+So the outer half of every set was a chasm. RLC_A, the vista from the lookout, had a
+**median height of -1,063 m** over land whose seen points sit between -85 and +180 — the
+ground fell off a cliff behind the first ridge and kept going. It is a suffix minimum over
+radius now, taken on a 1024-azimuth by 256-ring grid, so a cell is constrained only by what
+lies past it; where nothing does there is no ceiling at all and the fill rolls out to the
+horizon.
+
+**The towers were a five-cell opening against forty-metre spikes.** The generator already
+opened the heightfield to strip the needles that single-pixel depth outliers leave on a
+crest, at five cells — twelve to sixty metres depending on the set. The 1999 art paints
+crenellated limestone crags, and a monocular depth model reads each painted spur as a
+surface of its own, so what survived was stone needles two hundred metres tall and forty
+wide standing in fields. A second opening now runs at a width in *metres* (55) with a soft
+cap on how far anything narrower may stand proud of its surroundings (14 m); a hillside
+broader than the window is not touched at all, because the opening returns the hillside.
+
+All 59 sets were regenerated, their forests re-scattered onto the new heights, published
+and repacked. See `docs/rendering.md`, "The reconstructed horizon".
+
+### A gorge filled half the sky with featureless grey — fixed 2026-08-28
+
+Coume Sourde's panorama defeats the sky mask: 89% of what the generator called land was
+steeply above the horizon, which no set with a working mask has any of at all. Monocular
+depth gives sky a small depth, so those pixels project to a tiny ground radius and an
+enormous height and max-splat into a dome sitting on the camera — two hundred metres thick
+over the viewpoint and rising to a kilometre within two hundred metres of it. On screen
+that was a wall standing behind the room.
+
+Two guards, because it took both. The generator refuses land above an elevation ratio of
+0.9, which is a statement about what a heightfield can hold and costs nothing anywhere the
+mask works — measured over the corpus, no healthy set has a single pixel above 0.6. That
+leaves CSD mostly fill, which is a smooth valley rather than a reconstruction, and is the
+right way for it to fail.
+
+The second is on the engine's side. `TerrainPipeline.LiftMeters` raises the whole backdrop
+by a constant twelve metres, and a nearly-all-fill set sits close to zero — so the lift put
+the camera a few metres *under* the surface and every direction became a wall of hillside
+rising out of the bottom of the frame. `ClearanceMeters` keeps the camera two metres above
+the backdrop's own ground, raising rather than clamping, because a lookout genuinely stands
+sixty metres over its valley and that has to survive.
+
+### The reconstructed horizon had no air in it — fixed 2026-08-28
+
+**Reported** as "there is no atmospheric fog present which should be added to give the
+feeling of being in a valley, esp. on the terrain distance."
+
+There was a distance haze, at 1.6e-4 per metre, which leaves a ridge at the far rim of a
+1.5 km reconstruction 94% of itself — which is to say there was not one. A hillside two
+kilometres out was drawn as crisply as the wall in front of the camera.
+
+What replaced it is aerial perspective with two properties a constant fog does not have.
+**Density falls off with height**, so the haze pools in the valley and thins over the
+ridges and a distant crest stands clear of the murk its own foot is buried in — the shape
+the eye actually reads as depth in hill country. And **the haze goes warm toward the sun**
+and is the sky's own horizon colour away from it, so the terrain dissolves into the sky
+instead of ending at a line. The integral along the ray is closed-form, two exponentials.
+Shared by the ground, the impostors and the modelled trees.
+
+### The forest on the horizon was cones at every distance — fixed 2026-08-28
+
+**Reported** as "close up trees in the terrain generator needs to be proper LOD0 trees as
+now from the Magdala lookout all look extremely low LOD, it should gradually change from
+high detail to low poly in the distance."
+
+The backdrop's forest was instanced impostors — sixteen to twenty-four triangles apiece,
+four silhouettes. That is the right answer for a hillside a kilometre out and plainly the
+wrong one for the slope beyond the wall the player is leaning on.
+
+The near band is drawn with the grown models the rooms already plant. Three tiers: the full
+model for the nearest 48 within 70 m, the library's own `_far` variant nearest-first until
+a triangle budget runs out, and the cone past that. Both pipelines read the same six-float
+instance stream and derive the height jitter from the same seed, so a tree that crosses a
+tier changes what it is built from and nothing else; and where the budget stopped is handed
+to the impostor shader as the distance the cones start at, so a dense wood and a thin one
+hand over exactly where the models ran out and no band is drawn by neither. Re-selected
+only when the camera moves eight metres.
+
+### Walking through a door froze the last frame and then cut — fixed 2026-08-28
+
+**Reported** as "add a fade out, fade in between scene changes ... as some loads might take
+a second or longer."
+
+A scene change is a stall: the room being left comes off the device, the next one's
+geometry, textures and acceleration structures are built, and nothing is drawn while it
+happens. The last frame of the old room sat there for up to six seconds and was then
+replaced, in one frame, by somewhere else.
+
+`ScreenFade` covers it, and **the load runs inside the fade rather than before it** —
+`SceneLoader.Progress` and `ISceneSink.Progress` are offered between pieces of work and the
+fade presents a frame from those at thirty a second. A load that beats the fade stops it
+where it is; the swap always happens at black, and the way back takes as long as the way
+out did. What darkens is a photograph of the last frame, read back off the swapchain, so
+the room's textures can be freed under it.
+
+The one thing worth carrying forward: **the ramp has to be gamma-corrected**. The swapchain
+is sRGB, so blending happens in linear light — an alpha of a half leaves the screen at 73%
+of its brightness and an alpha of 0.995 still has the room faintly visible in it. Driven
+straight, the fade looks like nothing happening and then the picture falling off a cliff.
+
+
 ### The maple beside the bench outside the hotel had two trunks — fixed 2026-08-28
 
 **Reported** as the tree next to the bench in RC1 not being replaced, and as a double trunk

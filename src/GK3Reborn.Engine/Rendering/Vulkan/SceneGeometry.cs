@@ -529,6 +529,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         Dictionary<int, List<int>> batches = [];
         _placements.Add(batches);
 
+        // Asked once for the whole model, so that a character's limbs agree with each
+        // other; each group may still overrule it. See ModNormals.
+        bool localNormals = ModNormals.AreLocal(model);
+
         for (int index = 0; index < model.Meshes.Count; index++)
         {
             ModMesh mesh = model.Meshes[index];
@@ -542,6 +546,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     : mesh.MeshToLocal;
 
             Matrix4x4 meshToWorld = meshToLocal * placement;
+
+            // Characters write their normals in the model's space, not the mesh's, so the
+            // mesh transform the vertex shader applies to them is a second copy of one they
+            // have already had. It is about a ninety-degree turn, which lays every one of
+            // them over on its side. Cancelled here rather than skipped there so that a
+            // posed limb still turns its own normals; see ModNormals.
+            //
+            // Against mesh.MeshToLocal and not the turned transform above, because a turn
+            // is a real rotation and its normals should have it.
+            Matrix4x4 normalBasis = ModNormals.CorrectionFor(mesh, localNormals);
+            bool correcting = !normalBasis.IsIdentity;
 
             foreach (ModSubmesh submesh in mesh.Submeshes)
             {
@@ -560,9 +575,23 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
                 for (int i = 0; i < vertices.Length; i++)
                 {
+                    Vector3 normal = i < submesh.Normals.Length
+                        ? submesh.Normals[i]
+                        : Vector3.UnitY;
+
+                    if (correcting)
+                    {
+                        Vector3 corrected = Vector3.TransformNormal(normal, normalBasis);
+
+                        if (corrected.LengthSquared() > 1e-12f)
+                        {
+                            normal = Vector3.Normalize(corrected);
+                        }
+                    }
+
                     vertices[i] = new MeshVertex(
                         submesh.Positions[i],
-                        i < submesh.Normals.Length ? submesh.Normals[i] : Vector3.UnitY,
+                        normal,
                         i < submesh.TexCoords.Length ? submesh.TexCoords[i] : Vector2.Zero,
                         Vector2.Zero);
 
