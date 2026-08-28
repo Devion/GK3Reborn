@@ -452,6 +452,23 @@ public sealed class SceneLoader
     /// </remarks>
     public int SmoothHeads { get; set; }
 
+    /// <summary>
+    /// The cast, which is where a character's changes of clothes are recorded.
+    /// </summary>
+    /// <remarks>
+    /// Optional only in the sense that the caller need not supply it: the file describes the
+    /// game's people rather than any one room, so a host that has already read it hands it
+    /// over rather than paying for it again, and a loader that is given nothing reads it
+    /// itself. Leaving it unset must not undress anybody — see <see cref="Cast"/>.
+    /// </remarks>
+    public Actors.CharacterLibrary? Characters { get; set; }
+
+    private Actors.CharacterLibrary? _cast;
+
+    /// <summary>The cast, read from the archives if the caller did not supply it.</summary>
+    private Actors.CharacterLibrary Cast =>
+        _cast ??= Characters ?? Actors.CharacterLibrary.Open(_archives);
+
     private int _normalsUsed;
     private int _ormsUsed;
     private int _heightsUsed;
@@ -683,8 +700,8 @@ public sealed class SceneLoader
         PlantWoods(geometry, woods, diagnostics);
         Timeline?.Stamp("plant woods");
         Progress?.Invoke();
-        placed.AddRange(
-            PlaceActors(geometry, init, diagnostics, request.State?.LastLocation));
+        placed.AddRange(PlaceActors(
+            geometry, init, diagnostics, request.State?.LastLocation, request.State?.Timeblock));
         Timeline?.Stamp("place actors");
         _log?.Invoke(
             $"models: {placed.Count} placed, textures: {geometry.TextureCount}" +
@@ -1830,7 +1847,8 @@ public sealed class SceneLoader
         ISceneSink geometry,
         SceneDefinition init,
         DiagnosticBag diagnostics,
-        string? from = null)
+        string? from = null,
+        Timeblock? now = null)
     {
         List<PlacedModel> placed = [];
 
@@ -1884,6 +1902,27 @@ public sealed class SceneLoader
 
             ModFile parsedActor = ModFile.Parse(bytes, actor.Name + ".MOD");
 
+            // What they are wearing today, before anything else touches the model: the
+            // indices an [MTEXTURES] line carries are the ones in the file it was authored
+            // against, and dressing them here is what keeps that true.
+            parsedActor = Dress(parsedActor, actor.Name, now, diagnostics);
+
+            // And on their own feet, so that standing them somewhere stands them there.
+            // A character's model is not always drawn around its own origin — Lady Howard's
+            // is 84 units from hers — and every transform that places one, here and in a
+            // walk and in a script, assumes it is. See Actors.Footing.
+            parsedActor = Actors.Footing.OnItsFeet(
+                parsedActor, Cast.Of(actor.Name), out Vector3 footed);
+
+            if (footed.Length() > 1f)
+            {
+                float off = footed.Length();
+
+                _log?.Invoke(string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"footing: {actor.Name} is modelled {off:F0} units off their own origin, and is stood on their feet"));
+            }
+
             // Before the textures are read and before the model is placed, because both work
             // from the geometry and only one of the two versions should reach either. The rig
             // that comes back is what keeps the clips playable; see HeadRefinement.
@@ -1906,11 +1945,18 @@ public sealed class SceneLoader
                     actor.Name)
                 : null;
 
-            // Heading turns about the up axis; the model's own origin is at its feet, so
-            // the position needs no vertical adjustment. An actor with no spot stands at
-            // the origin facing zero, which is what the original leaves them at.
+            // Heading turns about the up axis; the model has been stood on its own feet
+            // above, so the position needs no adjustment of its own.
+            //
+            // <b>An actor with no spot is put back where their model was modelled.</b>
+            // Standing them on their feet is a statement about a placement, and where there
+            // is none there is nothing to say: the original leaves the model actor at the
+            // origin and lets the model's own vertices decide, and everything about such an
+            // actor — an absolute opening clip, or the script that walks them in — is
+            // written against where the artists left them. Undoing the footing here is what
+            // keeps that true. See Actors.Footing.
             Matrix4x4 placement = spot is null
-                ? Matrix4x4.Identity
+                ? Matrix4x4.CreateTranslation(-footed)
                 : Matrix4x4.CreateRotationY(Actors.FacingArrow.Rotation(spot.Heading, built)) *
                   Matrix4x4.CreateTranslation(spot.Position);
 
@@ -1963,6 +2009,55 @@ public sealed class SceneLoader
         }
 
         return placed;
+    }
+
+    /// <summary>
+    /// Puts a character into the clothes this point in the story calls for.
+    /// </summary>
+    /// <param name="model">The model as read from its file.</param>
+    /// <param name="name">The name the scene placed it under.</param>
+    /// <param name="now">The story's timeblock, or null when the caller named none.</param>
+    /// <param name="diagnostics">Receives anything the change of clothes could not find.</param>
+    /// <returns>The model, dressed.</returns>
+    /// <remarks>
+    /// <para>
+    /// Every character with more than one outfit is repainted here, and so is every
+    /// character with exactly one: the shipped models carry undyed placeholder textures and
+    /// even the first day's clothes are an animation. Without this the whole tour group
+    /// stood round Poussin's tomb in blank white shirts.
+    /// </para>
+    /// <para>
+    /// A model the archives have no clothes animation for is left as it is, which is most
+    /// of them — 34 of the 45 characters own a single set of clothes and wear it painted on.
+    /// </para>
+    /// </remarks>
+    private ModFile Dress(
+        ModFile model, string name, Timeblock? now, DiagnosticBag diagnostics)
+    {
+        if (Cast.Of(name)?.ClothingFor(now) is not { Length: > 0 } wearing)
+        {
+            return model;
+        }
+
+        if (_archives.ReadText(wearing + ".ANM") is not { } text)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE012",
+                DiagnosticSeverity.Warning,
+                $"{name} is dressed by '{wearing}', which no archive contains; they wear " +
+                "whatever their model was painted with."));
+
+            return model;
+        }
+
+        AnimationFile clothes =
+            AnimationFile.Parse(text, wearing + ".ANM", diagnostics);
+
+        return Actors.Wardrobe.Dress(model, name, clothes, line => diagnostics.Add(new Diagnostic(
+            "SCENE012",
+            DiagnosticSeverity.Info,
+            $"{wearing} paints group {line.Submesh} of mesh {line.Mesh} of {line.Model}, " +
+            $"which {name}.MOD does not go up to; that surface keeps its own texture.")));
     }
 
     /// <summary>The cube map's sides, in the order the hardware wants them.</summary>

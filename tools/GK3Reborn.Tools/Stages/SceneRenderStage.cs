@@ -60,6 +60,11 @@ public sealed class SceneRenderStage
     /// </param>
     /// <param name="nounMap">Where to write a map of what is clickable, if anywhere.</param>
     /// <param name="perform">An action to carry out, as <c>noun:verb</c>.</param>
+    /// <param name="play">
+    /// An animation to play and let run, as <c>NAME</c> or <c>NAME:SECONDS</c>. This is how
+    /// a held prop is photographed: the binoculars in the Abbé's hands are an animation on
+    /// two models and a visibility line, so a still of the scene as it opens shows neither.
+    /// </param>
     /// <param name="advanceSeconds">How much time to let pass afterwards.</param>
     /// <param name="glance">An actor to point at something, as <c>actor:target</c>.</param>
     /// <param name="enhanced">Higher-resolution textures to prefer, or null for none.</param>
@@ -88,6 +93,7 @@ public sealed class SceneRenderStage
         string? pick,
         string? nounMap,
         string? perform,
+        string? play,
         double advanceSeconds,
         string? glance,
         string? enhanced,
@@ -244,6 +250,13 @@ public sealed class SceneRenderStage
             Perform(archives, scene, request, perform, diagnostics);
         }
 
+        // And an animation asked for by name, which is the only way to see what a scene
+        // does over time rather than what it opens as.
+        if (play is { Length: > 0 })
+        {
+            Playing(archives, scene, geometry, request, play, diagnostics);
+        }
+
         if (advanceSeconds > 0)
         {
             Advance(archives, scene, request, advanceSeconds, diagnostics);
@@ -308,7 +321,13 @@ public sealed class SceneRenderStage
         _log(string.Create(
             CultureInfo.InvariantCulture,
             $"camera: {inspect?.Name ?? scene.CameraNamed(angle)?.Name ?? "framed"} at " +
-            $"({camera.Position.X:F1}, {camera.Position.Y:F1}, {camera.Position.Z:F1})"));
+            $"({camera.Position.X:F1}, {camera.Position.Y:F1}, {camera.Position.Z:F1}) near {camera.NearPlane:F3} far {camera.FarPlane:F0}"));
+
+        if (geometry.CardsSeparated > 0)
+        {
+            _log($"cards: {geometry.CardsSeparated} coincident surfaces moved apart so they " +
+                 "can be told apart by depth");
+        }
 
         _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches" +
              (geometry.DisplacedTriangles > 0
@@ -837,6 +856,105 @@ public sealed class SceneRenderStage
             diagnostics.Add(problem);
         }
     }
+
+    /// <summary>
+    /// Plays one animation and lets it run, so a still can show what it does.
+    /// </summary>
+    /// <param name="archives">Where the clips and animations are.</param>
+    /// <param name="scene">The room, already standing.</param>
+    /// <param name="geometry">The room's geometry, which the clips pose.</param>
+    /// <param name="request">What was asked for, which carries the story's host.</param>
+    /// <param name="wanted">The animation, as <c>NAME</c> or <c>NAME:SECONDS</c>.</param>
+    /// <param name="diagnostics">Receives anything the animation could not find.</param>
+    /// <remarks>
+    /// Half a second by default, which is past frame zero and short of most clips' ends —
+    /// far enough in for a prop to have been shown and carried into somebody's hands, and
+    /// not so far that a cleanup has put it away again.
+    /// </remarks>
+    private void Playing(
+        GameArchives archives,
+        LoadedScene scene,
+        SceneGeometry geometry,
+        SceneRequest request,
+        string wanted,
+        DiagnosticBag diagnostics)
+    {
+        string[] parts = wanted.Split(':');
+        string name = parts[0].Trim();
+
+        double seconds = parts.Length > 1 &&
+                         double.TryParse(parts[1], CultureInfo.InvariantCulture, out double asked)
+            ? asked
+            : 0.5;
+
+        var update = new SceneUpdate(
+            scene,
+            request.Api ?? new Gk3SheepApi(new GameState()),
+            new Game.Actors.Glances(),
+            geometry)
+        {
+            Clips = new ClipLibrary(archives),
+            Animations = new AnimationLibrary(archives),
+        };
+
+        double length = update.Play(name);
+
+        if (length <= 0)
+        {
+            _log($"play {name}: nothing to play");
+        }
+        else
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"play {name}: {length:F2}s long, held {seconds:F2}s in"));
+        }
+
+        // In frames rather than in one step. A clip is sampled at the time it has reached,
+        // and a prop that is carried is moved to wherever its holder's clip has him — both
+        // of which are per-frame answers, so a single long step lands on the right pose by
+        // luck rather than by playing.
+        for (double at = 0; at < seconds; at += 1.0 / 60)
+        {
+            update.Advance(Math.Min(1.0 / 60, seconds - at));
+        }
+
+        // Where everything the animation named ended up. Both numbers, because a held prop
+        // fails in two different ways that look identical on screen: its placement can
+        // follow the wrong person, or its placement can be right and its meshes left in the
+        // pose the model was authored in — which for the Abbé's binoculars is 252 units
+        // underground. Only the second of the two shows here.
+        foreach (string moved in Moved(archives, name))
+        {
+            if (scene.Models.FirstOrDefault(m => m.Name.Equals(
+                    moved, StringComparison.OrdinalIgnoreCase)) is not { } model)
+            {
+                continue;
+            }
+
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {model.Name}: {(model.Visible ? "drawn" : "hidden")} at " +
+                $"{geometry.TransformOf(model.Placement).Translation:F0}, " +
+                $"mesh 0 at " +
+                $"{Vector3.Transform(model.PoseOf(0).Translation, geometry.TransformOf(model.Placement)):F0}"));
+        }
+
+        foreach (Diagnostic problem in update.Diagnostics.Items)
+        {
+            diagnostics.Add(problem);
+        }
+    }
+
+    /// <summary>The models an animation's clips are for, without duplicates.</summary>
+    private static IEnumerable<string> Moved(GameArchives archives, string animation) =>
+        new AnimationLibrary(archives).Read(animation) is not { } file
+            ? []
+            : file.Actions
+                .Select(a => new ClipLibrary(archives).Read(a.Name)?.ModelName)
+                .Where(m => m is { Length: > 0 })
+                .Select(m => m!)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Carries out an action, and says what it did.</summary>
     /// <remarks>

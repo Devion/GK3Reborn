@@ -937,7 +937,7 @@ public static class Application
                 front.Slot is { Length: > 0 } chosenSlot &&
                 api.Saves?.Read(chosenSlot, out Game.SaveFault titleFault) is { } titleSave)
             {
-                api.State.Restore(titleSave);
+                api.RestoreGame(titleSave);
                 request = SceneRequest.Continuing(api, api.State.Location);
                 Log.Info($"Restored {chosenSlot}: {titleSave.Title}");
                 asked = FrontEndOutcome.Play;
@@ -1052,6 +1052,11 @@ public static class Application
                 // The same finishes the sink shades with, so the loader can say which of
                 // an outdoor scene's textures deserve their relief cut beyond the floor.
                 Finishes = finishes,
+
+                // Already read, once, above. The loader would read it itself rather than
+                // send anybody into a room undressed, and CHARACTERS.TXT at every door is
+                // a cost with nothing to show for it.
+                Characters = characters,
             };
 
             if (!packsOnly && settings.EnhancedTextures && enhancedDirectory is { Length: > 0 })
@@ -2510,6 +2515,11 @@ public static class Application
             Speed = MathF.Max(50f, (geometry.Maximum - geometry.Minimum).Length() * 0.15f),
         };
 
+        // Whoever asked for the shell to be turned off is looking at the room rather than
+        // playing it, and the story is not allowed to take the camera off them either. It
+        // is the same escape hatch GameCamera makes for Tools::Active.
+        bool flying = options.Contains("--free-camera", StringComparer.OrdinalIgnoreCase);
+
         // The shell the scene's artists drew around the space the camera may occupy. Without
         // it the player can walk the view out through a wall and look at the room from
         // behind, which is a picture no part of the game was built to survive.
@@ -2519,7 +2529,7 @@ public static class Application
         {
             Log.Info("Camera bounds: none, so the camera may go anywhere");
         }
-        else if (options.Contains("--free-camera", StringComparer.OrdinalIgnoreCase))
+        else if (flying)
         {
             Log.Info("Camera bounds: off, so the camera may leave the room");
         }
@@ -2879,7 +2889,7 @@ public static class Application
                 if (chose is FrontEndOutcome.Load && front.Slot is { Length: > 0 } from &&
                     api.Saves?.Read(from, out Game.SaveFault fault) is { } recovered)
                 {
-                    story.Restore(recovered);
+                    api.RestoreGame(recovered);
 
                     Log.Info($"Restored {from}: {recovered.Title}");
 
@@ -2996,7 +3006,7 @@ public static class Application
                 }
                 else
                 {
-                    story.Restore(loaded);
+                    api.RestoreGame(loaded);
                     api.Wanted = loaded.Location;
 
                     Log.Info($"Loaded: {loaded.Summary}");
@@ -3052,7 +3062,15 @@ public static class Application
                 Place();
             }
 
-            if (!console.Open)
+            // And while it is telling one, the camera is the story's rather than the
+            // player's: see SceneUpdate.Directing, which is the whole rule. --free-camera
+            // is the exception, the same one GameCamera makes for Tools::Active.
+            //
+            // Leaving it out was reported as the view jumping. Nothing stopped a player
+            // flying off during a cutscene, and the next thing the script cut to snapped
+            // the view back across the room from wherever they had got to — which reads as
+            // the camera losing its place rather than as the player having moved it.
+            if (!console.Open && !(update.Directing && !flying))
             {
                 camera.Update(window, delta);
             }

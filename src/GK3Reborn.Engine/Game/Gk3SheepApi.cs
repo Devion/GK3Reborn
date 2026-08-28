@@ -114,6 +114,34 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>The state these functions operate on.</summary>
     public GameState State { get; }
 
+    /// <summary>Puts a saved game back, and drops what the load has orphaned.</summary>
+    /// <param name="save">The save.</param>
+    /// <remarks>
+    /// <para>
+    /// <see cref="GameState.Restore"/> and everything a load has to clear that is not the
+    /// story's to keep. The action clock is the one thing here that is not state: it
+    /// belongs to whatever action was playing when the player loaded, and that action is
+    /// gone with the room it ran in. Left standing it keeps <c>SceneUpdate.Occupied</c>
+    /// true in the restored room, which holds the camera away from the player for as long
+    /// as the abandoned action had left to run — the same complaint as a save loaded
+    /// during a cutscene, arriving from the other side.
+    /// </para>
+    /// <para>
+    /// Every load goes through here: the console and the interface both, because a camera
+    /// that answers to nobody is the sort of fault that comes back through whichever path
+    /// was not fixed.
+    /// </para>
+    /// </remarks>
+    public void RestoreGame(SaveGame save)
+    {
+        ArgumentNullException.ThrowIfNull(save);
+
+        State.Restore(save);
+
+        ActionSeconds = 0;
+        ActingOn = string.Empty;
+    }
+
     /// <summary>Presentation calls, in the order they were made.</summary>
     public List<RecordedEvent> Events { get; } = [];
 
@@ -672,7 +700,7 @@ public sealed class Gk3SheepApi : ISheepApi
                 return SheepValue.FromInt(0);
             }
 
-            State.Restore(save);
+            RestoreGame(save);
 
             // The room the save names is not this one, and putting the player in it is the
             // caller's job rather than the state's: loading a scene needs archives, a

@@ -259,6 +259,59 @@ public sealed class SceneUpdateTests
     }
 
     [Fact]
+    public void The_story_takes_the_camera_while_an_action_is_playing()
+    {
+        // Reported as the view jumping: the player flew the camera off during a cutscene
+        // and the next cut the script made snapped it back across the room. What was
+        // missing is the answer to who is holding the camera, not the cut itself.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var update = new SceneUpdate(Scene(), api, new Glances(), new Watcher());
+
+        Assert.False(update.Directing);
+
+        api.ActionSeconds = 2;
+        Assert.True(update.Occupied);
+        Assert.True(update.Directing);
+
+        api.ActionSeconds = 0;
+        Assert.False(update.Directing);
+    }
+
+    [Fact]
+    public void A_player_who_has_turned_cinematics_off_keeps_the_camera()
+    {
+        // The preference exists so the story stops moving the view. Taking the controls
+        // away as well would leave the player looking at whatever the room opened on for
+        // the length of the scene, with nothing directing it and no way to turn.
+        var state = new GameState { CinematicsEnabled = false };
+        var api = new Gk3SheepApi(state) { ActionSeconds = 2 };
+        var update = new SceneUpdate(Scene(), api, new Glances(), new Watcher());
+
+        Assert.True(update.Occupied);
+        Assert.False(update.Directing);
+
+        // Unless a script has insisted, which is what SetForcedCameraCuts is for: the
+        // preference gives way for as long as it holds, for the cuts and for the controls
+        // alike.
+        state.ForcedCameraCuts = true;
+        Assert.True(update.Directing);
+    }
+
+    [Fact]
+    public void Forced_camera_cuts_hold_the_camera_with_nothing_else_playing()
+    {
+        // A script that has said it is directing is directing, action or no action: the
+        // shot it is setting up is often several cuts with waits between them.
+        var state = new GameState { ForcedCameraCuts = true };
+        var update = new SceneUpdate(
+            Scene(), new Gk3SheepApi(state), new Glances(), new Watcher());
+
+        Assert.False(update.Occupied);
+        Assert.True(update.Directing);
+    }
+
+    [Fact]
     public void An_actor_with_a_head_can_turn_it_and_a_prop_cannot()
     {
         (SceneUpdate update, _, _, _) = World();

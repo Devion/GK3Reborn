@@ -152,6 +152,7 @@ public static class Program
                 options.Pick,
                 options.NounMap,
                 options.Perform,
+                options.Play,
                 options.Advance,
                 options.Glance,
                 EnhancedDirectory(options),
@@ -766,6 +767,9 @@ public static class Program
               --do NOUN:VERB       Carry out an action and report what it did.
                                    Needs --timeblock, since a story state is what
                                    decides which rule applies.
+              --play NAME[:SECS]   Play an animation and hold the still that far into
+                                   it (half a second by default), which is how a prop
+                                   in somebody's hands is photographed
               --advance SECONDS    Let that much time pass afterwards and perform
                                    whatever the story had asked for by then.
               --glance ACTOR:AT    Turn an actor's head towards another actor, a
@@ -814,6 +818,8 @@ public static class Program
         public string? NounMap { get; init; }
 
         public string? Perform { get; init; }
+
+        public string? Play { get; init; }
 
         public double Advance { get; init; }
 
@@ -864,6 +870,7 @@ public static class Program
             string? nounMap = null;
             string? perform = null;
             double advance = 0;
+            string? play = null;
             float wind = 0f;
             string? glance = null;
             string? variant = null;
@@ -960,6 +967,10 @@ public static class Program
                     case "--do" when i + 1 < args.Length:
                         perform = args[++i];
                         break;
+                    case "--play" when i + 1 < args.Length:
+                        play = args[++i];
+                        break;
+
                     case "--advance" when i + 1 < args.Length:
                         advance = double.Parse(args[++i], CultureInfo.InvariantCulture);
                         break;
@@ -1012,6 +1023,7 @@ public static class Program
                 Pick = pick,
                 NounMap = nounMap,
                 Perform = perform,
+                Play = play,
                 Advance = advance,
                 Wind = wind,
                 Glance = glance,

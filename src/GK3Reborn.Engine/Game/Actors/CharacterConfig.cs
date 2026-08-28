@@ -16,6 +16,18 @@ namespace GK3Reborn.Game.Actors;
 /// </remarks>
 public readonly record struct CharacterAxes(int Mesh, int Group, int Point);
 
+/// <summary>One of a character's changes of clothes.</summary>
+/// <param name="When">
+/// The timeblock code the change happens at — <c>207a</c> — or <c>Default</c> for what
+/// they are wearing before any of the dated changes apply.
+/// </param>
+/// <param name="Animation">
+/// The animation that dresses them. It is one frame long and holds nothing but
+/// <c>[MTEXTURES]</c> lines, which is how a change of clothes is expressed: the model is
+/// the same and its surfaces are repainted.
+/// </param>
+public readonly record struct CharacterClothes(string When, string Animation);
+
 /// <summary>What the game records about one character.</summary>
 /// <param name="Identifier">The three-letter code the file lists them under.</param>
 /// <param name="WalkerHeight">How tall they are, in scene units.</param>
@@ -65,6 +77,56 @@ public sealed record CharacterConfig(
                 : shoes.StartsWith("Male", StringComparison.OrdinalIgnoreCase)
                     ? false
                     : null;
+
+    /// <summary>
+    /// What they change into and when, in the order the file lists it.
+    /// </summary>
+    /// <remarks>
+    /// File order is the whole rule, so it is a list and not a map: see
+    /// <see cref="ClothingFor"/>.
+    /// </remarks>
+    public IReadOnlyList<CharacterClothes> Clothes { get; init; } = [];
+
+    /// <summary>
+    /// Which animation dresses this character at a point in the story.
+    /// </summary>
+    /// <param name="now">The story's timeblock, or null when nothing has said.</param>
+    /// <returns>The animation's name, or null when the file gives them no clothes.</returns>
+    /// <remarks>
+    /// <para>
+    /// Every dated entry at or before <paramref name="now"/> applies and the last one
+    /// listed wins, which is <c>GKActor::Init</c>'s rule and not "the nearest one". The two
+    /// agree throughout the shipped file because it lists them in order, and keeping the
+    /// reference's rule rather than the tidier one is what makes that a fact about the data
+    /// instead of an assumption.
+    /// </para>
+    /// <para>
+    /// <c>ClothesDefault</c> is what they wear until a dated entry applies, and it loses to
+    /// any of them however it is ordered: Wilkes's default is camouflage and his
+    /// <c>Clothes207a</c> is not, and reading the default as merely the first entry would
+    /// leave him in fatigues for the rest of the game.
+    /// </para>
+    /// </remarks>
+    public string? ClothingFor(Timeblock? now)
+    {
+        string? chosen = null;
+
+        foreach (CharacterClothes clothes in Clothes)
+        {
+            if (clothes.When.Equals("Default", StringComparison.OrdinalIgnoreCase))
+            {
+                chosen ??= clothes.Animation;
+            }
+            else if (now is { } today &&
+                     Timeblock.TryParse(clothes.When, out Timeblock when) &&
+                     today >= when)
+            {
+                chosen = clothes.Animation;
+            }
+        }
+
+        return chosen;
+    }
 }
 
 /// <summary>
@@ -139,6 +201,15 @@ public sealed class CharacterLibrary
                     (int)(Line(prefix + "AxesPointIndex")?.Head.AsNumber() ?? 0f));
             }
 
+            // In the order they are written, because that is what decides between two
+            // that both apply. See CharacterConfig.ClothingFor.
+            List<CharacterClothes> clothes = [.. section.Lines
+                .Select(l => l.Head)
+                .Where(e => e.Key is { Length: > 7 } key &&
+                            key.StartsWith("Clothes", StringComparison.OrdinalIgnoreCase) &&
+                            e.Value is { Length: > 0 })
+                .Select(e => new CharacterClothes(e.Key[7..], e.Value))];
+
             library._characters[section.Name] = new CharacterConfig(
                 section.Name,
                 Line("WalkerHeight")?.Head.AsNumber() ?? 0f,
@@ -150,7 +221,10 @@ public sealed class CharacterLibrary
                 Axes("RShoe"),
                 Value("ShoeType"),
                 Line("ShoeThickness")?.Head.AsNumber()
-                    ?? CharacterConfig.DefaultShoeThickness);
+                    ?? CharacterConfig.DefaultShoeThickness)
+            {
+                Clothes = clothes,
+            };
         }
 
         return library;

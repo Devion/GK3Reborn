@@ -146,6 +146,49 @@ public sealed class SaveGameTests
     }
 
     [Fact]
+    public void Loading_during_a_cutscene_gives_the_camera_back()
+    {
+        // A script that is about to show something the player has to see takes the camera
+        // with SetForcedCameraCuts and gives it back a moment later. Loading in between
+        // throws that script away and there is nobody left to give it back: the restored
+        // room came up with SceneUpdate.Directing true and stayed that way, so the mouse
+        // did nothing in a room where no story was running.
+        var cutscene = new GameState
+        {
+            Location = "R25",
+            Ego = "GABRIEL",
+            ForcedCameraCuts = true,
+            CameraGliding = true,
+        };
+
+        cutscene.Restore(Played().Capture());
+
+        Assert.False(cutscene.ForcedCameraCuts);
+        Assert.False(cutscene.CameraGliding);
+    }
+
+    [Fact]
+    public void Loading_during_an_action_does_not_carry_its_clock_in()
+    {
+        // The other half of the same fault, and the reason a load goes through the API
+        // rather than the state: ActionSeconds belongs to the action that was playing, and
+        // that action is gone with the room it ran in. Left standing it keeps the story
+        // "in the middle of something" in the restored room, which is the camera taken
+        // away again — for however long the abandoned action had left to run.
+        var api = new Gk3SheepApi(new GameState())
+        {
+            ActionSeconds = 30,
+            ActingOn = "REGISTER",
+        };
+
+        api.RestoreGame(Played().Capture());
+
+        Assert.Equal(0, api.ActionSeconds);
+        Assert.Equal(string.Empty, api.ActingOn);
+        Assert.Equal("LBY", api.State.Location);
+    }
+
+    [Fact]
     public void A_save_describes_itself_without_being_loaded()
     {
         SaveGame save = Played().Capture("before the tape");

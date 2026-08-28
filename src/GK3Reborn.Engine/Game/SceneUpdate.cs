@@ -3423,6 +3423,27 @@ public sealed class SceneUpdate
         Performing(_api.State.Ego) ||
         (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);
 
+    /// <summary>
+    /// Whether the story is holding the camera rather than the player.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>GameCamera::SceneUpdateMovement</c>'s rule, and the whole of it: never while a
+    /// script has asked for forced camera cuts, and never while an action is playing —
+    /// unless the player has turned cinematics off, which is what that switch is for. A
+    /// player who has turned them off keeps the camera through everything, because with the
+    /// cuts gone there is nothing directing the view for them.
+    /// </para>
+    /// <para>
+    /// It reads rather than does: what happens to the player's own camera while this is true
+    /// is the caller's to decide, in the same way <see cref="View"/> is. Leaving them the
+    /// controls is what made a cutscene's next cut look like the camera losing its place —
+    /// they had flown halfway across the room by the time it came.
+    /// </para>
+    /// </remarks>
+    public bool Directing =>
+        _api.State.ForcedCameraCuts || (Occupied && _api.State.CinematicsEnabled);
+
     /// <summary>Takes the view wherever the story has put it.</summary>
     /// <remarks>
     /// The story moving the camera is a change of <see cref="GameState.CameraAngle"/> and

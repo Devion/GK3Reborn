@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Formats.Models;
@@ -80,9 +80,11 @@ public sealed class ModFile
     /// </remarks>
     /// <param name="name">Name for the produced model.</param>
     /// <param name="meshes">The meshes.</param>
+    /// <param name="billboard">Whether it draws as a billboard.</param>
     /// <returns>A model wrapping those meshes.</returns>
-    public static ModFile FromMeshes(string name, IReadOnlyList<ModMesh> meshes) =>
-        new(name, billboard: false, meshes);
+    public static ModFile FromMeshes(
+        string name, IReadOnlyList<ModMesh> meshes, bool billboard = false) =>
+        new(name, billboard, meshes);
 
     /// <summary>Name this model was read under.</summary>
     public string Name { get; }

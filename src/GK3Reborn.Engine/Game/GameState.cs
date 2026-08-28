@@ -892,6 +892,15 @@ public sealed class GameState
         DefaultDialogueCamera = null;
         CameraFieldOfView = null;
 
+        // And the camera goes back to the player. Both of these belong to the script that
+        // set them and are cleared by the same script a moment later — and a load throws
+        // that script away, so nothing is left to clear them. Loading during a cutscene
+        // came back with the view still held by a story that was no longer running: see
+        // SceneUpdate.Directing, which reads ForcedCameraCuts and takes the mouse for as
+        // long as it is on. A save records neither, so a restore may not assume either.
+        ForcedCameraCuts = false;
+        CameraGliding = false;
+
         // Straight to the fields: the Location setter keeps a history and counts a visit,
         // and a load is neither. Where the player was is what the save says, and so is
         // where they were before that.

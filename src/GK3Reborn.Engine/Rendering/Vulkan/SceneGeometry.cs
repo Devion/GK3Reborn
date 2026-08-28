@@ -211,6 +211,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>How many triangles those objects came to, once rounded.</summary>
     public int RoundedTriangles { get; private set; }
 
+    /// <summary>
+    /// How many of the room's surfaces were moved off a surface they coincided with.
+    /// </summary>
+    /// <remarks>Zero for nearly every surface; see <see cref="CoplanarCards"/>.</remarks>
+    public int CardsSeparated { get; private set; }
+
     /// <summary>How many triangles the plan expected the cut to come to.</summary>
     public int ReliefExpected { get; private set; }
 
@@ -943,10 +949,23 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Every batch of every mesh is re-placed against the new transform. A mesh that has
-    /// been turned keeps its turn, because the turn is folded in when it is applied and the
-    /// model's own <c>MeshToLocal</c> is what is being rebuilt from — so a head that was
-    /// looking at something goes on looking at it while its owner crosses the room.
+    /// <para>
+    /// Every batch of every mesh is re-placed against the new transform, <b>each from the
+    /// pose it is in now</b> rather than from the pose the model was authored in. A head
+    /// that is turned goes on looking where it was looking, and a mesh a clip has moved
+    /// stays where the clip put it, which is the same rule <see cref="TurnMesh"/> keeps and
+    /// for the same reason.
+    /// </para>
+    /// <para>
+    /// Rebuilding from <c>MeshToLocal</c> instead threw away every pose the frame had just
+    /// applied, which is not visible on a model that is only walking — a stride poses every
+    /// mesh again on the next frame — and is total for a <b>held prop</b>, whose
+    /// pose is applied once and whose placement is then rewritten every frame to follow
+    /// whoever is holding it. The Abbé's binoculars are modelled 252 units below his feet
+    /// and put in his hands entirely by their clip, so they were being drawn underground:
+    /// reported as a man miming binoculars he did not have. Lady Howard's camera and its
+    /// lens are the same defect 93 units behind her.
+    /// </para>
     /// </remarks>
     public void MoveModel(ModelPlacement placement, Matrix4x4 transform)
     {
@@ -970,14 +989,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 continue;
             }
 
-            Matrix4x4 meshToWorld = model.Meshes[mesh].MeshToLocal * transform;
-
             foreach (int index in batches)
             {
                 _batches[index] = _batches[index] with
                 {
-                    Transform = meshToWorld,
-                    Local = model.Meshes[mesh].MeshToLocal,
+                    Transform = _batches[index].Local * transform,
                 };
             }
         }
@@ -1394,6 +1410,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // loop that consumes it, so its cost lands in the loop's own stamp below.
         Timeline?.Stamp("room: prepare the cut");
 
+        // Where a card's two faces coincide exactly, they are moved a hair apart so the
+        // depth test can answer the same way over the whole of them. See CoplanarCards:
+        // it is what the original gets for nothing by culling back faces, which is not
+        // available here. Zero for nearly every surface in the room.
+        Vector3[] apart = CoplanarCards.Apart(scene);
+        CardsSeparated = apart.Count(o => o != Vector3.Zero);
+        Timeline?.Stamp("room: separate coincident cards");
+
         ReliefCell = relief?.Cell ?? 0f;
         DisplacedTriangles = 0;
         RoundedObjects = 0;
@@ -1521,9 +1545,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 CutTriangle? made = cut?.At(polygonIndex, triangle);
                 triangle++;
 
-                Vector3 pa = scene.Vertices[a];
-                Vector3 pb = scene.Vertices[b];
-                Vector3 pc = scene.Vertices[c];
+                Vector3 shift = apart[polygon.SurfaceIndex];
+
+                Vector3 pa = scene.Vertices[a] + shift;
+                Vector3 pb = scene.Vertices[b] + shift;
+                Vector3 pc = scene.Vertices[c] + shift;
 
                 Vector3 normal = Vector3.Cross(pb - pa, pc - pa);
                 normal = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.UnitY;
@@ -1545,14 +1571,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     foreach (ReliefVertex piece in pieces)
                     {
                         group.Item1.Add(new MeshVertex(
-                            piece.Position,
+                            piece.Position + shift,
                             piece.Normal,
                             piece.TexCoord,
                             Lightmap(piece.TexCoord, surface, region)));
 
                         if (!hidden)
                         {
-                            Grow(piece.Position);
+                            Grow(piece.Position + shift);
                         }
                     }
 
@@ -1575,7 +1601,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
                             foreach (ReliefVertex piece in pieces)
                             {
-                                occluders.Add(piece.Position);
+                                occluders.Add(piece.Position + shift);
                             }
 
                             foreach (int index in pieceIndices)

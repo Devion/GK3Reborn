@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Models;
 
 namespace GK3Reborn.Game.Actors;
@@ -119,7 +119,7 @@ public static class HeadRefinement
         meshes[head] = mesh with { Submeshes = refined };
 
         return (
-            ModFile.FromMeshes(model.Name, meshes),
+            ModFile.FromMeshes(model.Name, meshes, model.IsBillboard),
             new HeadRig(head, rest, Sampled(rest), Extent(rest)));
     }
 

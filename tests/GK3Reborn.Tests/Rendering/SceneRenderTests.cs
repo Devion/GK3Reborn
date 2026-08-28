@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
@@ -131,6 +131,38 @@ public sealed class SceneRenderTests
         Assert.True(r > 150, $"centre red was {r}");
         Assert.True(g < 90, $"centre green was {g}");
         Assert.True(b < 90, $"centre blue was {b}");
+    }
+
+    [Fact]
+    public void Moving_a_model_keeps_the_pose_its_meshes_are_in()
+    {
+        // Reported as the Abbé miming a pair of binoculars he did not have. A held prop is
+        // posed once by its clip and then has its placement rewritten every frame to follow
+        // whoever is holding it, and rebuilding each mesh from the transform the model was
+        // authored with threw that pose away on the first of those frames. The binoculars
+        // are modelled 252 units below the man's feet, so what it threw them away to was
+        // underground.
+        //
+        // A quad posed a long way off to one side and then moved back by the same amount
+        // says the same thing in one frame: it belongs in the middle of the picture only if
+        // both halves are kept.
+        Assert.SkipUnless(HasDevice(), "no Vulkan device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        geometry.AddTexture("wall", Solid(200, 40, 40));
+        ModelPlacement placement = geometry.Add(Quad("wall"));
+
+        geometry.PoseMesh(placement, 0, Matrix4x4.CreateTranslation(8, 0, 0));
+        geometry.MoveModel(placement, Matrix4x4.CreateTranslation(-8, 0, 0));
+
+        DecodedImage image = renderer.Render(geometry, 128, 128, FacingQuad());
+
+        (byte r, _, _) = Pixel(image, 64, 64);
+
+        Assert.True(r > 150, $"the quad was not where its pose left it; centre red was {r}");
     }
 
     [Fact]

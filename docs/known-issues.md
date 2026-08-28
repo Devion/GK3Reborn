@@ -203,6 +203,170 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### A character whose model is not drawn around its own origin stood in the wrong place — fixed 2026-08-28
+
+**Reported:** Lady Howard is mispositioned, at Poussin's tomb and at Blanchefort both.
+
+She was 84 units from her mark — at POU207A the scene stands her at `LH1`, `pos={71, 225,
+-476}`, and her torso was drawn at `(142, 279, -431)`. The scene places an actor by
+translating their model to the spot, which assumes the model is drawn around its own origin.
+**It often is not**, and the reference says so in as many words:
+
+> Here's a tricky thing: the 3D model's *visual* position IS NOT always identical to the 3D
+> model's *actor* position. The 3D model vertices may be significantly offset in the local
+> space of the 3D model actor. — `GKActor::SetModelPositionToActorPosition`
+
+Measured across the 43 characters `CHARACTERS.TXT` gives axis triads: Gabriel, Grace,
+Estelle and Madeline are all within a unit of their origin, which is why this survived so
+long. Lady Howard is 83.6 units out, Emilio 42.9, the taxi driver 871 and the sitting Wilkes
+522. Vertically too — Prince James is modelled 33.8 units below his own origin.
+
+The offset is the model's **floor position**: the hip triad across, at the height of the
+lower shoe less its sole. That is `GetModelFloorAndShoePositions`, and it is the same
+measure `AnimationStart.Standing` already reads out of a *clip* — the missing half was
+reading it out of the model. `Actors.Footing` does that and takes it out of the model as it
+is read, so every transform that places a character afterwards — the scene's, a walk's, a
+script's — means what it says without carrying a correction of its own.
+
+**An actor the scene gives no position is put back where their model was modelled.**
+Standing somebody on their feet is a statement about a placement, and where there is none
+there is nothing to say: the original leaves the model actor at the origin and lets the
+vertices decide, and an absolute opening clip or the script that walks such an actor in is
+written against where the artists left them.
+
+### A sign's lettering striped through with its own back — fixed 2026-08-28
+
+**Reported:** at Blanchefort, "the sign has some Z fighting between the lettering and the
+signpost."
+
+The Mt Cardou signpost is **one flat quad with no thickness**: `Cdbmtcrdousgn` on the front
+and `rl1postwood` on the back, on exactly the same plane. Both are drawn, both are at the
+same depth, and which one a pixel shows comes down to the last bit of an interpolated float
+— which differs pixel to pixel because the two faces are triangulated from different
+vertices. The two pictures interleave in horizontal bands and the sign is unreadable.
+
+It is not depth precision in the ordinary sense and nothing about the depth buffer moves it:
+raising the near plane from 1 to 50 changed 106 pixels of a 1.92-million-pixel frame. The
+surfaces are coincident.
+
+**The original avoids it by culling back faces** — `Renderer::Render` sets `CullMode::Back`
+for opaque world geometry, so only the side facing the camera is drawn. That was tried here
+and cannot be taken: GK3's winding is not consistent enough (`FrontFace.CounterClockwise`
+erases the ground, and `Clockwise` renders correctly but takes every foliage card in the
+game with it, since those are single quads meant to be seen from both sides).
+
+So `Rendering.CoplanarCards` gives the cards a thickness instead: each face moves 0.05 units
+along its own normal, which puts a tenth of a unit between them — half a millimetre at the
+game's scale, where a character is 72 units tall, and some hundreds of depth quanta at the
+distance a sign is read from. It is applied only to surfaces that face opposite ways, lie on
+the same plane to within a hundredth of a unit, and overlap: 3,086 pairs across 98 of the
+corpus's 110 rooms, of which all but a handful are foliage whose two sides carry the same
+texture and so never showed the fault. Rendering the seven scenes it changes most, the
+largest difference outside the signs is 1.4% of WOD's pixels, all of them single-pixel
+changes on leaf silhouettes that were previously deciding at random.
+
+**Not every "z-fighting" sign is one.** The Château de Blanchefort board beside it looks the
+same at a glance — light patches of bare wood breaking through the paint — and is not a
+defect at all: they are painted into `CD1SIGN.BMP`, which is a weathered sign with its paint
+flaking off. It is worth checking the texture before the geometry.
+
+### Nobody ever changed their clothes — fixed 2026-08-28
+
+**Reported:** at Poussin's tomb on the second morning, "everyone is wearing white (or almost
+everyone)". Grace wears a red top and khaki trousers there in the original and was wearing a
+white t-shirt and blue jeans — which are her *first day's* clothes.
+
+A GK3 character owns one model for the whole game and changes clothes by having it
+repainted. Each outfit is a one-frame animation holding nothing but `[MTEXTURES]` lines —
+`GraClothes207a` is six of them, `GRA_RED` on the torso and `GRA_KHAKI` on the legs — and
+`CHARACTERS.TXT` says which one applies from when:
+
+```
+ClothesDefault=GraClothes110a
+Clothes207a=GraClothes207a
+Clothes307a=GraClothes307a
+```
+
+**None of it was read.** `CharacterLibrary` parsed the walk animations and the shoe triads
+and walked past the `Clothes` keys, so nobody was ever dressed. That is not a defect about
+the second day: **the default outfit is one of these animations too**, so the models were
+being drawn in the undyed placeholder textures they ship with, which is where the row of
+blank white shirts came from. Eleven of the game's forty-five characters have entries and
+nine of them are the tour group, which is why one scene showed nearly all of it at once.
+
+`CharacterConfig.Clothes` now holds them in file order and `ClothingFor` decides between
+them by `GKActor::Init`'s rule, which is not the tidier one and is kept because it is the
+reference's: every dated entry at or before the story's timeblock applies and the **last
+listed** wins, while `ClothesDefault` is only used when none has. The order matters for
+Wilkes, whose default is camouflage and whose `Clothes207a` is not.
+
+`Wardrobe.Dress` applies it to the model as it is read rather than playing it into the room
+as the original does. A change of clothes is a fact about the character rather than
+something that happens: baking it in means the room loads the right textures once instead of
+loading one set and repainting over it, the enhanced sets reach the clothes a character is
+actually wearing, and a still rendered by `render-scene` without running a frame is dressed
+the same as the game.
+
+Only lines naming the model being dressed are applied. `[WIL]`'s clothes are
+`Wi2ClothesCamo`, which paints `wi2`; the original resolves the name against the whole room
+and would dress that other model instead, and the two readings differ only if both stand in
+one room, which they never do.
+
+### A prop in somebody's hands was left in the pose the model was authored in — fixed 2026-08-28
+
+**Reported:** "some NPCs were not using objects properly (animation of binoculars but no
+binocular in hand)." The Abbé raises his hands to his eyes at Poussin's tomb with nothing
+between them.
+
+The prop was found, shown, and pinned to the right man. What was lost was its *pose*.
+`SceneGeometry.MoveModel` rebuilt every batch from `model.Meshes[mesh].MeshToLocal` — the
+transform the model was authored with — throwing away whatever `PoseMesh` had just written.
+On a walking character that is invisible, because the stride poses every mesh again on the
+next frame. On a **held prop** it is total: the prop is posed once by its clip and then has
+its placement rewritten every frame by `Carry` to follow whoever is holding it, and that
+rewrite happens *after* the clip has run.
+
+`ABEBINOCS.MOD` is modelled at y −252.5, so the binoculars were being drawn a little over
+252 units underground while the Abbé mimed them. `CAM` and `LENS` are 93 units behind Lady
+Howard for the same reason. `BINO1`, Buchelli's, is modelled where its clip's opening frame
+puts it, so his looked correct and hid the fault.
+
+`MoveModel` now re-places each batch from `_batches[index].Local`, the pose it is in now —
+which is the rule `TurnMesh` a hundred lines above already keeps, and for the same reason. A
+prop that should go back to its rest is put there by `SceneUpdate.Rest`, which is where that
+decision belongs.
+
+**The existing tests could not have caught it.** `HeldPropTests` asserts against a sink whose
+`MoveModel` keeps nothing but the placement, so it modelled a `MoveModel` that was already
+correct. The regression test is a Vulkan one — `SceneRenderTests.Moving_a_model_keeps_the_-`
+`pose_its_meshes_are_in` — because the defect was in the geometry rather than in the rules.
+
+**`render-scene --play NAME[:SECONDS]`** was added to find it and is the way to photograph
+anything that is only true part-way through an animation. It plays the animation, advances
+the world a frame at a time, and reports where each model it names ended up — both the
+placement and the first mesh, because a held prop fails in two ways that look the same on
+screen and only one of them moves the placement.
+
+### The camera stayed the player's during a cutscene — fixed 2026-08-28
+
+**Reported:** the free camera "should be locked at that point, currently it allows free
+movement causing some odd behavior when it jumps back."
+
+Nothing stopped the player flying the camera off while a scripted action ran, so the next
+angle the script cut to snapped the view back across the room from wherever they had got to.
+The jump is the symptom; the missing part is the answer to who is holding the camera.
+
+`GameCamera::SceneUpdateMovement` states the rule in three lines and `SceneUpdate.Directing`
+is now the same three: never while a script has asked for forced camera cuts, and never
+while an action is playing — unless the player has turned cinematics off, which is what that
+switch is for. A player who has turned them off keeps the controls through everything,
+because with the cuts gone there is nothing directing the view for them. `--free-camera`
+keeps them too, which is the escape hatch the reference makes for `Tools::Active`.
+
+`Occupied` is the same signal the trigger rectangles and the click-through-dialogue rule
+already trust, so this does not invent a notion of "cutscene" the rest of the engine does not
+have.
+
 ### The Bartender easter egg had no disco ball, and no disco — fixed 2026-08-28
 
 **Reported:** "The Bartender easter egg should show a disco ball, but the disco ball isn't
