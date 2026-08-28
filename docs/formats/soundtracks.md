@@ -91,7 +91,7 @@ up a turn — which is what makes "play this twice and then never again" mean wh
 **A looping sound is the end of the walk.** There is no length that would take the list past
 it, so everything after it in the file is unreachable; that is the original's behaviour and
 it is how a soundtrack meant to be continuous is written. 83 of the 269 files have one, and
-that sound is the room's *bed* — the thing that crossfades into the next room. The other 186
+that sound is the room's *bed* — the thing that plays until the player leaves. The other 186
 are programs of occasional sounds with silence between them, which is what a hotel room
 actually sounds like.
 
@@ -106,6 +106,7 @@ sound found nothing — and `StopSoundTrack` and `StopAllSoundTracks` take them 
 
 ## What is not here
 
-`FadeOutMs` is applied through the room-to-room crossfade and to sounds the layer still
-holds; a one-shot that has already ended has nothing to fade. Nothing reads `SoundType` for
-anything but which bus to mix on.
+`FadeOutMs` is **parsed and read by nothing**. Its one consumer was the room-to-room
+crossfade, which was removed on 2026-08-27 for overlapping two beds audibly; a bed now stops
+with its room and a one-shot that has already ended has nothing to fade either way. Nothing
+reads `SoundType` for anything but which bus to mix on.

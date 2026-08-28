@@ -67,6 +67,12 @@ public sealed record SoundtrackSound
     public SoundtrackStop Stop { get; init; }
 
     /// <summary>How long it fades out over, in milliseconds.</summary>
+    /// <remarks>
+    /// Parsed and read by nothing. Its one consumer was the room-to-room crossfade, removed
+    /// on 2026-08-27 because three seconds of two beds on one bus is audibly two rooms. Kept
+    /// because it is in the file, and because anything that fades a bed out again will want
+    /// the artists' own number rather than a new one.
+    /// </remarks>
     public int FadeOutMs { get; init; }
 
     /// <summary>Whether it is positioned in the room rather than played flat.</summary>

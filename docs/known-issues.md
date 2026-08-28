@@ -203,6 +203,32 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Room-to-room crossfade overlapped two beds audibly — removed 2026-08-27
+
+**Reported:** 2026-08-27, as significant overlap between sounds. The crossfade added on
+2026-08-22 (below) is gone; a room's bed now stops when the room does and the next one
+starts at its own level.
+
+The overlap was the design, not a fault in it. `FadeOutMS` decided how long the outgoing
+bed stayed audible and the corpus asks for up to three seconds — R25's theme does — which
+is most of a walk through a door, spent hearing two rooms at once. `SceneAudio.Leave` now
+silences the bed instead of handing it on, and `Fade` is `Begin`, playing the next bed at
+full from its first sample. `Crossfade` and `Drop` are gone with the four fields they
+needed, and `FadeOutMS` has no consumer left anywhere.
+
+**A second departure used to strand a voice.** The outgoing bed lived in one field,
+`_leaving`, which `Leave` overwrote with `_ambience` — already cleared by the previous
+`Leave`. Leaving two rooms in quick succession, which is a corridor, therefore dropped the
+first room's voice while it was still playing and owned by nothing: no later room could
+stop it, and each hurried door added another. That is a plausible second source of what was
+reported, and it cannot recur because there is no such field. `AmbienceFadeTests` pins it
+along with one bed at a time.
+
+**What it cost.** The thing the crossfade was for is back: a door is two cuts again, and the
+bed is a five-minute MP3 decoded off the thread, so the next room stands silent for the
+quarter-second that takes. If it wants solving again, the way that does not overlap anything
+is to finish the outgoing fade *before* starting the next bed rather than under it.
+
 ### A character cast a full shadow on ground a building already shaded — fixed 2026-08-27
 
 **Reported:** 2026-08-27, as the sun appearing to shine through the hotel: Gabriel steps out
@@ -2099,7 +2125,7 @@ nothing said there was. `ISceneSink.TransformOf` is where that comes from now.
 Corpus sweep unchanged apart from Mosely's model appearing in the 33 loads of that scene.
 
 
-### Scene music cut between rooms rather than crossfading — done 2026-08-22
+### Scene music cut between rooms rather than crossfading — done 2026-08-22, reverted 2026-08-27
 
 Leaving a room stopped its bed and entering the next started another, so a door was two
 cuts with a gap between them.
@@ -2114,6 +2140,9 @@ R25's theme asks for three seconds — and that is the artists' answer to how lo
 should take to stop being the room you are in. A soundtrack that leaves it out gets a
 second and a half. A room that names no soundtrack at all lets the last one fade out on its
 own, which is the same crossfade with nothing on the other side of it.
+
+**Reverted on 2026-08-27**: three seconds of two beds on one bus is audibly two rooms. See
+the entry at the top of this section for what replaced it and what that gave back up.
 
 
 ### Inspecting the register did nothing — fixed 2026-08-22

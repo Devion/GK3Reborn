@@ -10,14 +10,14 @@ using Xunit;
 namespace GK3Reborn.Tests.Game;
 
 /// <summary>
-/// Tests for one room's music becoming the next room's.
+/// Tests for a room's bed starting and stopping with the room.
 /// </summary>
 /// <remarks>
-/// Leaving a room used to stop its bed and entering the next one used to start another, so
-/// a door was two cuts with a gap between them where the game was silent. What it should be
-/// is one sound becoming another, which needs both playing at once at different levels —
-/// and that is the part worth pinning down, because by ear a fade that is slightly wrong
-/// and a fade that is not happening at all are hard to tell apart.
+/// These once pinned a crossfade: leaving a room handed its bed on, and the next room's came
+/// up underneath it over the <c>FadeOutMS</c> the soundtrack asked for. Two beds on one bus
+/// is two beds you can hear, and with R25's three seconds the overlap was long enough to be
+/// audibly the wrong room. So what is pinned now is the opposite, and it is worth pinning
+/// because it is exactly what regressed: <em>one bed at a time</em>.
 /// </remarks>
 public sealed class AmbienceFadeTests
 {
@@ -127,10 +127,10 @@ public sealed class AmbienceFadeTests
     /// <summary>A soundtrack naming one looping sound, with the fade its room asks for.</summary>
     /// <remarks>
     /// <c>Loop=1</c> is what makes a sound the room's <em>bed</em> — the thing that plays
-    /// for as long as the player is in the room and that the next room's bed crossfades
-    /// with. 83 of the corpus's 269 soundtracks have one; the rest are programs of
-    /// occasional sounds and have nothing to crossfade, which is what these tests are not
-    /// about. See <c>SoundtrackProgramTests</c> for those.
+    /// for as long as the player is in the room and stops when they leave it. 83 of the
+    /// corpus's 269 soundtracks have one; the rest are programs of occasional sounds and
+    /// have no bed at all, which is what these tests are not about. See
+    /// <c>SoundtrackProgramTests</c> for those.
     /// </remarks>
     private static SoundtrackFile Track(string sound, int fadeMs = 3000) => SoundtrackFile.Parse(
         $"""
@@ -162,8 +162,7 @@ public sealed class AmbienceFadeTests
     [Fact]
     public void The_first_room_of_the_game_just_starts()
     {
-        // Nothing to fade from, so nothing is faded: the bed comes in at its own level
-        // rather than rising out of silence over a second and a half.
+        // The bed comes in at its own level rather than rising out of silence.
         var device = new Recorder();
         SceneAudio audio = Audio(device, "R25THEME");
 
@@ -175,7 +174,7 @@ public sealed class AmbienceFadeTests
     }
 
     [Fact]
-    public void One_rooms_bed_becomes_the_next_rooms()
+    public void One_rooms_bed_stops_before_the_next_rooms_starts()
     {
         var device = new Recorder();
         SceneAudio audio = Audio(device, "R25THEME", "LBYTHEME");
@@ -183,37 +182,25 @@ public sealed class AmbienceFadeTests
         audio.StartAmbience([Track("R25THEME")]);
         Settle(audio, device, "R25THEME");
 
-        // Through the door. What the room was saying stops; what it sounded like does not.
+        // Through the door. The bed goes with the room, at the door rather than three
+        // seconds into the next room.
         audio.Leave();
-        Assert.DoesNotContain(device.Voice("R25THEME"), device.Stopped);
+
+        Assert.Contains(device.Voice("R25THEME"), device.Stopped);
+        Assert.Equal(0, device.Playing);
 
         audio.StartAmbience([Track("LBYTHEME")]);
         Settle(audio, device, "LBYTHEME");
 
-        // Both playing, and the new one is not yet audible.
-        Assert.Equal(2, device.Playing);
-        Assert.True(device.Level("LBYTHEME") < 0.5f, $"{device.Level("LBYTHEME")}");
-
-        // Half way through the three seconds the soundtrack asks for: one going down, the
-        // other coming up, and neither of them silent.
-        audio.Update(1.5);
-
-        Assert.InRange(device.Level("R25THEME"), 0.2f, 0.8f);
-        Assert.InRange(device.Level("LBYTHEME"), 0.2f, 0.8f);
-
-        // And done. The room that has been left stops rather than being held open for ever.
-        audio.Update(2.0);
-
-        Assert.Equal(1f, device.Level("LBYTHEME"));
-        Assert.Contains(device.Voice("R25THEME"), device.Stopped);
+        // One bed, at its own level from the first sample. This is the assertion the
+        // crossfade broke: `Playing` was 2 for as long as the fade lasted.
         Assert.Equal(1, device.Playing);
+        Assert.Equal(1f, device.Level("LBYTHEME"));
     }
 
     [Fact]
-    public void A_room_with_no_music_lets_the_last_one_fade_out()
+    public void A_room_with_no_music_is_silent_rather_than_still_playing_the_last_one()
     {
-        // The same crossfade with nothing on the other side of it, which is a room going
-        // quiet rather than the sound being cut off at the door.
         var device = new Recorder();
         SceneAudio audio = Audio(device, "R25THEME");
 
@@ -223,23 +210,23 @@ public sealed class AmbienceFadeTests
         audio.Leave();
         Assert.Null(audio.StartAmbience([]));
 
-        audio.Update(1.5);
-        Assert.InRange(device.Level("R25THEME"), 0.2f, 0.8f);
+        // Nothing carries over into a room that names no ambience, and no amount of
+        // pumping frames brings the last room's sound back.
+        Assert.Contains(device.Voice("R25THEME"), device.Stopped);
+        Assert.Equal(0, device.Playing);
 
         audio.Update(2.0);
-        Assert.Contains(device.Voice("R25THEME"), device.Stopped);
         Assert.Equal(0, device.Playing);
     }
 
     [Theory]
-    [InlineData(1000, 1.2, true)]
-    [InlineData(3000, 1.2, false)]
-    public void The_soundtrack_says_how_long_its_room_takes_to_stop(
-        int fadeMs, double after, bool over)
+    [InlineData(1000)]
+    [InlineData(3000)]
+    public void How_long_the_soundtrack_asks_to_fade_for_no_longer_holds_the_bed_open(int fadeMs)
     {
-        // FadeOutMS is the artists' own answer to how long this room should take to stop
-        // being the room you are in, and it is not the same everywhere. A second and a half
-        // is only the fallback for the soundtracks that leave it out.
+        // `FadeOutMS` decided how long the outgoing bed stayed audible, and R25's three
+        // seconds is most of a walk through a door. It has no consumer now, and the room
+        // it belongs to stops at the same moment whatever it says.
         var device = new Recorder();
         SceneAudio audio = Audio(device, "R25THEME");
 
@@ -247,9 +234,34 @@ public sealed class AmbienceFadeTests
         Settle(audio, device, "R25THEME");
 
         audio.Leave();
-        audio.Update(after);
 
-        Assert.Equal(over, device.Stopped.Contains(device.Voice("R25THEME")));
+        Assert.Contains(device.Voice("R25THEME"), device.Stopped);
+    }
+
+    [Fact]
+    public void Leaving_twice_before_a_bed_has_decoded_leaves_nothing_playing()
+    {
+        // The crossfade held the outgoing voice in a field of its own, and a second
+        // departure overwrote that field with the voice the first one had already cleared.
+        // The first room's bed was then playing, owned by nothing, and no later room could
+        // stop it — a bed per hurried door, all of them audible at once. There is no such
+        // field now, and this is what says so.
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, "R25THEME", "LBYTHEME", "MCBTHEME");
+
+        audio.StartAmbience([Track("R25THEME")]);
+        Settle(audio, device, "R25THEME");
+
+        audio.Leave();
+        audio.StartAmbience([Track("LBYTHEME")]);
+
+        // Straight out again, before the second bed has finished decoding.
+        audio.Leave();
+        audio.StartAmbience([Track("MCBTHEME")]);
+        Settle(audio, device, "MCBTHEME");
+
+        Assert.Equal(1, device.Playing);
+        Assert.Equal("MCBTHEME", audio.Ambience);
     }
 
     [Fact]
