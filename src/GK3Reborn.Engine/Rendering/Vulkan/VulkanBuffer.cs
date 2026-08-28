@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
@@ -65,6 +65,25 @@ public sealed unsafe class VulkanBuffer : IDisposable
     /// <returns>The buffer.</returns>
     public static VulkanBuffer CreateDeviceLocal<T>(
         VulkanContext context, ReadOnlySpan<T> data, BufferUsageFlags usage)
+        where T : unmanaged =>
+        CreateDeviceLocal(context, data, usage, null);
+
+    /// <summary>Creates a device-local buffer and fills it from a staging copy.</summary>
+    /// <typeparam name="T">The element type.</typeparam>
+    /// <param name="context">Device context.</param>
+    /// <param name="data">What to put in it.</param>
+    /// <param name="usage">What the buffer will be used for.</param>
+    /// <param name="into">
+    /// An open batch to record the copy into, or null to submit it on its own and wait.
+    /// </param>
+    /// <returns>The buffer, whose contents are there once the batch has been submitted.</returns>
+    /// <remarks>
+    /// <b>Submitting on its own means waiting for the whole queue to drain, and a room is
+    /// hundreds of buffers.</b> See <see cref="BufferUploads"/>: batched, the copies are one
+    /// submission instead of seven hundred.
+    /// </remarks>
+    public static VulkanBuffer CreateDeviceLocal<T>(
+        VulkanContext context, ReadOnlySpan<T> data, BufferUsageFlags usage, BufferUploads? into)
         where T : unmanaged
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -88,6 +107,8 @@ public sealed unsafe class VulkanBuffer : IDisposable
             BufferUsageFlags.TransferSrcBit,
             MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
+        bool staged = false;
+
         try
         {
             void* mapped;
@@ -101,8 +122,21 @@ public sealed unsafe class VulkanBuffer : IDisposable
                 MemoryPropertyFlags.DeviceLocalBit,
                 context.SupportsRayTracing);
 
-            CommandBuffer command = context.BeginOneShot();
             var region = new BufferCopy { Size = size };
+
+            if (into is not null)
+            {
+                context.Api.CmdCopyBuffer(into.Commands, staging, device, 1, in region);
+
+                // The batch owns the staging buffer now: it may not be freed until the
+                // copy has actually run, which is when the batch is submitted.
+                into.Keep(staging, stagingMemory);
+                staged = true;
+
+                return new VulkanBuffer(context, device, deviceMemory, size);
+            }
+
+            CommandBuffer command = context.BeginOneShot();
             context.Api.CmdCopyBuffer(command, staging, device, 1, in region);
             context.EndOneShot(command);
 
@@ -110,8 +144,11 @@ public sealed unsafe class VulkanBuffer : IDisposable
         }
         finally
         {
-            context.Api.DestroyBuffer(context.Device, staging, null);
-            context.Api.FreeMemory(context.Device, stagingMemory, null);
+            if (!staged)
+            {
+                context.Api.DestroyBuffer(context.Device, staging, null);
+                context.Api.FreeMemory(context.Device, stagingMemory, null);
+            }
         }
     }
 

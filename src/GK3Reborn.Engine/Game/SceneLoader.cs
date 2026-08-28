@@ -326,6 +326,14 @@ public sealed class SceneLoader
     /// </remarks>
     public Action? Progress { get; set; }
 
+    /// <summary>Where the time goes, when somebody is measuring.</summary>
+    /// <remarks>
+    /// Null unless the caller wants a breakdown, and the stamps cost a stopwatch read
+    /// each, so leaving it on would also be defensible. It is off by default because the
+    /// report is the expensive part and nobody playing wants twenty lines a door.
+    /// </remarks>
+    public LoadTimeline? Timeline { get; set; }
+
     /// <summary>
     /// Higher-resolution textures to use in place of the archives', if there are any.
     /// </summary>
@@ -509,9 +517,11 @@ public sealed class SceneLoader
         _trunked.Clear();
 
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
+        Timeline?.Stamp("scene files (.SIF)");
         Progress?.Invoke();
 
         SceneAssetFile? asset = ReadAsset(scene, timeblock, init, diagnostics);
+        Timeline?.Stamp("scene asset (.SCN)");
         Progress?.Invoke();
 
         string bspName = asset?.BspName ?? scene;
@@ -528,13 +538,16 @@ public sealed class SceneLoader
         // Between reading it and parsing it. The two are a tenth of a second together on a
         // large outdoor room and neither can be interrupted, so this is the only place a
         // frame fits — and without it the fade takes a third of itself in one step.
+        Timeline?.Stamp("read .BSP");
         Progress?.Invoke();
 
         BspFile bsp = BspFile.Parse(bspBytes, bspName + ".BSP");
+        Timeline?.Stamp("parse .BSP");
         _log?.Invoke($"geometry: {bspName}.BSP, {bsp.TriangleCount} triangles, {bsp.Surfaces.Count} surfaces");
         Progress?.Invoke();
 
         MulFile? lightmaps = ReadLightmaps(asset?.Name, scene, timeblock, diagnostics);
+        Timeline?.Stamp("lightmaps (.MUL)");
         Progress?.Invoke();
 
         if (lightmaps is not null && lightmaps.Lightmaps.Count != bsp.Surfaces.Count)
@@ -588,6 +601,7 @@ public sealed class SceneLoader
         }
 
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
+        Timeline?.Stamp("room textures");
 
         // Which batches are leaves, before any of them are made. Only the grown trees'
         // own cards: a 1999 tree is one picture on a quad and bending its top corners
@@ -600,6 +614,7 @@ public sealed class SceneLoader
         // Decided before the room is added, because growing a wood means not drawing the
         // cards it replaces, and the cards are hidden by naming them here.
         List<Foliage.FoliageObject> woods = GrowWoods(bsp, diagnostics);
+        Timeline?.Stamp("grow woods");
 
         // The cards the grown trees stand in for, by surface. Not by object: an object can
         // be two trees and a painted strip of distant hillside, and hiding it by name takes
@@ -607,6 +622,7 @@ public sealed class SceneLoader
         HashSet<int> replaced = [.. woods.SelectMany(w => w.Surfaces)];
 
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject, replaced);
+        Timeline?.Stamp("room: the rest of AddScene");
 
         // The four long stretches with nothing in them to offer a frame of their own: the
         // room's own batches above, and the sky, the horizon and the woods below. Each is
@@ -636,17 +652,20 @@ public sealed class SceneLoader
         if (asset?.Skybox is { IsEmpty: false } sky)
         {
             LoadSkybox(geometry, sky, diagnostics);
+            Timeline?.Stamp("skybox");
             Progress?.Invoke();
 
             // The reconstructed horizon rides the same choice: the terrain set is named
             // after the sky's own faces, so day and night come free here too.
             LoadTerrain(geometry, sky, sun?.Direction, diagnostics);
+            Timeline?.Stamp("terrain horizon");
             Progress?.Invoke();
         }
 
         ReportDisputedVisibility(init, diagnostics);
 
         List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
+        Timeline?.Stamp("place models");
 
         // After the props, because the two overlap. A room's shadow-caster cards are a
         // second copy of the trees the scene file also places as props - WOD draws ten
@@ -656,9 +675,11 @@ public sealed class SceneLoader
         // trees in the same place are a mess, so the props win and the room's copies of
         // them are left out.
         PlantWoods(geometry, woods, diagnostics);
+        Timeline?.Stamp("plant woods");
         Progress?.Invoke();
         placed.AddRange(
             PlaceActors(geometry, init, diagnostics, request.State?.LastLocation));
+        Timeline?.Stamp("place actors");
         _log?.Invoke(
             $"models: {placed.Count} placed, textures: {geometry.TextureCount}" +
             (_enhancedUsed > 0 ? $", {_enhancedUsed} of them enhanced" : string.Empty));
@@ -668,7 +689,7 @@ public sealed class SceneLoader
             _log?.Invoke($"trees: {_treesGrown} cards grown into modelled trees");
         }
 
-        return new LoadedScene(
+        LoadedScene loaded = new(
             scene,
             init,
             asset,
@@ -692,6 +713,12 @@ public sealed class SceneLoader
             // Decided above, before the horizon that is lit by it.
             Sun = sun,
         };
+
+        // The walk boundary, the action files, the soundtracks and the camera shell, all
+        // of which are read in the initialiser above.
+        Timeline?.Stamp("boundary, actions, soundtracks");
+
+        return loaded;
     }
 
     /// <summary>

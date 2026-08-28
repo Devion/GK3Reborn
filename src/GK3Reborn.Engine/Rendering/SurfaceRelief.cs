@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -334,6 +334,7 @@ public sealed class ReliefPlan
     /// <summary>Triangles whose tiling disagrees with their texture's, left as they were.</summary>
     private readonly HashSet<((int, int, int), (int, int, int), (int, int, int))> _apart;
     private readonly Dictionary<string, Vector2> _steps;
+    private readonly Lock _tally = new();
     private double _movedTotal;
     private int _movedCount;
 
@@ -384,6 +385,34 @@ public sealed class ReliefPlan
 
     /// <summary>How far the average displaced vertex moved, in world units.</summary>
     public float MovedTypically => _movedCount > 0 ? (float)(_movedTotal / _movedCount) : 0f;
+
+    /// <summary>What one <see cref="Tessellate"/> call moved, folded into the total.</summary>
+    /// <param name="furthest">The furthest any of its vertices moved.</param>
+    /// <param name="total">Those distances added up.</param>
+    /// <param name="count">How many of them there were.</param>
+    /// <remarks>
+    /// <b>Once a triangle, under a lock, because the callers are concurrent.</b> Nothing
+    /// else in a cut is shared — the plan is read-only once <see cref="For"/> has built it,
+    /// and every call works in buffers of its own — so this is the whole of what makes
+    /// cutting a floor on several threads safe. A lock per triangle is some tens of
+    /// thousands of uncontended acquisitions across a room; the same lock per *vertex*
+    /// would be a million and a half of them, contended, which is why the tally is kept in
+    /// the call and merged rather than written through.
+    /// </remarks>
+    private void Record(float furthest, double total, int count)
+    {
+        if (count == 0)
+        {
+            return;
+        }
+
+        lock (_tally)
+        {
+            Moved = MathF.Max(Moved, furthest);
+            _movedTotal += total;
+            _movedCount += count;
+        }
+    }
 
     /// <summary>How many of the floor's own edges were held down, and how many were freed.</summary>
     public (int Pinned, int Continued) Boundary { get; private set; }
@@ -842,6 +871,14 @@ public sealed class ReliefPlan
 
         var made = new Dictionary<(int U, int V), int>();
 
+        // This call's own share of the "how far did it actually move" evidence, kept local
+        // and merged once at the end. It is written once a vertex and there are a million
+        // of them in an outdoor room, so touching the shared fields here would be a
+        // contended write per vertex across every worker cutting the same floor.
+        float cutFurthest = 0f;
+        double cutTotal = 0;
+        int cutCount = 0;
+
         for (int i = firstU; i <= lastU; i++)
         {
             for (int j = firstV; j <= lastV; j++)
@@ -881,6 +918,8 @@ public sealed class ReliefPlan
                 }
             }
         }
+
+        Record(cutFurthest, cutTotal, cutCount);
 
         // A vertex of one of the cells, made once however many cells meet at it. Keyed on
         // the texture coordinate rounded fine, because two neighbouring cells work out
@@ -953,9 +992,11 @@ public sealed class ReliefPlan
 
                     float far = MathF.Abs(shift);
 
-                    Moved = MathF.Max(Moved, far);
-                    _movedTotal += far;
-                    _movedCount++;
+                    // Into this call's own tally, merged once at the end. See Tessellate:
+                    // the callers run concurrently and this runs once a vertex.
+                    cutFurthest = MathF.Max(cutFurthest, far);
+                    cutTotal += far;
+                    cutCount++;
                 }
             }
 

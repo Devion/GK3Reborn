@@ -1043,6 +1043,16 @@ public static class Application
 
             var loading = Stopwatch.StartNew();
 
+            // Where the time goes, when somebody asked. Off unless --timings is given: the
+            // stamps are cheap, but twenty lines of breakdown at every door is not what
+            // anybody playing the game wants in their console.
+            LoadTimeline? timeline = args.Contains("--timings", StringComparer.OrdinalIgnoreCase)
+                ? new LoadTimeline()
+                : null;
+
+            loader.Timeline = timeline;
+            geometry.Timeline = timeline;
+
             if (loader.Load(geometry, request, diagnostics) is not { } scene)
             {
                 foreach (Diagnostic diagnostic in diagnostics.Items)
@@ -1058,6 +1068,7 @@ public static class Application
             // Before the report, so that it describes something that exists. Finish is
             // idempotent and the renderer calls it again when the scene is set.
             geometry.Finish();
+            timeline?.Stamp("upload to device (Finish)");
             fade.Tick();
 
             // With the geometry's extent, so the rig can tell a lamp that decays from the
@@ -1067,6 +1078,7 @@ public static class Application
             // GpuLight.IsDistantKey.
             renderer.SetLights(
                 scene.Lights, new SceneExtent(geometry.Minimum, geometry.Maximum));
+            timeline?.Stamp("light rig");
 
             if (scene.Sun is { } sun)
             {
@@ -1172,6 +1184,10 @@ public static class Application
                   " is not in the geometry, so actors hold the height they start at");
 
             Report(diagnostics, verbose);
+
+            // Everything from here to the first presented frame is the room being made
+            // ready rather than read, and it is inside the wait the player sees.
+            timeline?.Stamp("scene report");
 
             // Whatever was waiting was waiting on the room that has gone.
             host.Scheduler.Clear();
@@ -1424,6 +1440,18 @@ public static class Application
             if (fade.Leaving)
             {
                 fade.ArriveOver(fade.Black());
+            }
+
+            if (timeline is not null)
+            {
+                // The whole of it, and everything after this point is the room running.
+                timeline.Stamp("room set up (scripts, audio, journal)");
+
+                Console.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Where {scene.Name}'s {timeline.TotalMilliseconds:F0} ms went:"));
+
+                Console.WriteLine(timeline.Report());
             }
 
             RoomExit exit = FlyScene(

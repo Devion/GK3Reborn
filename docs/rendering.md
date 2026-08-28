@@ -615,6 +615,12 @@ something is holding the floor down.
 is how the two are compared in a screenshot; `render-scene --no-relief` is the same switch
 for the tool.
 
+**It was most of what a door costs, and is now a quarter of it.** Cutting RC4's relief
+took 684 ms on one core of the 1,290 ms it takes to walk there from RC1; it is cut on every
+core a window ahead of the loop that lays it out now — see `SceneGeometry.ReliefCut` — and
+takes 177 ms. Turning it off entirely takes the same room from 1,804,409 triangles to
+339,819. See [where a scene load goes](#where-a-scene-load-goes).
+
 ### Round things
 
 A bell, a lamp, a vase and an urn are lathes of eight or twelve sides, and at the distance
@@ -765,6 +771,78 @@ instead for the alpha that darkens the *encoded* value in a straight line, and
 
 The same offers keep the window pumping, which is worth having on its own: five seconds
 without presenting a frame is how a window comes to be marked as not responding.
+
+## Where a scene load goes
+
+`--timings` makes the loader account for itself. It stamps each phase of
+`SceneLoader.Load`, `SceneGeometry.AddScene` stamps its own four, and the host adds the
+steps between the load returning and the first frame; the breakdown prints after the
+`Loaded` line, slowest first. It is off by default — the stamps are a stopwatch read each,
+but twenty lines at every door is not what anybody playing wants in a console.
+
+**Steps are wall-clock spans between stamps, not the cost of a named call.** A stamp closes
+whatever ran since the last one, so the list totals the load with nothing unattributed —
+which is the property that matters, because the time a breakdown loses is the time the slow
+thing is hiding in.
+
+Measured Release, RC1 at 110A, walking into RC4 — `--do EXIT4:EXIT`, which is the town
+square into the villa. 202 of the room's 210 textures are already resident, so almost none
+of it is content being read:
+
+| step | ms | share |
+|---|---:|---:|
+| room: polygons, relief and rounding | 177.3 | 27% |
+| room: vertex and index buffers | 175.9 | 27% |
+| place models | 78.8 | 12% |
+| upload to device (Finish) | 66.9 | 10% |
+| room textures | 41.7 | 6% |
+| room: relief plan | 38.1 | 6% |
+| place actors | 19.4 | 3% |
+| terrain horizon | 14.7 | 2% |
+| everything else | 44.6 | 7% |
+
+**Building the room is still most of a door**, but the two things that made it most of a
+*second* are gone. The transition was 1,290 ms and is 658:
+
+| | RC4 transition | what changed |
+|---|---:|---|
+| as it was | 1,290 ms | |
+| cutting the relief on every core | 853 ms | `SceneGeometry.ReliefCut` |
+| one submission for the room's buffers | 658 ms | `BufferUploads` |
+
+- **The cut was 684 ms on one core**, and it parallelises exactly — a triangle's relief
+  depends on the triangle. It is 177 ms now.
+- **The buffers were 700 queue stalls.** `VulkanContext.EndOneShot` submits and then waits
+  for the whole queue to drain, which is the right shape for one upload on its own; RC4 is
+  358 batches with a vertex and an index buffer each. Recorded into one command buffer and
+  submitted once, that phase went 299 ms to 176 and placing models 102 to 79.
+
+What is left in those two lines is real work: cutting 1.46 million triangles, and one
+`vkCreateBuffer` plus one allocation per buffer. The allocation count is the next thing —
+a suballocator handing out ranges of a few large blocks would take most of the remaining
+176 ms — and it is a bigger change than either of these.
+
+### Measuring it without being lied to
+
+Three traps, all of which produced a confidently wrong answer here first:
+
+- **Build Release.** The same transition is about four times slower in Debug, because the
+  tessellation is a tight numeric loop. A Debug profile sends you after the wrong phase.
+- **Warm the file cache, and say which state you measured.** The first read of a room out
+  of a 12 GB pack is nothing like the fifth. The same unchanged build measured 2,507 ms
+  cold and 1,291 ms warm in one sitting — a bigger spread than any change in this
+  document. Compare two builds *alternately*, in one run, never across a session.
+- **Check the triangle count, not just the clock.** A build run from a directory that
+  cannot find the packs loads no height maps, so nothing is displaced, the room comes out
+  at 339,819 triangles instead of 1,804,409, and it looks like a wonderful optimisation.
+  The `Scene <name>: N triangles` line is the guard.
+
+Held to that, swapping only `GK3Reborn.Engine.dll` between two builds and alternating:
+
+| | RC4 transition |
+|---|---|
+| as it was | 1287, 1282, 1297, 1294 ms |
+| cut and buffers | 666, 645, 651, 680 ms |
 
 ## The reconstructed horizon
 

@@ -4,6 +4,7 @@ using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Rendering.Materials;
 using Silk.NET.Vulkan;
 
@@ -500,6 +501,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>How many of this room's surfaces have a normal map.</summary>
     public int NormalMapCount => _textures.NormalCount;
 
+    /// <summary>Where the time goes inside the sink, when somebody is measuring.</summary>
+    /// <remarks>
+    /// The same timeline the loader stamps, so the two interleave into one account of a
+    /// load. Building the room is most of a cold arrival and all of a warm one, and it is
+    /// one call from the loader's side — without this the breakdown says "AddScene" and
+    /// stops exactly where the question starts.
+    /// </remarks>
+    public LoadTimeline? Timeline { get; set; }
+
     /// <inheritdoc/>
     public bool HasTexture(string name)
     {
@@ -528,6 +538,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         Matrix4x4 placement = transform ?? Matrix4x4.Identity;
         Dictionary<int, List<int>> batches = [];
         _placements.Add(batches);
+
+        // As for the room: a character is a dozen meshes and a scene places dozens of
+        // models, so the submissions add up even though each model is small.
+        using var uploads = new BufferUploads(_context);
 
         // Asked once for the whole model, so that a character's limbs agree with each
         // other; each group may still overrule it. See ModNormals.
@@ -616,7 +630,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 AddBatch(
                     vertices,
                     VulkanBuffer.CreateDeviceLocal<ushort>(
-                        _context, submesh.Indices, BufferUsageFlags.IndexBufferBit),
+                        _context, submesh.Indices, BufferUsageFlags.IndexBufferBit, uploads),
                     IndexType.Uint16,
                     (uint)submesh.Indices.Length,
                     meshToWorld,
@@ -624,7 +638,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     useLightmap: false,
                     selfLit: false,
                     local: meshToLocal,
-                    isModel: true);
+                    isModel: true,
+                    into: uploads);
             }
         }
 
@@ -1026,6 +1041,234 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         return true;
     }
 
+    /// <summary>One triangle's relief, cut before the loop that lays it into a batch.</summary>
+    /// <param name="Pieces">Its vertices, in the tessellator's own order.</param>
+    /// <param name="Indices">Triangles over those, indexed from zero within this cut.</param>
+    private readonly record struct CutTriangle(ReliefVertex[] Pieces, int[] Indices);
+
+    /// <summary>
+    /// Cuts the room's relief on every core, a window of polygons at a time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This was 53% of walking through a door.</b> Cutting RC4's ground took 684 ms of
+    /// the 1,280 the room took to load, on one core, while fifteen others did nothing and
+    /// the screen fade had no frame to present. It parallelises exactly: a triangle's
+    /// relief depends on the triangle, the plan and a height field, and the plan is
+    /// read-only once <see cref="ReliefPlan.For"/> has built it. The one thing shared is
+    /// the "how far did it move" tally, which each cut keeps to itself and merges once.
+    /// </para>
+    /// <para>
+    /// <b>A window at a time, and that is not a detail.</b> Cutting the whole room up front
+    /// is simpler and was measurably worse: a room's cut is some tens of megabytes of
+    /// vertices, and holding all of it while the loop consumes it cost more in collection
+    /// than the parallelism saved — the cut itself fell to 257 ms and every phase *after*
+    /// it rose, buffers alone from 285 ms to 841. A window is cut, consumed and dropped
+    /// before the next is cut, so the extra live set is a fraction of one room.
+    /// </para>
+    /// <para>
+    /// <b>The order of the result is the order of the room, not the order the work finished
+    /// in.</b> Every triangle has a slot decided before any of them runs, so the batches
+    /// come out vertex for vertex identical to the serial cut — verified byte for byte on
+    /// an outdoor room and an interior. That is not tidiness: two renders of the same scene
+    /// are compared byte for byte to tell a shading change from noise.
+    /// </para>
+    /// </remarks>
+    private sealed class ReliefCut
+    {
+        /// <summary>How much of the room is cut at once.</summary>
+        /// <remarks>
+        /// Bounded by memory rather than by cores: it decides the live set, and every
+        /// window is still spread across every core. A thousand polygons of an outdoor
+        /// room is some tens of thousands of cut triangles, which is far more work than a
+        /// core needs to be worth waking.
+        /// </remarks>
+        private const int PolygonsPerWindow = 1024;
+
+        private readonly BspFile _scene;
+        private readonly ReliefPlan _plan;
+        private readonly bool[] _displaces;
+        private readonly float[] _depths;
+        private readonly HeightField?[] _fields;
+        private readonly int[] _first;
+        private readonly Action? _progress;
+
+        private CutTriangle?[] _window = [];
+        private int _windowFrom;
+        private int _windowTo;
+
+        private ReliefCut(
+            BspFile scene,
+            ReliefPlan plan,
+            bool[] displaces,
+            float[] depths,
+            HeightField?[] fields,
+            int[] first,
+            Action? progress)
+        {
+            _scene = scene;
+            _plan = plan;
+            _displaces = displaces;
+            _depths = depths;
+            _fields = fields;
+            _first = first;
+            _progress = progress;
+        }
+
+        /// <summary>Where each polygon's triangles begin, by polygon index.</summary>
+        /// <param name="scene">The room.</param>
+        /// <returns>One more entry than there are polygons; the last is the total.</returns>
+        /// <remarks>
+        /// A polygon is fanned from its first vertex, so it is exactly two fewer triangles
+        /// than it has corners. Computed once so a window can be written into disjoint
+        /// slots without the workers agreeing on anything at run time.
+        /// </remarks>
+        public static int[] Triangles(BspFile scene)
+        {
+            int[] first = new int[scene.Polygons.Count + 1];
+
+            for (int i = 0; i < scene.Polygons.Count; i++)
+            {
+                first[i + 1] = first[i] + Math.Max(0, scene.Polygons[i].VertexIndexCount - 2);
+            }
+
+            return first;
+        }
+
+        /// <summary>Prepares to cut, or answers null where nothing is displaced.</summary>
+        /// <param name="scene">The room.</param>
+        /// <param name="plan">The plan, or null when the relief is off.</param>
+        /// <param name="first">From <see cref="Triangles"/>.</param>
+        /// <param name="geometry">Whose material library and texture set are read.</param>
+        /// <returns>The cutter, or null when the loop takes its flat path throughout.</returns>
+        /// <remarks>
+        /// What each surface displaces at is decided here, once per surface rather than
+        /// once per triangle — and on this thread, because the material library and the
+        /// texture set are not the tessellator and were never asked to be concurrent.
+        /// </remarks>
+        public static ReliefCut? For(
+            BspFile scene, ReliefPlan? plan, int[] first, SceneGeometry geometry)
+        {
+            if (plan is null || first[^1] == 0)
+            {
+                return null;
+            }
+
+            int surfaces = scene.Surfaces.Count;
+            bool[] displaces = new bool[surfaces];
+            float[] depths = new float[surfaces];
+            HeightField?[] fields = new HeightField?[surfaces];
+            bool any = false;
+
+            for (int i = 0; i < surfaces; i++)
+            {
+                BspSurface surface = scene.Surfaces[i];
+
+                if (!plan.Covers(surface, geometry.Deep(surface.TextureName)))
+                {
+                    continue;
+                }
+
+                // Outdoor ground gets its depth multiplied: the derived depths average 1.2
+                // units — honest for a floor somebody stands on, invisible on a road seen
+                // from a room camera. Capped past even the library's own ceiling, because
+                // the boost is the point.
+                float depth = geometry.Materials.Of(surface.TextureName).HeightDepth;
+
+                if (geometry._reliefEverywhere.Contains(surface.TextureName))
+                {
+                    depth = MathF.Min(depth * 2.5f, 12f);
+                }
+
+                displaces[i] = true;
+                depths[i] = depth;
+                fields[i] = geometry._textures.FieldFor(surface.TextureName);
+                any = true;
+            }
+
+            return any
+                ? new ReliefCut(scene, plan, displaces, depths, fields, first, geometry.Progress)
+                : null;
+        }
+
+        /// <summary>One triangle's cut, or null where it is not displaced.</summary>
+        /// <param name="polygon">Which polygon the loop has reached.</param>
+        /// <param name="triangle">The triangle's index across the whole room.</param>
+        /// <returns>The cut, or null for the flat path.</returns>
+        /// <remarks>
+        /// The loop walks polygons in order, so reaching one past the window is what asks
+        /// for the next — and letting the old one go here is what keeps the live set to a
+        /// window. A frame is offered after each, because a worker may not:
+        /// <see cref="SceneGeometry.Progress"/> belongs to the loading thread and it draws.
+        /// </remarks>
+        public CutTriangle? At(int polygon, int triangle)
+        {
+            if (polygon >= _windowTo)
+            {
+                Cut(polygon);
+                _progress?.Invoke();
+            }
+
+            return _window[triangle - _first[_windowFrom]];
+        }
+
+        /// <summary>Cuts the window the given polygon begins.</summary>
+        private void Cut(int polygon)
+        {
+            _windowFrom = polygon;
+            _windowTo = Math.Min(polygon + PolygonsPerWindow, _scene.Polygons.Count);
+
+            int origin = _first[_windowFrom];
+            _window = new CutTriangle?[_first[_windowTo] - origin];
+
+            Parallel.For(
+                _windowFrom,
+                _windowTo,
+                () => (Pieces: new List<ReliefVertex>(), Indices: new List<int>()),
+                (index, _, scratch) =>
+                {
+                    BspPolygon face = _scene.Polygons[index];
+
+                    if (face.SurfaceIndex < 0 ||
+                        face.SurfaceIndex >= _displaces.Length ||
+                        !_displaces[face.SurfaceIndex])
+                    {
+                        return scratch;
+                    }
+
+                    BspSurface surface = _scene.Surfaces[face.SurfaceIndex];
+                    int at = _first[index] - origin;
+
+                    foreach ((ushort a, ushort b, ushort c) in _scene.Triangulate(face))
+                    {
+                        Vector3 pa = _scene.Vertices[a];
+                        Vector3 pb = _scene.Vertices[b];
+                        Vector3 pc = _scene.Vertices[c];
+
+                        if (!_plan.Lies(surface, pa, pb, pc))
+                        {
+                            at++;
+                            continue;
+                        }
+
+                        _plan.Tessellate(
+                            pa, pb, pc,
+                            _scene.TexCoordFor(a), _scene.TexCoordFor(b), _scene.TexCoordFor(c),
+                            surface.TextureName,
+                            _fields[face.SurfaceIndex],
+                            _depths[face.SurfaceIndex],
+                            scratch.Pieces,
+                            scratch.Indices);
+
+                        _window[at++] = new CutTriangle([.. scratch.Pieces], [.. scratch.Indices]);
+                    }
+
+                    return scratch;
+                },
+                _ => { });
+        }
+    }
+
     /// <summary>Loads a scene's geometry.</summary>
     /// <param name="scene">The parsed scene.</param>
     /// <param name="lightmaps">The scene's baked lightmaps, in surface order, if any.</param>
@@ -1070,6 +1313,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             _lightmapRegions = atlas.Regions;
         }
 
+        Timeline?.Stamp("room: lightmap atlas");
+
         // Which of the room's surfaces can have their relief cut into the geometry, and how
         // finely this room can afford to cut it. Null when the scene names no floor, when
         // none of the floor's textures has a height map, or when the setting is off — and
@@ -1081,6 +1326,18 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     ? surface => _reliefEverywhere.Contains(surface.TextureName)
                     : null)
             : null;
+
+        Timeline?.Stamp("room: relief plan");
+
+        // What the loop below is going to need cut, prepared now and then cut on every
+        // core a window ahead of where the loop has reached. See ReliefCut: it is the
+        // longest single thing in a scene load and it parallelises exactly.
+        int[] cutFrom = ReliefCut.Triangles(scene);
+        ReliefCut? cut = ReliefCut.For(scene, relief, cutFrom, this);
+
+        // The cut itself is no longer a phase of its own: it happens a window ahead of the
+        // loop that consumes it, so its cost lands in the loop's own stamp below.
+        Timeline?.Stamp("room: prepare the cut");
 
         ReliefCell = relief?.Cell ?? 0f;
         DisplacedTriangles = 0;
@@ -1104,11 +1361,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         List<Vector3> occluders = [];
         List<uint> occluderIndices = [];
 
-        // Reused across every triangle of the floor rather than allocated per triangle;
-        // there are a quarter of a million of them by the time this is done.
-        List<ReliefVertex> pieces = [];
-        List<int> pieceIndices = [];
-
         // Which surfaces have already been rounded off and emitted whole, so the polygon
         // loop below does not emit them a second time triangle by triangle — and which
         // objects have been considered at all, so one too big to round is decided once
@@ -1123,8 +1375,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         const int PolygonsBetweenOffers = 256;
         int since = 0;
 
-        foreach (BspPolygon polygon in scene.Polygons)
+        for (int polygonIndex = 0; polygonIndex < scene.Polygons.Count; polygonIndex++)
         {
+            BspPolygon polygon = scene.Polygons[polygonIndex];
+
             if (++since >= PolygonsBetweenOffers)
             {
                 since = 0;
@@ -1205,8 +1459,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                             !_textures.Keyed.Contains(surface.TextureName) &&
                             Materials.Of(surface.TextureName).Occludes;
 
+            int triangle = cutFrom[polygonIndex];
+
             foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
             {
+                CutTriangle? made = cut?.At(polygonIndex, triangle);
+                triangle++;
+
                 Vector3 pa = scene.Vertices[a];
                 Vector3 pb = scene.Vertices[b];
                 Vector3 pc = scene.Vertices[c];
@@ -1218,26 +1477,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 Vector2 ub = scene.TexCoordFor(b);
                 Vector2 uc = scene.TexCoordFor(c);
 
-                if (displace && relief!.Lies(surface, pa, pb, pc))
+                // A cut exists for exactly the triangles the old serial test admitted —
+                // ReliefCut applies it and nothing else does — so asking whether one was
+                // made *is* the test, and there is no second copy of it to drift.
+                if (made is { } piecesMade)
                 {
-                    // Outdoor ground gets its depth multiplied: the derived depths average
-                    // 1.2 units — honest for a floor somebody stands on, invisible on a
-                    // road seen from a room camera. Capped past even the library's own
-                    // ceiling, because the boost is the point.
-                    float depth = Materials.Of(surface.TextureName).HeightDepth;
-
-                    if (_reliefEverywhere.Contains(surface.TextureName))
-                    {
-                        depth = MathF.Min(depth * 2.5f, 12f);
-                    }
-
-                    relief!.Tessellate(
-                        pa, pb, pc, ua, ub, uc,
-                        surface.TextureName,
-                        _textures.FieldFor(surface.TextureName),
-                        depth,
-                        pieces,
-                        pieceIndices);
+                    ReliefVertex[] pieces = piecesMade.Pieces;
+                    int[] pieceIndices = piecesMade.Indices;
 
                     uint first = (uint)group.Item1.Count;
 
@@ -1260,7 +1506,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                         group.Item2.Add(first + (uint)index);
                     }
 
-                    DisplacedTriangles += pieceIndices.Count / 3;
+                    DisplacedTriangles += pieceIndices.Length / 3;
 
                     if (occludes)
                     {
@@ -1330,6 +1576,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             }
         }
 
+        Timeline?.Stamp("room: polygons, relief and rounding");
+
         // How far the cut floor actually moved. Reported rather than assumed: every other
         // number a displaced floor produces reads the same whether it moved or not.
         ReliefDepth = relief?.Moved ?? 0f;
@@ -1342,6 +1590,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             _traceable.Add(new RayTracingMesh([.. occluders], [.. occluderIndices]));
         }
+
+        // One submission for the room's several hundred buffers rather than one each, and
+        // one queue stall rather than several hundred. See BufferUploads: nothing reads
+        // any of these until the batch is submitted, which is what makes it sound.
+        using var uploads = new BufferUploads(_context);
 
         foreach (((string texture, bool selfLit, bool displaced, string owner, bool hidden),
                   (List<MeshVertex> vertices, List<uint> indices)) in groups)
@@ -1363,8 +1616,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 // the larger scenes covers more geometry than a 16-bit index can address.
                 AddBatch(
                     CollectionsMarshal.AsSpan(vertices),
-                    VulkanBuffer.CreateDeviceLocal<uint>(
-                        _context, CollectionsMarshal.AsSpan(indices), BufferUsageFlags.IndexBufferBit),
+                    VulkanBuffer.CreateDeviceLocal(
+                        _context,
+                        CollectionsMarshal.AsSpan(indices),
+                        BufferUsageFlags.IndexBufferBit,
+                        uploads),
                     IndexType.Uint32,
                     (uint)indices.Count,
                     Matrix4x4.Identity,
@@ -1372,20 +1628,33 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     useLightmap: true,
                     selfLit: selfLit,
                     displaced: displaced,
-                    hidden: hidden);
+                    hidden: hidden,
+                    into: uploads);
             }
         }
 
-        // Whether this texture's relief is to become geometry: the material says so, it
-        // has depth to give, and its map is here as numbers rather than only as a picture.
-        // All three are required — a floor whose map never arrived cannot be displaced,
-        // and one nothing asked to displace must not be.
-        bool Deep(string texture)
-        {
-            SurfaceFinish finish = Materials.Of(texture);
+        uploads.Submit();
+        Timeline?.Stamp("room: vertex and index buffers");
 
-            return finish.Displaced && finish.HeightDepth > 0f && _textures.HasField(texture);
-        }
+    }
+
+    /// <summary>
+    /// Whether this texture's relief is to become geometry: the material says so, it has
+    /// depth to give, and its map is here as numbers rather than only as a picture.
+    /// </summary>
+    /// <param name="texture">The texture's name.</param>
+    /// <returns>True where the surface may be cut.</returns>
+    /// <remarks>
+    /// All three are required — a floor whose map never arrived cannot be displaced, and
+    /// one nothing asked to displace must not be. A method rather than a local function
+    /// because <see cref="ReliefCut"/> asks it too, and the two have to agree: it decides
+    /// which surfaces are cut, and a second copy of it would be a second answer.
+    /// </remarks>
+    private bool Deep(string texture)
+    {
+        SurfaceFinish finish = Materials.Of(texture);
+
+        return finish.Displaced && finish.HeightDepth > 0f && _textures.HasField(texture);
     }
 
     /// <summary>The names of the room's round things, matched by what they contain.</summary>
@@ -1977,14 +2246,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         Matrix4x4? local = null,
         bool isModel = false,
         bool displaced = false,
-        bool hidden = false) =>
+        bool hidden = false,
+        BufferUploads? into = null) =>
         _batches.Add(new Batch
         {
             Hidden = hidden,
             // Identity for the room's own geometry, which is already where it belongs.
             Local = local ?? Matrix4x4.Identity,
-            Vertices = VulkanBuffer.CreateDeviceLocal<MeshVertex>(
-                _context, vertices, BufferUsageFlags.VertexBufferBit),
+            Vertices = VulkanBuffer.CreateDeviceLocal(
+                _context, vertices, BufferUsageFlags.VertexBufferBit, into),
             Shape = [.. vertices],
             Indices = indices,
             IndexCount = indexCount,
