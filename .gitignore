@@ -20,6 +20,11 @@ ContentWorkspace/
 # Renders written next to the solution by a headless run.
 /*.png
 
+# The startup log, written beside whatever executable produced it.
+log.txt
+log.previous.txt
+log.*.txt
+
 # Original game data must never be committed. See Plan/README.md item 10.
 *.brn
 *.bik

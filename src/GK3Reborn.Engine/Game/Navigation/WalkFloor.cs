@@ -21,11 +21,12 @@ namespace GK3Reborn.Game.Navigation;
 /// </para>
 /// <para>
 /// <b>Rooms are not single-storey.</b> A stairwell's floor object covers the same ground
-/// twice, and a balcony over a hall covers it a third time, so "the triangle under this
-/// point" is several triangles and which one is meant depends on where the actor already
-/// is. The nearest one that is not an implausible climb wins; failing that, the nearest of
-/// any. Following the wrong storey is the one failure that looks like a bug rather than a
-/// wobble, and it is what a plain highest-or-lowest rule does at the top of every stair.
+/// twice, a balcony over a hall covers it a third time, and an outdoor room's floor often
+/// carries the hillside it stands on as well as the ground walked on, so "the triangle
+/// under this point" is several triangles. The <b>highest</b> one within a step up and a
+/// fall down of the actor wins — the reference drops a ray from the sky and keeps the
+/// first surface it meets, and this is that with the storeys above and below rejected.
+/// Failing all of them, the nearest of any. See <see cref="Choose"/>.
 /// </para>
 /// </remarks>
 public sealed class WalkFloor
@@ -77,31 +78,13 @@ public sealed class WalkFloor
     /// The same search <see cref="Height"/> makes, answering with the surface rather than
     /// with its height. A room's floor is one object painted with a dozen textures — the
     /// lobby's is eight — and which one is underfoot is the whole of what decides whether a
-    /// step sounds like carpet or like tile.
+    /// step sounds like carpet or like tile. It has to be the same triangle the height came
+    /// from, or a footstep on the ruins at CD1 is answered by the hillside underneath them.
     /// </remarks>
-    public string? Surface(Vector3 at)
-    {
-        if (!_grid.TryGetValue((Bucket(at.X), Bucket(at.Z)), out List<int>? cell))
-        {
-            return null;
-        }
-
-        string? nearest = null;
-        float best = float.MaxValue;
-
-        foreach (int i in cell)
-        {
-            if (Under(at, i) is not { } height || MathF.Abs(height - at.Y) >= best)
-            {
-                continue;
-            }
-
-            best = MathF.Abs(height - at.Y);
-            nearest = i / 3 < Textures.Count ? Textures[i / 3] : null;
-        }
-
-        return nearest;
-    }
+    public string? Surface(Vector3 at) =>
+        Choose(at) is { } chosen && chosen.Triangle / 3 < Textures.Count
+            ? Textures[chosen.Triangle / 3]
+            : null;
 
     /// <summary>
     /// Builds the height lookup for a room's floor.
@@ -212,15 +195,36 @@ public sealed class WalkFloor
     /// already on, which is what settles a room that covers the same ground twice.
     /// </param>
     /// <returns>The floor's height there, or null when the point is off the floor.</returns>
-    public float? Height(Vector3 at)
+    public float? Height(Vector3 at) => Choose(at)?.Height;
+
+    /// <summary>Which triangle of the floor an actor at a point is standing on.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The highest surface they could have climbed onto, not the nearest.</b> The
+    /// reference walker asks this by dropping a ray from ten thousand units up and keeping
+    /// the first thing it meets, so what an actor stands on is always the topmost floor
+    /// over their feet. The rule here is that with the storey rejected: a surface more than
+    /// a step above them is not theirs, and neither is one a fall below.
+    /// </para>
+    /// <para>
+    /// Nearest-to-their-feet was the rule before, and it is wrong wherever a room's floor
+    /// object carries the ground it is built on as well as the ground walked on. CD1 — the
+    /// ruins of Chateau de Blanchefort — is 35% such: the hillside runs on underneath the
+    /// paved ruins about eleven units below them and forty below the tower platform, and
+    /// nearest handed an actor stepping off the path the hillside every time, because it
+    /// was the nearer of the two. Gabriel walked the ruins knee-deep in them and the tower
+    /// up to his chest, sinking further the higher the floor above him rose.
+    /// </para>
+    /// </remarks>
+    private (int Triangle, float Height)? Choose(Vector3 at)
     {
         if (!_grid.TryGetValue((Bucket(at.X), Bucket(at.Z)), out List<int>? cell))
         {
             return null;
         }
 
-        float? plausible = null;
-        float? any = null;
+        (int Triangle, float Height)? standing = null;
+        (int Triangle, float Height)? any = null;
 
         foreach (int i in cell)
         {
@@ -231,9 +235,10 @@ public sealed class WalkFloor
 
             // The nearest of any, so a walk that has already drifted off the storey it
             // belongs to is put back on something rather than left in the air.
-            if (any is not { } bestAny || MathF.Abs(height - at.Y) < MathF.Abs(bestAny - at.Y))
+            if (any is not { } nearest ||
+                MathF.Abs(height - at.Y) < MathF.Abs(nearest.Height - at.Y))
             {
-                any = height;
+                any = (i, height);
             }
 
             if (height > at.Y + Rise || height < at.Y - Drop)
@@ -241,13 +246,13 @@ public sealed class WalkFloor
                 continue;
             }
 
-            if (plausible is not { } best || MathF.Abs(height - at.Y) < MathF.Abs(best - at.Y))
+            if (standing is not { } best || height > best.Height)
             {
-                plausible = height;
+                standing = (i, height);
             }
         }
 
-        return plausible ?? any;
+        return standing ?? any;
     }
 
     /// <summary>The height of one triangle under a point, when the point is over it.</summary>

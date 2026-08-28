@@ -86,6 +86,17 @@ a hotspot is not a puzzle, and neither is guessing which icon means "look".
 noun as its heading, not a ring of icons whose meanings have to be learned. The row under
 the pointer is lit; clicking it performs that verb, clicking anywhere else dismisses it.
 
+**The original's icon is beside the word, not instead of it.** `VERBS.TXT` names a resting
+and a lit picture for all but three of the 287 verbs, and those pictures are the whole of
+what the original's ring ever showed — a magnifier for Inspect, an eye for Look, a speech
+bubble for Talk. They are 32-pixel squares in the archives, so a menu row is built tall
+enough for one at the size it was painted rather than resampling it down to fit a line of
+text; the picked-out row draws the lit one, which is the ring's own second use for them. A
+verb the file gives no picture keeps the indent so the words stay in a column, and a list
+too long for the window shrinks the art rather than the list, because a row below the
+bottom edge cannot be clicked at all. There are no upscales of these yet — when there are,
+`Application.VerbIcon` is the one place that has to prefer them.
+
 **Inspect and its undo are on the list, and neither is in the data.** Both verbs are in
 `VERBS.TXT` and no action file names `INSPECT_UNDO` at all: the original adds one or the
 other to the bar itself, whichever the thing under the pointer is not already being looked
@@ -272,9 +283,29 @@ screen made of the original's art would need a second one; and a screen made of 
 legible at any resolution and scales with the font. Sidney gains most from this — it is a
 computer terminal, which is exactly what this style draws well.
 
+**Except the things themselves.** An item's own picture is drawn beside its name, in the
+inventory, in the close-up of one item, and in the column the **Use...** row opens — the
+one place the game's art says something no arrangement of rectangles can, which is what a
+thing in your pocket looks like. `INVENTORYSPRITES.TXT` maps each item to the stem of its
+art, `CANDY = candy`, and the file wanted is that stem with `9` after it — the size the
+original's own inventory screen lists, 94 pixels square with its transparency in a second
+file, `CANDY9_OP.BMP`, whose brightness is the alpha. A stem takes the number straight or
+with an underscore first and there is no rule for which, so both are tried, and twenty of
+the items the table names have no picture at all and are shown by their name alone.
+Loaded when an item is first shown and kept, because which dozen of the hundred and thirty
+a game reaches is not knowable at startup.
+
 **Nothing is retained.** Same arrangement as `GameHud`: a function from what the game is
 doing to a list of rectangles, laid out fresh every frame, with hit testing reading back
 the same pass that drew it. There is no widget tree to keep in step with the world.
+
+**The verbs beside an item belong to the item last clicked.** Clicking a thing with one
+action performs it, and with several offers them where the thing sits. Both move the list:
+a click that performed an action or found nothing to offer used to leave the previous
+item's list open over the page, because only the branch that opened one ever said which
+item the page was about. The list is also laid down after the page rather than beside its
+own item, so it is drawn over the row below it and hit-tested before it — a word means the
+word, not the item the word is covering.
 
 **A click is a string.** The painter records `item:PARCHMENT_1`, `sidney:do:Analyse`,
 `close`; `Application.OnScreen` decides what each one means. The painter knows where things

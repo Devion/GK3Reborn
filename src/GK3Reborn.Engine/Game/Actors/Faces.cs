@@ -47,6 +47,32 @@ public sealed class Faces
     /// </remarks>
     public string? CodeFor(string model) =>
         _library.Of(model)?.Identifier;
+
+    /// <summary>
+    /// Whose artwork a character's face is composed from, where it is not their own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both sides are the three-letter code <c>FACES.TXT</c> lists a character under, and
+    /// the substitute has to be one the file describes and whose bitmaps are in the
+    /// archives — a name with nothing behind it leaves the face as its own rather than
+    /// blank. The face is still <em>painted onto</em> the character's own texture, so the
+    /// model itself is untouched: it is the picture that changes and not the person.
+    /// </para>
+    /// <para>
+    /// There is one of these, and it is the moustache. <c>GA3</c> is the game's own
+    /// moustached Gabriel — the disguised actor standing offstage in the moped shop — and
+    /// its face bitmap is Gabriel's own with a moustache painted into it, on the same
+    /// layout, with a matching mouth for all eight lip-sync shapes and its own blinks. See
+    /// <see cref="Assists.MoustachedFace"/>.
+    /// </para>
+    /// <para>
+    /// Set before anybody is added, because a face is composed the moment it is taken on.
+    /// Empty is the ordinary case and the game as it shipped.
+    /// </para>
+    /// </remarks>
+    public IDictionary<string, string> ComposedFrom { get; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private readonly GameArchives _archives;
     private readonly AnimationLibrary _animations;
     private readonly ISceneSink _geometry;
@@ -132,11 +158,15 @@ public sealed class Faces
             return false;
         }
 
-        var face = new Face(model, config)
+        // Their own artwork unless the player has asked for somebody else's, which is
+        // decided once here rather than looked up on every frame the face changes.
+        FaceConfig artwork = Artwork(config);
+
+        var face = new Face(model, config, artwork)
         {
-            Mouth = config.RestingTexture(FacePart.Mouth),
-            Eyelids = config.RestingTexture(FacePart.Eyelids),
-            Forehead = config.RestingTexture(FacePart.Forehead),
+            Mouth = artwork.RestingTexture(FacePart.Mouth),
+            Eyelids = artwork.RestingTexture(FacePart.Eyelids),
+            Forehead = artwork.RestingTexture(FacePart.Forehead),
         };
 
         _order.Add(face);
@@ -149,7 +179,7 @@ public sealed class Faces
 
         // The resting composite straight away. A face left as its own bitmap has no
         // eyelids and no brow on it at all, because those are pasted on and never baked.
-        face.Blink = Wait(config);
+        face.Blink = Wait(artwork);
         Paint(face);
 
         return true;
@@ -519,14 +549,96 @@ public sealed class Faces
             var composed = new DecodedImage(
                 start.Width, start.Height, pixels, start.HasAlpha, "face");
 
-            Over(composed, face.Forehead, face.Config.ForeheadOffset, null);
-            Over(composed, face.Eyelids, face.Config.EyelidsOffset, face.Config.EyelidsAlpha);
-            Over(composed, face.Mouth, face.Config.MouthOffset, null);
+            Over(composed, Painted(face, face.Forehead), face.Config.ForeheadOffset, null);
+            Over(composed, Painted(face, face.Eyelids), face.Config.EyelidsOffset, face.Config.EyelidsAlpha);
+            Over(composed, Painted(face, face.Mouth), face.Config.MouthOffset, null);
 
             _geometry.AddTexture(name, composed);
         }
 
-        _geometry.Repaint(face.Model.Placement, face.Config.FaceTexture, name);
+        // Onto the texture the model is actually painted with, which is the character's
+        // own even when the picture was made out of somebody else's bitmaps.
+        _geometry.Repaint(face.Model.Placement, face.Own.FaceTexture, name);
+    }
+
+    /// <summary>
+    /// Composes every face again, after a change to what they are composed from.
+    /// </summary>
+    /// <returns>How many faces changed.</returns>
+    /// <remarks>
+    /// <para>
+    /// A face is composed when it is taken on, which is once a room. Without this, changing
+    /// <see cref="ComposedFrom"/> from the pause menu would wait for the next door — and a
+    /// switch the player cannot see working is a switch they will assume is broken.
+    /// </para>
+    /// <para>
+    /// The three regions go back to resting, because what is on them is named for whoever's
+    /// artwork was in use a moment ago. A mouth mid-word is put back on the next cue, which
+    /// is a fifteenth of a second away.
+    /// </para>
+    /// </remarks>
+    public int Recompose()
+    {
+        int changed = 0;
+
+        foreach (Face face in _order)
+        {
+            FaceConfig artwork = Artwork(face.Own);
+
+            if (ReferenceEquals(artwork, face.Config))
+            {
+                continue;
+            }
+
+            face.Config = artwork;
+            face.Mouth = artwork.RestingTexture(FacePart.Mouth);
+            face.Eyelids = artwork.RestingTexture(FacePart.Eyelids);
+            face.Forehead = artwork.RestingTexture(FacePart.Forehead);
+
+            Paint(face);
+            changed++;
+        }
+
+        return changed;
+    }
+
+    /// <summary>Whose bitmaps a character's face is composed from.</summary>
+    /// <remarks>
+    /// Their own unless somebody has asked otherwise and the substitute is real: a code
+    /// <c>FACES.TXT</c> does not describe, or one whose face bitmap is not in the archives,
+    /// leaves the character looking like themselves rather than like nothing.
+    /// </remarks>
+    private FaceConfig Artwork(FaceConfig own) =>
+        ComposedFrom.TryGetValue(own.Identifier, out string? other) &&
+        _library.Of(other) is { } instead &&
+        Bitmap(instead.FaceTexture) is not null
+            ? instead
+            : own;
+
+    /// <summary>
+    /// A patch's name under the artwork actually being used.
+    /// </summary>
+    /// <remarks>
+    /// The three regions are usually named by the character's own code and resolved through
+    /// their config, so they follow a substitution on their own. An animation is the
+    /// exception: <c>GABSMILE.ANM</c> names <c>GAB_SMILE_01</c> outright, and pasting that
+    /// onto a moustached Gabriel would shave him for the length of the smile. So a bitmap
+    /// named for the face it was painted for is looked for under the artwork in use first,
+    /// and kept as it is when there is no such picture.
+    /// </remarks>
+    private string Painted(Face face, string texture)
+    {
+        string own = face.Own.Identifier;
+
+        if (ReferenceEquals(face.Own, face.Config) ||
+            !texture.StartsWith(own + "_", StringComparison.OrdinalIgnoreCase))
+        {
+            return texture;
+        }
+
+        string instead = face.Config.Identifier + texture[own.Length..];
+
+        return Bitmap(instead) is not null ? instead : texture;
     }
 
     /// <summary>Pastes one bitmap over another at a spot, honouring transparency.</summary>
@@ -552,8 +664,12 @@ public sealed class Faces
             return;
         }
 
-        DecodedImage? mask = alpha is { Length: > 0 } named ? Bitmap(named) : null;
+        Over(face, patch, at, alpha is { Length: > 0 } named ? Bitmap(named) : null);
+    }
 
+    /// <summary>The same, for a patch that is not in the archives under a name.</summary>
+    private static void Over(DecodedImage face, DecodedImage patch, FaceSpot at, DecodedImage? mask)
+    {
         for (int y = 0; y < patch.Height; y++)
         {
             int row = at.Y + y;
@@ -640,11 +756,24 @@ public sealed class Faces
     }
 
     /// <summary>One character's face, and what is currently on it.</summary>
-    private sealed class Face(PlacedModel model, FaceConfig config)
+    private sealed class Face(PlacedModel model, FaceConfig own, FaceConfig artwork)
     {
         public PlacedModel Model { get; } = model;
 
-        public FaceConfig Config { get; } = config;
+        /// <summary>The character as <c>FACES.TXT</c> lists them.</summary>
+        /// <remarks>
+        /// What the model is painted with, and so what the composition replaces. The same
+        /// object as <see cref="Config"/> unless somebody has asked for another face's
+        /// artwork.
+        /// </remarks>
+        public FaceConfig Own { get; } = own;
+
+        /// <summary>Whose bitmaps and offsets the composition is made of.</summary>
+        /// <remarks>
+        /// Settable, because the player may change it in the pause menu without leaving the
+        /// room. See <see cref="Faces.Recompose"/>.
+        /// </remarks>
+        public FaceConfig Config { get; set; } = artwork;
 
         public required string Mouth { get; set; }
 

@@ -55,10 +55,12 @@ public sealed class GameHudTests
         int index = 0,
         string? caption = null,
         IReadOnlyList<string>? items = null,
-        IReadOnlyList<string>? carrying = null) =>
+        IReadOnlyList<string>? carrying = null,
+        Func<string, ItemIcon>? icons = null,
+        Func<string, bool, ItemIcon>? verbIcons = null) =>
         new(noun, verbs ?? ["LOOK", "OPEN"], "LOOK", at, menu, index, menuAt ?? at,
             caption is null ? null : "GABRIEL", caption, carrying ?? [], null,
-            InventoryOpen: true, "R25 - 110A", null, null, items);
+            InventoryOpen: true, "R25 - 110A", null, null, items, null, icons, verbIcons);
 
     [Fact]
     public void An_empty_room_still_draws_the_bars_that_are_always_there()
@@ -327,6 +329,30 @@ public sealed class GameHudTests
     }
 
     [Fact]
+    public void An_item_row_with_a_picture_is_still_clicked_where_it_was_drawn()
+    {
+        // The picture widens the column and moves the name along it, and both the drawing
+        // and the hit testing come out of the same pass — so what this guards is that they
+        // stayed the same pass.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(noun: "BUTHANE", verbs: ["LOOK"], menu: true, at: at, index: 1,
+                  items: ["WALLET"],
+                  icons: item => item == "WALLET" ? new ItemIcon(1, 94, 94) : default),
+            800, 600);
+
+        int row = hud.RowCount - 1;
+
+        Assert.Equal("WALLET", hud.RowNamed(row));
+        Assert.Equal(row, hud.RowAt(hud.RowMiddle(row)));
+
+        // And the picture itself was drawn, inside the row it belongs to.
+        Assert.Contains(hud.Overlay.Quads, q => q.Picture == 1);
+    }
+
+    [Fact]
     public void A_menu_with_nothing_to_use_has_no_row_for_it()
     {
         GameHud hud = Hud();
@@ -355,5 +381,126 @@ public sealed class GameHudTests
 
         Assert.Null(hud.ItemAt(new Vector2(40, 592)));
         Assert.Null(hud.ItemAt(new Vector2(400, 599)));
+    }
+
+    /// <summary>The original's own verb art: a 32-pixel square, one per verb.</summary>
+    private static Func<string, bool, ItemIcon> VerbArt(params string[] drawn) =>
+        (verb, lit) => Array.IndexOf(drawn, verb) >= 0
+            ? new ItemIcon(lit ? 2 : 1, 32, 32)
+            : default;
+
+    [Fact]
+    public void A_verb_with_a_picture_is_still_clicked_where_it_was_drawn()
+    {
+        // The picture makes the rows taller and pushes the words along them, and the
+        // drawing and the hit testing come out of the same pass — so what this guards is
+        // that they stayed the same pass.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(menu: true, at: at, verbIcons: VerbArt("LOOK", "OPEN")), 800, 600);
+
+        int row = hud.RowAt(hud.RowMiddle(1));
+
+        Assert.Equal(1, row);
+        Assert.Equal("OPEN", hud.RowNamed(row));
+        Assert.Equal("OPEN", hud.VerbAt(hud.RowMiddle(1)));
+    }
+
+    [Fact]
+    public void A_verbs_picture_is_drawn_at_the_size_it_was_painted()
+    {
+        // They are 32-pixel squares in the archives, and the row is built around one rather
+        // than the other way about. Drawing them into a line-height row would resample
+        // every icon in the game to fit a font.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(State(menu: true, at: at, verbIcons: VerbArt("LOOK", "OPEN")), 800, 600);
+
+        List<OverlayQuad> pictures = [.. hud.Overlay.Quads.Where(q => q.Picture > 0)];
+
+        Assert.Equal(2, pictures.Count);
+        Assert.All(pictures, q => Assert.Equal(32f * hud.Scale, q.Destination.Z));
+        Assert.All(pictures, q => Assert.Equal(32f * hud.Scale, q.Destination.W));
+    }
+
+    [Fact]
+    public void The_picked_out_row_is_drawn_with_the_lit_picture()
+    {
+        // The second thing the original's ring did with these: the icon itself brightens
+        // under the pointer. Without it the only thing saying which row a click takes is
+        // the bar behind the words.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(menu: true, at: at, index: 1, verbIcons: VerbArt("LOOK", "OPEN")), 800, 600);
+
+        List<int> pictures = [.. hud.Overlay.Quads.Where(q => q.Picture > 0).Select(q => q.Picture)];
+
+        // One resting and one lit, and the lit one is the row the selection names.
+        Assert.Equal([1, 2], pictures);
+    }
+
+    [Fact]
+    public void A_verb_with_no_picture_keeps_the_words_in_line_with_the_ones_that_have()
+    {
+        // Three verbs in the game name no art, and the row that stands for the bag names
+        // none either. A row that closed the gap would put its word where no other row's
+        // word is, and the column would read as ragged rather than as sparse.
+        GameHud hud = Hud();
+        var at = new Vector2(100, 100);
+
+        hud.Build(
+            State(menu: true, at: at, verbs: ["LOOK", "CLICK"], verbIcons: VerbArt("LOOK")),
+            800, 600);
+
+        Assert.Single(hud.Overlay.Quads, q => q.Picture > 0);
+
+        // Where each row's word starts, found in the band that row was drawn in.
+        float Word(int row)
+        {
+            float middle = hud.RowMiddle(row).Y;
+
+            return hud.Overlay.Quads
+                .Where(q => q.Picture == 0 &&
+                            q.Destination.X > at.X + 1 &&
+                            q.Destination.Y < middle &&
+                            q.Destination.Y + q.Destination.W > middle)
+                .Min(q => q.Destination.X);
+        }
+
+        Assert.Equal(Word(0), Word(1), 1);
+    }
+
+    [Fact]
+    public void A_menu_too_long_for_the_screen_is_no_taller_for_having_pictures()
+    {
+        // A character late in the game answers to thirty topics, and thirty rows built
+        // around a 32-pixel icon reach past the bottom of a short window — where a row
+        // cannot be clicked at all. The words are the floor and cannot shrink, so what the
+        // art has to promise is that it never costs a row: below the height the text alone
+        // needs, the icons give way instead.
+        GameHud hud = Hud();
+        string[] verbs = [.. Enumerable.Range(0, 30).Select(i => "TOPIC" + i)];
+
+        float Panel(Func<string, bool, ItemIcon>? art)
+        {
+            hud.Build(
+                State(menu: true, at: new Vector2(10, 10), verbs: verbs, verbIcons: art),
+                800, 400);
+
+            // The tallest rectangle drawn at the menu's own left edge is its background.
+            return hud.Overlay.Quads
+                .Where(q => Math.Abs(q.Destination.X - 10) < 0.5f)
+                .Max(q => q.Destination.W);
+        }
+
+        Assert.Equal(Panel(null), Panel(VerbArt(verbs)), 1);
+
+        // And the last row is still the one the hit test finds where it was drawn.
+        Assert.Equal("TOPIC29", hud.RowNamed(hud.RowAt(hud.RowMiddle(29))));
     }
 }

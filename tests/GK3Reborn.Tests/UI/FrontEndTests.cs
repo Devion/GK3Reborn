@@ -271,6 +271,57 @@ public sealed class FrontEndTests
     }
 
     [Fact]
+    public void The_things_that_make_the_game_easier_have_a_page_of_their_own()
+    {
+        // Away from Playing, because these are not preferences about presentation: each
+        // one changes what the story asks of the player.
+        FrontEnd front = Front();
+
+        front.Choose(new MenuAction("options"));
+        Assert.Contains(front.Items, i => i.Id == "assists");
+
+        front.Choose(new MenuAction("assists"));
+        Assert.Equal(FrontEndPage.Assists, front.Page);
+        Assert.Equal("Made Easier", front.Title);
+
+        Assert.Equal(["moustache", "armour"], front.Items.Where(i => i.Value.Length > 0).Select(i => i.Id));
+
+        // And it is a child of the settings page rather than of the top one.
+        Assert.True(front.Back());
+        Assert.Equal(FrontEndPage.Options, front.Page);
+    }
+
+    [Fact]
+    public void Neither_assistance_is_on_until_the_player_asks_for_it()
+    {
+        // GK3 as it shipped is a hard game on purpose, and somebody meeting it for the
+        // first time should meet it that way.
+        FrontEnd front = Front();
+
+        front.Choose(new MenuAction("options"));
+        front.Choose(new MenuAction("assists"));
+
+        Assert.False(front.Settings.AlwaysWearsMoustache);
+        Assert.False(front.Settings.PlotArmour);
+        Assert.Equal("Off", Row(front, "moustache").Value);
+        Assert.Equal("Off", Row(front, "armour").Value);
+
+        front.Choose(new MenuAction("moustache"));
+        front.Choose(new MenuAction("armour"));
+
+        Assert.True(front.Settings.AlwaysWearsMoustache);
+        Assert.True(front.Settings.PlotArmour);
+        Assert.Equal("On", Row(front, "moustache").Value);
+        Assert.Equal("On", Row(front, "armour").Value);
+
+        // And each is its own switch: turning one back off leaves the other alone.
+        front.Choose(new MenuAction("moustache"));
+
+        Assert.False(front.Settings.AlwaysWearsMoustache);
+        Assert.True(front.Settings.PlotArmour);
+    }
+
+    [Fact]
     public void Play_quit_and_resume_are_the_only_things_that_leave_the_menu()
     {
         Assert.Equal(FrontEndOutcome.Play, Front().Choose(new MenuAction("play")));
@@ -329,6 +380,8 @@ public sealed class FrontEndTests
                 HurryFactor = 3.25f,
                 Cinematics = false,
                 PlayIntro = false,
+                AlwaysWearsMoustache = true,
+                PlotArmour = true,
             };
 
             Assert.True(settings.Save(path));
@@ -341,6 +394,8 @@ public sealed class FrontEndTests
             Assert.Equal(3.25f, read.HurryFactor, 2);
             Assert.False(read.Cinematics);
             Assert.False(read.PlayIntro);
+            Assert.True(read.AlwaysWearsMoustache);
+            Assert.True(read.PlotArmour);
         }
         finally
         {

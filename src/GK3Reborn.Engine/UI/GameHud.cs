@@ -38,6 +38,16 @@ namespace GK3Reborn.UI;
 /// rule whose verb is <c>WALLET</c>, so without somewhere to put them the menu is a list of
 /// verbs with a player's whole inventory shuffled into it in no particular order.
 /// </param>
+/// <param name="Icons">
+/// The game's own picture of an item, by item name, for the column that lists them. Null
+/// when nothing has been loaded, and an item may answer with nothing.
+/// </param>
+/// <param name="VerbIcons">
+/// The game's own picture of a verb, by verb and by whether that verb is the one picked
+/// out. The original's ring was these icons and no words at all, so they are the shape a
+/// player who has played the game before is already looking for. Null when nothing has
+/// been loaded, and a verb may answer with nothing — three of the 287 name no picture.
+/// </param>
 public readonly record struct HudState(
     string? Noun,
     IReadOnlyList<string> Verbs,
@@ -55,7 +65,9 @@ public readonly record struct HudState(
     GameConsole? Console = null,
     string? Score = null,
     IReadOnlyList<string>? Items = null,
-    IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null);
+    IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null,
+    Func<string, ItemIcon>? Icons = null,
+    Func<string, bool, ItemIcon>? VerbIcons = null);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -627,7 +639,6 @@ public sealed class GameHud
     {
         float unit = Scale;
         float padding = 8f * unit;
-        float row = Overlay.LineHeight + (8f * unit);
 
         // The heading counts. It is the noun the player right-clicked, and a noun is very
         // often longer than any verb offered for it — "Coffee Pot" over Look and Pour —
@@ -649,16 +660,38 @@ public sealed class GameHud
 
         bool opening = items.Count > 0 && state.MenuIndex >= rows.Count - 1;
 
+        // The original's verb icons are 32 pixels square, so a row with room for one at the
+        // size it was painted is the one arrangement that does not resample them. A window
+        // big enough to want a larger font gets larger icons with it, because everything
+        // here is measured in units of a line and half-sized art beside doubled letters
+        // reads as a mistake rather than as a choice.
+        float badge = state.VerbIcons is null ? 0 : 32f * unit;
+        float row = Math.Max(Overlay.LineHeight + (8f * unit), badge + (6f * unit));
+        float title = Overlay.LineHeight + (8f * unit);
+        float h = title + (row * rows.Count) + padding;
+
+        // Somebody with thirty topics to raise gets smaller icons rather than a list whose
+        // last rows are under the bottom of the screen, where they cannot be clicked at all.
+        if (h > height && rows.Count > 0)
+        {
+            row = Math.Max(
+                Overlay.LineHeight + (8f * unit), (height - title - padding) / rows.Count);
+            badge = Math.Min(badge, Math.Max(0, row - (6f * unit)));
+            h = title + (row * rows.Count) + padding;
+        }
+
+        // How far the words are pushed in to clear the picture. Every row shares it,
+        // including the ones with no picture to draw, so the verbs read as a column.
+        float indent = badge > 0 ? badge + (6f * unit) : 0;
+
         foreach (string verb in rows)
         {
-            w = Math.Max(w, Overlay.Measure(Label(verb)));
+            w = Math.Max(w, indent + Overlay.Measure(Label(verb)));
         }
 
         // The same padding either side of whatever turned out to be widest.
         w += padding * 2;
 
-        float title = Overlay.LineHeight + (8f * unit);
-        float h = title + (row * rows.Count) + padding;
         float x = Math.Clamp(state.MenuAt.X, 0, Math.Max(0, width - w));
         float y = Math.Clamp(state.MenuAt.Y, 0, Math.Max(0, height - h));
 
@@ -679,8 +712,22 @@ public sealed class GameHud
                 Overlay.Rect(x, top, 2 * unit, row, Accent);
             }
 
+            // Lit art for the row the player has picked out. It is the second thing the
+            // original's ring did with these pictures, and it says which row a click takes
+            // in the icons themselves rather than only in the bar behind them.
+            if (badge > 0 &&
+                state.VerbIcons?.Invoke(rows[i], chosen) is { Drawn: true } picture)
+            {
+                Vector4 at = picture.Fit(x + padding, top + ((row - badge) / 2), badge);
+
+                Overlay.Picture(picture.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+            }
+
             Overlay.Text(
-                Label(rows[i]), x + padding, top + (4 * unit), chosen ? Accent : Ink);
+                Label(rows[i]),
+                x + padding + indent,
+                top + ((row - Overlay.LineHeight) / 2),
+                chosen ? Accent : Ink);
             _rows.Add((rows[i], bounds));
         }
 
@@ -691,11 +738,15 @@ public sealed class GameHud
 
         // The second column, beside the first rather than over it, so the row that opened
         // it stays visible and the player can see what they are choosing between.
+        // A picture beside each name, at the height of its own row. The column is where the
+        // player picks which of their things to use, and a name alone asks them to remember
+        // what "Coordinate Fixing Device" looks like.
+        float art = state.Icons is null ? 0 : row - (6 * unit);
         float itemWidth = padding * 2;
 
         foreach (string item in items)
         {
-            itemWidth = Math.Max(itemWidth, Overlay.Measure(Pretty(item)) + (padding * 2));
+            itemWidth = Math.Max(itemWidth, Overlay.Measure(Pretty(item)) + (padding * 2) + art);
         }
 
         float itemHeight = (row * items.Count) + padding;
@@ -718,8 +769,18 @@ public sealed class GameHud
                 Overlay.Rect(itemX, top, 2 * unit, row, Accent);
             }
 
+            if (state.Icons?.Invoke(items[i]) is { Drawn: true } icon)
+            {
+                Vector4 at = icon.Fit(itemX + padding, top + (3 * unit), art);
+
+                Overlay.Picture(icon.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+            }
+
             Overlay.Text(
-                Pretty(items[i]), itemX + padding, top + (4 * unit), chosen ? Accent : Ink);
+                Pretty(items[i]),
+                itemX + padding + art,
+                top + ((row - Overlay.LineHeight) / 2),
+                chosen ? Accent : Ink);
 
             _rows.Add((items[i], bounds));
         }

@@ -366,6 +366,35 @@ install has anyway. Naming `--enhanced`, `--workspace` or `--uncompressed` is
 what asks for the loose sets instead; `--rebarn` still forces packs-only and
 refuses to start without a pack, which is what makes a measurement honest.
 
+### When it will not start
+
+Every run writes `log.txt` beside the executable, or in the user's own directory
+when the install cannot be written to — the same place the saves go, which for a
+macOS `.app` in `/Applications` is `~/Library/Application Support/GK3Reborn`. The
+first console line says which. The previous run is kept as `log.previous.txt`, so
+restarting after a crash does not destroy the log of it.
+
+It holds everything the console shows and rather more besides: the machine, the
+runtime and the architecture; every directory the game looked in for content, for
+a pack and for the native libraries, and which one answered; whether the settings,
+saves and shader-cache directories could actually be written to; and any unhandled
+exception with its stack. That is the file to ask for when somebody reports that
+the game will not start — a console has usually gone by then, and on Linux and
+macOS a game started from a launcher or from Finder never had one.
+
+Two failures are worth knowing by name, because both are silent otherwise and
+neither can happen on the machine this is developed on:
+
+- **The native payload is missing.** `libs/<rid>/` holds GLFW, OpenAL and shaderc,
+  and without them the process dies inside its first P/Invoke. The log says so
+  before anything is loaded, and says which library would not load as opposed to
+  which was not there — on Linux the difference is usually a missing `libX11`, and
+  `ldd` on the named file finds it.
+- **A directory that differs only in case.** `Data` and `data` are one directory on
+  Windows and two on Linux and macOS, so a player can be looking straight at the
+  directory the game says is missing. When the name is there under another spelling
+  the log says which one and where.
+
 ## Locale
 
 en-US is the only supported and validated locale. The text, font, layout and

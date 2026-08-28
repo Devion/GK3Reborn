@@ -153,6 +153,31 @@ public sealed class ScriptHost
             return new SheepThread(EmptyScript.Instance, functionName, 0);
         }
 
+        // Plot armour. The five temple scripts each declare a Die that stops the music,
+        // puts up the death screen and resets the puzzle behind it; with the assistance on,
+        // the reset and the restart run and the death does not. Here rather than in the
+        // API because a death is a function the story enters, not a call it makes, and this
+        // is the one door every route into one goes through — the action file's
+        // CallSheep("te6","Die"), TE4's AngelKills, TE5's fall, all of them.
+        if (Assists.IsDeath(_api.State, script, functionName))
+        {
+            CallStackTrace.Add($"{AssetId.From(scriptName)}:{functionName}:survived");
+
+            // Said out loud, because a player who has turned the assistance on and watched
+            // Gabriel be struck down has no other way to tell a puzzle that reset him from
+            // one that killed him.
+            Log.Info($"Plot armour: {AssetId.From(scriptName)} would have killed Gabriel");
+
+            SheepThread? instead = null;
+
+            foreach (string step in Assists.Survive)
+            {
+                instead = Run(scriptName, step);
+            }
+
+            return instead ?? new SheepThread(script, functionName, 0);
+        }
+
         CallStackTrace.Add($"{AssetId.From(scriptName)}:{functionName}");
 
         // Anything this function calls into is started while it runs, so a list is opened

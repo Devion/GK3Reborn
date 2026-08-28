@@ -165,6 +165,46 @@ public sealed record Settings
     /// </remarks>
     public bool EasterEggs { get; init; }
 
+    /// <summary>
+    /// Whether Gabriel starts the moped afternoon with the moustache already made, and
+    /// wears it from then on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The cat-hair moustache is the end of GK3's most notorious chain: spray the cat,
+    /// tape the hole it squeezes through, peel the fur off the tape, and stick that to a
+    /// packet of maple syrup. This hands over the finished <c>BLACK_MOUSTACHE</c> at the
+    /// start of Day 1, 2pm and skips the whole of it. What is left — the cap, the coat and
+    /// the marker on Mosely's passport — is assembly rather than puzzle, and taking that
+    /// away too would leave the moped shop with nothing in front of it at all.
+    /// </para>
+    /// <para>
+    /// And he wears it. The game has no art for a moustached Gabriel — the original never
+    /// shows the disguise on him — so it is the item's own picture, cut out and pasted onto
+    /// his face where his lip is. It is a joke rather than a fidelity claim, which is why
+    /// it is one switch with the assistance rather than a setting of its own.
+    /// </para>
+    /// </remarks>
+    public bool AlwaysWearsMoustache { get; init; }
+
+    /// <summary>Whether nothing the story does is allowed to kill Gabriel.</summary>
+    /// <remarks>
+    /// <para>
+    /// Five scripts can kill him, all of them in the temple under the château on the last
+    /// night, and every one of them goes through the same door: a <c>Die</c> function that
+    /// stops the music, puts up the death screen and resets the puzzle behind it. With this
+    /// on, that door is answered differently — the puzzle is reset and started again, and
+    /// the death screen never appears. See <see cref="Assists"/>.
+    /// </para>
+    /// <para>
+    /// The staging still plays. He falls, or the pendulum swings, or the demon strikes:
+    /// those are the scene showing the player what went wrong, and they are already over by
+    /// the time the game says he is dead. What is taken away is the death itself and the
+    /// attempt it costs.
+    /// </para>
+    /// </remarks>
+    public bool PlotArmour { get; init; }
+
     /// <summary>Where the settings live for this user.</summary>
     /// <remarks>
     /// <c>%AppData%\GK3Reborn</c> on Windows, <c>~/.config/GK3Reborn</c> on Linux and

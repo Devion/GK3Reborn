@@ -139,6 +139,49 @@ public sealed class WalkFloorTests
     }
 
     [Fact]
+    public void Ground_built_over_ground_stands_the_actor_on_the_upper_one()
+    {
+        // CD1, the ruins of Chateau de Blanchefort, and the shape a third of its floor has:
+        // the hillside the ruins stand on belongs to the same floor object and runs on
+        // underneath them. Standing on the hill at its own height, the paved ruins eleven
+        // units up are the further of the two surfaces — and they are the one being walked
+        // on. Nearest-to-the-feet handed back the hillside and buried Gabriel in the ruins
+        // to the knee.
+        WalkFloor floor = WalkFloor.From(
+            Room("cd1_floor", Flat(0, 0, 200, 200, 688), Flat(100, 0, 200, 200, 699)),
+            "cd1_floor")!;
+
+        Assert.Equal(699f, floor.Height(new Vector3(150, 688, 100))!.Value, 3);
+
+        // And the tower platform, a further twenty-three up: out of the hillside's reach,
+        // not out of the ruins'. Which is why he sank further the higher the floor got.
+        WalkFloor tower = WalkFloor.From(
+            Room(
+                "cd1_floor",
+                Flat(0, 0, 200, 200, 688),
+                Flat(100, 0, 200, 200, 699),
+                Flat(150, 0, 200, 200, 722)),
+            "cd1_floor")!;
+
+        Assert.Equal(722f, tower.Height(new Vector3(175, 699, 100))!.Value, 3);
+        Assert.Equal(699f, tower.Height(new Vector3(175, 688, 100))!.Value, 3);
+    }
+
+    [Fact]
+    public void The_surface_underfoot_is_the_one_the_height_came_from()
+    {
+        // A footstep on the ruins must not sound like the hillside beneath them. Both
+        // answers come out of the same triangle now; Surface used to run its own
+        // nearest-height search with no notion of a storey at all.
+        BspFile room = Room("cd1_floor", Flat(0, 0, 200, 200, 688), Flat(100, 0, 200, 200, 699));
+        WalkFloor floor = WalkFloor.From(room, "cd1_floor")!;
+
+        Assert.Equal(699f, floor.Height(new Vector3(150, 688, 100))!.Value, 3);
+        Assert.Equal("floor", floor.Surface(new Vector3(150, 688, 100)));
+        Assert.Null(floor.Surface(new Vector3(500, 688, 500)));
+    }
+
+    [Fact]
     public void A_room_that_names_no_floor_has_no_height_query()
     {
         Assert.Null(WalkFloor.From(Room("f", Flat(0, 0, 100, 100, 0)), null));

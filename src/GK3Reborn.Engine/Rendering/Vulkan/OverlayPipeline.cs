@@ -142,12 +142,13 @@ public sealed unsafe class OverlayPipeline : IDisposable
 
     /// <summary>How many of the screens' own pictures may be held at once.</summary>
     /// <remarks>
-    /// The driving map's background and its sixteen markers, twice over for their lit and
-    /// unlit states, and room for whatever a later screen wants. Each is a texture and a
-    /// descriptor set, both cheap; what is not cheap is reloading a 640-by-480 painting
-    /// every time somebody opens the map, which is why they are kept.
+    /// The driving map's background and its sixteen markers, the save slots' thumbnails,
+    /// and one for each of the 133 things the game lets a player carry — which is what
+    /// this used to be too small for at 64. Each is a texture and a descriptor set, both
+    /// cheap, and none is made until something asks for it; what is not cheap is reloading
+    /// a 640-by-480 painting every time somebody opens the map, which is why they are kept.
     /// </remarks>
-    public const int MostPictures = 64;
+    public const int MostPictures = 256;
 
     /// <summary>How many rectangles have been prepared for this frame.</summary>
     public int Rectangles => _count / 6;

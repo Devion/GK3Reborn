@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Game.Navigation;
 using Xunit;
@@ -126,6 +126,22 @@ public sealed class CharacterLibraryTests
         Assert.Equal("Gabwalk", gabriel.WalkAnimation);
         Assert.Equal("gabstart", gabriel.StartAnimation);
         Assert.Equal("Gabstop", gabriel.StopAnimation);
+    }
+
+    [Fact]
+    public void The_sole_between_the_shoe_triad_and_the_ground_is_read()
+    {
+        // How far the shoe triads sit above the floor, which is what turns a posed foot
+        // into a height to stand at. It runs from a quarter of a unit to eighteen and a
+        // half across the cast, so it is not a constant that can be assumed.
+        CharacterLibrary library = CharacterLibrary.Parse(File);
+
+        Assert.Equal(0.75f, library.Of("gab")!.ShoeThickness, 3);
+
+        // Mosely's section gives none. The reference's default stands in rather than zero,
+        // which would sink whoever it is applied to by the depth of their shoe.
+        Assert.Equal(
+            CharacterConfig.DefaultShoeThickness, library.Of("MOS")!.ShoeThickness, 3);
     }
 
     [Fact]

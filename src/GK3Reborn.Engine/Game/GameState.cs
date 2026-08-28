@@ -155,6 +155,25 @@ public sealed class GameState
         }
     }
 
+    /// <summary>
+    /// Whether nothing the story does is allowed to kill Gabriel.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A preference, and one that changes what a script does — which is why it sits here
+    /// beside <see cref="CinematicsEnabled"/> rather than being read out of the settings
+    /// wherever it is wanted, and why it is in the state hash. Two runs made with different
+    /// answers to it diverge, and the harness should be able to see why.
+    /// </para>
+    /// <para>
+    /// Not a story flag, unlike <see cref="EasterEggs"/>: nothing in the game's own data
+    /// asks about it, because the game's own data has never heard of it. And like the
+    /// easter eggs it must not arrive in a save — it is what this player asked for, not
+    /// something the story earned — so <see cref="Restore"/> puts the current answer back.
+    /// </para>
+    /// </remarks>
+    public bool PlotArmour { get; set; }
+
     /// <summary>Actions the story has asked for later.</summary>
     /// <remarks>
     /// Story state rather than scene state: a minute set in the lobby has to still be
@@ -842,9 +861,10 @@ public sealed class GameState
     {
         ArgumentNullException.ThrowIfNull(save);
 
-        // A preference rather than a fact about the story, so it survives the load: see
-        // EasterEggs.
+        // Preferences rather than facts about the story, so they survive the load: see
+        // EasterEggs and PlotArmour.
         bool eggs = EasterEggs;
+        bool armour = PlotArmour;
 
         _variables.Clear();
         _flags.Clear();
@@ -892,6 +912,7 @@ public sealed class GameState
         }
 
         EasterEggs = eggs;
+        PlotArmour = armour;
 
         Fill(_variables, save.Variables);
         Fill(_nounVerbCounts, save.NounVerbCounts);
@@ -1001,6 +1022,7 @@ public sealed class GameState
         builder.Append(CultureInfo.InvariantCulture, $"camera={CameraAngle}\n");
         builder.Append(CultureInfo.InvariantCulture, $"forcedcuts={ForcedCameraCuts}\n");
         builder.Append(CultureInfo.InvariantCulture, $"cinematics={CinematicsEnabled}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"plotarmour={PlotArmour}\n");
         builder.Append(
             CultureInfo.InvariantCulture,
             $"screens={string.Join(">", Screens.Open)}\n");

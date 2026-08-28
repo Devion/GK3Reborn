@@ -203,6 +203,54 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Gabriel walked the ruins of Chateau de Blanchefort knee-deep in them — fixed 2026-08-28
+
+**Reported:** "at chateau de blachefort, gabriel is standing in the ruins geometry instead
+of on top of the floor. he's knee high into the geometry. gets worse when walking into the
+'tower' platform, then he's up to his chest into geometry."
+
+**`WalkFloor` picked the nearest floor surface to the actor's feet; it has to pick the
+highest one they could have climbed onto.** CD1 names one `floor=cd1_floor` of 5,178
+triangles, and it is not a single surface: the hillside the ruins were built on belongs to
+the same object and runs on underneath them. Sampling its footprint on a 60x60 grid, 951 of
+2,676 points over the floor have two or more surfaces, 752 of them within a step of each
+other — 35% of the room. Walking east from `FR_CDB`, the pair under Gabriel's feet is 688
+and 699 across the ruins and 681 and 722 on the tower platform, and nearest-to-the-feet
+handed back the lower one every time. He was 11 units under the paved floor (knee, on a
+76-unit man) and 41 under the tower (chest), which is exactly what was reported, including
+its getting worse the higher the floor above him rose.
+
+The reference has no such rule: `BSP::GetFloorInfo` drops a ray from y=10000 and keeps the
+first surface it meets, so the answer is always the topmost floor over the feet. The rule
+now is that with the storeys above and below rejected — the part a ray from the sky gets
+wrong at the foot of a staircase, and the reason the window is kept.
+
+**Inert everywhere the artists placed somebody.** Over the corpus's 107 rooms with a floor,
+the two rules pick the same surface at all 830 authored positions. Simulating all 10,232
+straight walks between pairs of them, 80 end more than a unit apart — every one of them in
+CD1 or at Larry's front step in LHE, where the doorstep is 10 units up — and in all 80 the
+new rule ends nearer the height the artists authored for the destination. The disagreement
+only ever appears mid-walk, where the seed is the actor's own Y rather than an author's.
+
+`WalkFloor.Surface` had its own separate nearest-height search with no notion of a storey,
+so a footstep on the ruins could be answered by the hillside underneath them. Both questions
+come out of one `Choose` now.
+
+**A second cause, found while measuring the first.** `AnimationStart.Standing` returned the
+hip triad's position outright, height included, and that is what the actor's logical
+position follows while any clip plays. So the moment a walk ended and the idle started,
+every actor in the game jumped 33.8 units into the air — visible in R25 as much as at CD1,
+just harmless-looking there. It is not harmless: `SceneUpdate` seeds the next walk's first
+floor query with that position, so the step an actor could climb was effectively 64 units
+rather than 30. The reference takes the position from the hips and the *height* from the
+lower shoe less `ShoeThickness` (`GKActor::GetModelFloorAndShoePositions`); `ShoeThickness`
+was in `CHARACTERS.TXT` and was not being parsed. Gabriel now settles at 0.4 above R25's
+floor and 722.9 on CD1's tower against the floor's 722.5.
+
+Verify headlessly:
+
+    GK3Reborn.exe --scene CD1 --timeblock 102P --frames 3400 --data <GK3>/Data       --run 'WalkTo("GABRIEL","USE_BINOCS"); @3350 DumpActor("GABRIEL")'
+
 ### Every character's normals lay on their side, so their fronts never lit — fixed 2026-08-28
 
 **Reported** as a shadow that seemed inverted: "when gabriel is looking in the direction of

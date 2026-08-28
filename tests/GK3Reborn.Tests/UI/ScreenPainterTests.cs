@@ -68,6 +68,30 @@ public sealed class ScreenPainterTests
         return null;
     }
 
+    /// <summary>How much of the screen answers to an identifier, found by sweeping.</summary>
+    private static Vector4? Extent(ScreenPainter painter, string id)
+    {
+        float left = float.MaxValue, top = float.MaxValue, right = -1, bottom = -1;
+
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x += 2)
+            {
+                if (painter.HitAt(new Vector2(x, y)) != id)
+                {
+                    continue;
+                }
+
+                left = Math.Min(left, x);
+                top = Math.Min(top, y);
+                right = Math.Max(right, x);
+                bottom = Math.Max(bottom, y);
+            }
+        }
+
+        return right < 0 ? null : new Vector4(left, top, right - left, bottom - top);
+    }
+
     private static SidneyMachine Sidney(out GameState state)
     {
         state = new GameState { Ego = "GRACE" };
@@ -116,6 +140,88 @@ public sealed class ScreenPainterTests
 
         Assert.Null(Middle(painter, "item:MAP"));
         Assert.NotNull(Middle(painter, "close"));
+    }
+
+    [Fact]
+    public void An_item_with_a_picture_is_still_clicked_by_its_own_name()
+    {
+        // The picture is drawn inside the item's own rectangle, so what the player points
+        // at is the item whether they aimed at the picture or at the name beside it.
+        ScreenPainter painter = Painter();
+        List<string> asked = [];
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.Inventory),
+                ["MAP", "PARCHMENT_1"],
+                null,
+                Icons: item =>
+                {
+                    asked.Add(item);
+
+                    // One of the two has art and the other has none, which is the ordinary
+                    // case: twenty of the items the game names have no list picture.
+                    return item == "MAP" ? new ItemIcon(1, 94, 94) : default;
+                }),
+            Width,
+            Height);
+
+        Assert.NotNull(Middle(painter, "item:MAP"));
+        Assert.NotNull(Middle(painter, "item:PARCHMENT_1"));
+        Assert.Equal(["MAP", "PARCHMENT_1"], asked);
+    }
+
+    [Fact]
+    public void The_words_beside_an_item_are_clicked_where_they_are_drawn()
+    {
+        // The list of verbs hangs below the item it belongs to and over the row beneath it.
+        // Laid down beside its own item it was drawn under that row and hit-tested under it
+        // too, so a click on a word reached the item the word was covering.
+        ScreenPainter painter = Painter();
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.Inventory, "MAP"),
+                ["MAP", "CANDY", "DAGGER", "WALLET", "NOTEPAD", "TALISMAN"],
+                null,
+                Subject: "MAP",
+                Verbs: ["LOOK", "READ"]),
+            Width,
+            Height);
+
+        Vector4? look = Extent(painter, "verb:LOOK");
+
+        Assert.NotNull(look);
+
+        // The whole row of it, rather than the sliver of it that misses the item below.
+        Assert.True(
+            look.Value.W >= painter.Overlay.LineHeight,
+            $"only {look.Value.W} pixels of the row answer to it");
+    }
+
+    [Fact]
+    public void A_close_up_of_an_item_asks_for_that_items_picture()
+    {
+        ScreenPainter painter = Painter();
+        List<string> asked = [];
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.InventoryInspect, "PARCHMENT_1"),
+                ["PARCHMENT_1"],
+                null,
+                Verbs: ["LOOK"],
+                Icons: item =>
+                {
+                    asked.Add(item);
+
+                    return new ItemIcon(1, 94, 94);
+                }),
+            Width,
+            Height);
+
+        Assert.Equal(["PARCHMENT_1"], asked);
+        Assert.NotNull(Middle(painter, "verb:LOOK"));
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
 using GK3Reborn.Foundation.Diagnostics;
@@ -140,6 +140,61 @@ public sealed class AnimationStartTests
         float apart = MathF.Abs(Wrap(expected - start.Value.Heading));
 
         Assert.True(apart < 0.01f, $"expected {expected}, got {start.Value.Heading}");
+    }
+
+    [Fact]
+    public void A_pose_stands_on_its_soles_rather_than_on_its_hips()
+    {
+        // What the actor's logical position follows while a clip plays. The hips say where
+        // in the room; taking the height from them as well put Gabriel thirty-four units
+        // into the air after every walk in the game, and that height is what the next
+        // walk's first floor query is asked about — see WalkFloor.Choose.
+        Matrix4x4 hips = Matrix4x4.CreateTranslation(100, 60, 200);
+
+        ClipBuilder clip = new ClipBuilder(3, "gab")
+            .Frame(
+                (RightShoe, ClipBuilder.Transform(Matrix4x4.CreateTranslation(2, 5, 0))),
+                (RightShoe, ClipBuilder.Shape(0, Vector3.Zero)),
+                (LeftShoe, ClipBuilder.Transform(Matrix4x4.CreateTranslation(-2, 1, 0))),
+                (LeftShoe, ClipBuilder.Shape(0, Vector3.Zero)),
+                (Hips, ClipBuilder.Transform(hips)),
+                (Hips, ClipBuilder.Shape(0, new Vector3(9, 9, 9), Vector3.Zero)));
+
+        Vector3? standing = AnimationStart.Standing(
+            Library("gab_pose", clip).Read("gab_pose")!,
+            0f,
+            false,
+            Character() with { ShoeThickness = 0.75f },
+            Matrix4x4.Identity);
+
+        Assert.NotNull(standing);
+
+        // Where the hips are, horizontally.
+        Assert.Equal(100f, standing.Value.X, 2);
+        Assert.Equal(200f, standing.Value.Z, 2);
+
+        // The lower shoe is the one taking the weight — mid-stride the other is in the air
+        // — less the sole between the triad and the ground.
+        Assert.Equal(0.25f, standing.Value.Y, 2);
+    }
+
+    [Fact]
+    public void A_pose_that_records_no_shoes_falls_back_to_the_hips()
+    {
+        // A rigid clip records no vertices, so there is no sole to read. Answering with the
+        // hips' height is wrong by a torso and it is still an answer; answering with
+        // nothing loses the position altogether.
+        Matrix4x4 hips = Matrix4x4.CreateTranslation(100, 60, 200);
+
+        Vector3? standing = AnimationStart.Standing(
+            Library("gab_pour", Clip(hips, Vector3.Zero)).Read("gab_pour")!,
+            0f,
+            false,
+            Character(),
+            Matrix4x4.Identity);
+
+        Assert.NotNull(standing);
+        Assert.Equal(60f, standing.Value.Y, 2);
     }
 
     [Fact]

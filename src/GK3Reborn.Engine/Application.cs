@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Content;
@@ -33,9 +33,19 @@ public static class Application
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        Console.WriteLine("GK3Reborn 0.1.0");
-        Console.WriteLine("Scaffold stage: subsystems are contracts only.");
-        Console.WriteLine($"Native library root: {nativeLibraryRoot ?? "(not installed)"}");
+        // Idempotent: the host opens it before this is reached, so that anything thrown on
+        // the way here is written down too. Called again for the sake of the callers that
+        // are not the host - a test, a tool - which have not.
+        Log.Open();
+
+        Log.Info("GK3Reborn 0.1.0");
+        Log.Info("Scaffold stage: subsystems are contracts only.");
+        Log.Info($"Native library root: {nativeLibraryRoot ?? "(not installed)"}");
+
+        // Where the log is, what the machine is, and whether the native payload is there.
+        // Before anything is loaded, because the point of it is to be readable in a run
+        // that got no further than this.
+        StartupReport.Begin(nativeLibraryRoot);
 
         // The deterministic clock and RNG are live from the first commit so that no
         // subsystem is ever written against wall-clock time or ambient randomness.
@@ -43,10 +53,10 @@ public static class Application
         clock.AdvanceFixed(60);
         var random = new DeterministicRandom(seed: 0x6B33);
 
-        Console.WriteLine($"Clock: tick {clock.Tick}, sim {clock.SimulationTimeSeconds:F3}s");
-        Console.WriteLine($"RNG seed 0x{random.Seed:X}: first draw {random.NextUInt64():X16}");
+        Log.Info($"Clock: tick {clock.Tick}, sim {clock.SimulationTimeSeconds:F3}s");
+        Log.Info($"RNG seed 0x{random.Seed:X}: first draw {random.NextUInt64():X16}");
 
-        Console.WriteLine();
+        Log.Info();
 
         // --expand-blocks makes a machine that has BC formats behave like one that does
         // not, which is the only way to exercise the Mac's texture path anywhere else.
@@ -169,9 +179,12 @@ public static class Application
         bool frontEnd,
         string[] args)
     {
-        if (!Directory.Exists(dataDirectory))
+        // Named through the report rather than checked inline, so that a missing directory
+        // says how far up the path does exist and whether the name is sitting there under
+        // a different case - which is the whole of the difference between a Windows machine
+        // and the Linux one somebody is reporting from.
+        if (!StartupReport.Needed("Content", dataDirectory))
         {
-            Console.Error.WriteLine($"No content directory at {dataDirectory}.");
             ExplainMissingArchives(dataDirectory);
             return 2;
         }
@@ -183,12 +196,15 @@ public static class Application
             // The directory is there and empty, which is what a half-finished install looks
             // like. Said here rather than letting the first missing asset report it: a room
             // that cannot be found reads as a broken game, not as a copy nobody made.
-            Console.Error.WriteLine($"No game archives in {dataDirectory}.");
+            Log.Error($"No game archives in {dataDirectory}.");
+            ReportArchives(dataDirectory, archives.Count);
             ExplainMissingArchives(dataDirectory);
             return 2;
         }
 
-        Console.WriteLine($"Content: {archives.Count} archives in {dataDirectory}");
+        Log.Info($"Content: {archives.Count} archives in {dataDirectory}");
+
+        ReportArchives(dataDirectory, archives.Count);
 
         // Before the window, the device and the menu. A room that is not in the archives
         // fails the same way whenever it is noticed, and noticing it here means the player
@@ -196,10 +212,10 @@ public static class Application
         // Play.
         if (archives.Read(sceneName + ".SIF") is null)
         {
-            Console.Error.WriteLine(
+            Log.Error(
                 $"No room called {sceneName}: the archives have no {sceneName}.SIF.");
 
-            Console.Error.WriteLine(
+            Log.Error(
                 "Check what was passed to --scene or --start, or drop it and the game "
                 + $"starts where it starts, in {OpeningScene}.");
 
@@ -219,7 +235,7 @@ public static class Application
 
         foreach (Diagnostic diagnostic in packDiagnostics.Items)
         {
-            Console.Error.WriteLine(diagnostic);
+            Log.Report(diagnostic);
         }
 
         // --rebarn: the packs and nothing else. Every loose source of enhanced content is
@@ -244,10 +260,10 @@ public static class Application
             // --rebarn says "the packs and nothing else", --uncompressed says "not the
             // compressed layer", and a pack holds nothing but compressed textures. Together
             // they ask for no enhanced content at all, which is what no flags already does.
-            Console.Error.WriteLine(
+            Log.Error(
                 "--rebarn and --uncompressed contradict each other: a pack holds nothing "
                 + "but compressed textures.");
-            Console.Error.WriteLine(
+            Log.Error(
                 "Drop --uncompressed to measure the packs, or drop --rebarn to compare "
                 + "against the loose sets.");
 
@@ -259,8 +275,8 @@ public static class Application
             // Refused rather than warned. Falling back would run the game on the original
             // textures and report perfectly good timings for something nobody asked to
             // measure, which is the shape of every expensive mistake in this project.
-            Console.Error.WriteLine($"--rebarn: no .rebarn pack in {packDirectory}.");
-            Console.Error.WriteLine(
+            Log.Error($"--rebarn: no .rebarn pack in {packDirectory}.");
+            Log.Error(
                 "Build one with `pack-content`, or pass --packs <dir> to say where they are.");
 
             return 2;
@@ -268,7 +284,7 @@ public static class Application
 
         // Said either way. Silence about a missing pack is how a run comes to be measured
         // against the loose sets while everybody believes it was measured against the pack.
-        Console.WriteLine(packs.Describe() is { } packed
+        Log.Info(packs.Describe() is { } packed
             ? packsOnly
                 ? $"Packs: {packed} (loose enhanced content ignored)"
                 : $"Packs: {packed}"
@@ -280,9 +296,22 @@ public static class Application
         // as one.
         Settings settings = Settings.Load();
 
-        Console.WriteLine(File.Exists(Settings.DefaultPath)
+        Log.Info(File.Exists(Settings.DefaultPath)
             ? $"Settings: {Settings.DefaultPath}"
             : $"Settings: none yet, they will be written to {Settings.DefaultPath}");
+
+        // The three directories the game writes to, probed now rather than at the moment
+        // somebody first tries to save. Each one has already chosen between beside the
+        // executable and the user's own profile; what is being asked here is whether the
+        // choice actually works. On Linux and macOS it is where an install run as the
+        // wrong user, or unpacked into a read-only place, first shows itself - and a
+        // player who cannot save finds out an hour later otherwise.
+        StartupReport.Optional("Enhanced textures", enhancedDirectory,
+            "The game will look as it originally shipped.");
+
+        StartupReport.Writable("Settings", Path.GetDirectoryName(Settings.DefaultPath) ?? InstallPaths.UserData);
+        StartupReport.Writable("Saves", Game.SaveStore.DefaultDirectory);
+        StartupReport.Writable("Shader cache", Rendering.Vulkan.ShaderCompiler.DefaultCacheDirectory);
 
         // --width and --height, for photographing the interface at a display size this
         // machine has not got. Everything about the interface's size is decided from the
@@ -298,7 +327,7 @@ public static class Application
         using var renderer = VulkanRenderer.Create(window, window);
 
         ReportGraphics(renderer.Survey());
-        Console.WriteLine($"Renderer: {renderer}");
+        Log.Info($"Renderer: {renderer}");
 
         window.Resized += (_, _) => renderer.Invalidate();
 
@@ -312,7 +341,7 @@ public static class Application
         // clears the bag first, so this is the start of a new game and nothing else.
         int pockets = Game.StartingItems.Fill(api.State.Inventory);
 
-        Console.WriteLine(
+        Log.Info(
             $"Carrying: {pockets} items to begin with, " +
             $"{string.Join(", ", api.State.Inventory.ItemsOf(api.State.Ego))}");
 
@@ -361,13 +390,13 @@ public static class Application
 
         if (broughtAcross > 0)
         {
-            Console.WriteLine(
+            Log.Info(
                 $"Imported {broughtAcross} save(s) written by the original game");
         }
 
         if (request.State is not null)
         {
-            Console.WriteLine($"Story: {request.State.Timeblock} in {request.State.Location}");
+            Log.Info($"Story: {request.State.Timeblock} in {request.State.Location}");
         }
 
         // Sound. The device may not open — a machine without one, or one already held —
@@ -384,7 +413,7 @@ public static class Application
             ? null
             : new SceneAudio(sounds, api.Animations, audio);
 
-        Console.WriteLine(audio is null
+        Log.Info(audio is null
             ? "Audio: none, the game runs silent"
             : $"Audio: {audio.DeviceName}");
 
@@ -403,7 +432,7 @@ public static class Application
         {
             // The decoders are the engine's own, so there is nothing to find and nothing
             // that can be missing.
-            Console.WriteLine(
+            Log.Info(
                 $"Movies: {videos.Count} available ({videos.LooseCount} loose, " +
                 $"{videos.PackedCount} packed), decoded in process");
         }
@@ -458,7 +487,7 @@ public static class Application
 
         if (footsteps.SurfaceCount > 0)
         {
-            Console.WriteLine(
+            Log.Info(
                 $"Footsteps: {footsteps.SurfaceCount} floor textures classified, " +
                 $"{footsteps.SoundCount} shoe and ground pairings");
         }
@@ -471,7 +500,7 @@ public static class Application
 
         if (strings.Count > 0)
         {
-            Console.WriteLine($"Names: {strings.Count} from ESTRINGS.TXT");
+            Log.Info($"Names: {strings.Count} from ESTRINGS.TXT");
         }
 
         // Who the player has been introduced to, which decides whether a label may use
@@ -479,7 +508,7 @@ public static class Application
         // Assets/Story/Introductions.txt.
         Game.Story.Introductions introductions = Game.Story.Introductions.Open();
 
-        Console.WriteLine(
+        Log.Info(
             $"Introductions: {introductions.Count} people are strangers until met");
 
                 var host = new ScriptHost(api);
@@ -490,14 +519,14 @@ public static class Application
 
         var catalogue = new Sheep.SheepSignatures();
 
-        Console.WriteLine(
+        Log.Info(
             $"Scripts: {LoadScripts(archives, host, catalogue)} loaded, " +
             $"{catalogue.Count} function signatures");
 
         // The rules that decide when a point in the story is over. Code rather than a
         // script, so there is nothing to compile and nothing that can fail to load; said
         // here anyway because the count is worth seeing beside the scripts that were.
-        Console.WriteLine(
+        Log.Info(
             $"Story rules: {Game.Story.TimeblockRules.Known.Count} timeblocks");
 
         // The interface. GK3's own bitmap fonts rather than anything imported: they are in
@@ -544,7 +573,7 @@ public static class Application
                 ? null
                 : InterfaceFont(Option(args, "--font-file"), enhancedDirectory, diagnostics);
 
-        Console.WriteLine(face is { } chosen
+        Log.Info(face is { } chosen
             ? $"Typeface: {chosen.Family}, {chosen.CharacterCount} characters, drawn from outlines"
             : "Typeface: GK3's own bitmap sheets");
 
@@ -618,7 +647,7 @@ public static class Application
                     ? EnhancedTextures.Open(enhancedDirectory)
                     : null);
 
-            Console.WriteLine(
+            Log.Info(
                 $"Interface: {atlas.Name}, {atlas.Count} glyphs at {atlas.Height}px" +
                 (magnify > 1 ? $" x{magnify}" : string.Empty) +
                 $" (wanted {wantedGlyph} for a {window.FramebufferHeight}-line display), " +
@@ -627,7 +656,87 @@ public static class Application
         }
         else
         {
-            Console.WriteLine("Interface: no font found, nothing is drawn over the room");
+            Log.Info("Interface: no font found, nothing is drawn over the room");
+        }
+
+        // What each thing in the player's pockets looks like. Read once; the pictures
+        // themselves are loaded the first time an item is shown and kept after that,
+        // because a game reaches perhaps a dozen items at a time out of the hundred and
+        // thirty that exist, and which dozen is not knowable here.
+        Game.InventoryArt itemArt = Game.InventoryArt.Open(archives);
+        Dictionary<string, UI.ItemIcon> itemPictures = new(StringComparer.OrdinalIgnoreCase);
+
+        UI.ItemIcon Icon(string item)
+        {
+            if (itemPictures.TryGetValue(item, out UI.ItemIcon already))
+            {
+                return already;
+            }
+
+            // Remembered whether or not there was anything to find: twenty of the items the
+            // table names have no list picture, and looking again every frame for a file
+            // that is not there is a search of every archive per frame.
+            UI.ItemIcon icon = itemArt.Icon(archives, item) is { } picture &&
+                renderer.AddOverlayPicture("item:" + item.ToUpperInvariant(), picture) is > 0 and { } number
+                    ? new UI.ItemIcon(number, picture.Width, picture.Height)
+                    : default;
+
+            itemPictures[item] = icon;
+
+            return icon;
+        }
+
+        // What each verb looks like. The original drew its verb ring as these and nothing
+        // else, so they are the picture a returning player already reads faster than the
+        // word beside them; VERBS.TXT names one for all but three of the 287.
+        //
+        // Held by file name rather than by verb, because the file is what the picture is,
+        // and the game reuses one across several verbs — DIAL, DRIVE and eleven more all
+        // draw i_operate_std, and holding them by verb would upload the same 32-pixel
+        // square thirteen times.
+        //
+        // The archives' own art, not the enhanced set: there are no upscales of these yet.
+        // When there are, this is the one place that has to learn to prefer them.
+        Dictionary<string, UI.ItemIcon> verbPictures = new(StringComparer.OrdinalIgnoreCase);
+
+        UI.ItemIcon VerbIcon(string verb, bool lit)
+        {
+            if (verbs.IconOf(verb, lit) is not { Length: > 0 } file)
+            {
+                return default;
+            }
+
+            if (verbPictures.TryGetValue(file, out UI.ItemIcon already))
+            {
+                return already;
+            }
+
+            UI.ItemIcon icon = default;
+
+            // Remembered whether or not there was anything to find. Three of the names the
+            // file gives are of pictures nobody shipped, and looking again every frame for
+            // one of those is a search of every archive per frame.
+            if (archives.Read(file) is { } bytes)
+            {
+                try
+                {
+                    Formats.Bitmaps.DecodedImage art =
+                        Formats.Bitmaps.BitmapDecoder.Decode(bytes, file);
+
+                    icon = renderer.AddOverlayPicture("verb:" + file, art) is > 0 and { } number
+                        ? new UI.ItemIcon(number, art.Width, art.Height)
+                        : default;
+                }
+                catch (Formats.FormatParseException)
+                {
+                    // A picture that will not decode is a verb drawn by its word alone,
+                    // which is what a verb with no picture at all gets.
+                }
+            }
+
+            verbPictures[file] = icon;
+
+            return icon;
         }
 
         // The menu, and what changing something in it reaches. Everything below is set
@@ -657,6 +766,39 @@ public static class Application
             api.State.CameraGliding = chosen.CameraGlide;
             api.State.CinematicsEnabled = chosen.Cinematics;
             api.State.EasterEggs = chosen.EasterEggs;
+            api.State.PlotArmour = chosen.PlotArmour;
+
+            // And the moustache, if the story has reached the afternoon it belongs to.
+            // Here as well as on the way into each room, so that turning the assistance on
+            // while standing in the middle of that afternoon hands it over at once rather
+            // than at the next door.
+            if (chosen.AlwaysWearsMoustache && Game.Assists.GiveMoustache(api.State))
+            {
+                Log.Info($"Assist: {Game.Assists.Owner} is given the {Game.Assists.Moustache}");
+            }
+
+            // He wears it whatever the clock says and whatever he is carrying, because that
+            // is what the row promises. The faces in the room are composed once, when it is
+            // built, so changing this from the pause menu has to compose them again — a
+            // switch the player cannot see working is one they will take to be broken.
+            if (live?.Faces is { } worn)
+            {
+                if (chosen.AlwaysWearsMoustache)
+                {
+                    worn.ComposedFrom[Game.Assists.PlainFace] = Game.Assists.MoustachedFace;
+                }
+                else
+                {
+                    worn.ComposedFrom.Remove(Game.Assists.PlainFace);
+                }
+
+                if (worn.Recompose() is > 0 and { } faces)
+                {
+                    Log.Info(chosen.AlwaysWearsMoustache
+                        ? $"Assist: {faces} face(s) composed from {Game.Assists.MoustachedFace}"
+                        : $"Assist: {faces} face(s) back to their own");
+                }
+            }
 
             if (live is not null)
             {
@@ -698,7 +840,7 @@ public static class Application
             // Which of them it took, because they are indistinguishable on screen until
             // somebody has actually upscaled the picture — and a run that quietly used the
             // 640x480 original looks exactly like one that used the new one.
-            Console.WriteLine(title.Exists
+            Log.Info(title.Exists
                 ? $"Title: {TitlePicture} at {title.Width}x{title.Height}, {title.From}"
                 : $"Title: no {TitlePicture} to be had, so the menu draws its own screen");
 
@@ -706,7 +848,7 @@ public static class Application
             // somebody may sit on the title screen for longer than that.
             Audio.AudioVoice theme = Theme(audio, sounds);
 
-            Console.WriteLine(theme.Exists
+            Log.Info(theme.Exists
                 ? $"Theme: {ThemeMusic}, under the menu"
                 : $"Theme: no {ThemeMusic} to play, so the menu is silent");
 
@@ -797,7 +939,7 @@ public static class Application
             {
                 api.State.Restore(titleSave);
                 request = SceneRequest.Continuing(api, api.State.Location);
-                Console.WriteLine($"Restored {chosenSlot}: {titleSave.Title}");
+                Log.Info($"Restored {chosenSlot}: {titleSave.Title}");
                 asked = FrontEndOutcome.Play;
             }
 
@@ -811,7 +953,7 @@ public static class Application
         }
         else if (frontEnd)
         {
-            Console.WriteLine("Front end: no font, so the game starts in the room");
+            Log.Info("Front end: no font, so the game starts in the room");
         }
 
         int result = 0;
@@ -835,6 +977,15 @@ public static class Application
             // enough to eat most of the fade.
             fade.Tick();
 
+            // On the way into every room rather than once, because the afternoon the
+            // moustache belongs to is reached by walking through a door and can also be
+            // arrived at by loading a save. Giving it is idempotent: everything about
+            // whether it has happened already is in the state. See Game.Assists.
+            if (settings.AlwaysWearsMoustache && Game.Assists.GiveMoustache(api.State))
+            {
+                Log.Info($"Assist: {Game.Assists.Owner} is given the {Game.Assists.Moustache}");
+            }
+
             using SceneGeometry geometry = renderer.CreateGeometry();
 
             // What each texture's surface is like. Read once and shared by every room:
@@ -851,7 +1002,7 @@ public static class Application
 
                 if (finishes.Count > 0)
                 {
-                    Console.WriteLine(
+                    Log.Info(
                         $"Surface finishes: {finishes.Count} textures measured, " +
                         $"{finishes.Reflective} smooth enough to reflect, " +
                         $"{finishes.Metallic} metal" +
@@ -886,7 +1037,7 @@ public static class Application
 
             // A fresh loader each time: it carries the last room's glances and its count of
             // enhanced textures, and neither belongs to the next one.
-            var loader = new SceneLoader(archives, Console.WriteLine)
+            var loader = new SceneLoader(archives, Log.Info)
             {
                 // What keeps the window drawing while the room is read, and what the
                 // transition's fade is driven by. Only when there is a fade to drive: the
@@ -932,12 +1083,12 @@ public static class Application
 
                 if (first && normals.Count > 0)
                 {
-                    Console.WriteLine($"Normal maps: {normals.Count} available");
+                    Log.Info($"Normal maps: {normals.Count} available");
                 }
 
                 if (first)
                 {
-                    Console.WriteLine(enhanced.Count > 0
+                    Log.Info(enhanced.Count > 0
                         ? $"Enhanced textures: {enhanced.Count} available in {enhancedDirectory}"
                         : $"Enhanced textures: none found in {enhancedDirectory}");
                 }
@@ -964,7 +1115,7 @@ public static class Application
 
                 if (first && !trees.IsEmpty)
                 {
-                    Console.WriteLine(
+                    Log.Info(
                         $"Modelled trees: {trees.Count} grown across {trees.SpeciesCount} " +
                         $"species, {(trees.Packed ? "packed" : "loose")}");
                 }
@@ -987,7 +1138,7 @@ public static class Application
 
                 if (first && loader.TerrainDirectory is not null)
                 {
-                    Console.WriteLine(
+                    Log.Info(
                         "Terrain horizon: " +
                         $"{Directory.EnumerateFiles(terrain, "*.heights.r32").Count()} sets, loose");
                 }
@@ -998,7 +1149,7 @@ public static class Application
 
                     if (packedSets > 0)
                     {
-                        Console.WriteLine($"Terrain horizon: {packedSets} sets, packed");
+                        Log.Info($"Terrain horizon: {packedSets} sets, packed");
                     }
                 }
             }
@@ -1036,7 +1187,7 @@ public static class Application
                 // Which set came from where, because the two are indistinguishable once a
                 // texture is on screen: a run that quietly used a stale build/ directory
                 // instead of the pack looks exactly like a run that used the pack.
-                Console.WriteLine($"Compressed textures: {sets}");
+                Log.Info($"Compressed textures: {sets}");
             }
 
             fade.Tick();
@@ -1057,7 +1208,7 @@ public static class Application
             {
                 foreach (Diagnostic diagnostic in diagnostics.Items)
                 {
-                    Console.Error.WriteLine(diagnostic);
+                    Log.Report(diagnostic);
                 }
 
                 audio?.Dispose();
@@ -1082,7 +1233,7 @@ public static class Application
 
             if (scene.Sun is { } sun)
             {
-                Console.WriteLine(
+                Log.Info(
                     $"Sun: elevation {MathF.Asin(-sun.Direction.Y) * 180f / MathF.PI:0}°, " +
                     $"the rig's other {scene.Lights.Count - 1} lights kept");
             }
@@ -1092,13 +1243,13 @@ public static class Application
 
             if (first)
             {
-                Console.WriteLine(renderer.SupportsRayTracing
+                Log.Info(renderer.SupportsRayTracing
                     ? $"Ray tracing: {renderer.Quality} ({geometry.TraceableTriangleCount} opaque "
                       + $"triangles traced in {geometry.TraceablePartCount} movable part(s))"
                     : "Ray tracing: unavailable on this device");
             }
 
-            Console.WriteLine(string.Create(
+            Log.Info(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Loaded {scene.Name} in {loading.Elapsed.TotalMilliseconds:F0} ms, " +
                 $"{geometry.TextureCount} textures resident, {geometry.TexturesReused} reused, " +
@@ -1108,14 +1259,14 @@ public static class Application
             // are cumulative over the session, so walking through a door adds to them.
             if (compressed.FromPacks > 0 || compressed.FromFiles > 0)
             {
-                Console.WriteLine(
+                Log.Info(
                     $"Blocks read: {compressed.FromPacks} from packs, "
                     + $"{compressed.FromFiles} from {(compressed.Directory.Length > 0
                         ? compressed.Directory
                         : "loose files")}");
             }
 
-            Console.WriteLine($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
+            Log.Info($"Scene {scene.Name}: {geometry.TriangleCount} triangles in "
                 + $"{geometry.BatchCount} batches, {geometry.TextureCount} textures"
                 + (loader.EnhancedTexturesUsed > 0
                     ? $" ({loader.EnhancedTexturesUsed} enhanced"
@@ -1143,7 +1294,7 @@ public static class Application
                         $", {geometry.ReliefSetApart} left uncut")
                     : string.Empty;
 
-                Console.WriteLine(string.Create(
+                Log.Info(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Relief: floor cut into {geometry.DisplacedTriangles} triangles at " +
                     $"{geometry.ReliefCell:0.#} units a cell, moved up to " +
@@ -1158,7 +1309,7 @@ public static class Application
             // there, still drawn, still the shape it always was.
             if (geometry.RoundedObjects > 0)
             {
-                Console.WriteLine(
+                Log.Info(
                     $"Rounded: {geometry.RoundedTriangles} triangles from " +
                     $"{string.Join(", ", geometry.Rounded.Order(StringComparer.OrdinalIgnoreCase))}");
             }
@@ -1171,14 +1322,14 @@ public static class Application
             {
                 foreach (Formats.Scenes.AuthoredLight light in scene.Lights)
                 {
-                    Console.WriteLine(string.Create(
+                    Log.Info(string.Create(
                         CultureInfo.InvariantCulture,
                         $"  light r={light.Radius:F1} i={light.Intensity:F2} " +
                         $"reach={light.AttenuationEnd:F0}"));
                 }
             }
 
-            Console.WriteLine(scene.Ground is { } ground
+            Log.Info(scene.Ground is { } ground
                 ? $"Floor: {scene.Definition.FloorObject()}, {ground.Triangles} triangles"
                 : $"Floor: none; {scene.Definition.FloorObject() ?? "the scene names one"}" +
                   " is not in the geometry, so actors hold the height they start at");
@@ -1213,7 +1364,7 @@ public static class Application
             {
                 double seconds = movies.Play(wanted);
 
-                Console.WriteLine(seconds > 0
+                Log.Info(seconds > 0
                     ? $"Movie: {wanted}, {seconds:F1}s"
                     : $"Movie: {wanted} could not be played");
             }
@@ -1261,6 +1412,14 @@ public static class Application
             // FACES.TXT and is actually painted with their own face bitmap, which is what
             // tells a person from a portrait of one.
             var moving = new Game.Actors.Faces(faces, archives, api.Animations, geometry);
+
+            // And the moustache, when the player has asked for it: Gabriel's face composed
+            // out of the game's own moustached Gabriel, GA3, and painted onto his own head.
+            // Before anybody is added, because a face is composed the moment it is taken on.
+            if (settings.AlwaysWearsMoustache)
+            {
+                moving.ComposedFrom[Game.Assists.PlainFace] = Game.Assists.MoustachedFace;
+            }
 
             foreach (Game.PlacedModel person in scene.Models)
             {
@@ -1314,7 +1473,7 @@ public static class Application
             // states each of those as an animation and means its first frame.
             if (update.Open() is > 0 and { } posed)
             {
-                Console.WriteLine(
+                Log.Info(
                     $"Opening pose: {posed} clip(s) sampled" +
                     (update.Posed.Count > 0
                         ? ", " + string.Join(", ", update.Posed.Select(Described))
@@ -1333,12 +1492,12 @@ public static class Application
 
             if (update.Scenic > 0 || update.Fidgeting > 0)
             {
-                Console.WriteLine(
+                Log.Info(
                     $"Behaviour: {update.Scenic} prop(s) move on their own, " +
                     $"{update.Fidgeting} character(s) idle, talk and listen");
             }
 
-            Console.WriteLine(
+            Log.Info(
                 $"Update: {update.Movable} actor(s) can turn their head, " +
                 $"{characters.Count} character(s) know how to walk, " +
                 $"{moving.Count} face(s) can talk and blink, " +
@@ -1371,7 +1530,7 @@ public static class Application
             if (scene.Actions?.Find("SCENE", "ENTER") is { } entering)
             {
                 new ActionRunner(api).Run(entering);
-                Console.WriteLine($"entered: SCENE:ENTER [{entering.Case}]");
+                Log.Info($"entered: SCENE:ENTER [{entering.Case}]");
             }
 
             // What the room sounds like when nothing is happening in it. A soundtrack is a
@@ -1381,7 +1540,7 @@ public static class Application
 
             if (room is { Running.Count: > 0 })
             {
-                Console.WriteLine(
+                Log.Info(
                     $"Ambience: {string.Join(", ", room.Running)}" +
                     (bed is { Length: > 0 } ? $", opening with {bed}" : ", opening with a wait") +
                     (room.AmbienceAt is { } at
@@ -1404,7 +1563,7 @@ public static class Application
                 // cache is worth — without needing a mouse.
                 new ActionRunner(api).Run(follow);
 
-                Console.WriteLine($"Then {n.Trim()}:{v.Trim()} [{follow.Case}]");
+                Log.Info($"Then {n.Trim()}:{v.Trim()} [{follow.Case}]");
             }
 
             // Arriving somewhere is the moment the story is at rest: the room is built,
@@ -1447,11 +1606,11 @@ public static class Application
                 // The whole of it, and everything after this point is the room running.
                 timeline.Stamp("room set up (scripts, audio, journal)");
 
-                Console.WriteLine(string.Create(
+                Log.Info(string.Create(
                     CultureInfo.InvariantCulture,
                     $"Where {scene.Name}'s {timeline.TotalMilliseconds:F0} ms went:"));
 
-                Console.WriteLine(timeline.Report());
+                Log.Info(timeline.Report());
             }
 
             RoomExit exit = FlyScene(
@@ -1463,7 +1622,7 @@ public static class Application
                     Watcher = update,
                     Introductions = introductions,
                 },
-                room, movies, hud, Cut, api, screens, sidney,
+                room, movies, hud, Cut, api, screens, Icon, VerbIcon, sidney,
                 map, binoculars, api.State, console,
                 front, pages, Apply, args, strings, journal);
 
@@ -1510,7 +1669,7 @@ public static class Application
                 // seen rather than on simply having finished the errands.
                 if (movies.Play(was + "end") is > 0 and { } showing)
                 {
-                    Console.WriteLine(
+                    Log.Info(
                         string.Create(CultureInfo.InvariantCulture, $"Closing film: {was}end, {showing:F1}s"));
                 }
 
@@ -1585,7 +1744,7 @@ public static class Application
             // odd can be looked at rather than only counted.
             File.WriteAllBytes("motion.raw", mask);
 
-            Console.WriteLine(string.Create(
+            Log.Info(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Motion: mean {total / pixels:F2} px, largest {most:F1} px, " +
                 $"{100.0 * moving / pixels:F1}% of the frame moved more than half a pixel"));
@@ -1594,7 +1753,7 @@ public static class Application
         if (screenshotPath is not null && renderer.Capture() is { } capture)
         {
             File.WriteAllBytes(screenshotPath, Formats.Bitmaps.PngWriter.Encode(capture));
-            Console.WriteLine($"Wrote {screenshotPath}");
+            Log.Info($"Wrote {screenshotPath}");
         }
 
         return result;
@@ -1660,7 +1819,7 @@ public static class Application
             string name = arguments[0].AsString();
             double seconds = movies.Play(name);
 
-            Console.WriteLine(seconds > 0
+            Log.Info(seconds > 0
                 ? $"Movie: {name}, {seconds:F1}s"
                 : $"Movie: {name} could not be played");
 
@@ -1758,7 +1917,7 @@ public static class Application
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                Console.Error.WriteLine($"WARNING GK3R1201: {path} could not be read. ({error.Message})");
+                Log.Warning($"WARNING GK3R1201: {path} could not be read. ({error.Message})");
             }
         }
 
@@ -1873,7 +2032,7 @@ public static class Application
 
         api.State.StartedTimeblock();
 
-        Console.WriteLine($"Timeblock: {was} is over, starting {api.State.Timeblock}");
+        Log.Info($"Timeblock: {was} is over, starting {api.State.Timeblock}");
 
         return api.State.Location;
     }
@@ -1941,7 +2100,7 @@ public static class Application
             return;
         }
 
-        Console.WriteLine(verbose
+        Log.Info(verbose
             ? $"{problems.Length} assets could not be loaded:"
             : $"({problems.Length} assets could not be loaded; --verbose lists them)");
 
@@ -1949,7 +2108,7 @@ public static class Application
         {
             foreach (Diagnostic problem in problems)
             {
-                Console.WriteLine($"  {problem}");
+                Log.Info($"  {problem}");
             }
         }
     }
@@ -1995,7 +2154,7 @@ public static class Application
                     $"{outcome.Statements.Count} statement(s)")
                 : $"{(outcome.Ran ? "ran" : "refused")} {outcome.Statements.Count} statement(s)";
 
-            Console.WriteLine($"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: {did}");
+            Log.Info($"Doing {noun.Trim()}:{verb.Trim()} [{rule.Case}]: {did}");
         }
     }
 
@@ -2010,7 +2169,7 @@ public static class Application
         if (Option(args, "--play") is { Length: > 0 } clip)
         {
             Sheep.SheepExpression.Evaluate($"StartAnimation(\"{clip}\")", api);
-            Console.WriteLine($"Playing {clip}");
+            Log.Info($"Playing {clip}");
         }
 
         // Marks a timeblock's completion rules as met, for looking at what happens next
@@ -2043,7 +2202,7 @@ public static class Application
                 }
             }
 
-            Console.WriteLine($"Did: {already}");
+            Log.Info($"Did: {already}");
         }
 
         // Things in the bag, for looking at what carrying them changes. Half of what the
@@ -2056,7 +2215,7 @@ public static class Application
                 api.State.Inventory.Add(api.State.Ego, item.Trim());
             }
 
-            Console.WriteLine(
+            Log.Info(
                 $"Carrying: {string.Join(", ", api.State.Inventory.ItemsOf(api.State.Ego))}");
         }
 
@@ -2079,7 +2238,7 @@ public static class Application
             }
 
             api.State.Screens.Show(new Screen(kind, about));
-            Console.WriteLine($"Screen: {kind}{(about is null ? string.Empty : $" ({about})")}");
+            Log.Info($"Screen: {kind}{(about is null ? string.Empty : $" ({about})")}");
         }
 
         // And put something into Sidney on the way in, for the same reason: its screens are
@@ -2090,7 +2249,7 @@ public static class Application
             {
                 if (machine.Scan(item.Trim()) is { } scanned)
                 {
-                    Console.WriteLine($"Scanned: {scanned.Text}");
+                    Log.Info($"Scanned: {scanned.Text}");
                 }
             }
 
@@ -2104,14 +2263,14 @@ public static class Application
             Enum.TryParse(page, ignoreCase: true, out Game.Sidney.SidneyScreen which))
         {
             opened.Screen = which;
-            Console.WriteLine($"Sidney: {which}");
+            Log.Info($"Sidney: {which}");
         }
 
         if (Option(args, "--glide") is { Length: > 0 } destination)
         {
             Sheep.SheepExpression.Evaluate(
                 $"GlideToCameraAngle(\"{destination}\")", api);
-            Console.WriteLine($"Gliding to {destination}");
+            Log.Info($"Gliding to {destination}");
         }
 
         if (Option(args, "--glance")?.Split(':') is [string who, string at])
@@ -2122,7 +2281,7 @@ public static class Application
 
             foreach (Diagnostic diagnostic in api.Diagnostics.Items)
             {
-                Console.WriteLine($"  {diagnostic}");
+                Log.Info($"  {diagnostic}");
             }
         }
     }
@@ -2194,6 +2353,10 @@ public static class Application
     /// The script API, for the save store and for the room a load asks the game to move to.
     /// </param>
     /// <param name="screens">What draws the screens in front of the room, if anything can.</param>
+    /// <param name="icons">The picture belonging to an inventory item, where it has one.</param>
+    /// <param name="verbIcons">
+    /// The picture belonging to a verb, resting or picked out, where it has one.
+    /// </param>
     /// <param name="sidney">Grace's computer, which one of those screens is.</param>
     /// <param name="map">The driving map's art and roads.</param>
     /// <param name="binoculars">What can be seen from here, if anything.</param>
@@ -2233,6 +2396,8 @@ public static class Application
         Func<bool, OverlayAtlas?> cut,
         Gk3SheepApi api,
         ScreenPainter? screens,
+        Func<string, ItemIcon> icons,
+        Func<string, bool, ItemIcon> verbIcons,
         Game.Sidney.SidneyMachine? sidney,
         DrivingMap map,
         Binoculars binoculars,
@@ -2251,6 +2416,8 @@ public static class Application
         ArgumentNullException.ThrowIfNull(cut);
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
+        ArgumentNullException.ThrowIfNull(icons);
+        ArgumentNullException.ThrowIfNull(verbIcons);
 
         string here = scene.Name;
 
@@ -2273,11 +2440,11 @@ public static class Application
         // exactly how some of it gets checked.
         if (scene.CameraShell is not { IsEmpty: false } shell)
         {
-            Console.WriteLine("Camera bounds: none, so the camera may go anywhere");
+            Log.Info("Camera bounds: none, so the camera may go anywhere");
         }
         else if (options.Contains("--free-camera", StringComparer.OrdinalIgnoreCase))
         {
-            Console.WriteLine("Camera bounds: off, so the camera may leave the room");
+            Log.Info("Camera bounds: off, so the camera may leave the room");
         }
         else
         {
@@ -2292,7 +2459,7 @@ public static class Application
             // backwards and there is nothing on screen to explain why.
             if (!shell.Contains(template.Position))
             {
-                Console.WriteLine($"Camera bounds: {scene.Name}'s view starts outside them");
+                Log.Info($"Camera bounds: {scene.Name}'s view starts outside them");
             }
         }
 
@@ -2308,7 +2475,7 @@ public static class Application
             camera.Position = leaned.Position;
             camera.Aim = leaned.Angle;
 
-            Console.WriteLine(string.Create(
+            Log.Info(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Arrived through the binoculars, at {leaned.Position:F0} looking {leaned.Angle.X:F0}"));
         }
@@ -2336,20 +2503,12 @@ public static class Application
         {
             Place();
 
-            Console.WriteLine(string.Create(
+            Log.Info(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Camera placed at {camera.Position:F0} looking {camera.Aim.X:F1}, {camera.Aim.Y:F1}"));
         }
 
-        Console.WriteLine();
-        Console.WriteLine("WASD to move, E and Q for up and down, drag to look,");
-        Console.WriteLine("Tab for the next camera, R to return to it, F2 for ray tracing,");
-        Console.WriteLine("click to act on what is under the pointer, right-click to see");
-        Console.WriteLine("everything it answers to, Escape to leave.");
-        Console.WriteLine("` opens the console; Tab completes, up and down move the list.");
-
-        // Where the scene opened, so a glide has somewhere to leave from rather than
-        // arriving the moment it is asked for.
+        Log.Info();
         update.StartAt(template);
 
         Camera? directing = update.View;
@@ -2429,7 +2588,7 @@ public static class Application
                 // console's own scrollback and an answer nobody can read is no answer.
                 foreach (ConsoleLine line in console.Lines.Skip(before))
                 {
-                    Console.WriteLine($"run: {line.Text}");
+                    Log.Info($"run: {line.Text}");
                 }
 
                 console.Show(false);
@@ -2438,7 +2597,7 @@ public static class Application
 
         if (pinned is { } spot)
         {
-            Console.WriteLine($"Pointer pinned at {spot.X}, {spot.Y}");
+            Log.Info($"Pointer pinned at {spot.X}, {spot.Y}");
         }
 
         // What the interface was laid out for. A window that goes fullscreen doubles its
@@ -2499,7 +2658,7 @@ public static class Application
                         hud.Retarget(grown);
                         hud.Overlay.Magnify = magnify;
 
-                        Console.WriteLine(
+                        Log.Info(
                             $"Interface: {grown.Name} at {grown.Height}px" +
                             (magnify > 1 ? $" x{magnify}" : string.Empty) +
                             $" for {laidOutFor} lines");
@@ -2549,7 +2708,7 @@ public static class Application
 
                 for (; saidAboutMovies < movies.Diagnostics.Items.Count; saidAboutMovies++)
                 {
-                    Console.Error.WriteLine(movies.Diagnostics.Items[saidAboutMovies]);
+                    Log.Report(movies.Diagnostics.Items[saidAboutMovies]);
                 }
             }
             else if (showingMovie)
@@ -2631,7 +2790,7 @@ public static class Application
                         renderer.DropOverlayPicture("save:" + into);
                     }
 
-                    Console.WriteLine(wrote
+                    Log.Info(wrote
                         ? $"Saved to {into}: {called}"
                         : $"Could not save to {into}.");
 
@@ -2645,7 +2804,7 @@ public static class Application
                 {
                     story.Restore(recovered);
 
-                    Console.WriteLine($"Restored {from}: {recovered.Title}");
+                    Log.Info($"Restored {from}: {recovered.Title}");
 
                     // The room the save was written in, which is very likely not this one.
                     //
@@ -2696,7 +2855,7 @@ public static class Application
                 template = SceneLoader.CameraFor(scene, geometry, scene.Cameras[cameraIndex].Name);
                 camera.CopyFrom(template);
 
-                Console.WriteLine($"camera: {scene.Cameras[cameraIndex].Name}");
+                Log.Info($"camera: {scene.Cameras[cameraIndex].Name}");
             }
 
             if (!typing && window.WasPressed(Platform.CameraAction.Reset))
@@ -2741,7 +2900,7 @@ public static class Application
                 bool wrote = api.Saves?.Write(
                     Game.SaveStore.QuickSlot, story.Capture("Quick save")) ?? false;
 
-                Console.WriteLine(wrote ? "Saved." : "Could not save.");
+                Log.Info(wrote ? "Saved." : "Could not save.");
                 console.Print(wrote ? "Saved." : "Could not save.");
             }
 
@@ -2755,7 +2914,7 @@ public static class Application
 
                 if (loaded is null)
                 {
-                    Console.WriteLine("No quick save to load.");
+                    Log.Info("No quick save to load.");
                     console.Print("No quick save to load.");
                 }
                 else
@@ -2763,7 +2922,7 @@ public static class Application
                     story.Restore(loaded);
                     api.Wanted = loaded.Location;
 
-                    Console.WriteLine($"Loaded: {loaded.Summary}");
+                    Log.Info($"Loaded: {loaded.Summary}");
                 }
             }
 
@@ -2785,7 +2944,7 @@ public static class Application
                 RayTracingQuality[] levels = Enum.GetValues<RayTracingQuality>();
 
                 renderer.Quality = levels[(Array.IndexOf(levels, renderer.Quality) + 1) % levels.Length];
-                Console.WriteLine($"ray tracing: {renderer.Quality}");
+                Log.Info($"ray tracing: {renderer.Quality}");
             }
 
             // What the world could not do, said once. Animation naming is the sort of thing
@@ -2793,12 +2952,12 @@ public static class Application
             // having been asked for.
             for (; said < update.Diagnostics.Items.Count; said++)
             {
-                Console.WriteLine($"  {update.Diagnostics.Items[said]}");
+                Log.Info($"  {update.Diagnostics.Items[said]}");
             }
 
             foreach (string happened in update.Advance(delta))
             {
-                Console.WriteLine(string.Create(
+                Log.Info(string.Create(
                     CultureInfo.InvariantCulture,
                     $"  [{stopwatch.Elapsed.TotalSeconds:F2}s] {happened}"));
             }
@@ -2857,7 +3016,7 @@ public static class Application
 
                 if (hovering is { Length: > 0 })
                 {
-                    Console.WriteLine(hover.Actionable
+                    Log.Info(hover.Actionable
                         ? $"> {hovering} — click to {hover.Default}"
                         : $"> {hovering} — nothing to do with it here");
                 }
@@ -2889,7 +3048,7 @@ public static class Application
                 // right-click that did not register.
                 if (menu is null)
                 {
-                    Console.WriteLine(hover.Noun is { Length: > 0 } asked
+                    Log.Info(hover.Noun is { Length: > 0 } asked
                         ? $"{asked} answers to nothing here and now"
                         : "nothing under the pointer");
                 }
@@ -2953,7 +3112,7 @@ public static class Application
                         IReadOnlyList<string> gained =
                             Game.FingerprintKit.Lift(bare, story, api.Scores);
 
-                        Console.WriteLine(gained.Count > 0
+                        Log.Info(gained.Count > 0
                             ? $"fingerprints: {bare} gave {string.Join(", ", gained)}"
                             : $"fingerprints: {bare} lifted");
 
@@ -2972,7 +3131,7 @@ public static class Application
                         {
                             string? given = journal.Reveal(asking);
 
-                            Console.WriteLine(given is { Length: > 0 }
+                            Log.Info(given is { Length: > 0 }
                                 ? $"journal: {asking.Title} — {given}"
                                 : $"journal: no more hints for {asking.Title}");
                         }
@@ -2999,7 +3158,7 @@ public static class Application
                     {
                         story.Screens.Back();
 
-                        Console.WriteLine($"Binoculars: {sight.Location}");
+                        Log.Info($"Binoculars: {sight.Location}");
 
                         if (!string.Equals(sight.Scene, scene.Name, StringComparison.OrdinalIgnoreCase))
                         {
@@ -3023,7 +3182,7 @@ public static class Application
                         // and a script may well close the screen itself.
                         ActionOutcome ran = new ActionRunner(api).Run(onItem);
 
-                        Console.WriteLine(
+                        Log.Info(
                             $"{about}:{chose[5..]} [{onItem.Case}] - " +
                             $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
                     }
@@ -3041,18 +3200,31 @@ public static class Application
                         // where the item sits, exactly as a right click offers a noun's
                         // verbs in the room — rather than a page of its own to hold two
                         // words on.
-                        if (offered is [string only] &&
-                            scene.Actions?.Find(inHand, only, story.Ego) is { } single)
-                        {
-                            ActionOutcome ran = new ActionRunner(api).Run(single);
+                        Formats.Actions.NvcAction? single = offered is [string only]
+                            ? scene.Actions?.Find(inHand, only, story.Ego)
+                            : null;
 
-                            Console.WriteLine(
-                                $"{inHand}:{only} [{single.Case}] - " +
-                                $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
-                        }
-                        else if (offered.Count > 0)
+                        // The words hanging beside an item belong to the item that was
+                        // clicked, so every click moves them: to the thing just clicked
+                        // when it has a list of its own, and away altogether when it has
+                        // one action to perform or nothing to offer. Reported: clicking a
+                        // second item left the first one's list open over the page, because
+                        // only the branch that opens a list ever touched the subject.
+                        //
+                        // Before the action rather than after it. A script may put a screen
+                        // of its own up, and replacing the top of the stack once it has
+                        // would throw that away.
+                        story.Screens.Replace(new Screen(
+                            ScreenKind.Inventory,
+                            single is null && offered.Count > 0 ? inHand : null));
+
+                        if (single is { } act)
                         {
-                            story.Screens.Replace(new Screen(ScreenKind.Inventory, inHand));
+                            ActionOutcome ran = new ActionRunner(api).Run(act);
+
+                            Log.Info(
+                                $"{inHand}:{act.Verb} [{act.Case}] - " +
+                                $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
                         }
                     }
                     else
@@ -3114,7 +3286,8 @@ public static class Application
                         panel.Subject?.Split('|') is [_, string counted] &&
                         int.TryParse(counted, out int prints)
                             ? prints
-                            : -1),
+                            : -1,
+                        icons),
                     window.FramebufferWidth,
                     window.FramebufferHeight,
                     pointer);
@@ -3177,12 +3350,12 @@ public static class Application
                         StringComparison.OrdinalIgnoreCase))
                 {
                     story.Screens.Show(new Screen(ScreenKind.InventoryInspect, clicked));
-                    Console.WriteLine($"inventory: looking at {clicked}");
+                    Log.Info($"inventory: looking at {clicked}");
                 }
                 else
                 {
                     story.Inventory.SetActive(story.Ego, clicked);
-                    Console.WriteLine($"inventory: holding {clicked}");
+                    Log.Info($"inventory: holding {clicked}");
                 }
 
                 menu = null;
@@ -3220,7 +3393,7 @@ public static class Application
             {
                 if (interaction.Do(hover, hover.Closer) is { } looked)
                 {
-                    Console.WriteLine($"Did: {looked.Noun}:{looked.Verb}");
+                    Log.Info($"Did: {looked.Noun}:{looked.Verb}");
                 }
             }
             else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
@@ -3274,7 +3447,7 @@ public static class Application
                     // A click across the room runs, a click at the player's feet does not.
                     double crossing = update.Walk(story.Ego, ground, hurry: hurry, mayRun: true);
 
-                    Console.WriteLine(crossing > 0
+                    Log.Info(crossing > 0
                         ? string.Create(
                             CultureInfo.InvariantCulture,
                             $"{story.Ego}: walking to {ground.X:F0}, {ground.Z:F0}, {crossing:F1}s")
@@ -3291,7 +3464,7 @@ public static class Application
 
                 if (did is { } outcome)
                 {
-                    Console.WriteLine(
+                    Log.Info(
                         $"{outcome.Noun}:{outcome.Verb} [{outcome.Case}] - " +
                         (outcome.Deferred
                             ? string.Create(
@@ -3311,7 +3484,7 @@ public static class Application
             if (room?.Caption is { Length: > 0 } caption && caption != spoken)
             {
                 spoken = caption;
-                Console.WriteLine($"  {room.Speaker}: {caption}");
+                Log.Info($"  {room.Speaker}: {caption}");
             }
 
             // Nothing of the room is drawn over a movie: not the caption of whatever was
@@ -3353,7 +3526,9 @@ public static class Application
                                 view,
                                 window.FramebufferWidth,
                                 window.FramebufferHeight)
-                            : null),
+                            : null,
+                        icons,
+                        verbIcons),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -3366,7 +3541,7 @@ public static class Application
             if (!string.Equals(story.Location, here, StringComparison.OrdinalIgnoreCase) &&
                 story.Location is { Length: > 0 } elsewhere)
             {
-                Console.WriteLine($"Leaving {here} for {elsewhere}");
+                Log.Info($"Leaving {here} for {elsewhere}");
 
                 // Nothing this room was still holding back gets to happen in the next one.
                 // What is queued is an action script belonging to the room being left, and
@@ -3438,13 +3613,13 @@ public static class Application
 
         if (flickerFrames > 0)
         {
-            Console.WriteLine(string.Create(
+            Log.Info(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Flicker: {flickerTotal / flickerFrames:F3} of an eight-bit step between " +
                 $"frames, over {flickerFrames} frames"));
         }
 
-        Console.WriteLine(string.Create(
+        Log.Info(string.Create(
             CultureInfo.InvariantCulture,
             $"Presented {presented} frames in {stopwatch.Elapsed.TotalSeconds:F1}s "
             + $"({presented / Math.Max(0.001, stopwatch.Elapsed.TotalSeconds):F0} fps)"));
@@ -3541,7 +3716,7 @@ public static class Application
         {
             // A menu without its picture is a menu; a game that will not start because a
             // decorative bitmap is malformed is not.
-            Console.Error.WriteLine($"WARNING GK3R3430: {file} would not decode. ({error.Message})");
+            Log.Warning($"WARNING GK3R3430: {file} would not decode. ({error.Message})");
             return default;
         }
     }
@@ -3601,7 +3776,7 @@ public static class Application
             ? called
             : now.ToString();
 
-        Console.WriteLine($"Card: {name}{(art.Exists ? $", over {art.Width}x{art.Height} of painting" : ", with no painting")}");
+        Log.Info($"Card: {name}{(art.Exists ? $", over {art.Width}x{art.Height} of painting" : ", with no painting")}");
 
         var clock = Stopwatch.StartNew();
 
@@ -3831,7 +4006,7 @@ public static class Application
                 // across a page is a hundred changes and none of them is worth a write.
                 if (front.Commit())
                 {
-                    Console.WriteLine($"Settings: written to {Settings.DefaultPath}");
+                    Log.Info($"Settings: written to {Settings.DefaultPath}");
                 }
 
                 // The click that chose Play is still on the frame's books, and this is the
@@ -3870,7 +4045,7 @@ public static class Application
                     File.WriteAllBytes(
                         photograph, Formats.Bitmaps.PngWriter.Encode(picture));
 
-                    Console.WriteLine($"Wrote {photograph}");
+                    Log.Info($"Wrote {photograph}");
                 }
 
                 return FrontEndOutcome.Quit;
@@ -3970,7 +4145,7 @@ public static class Application
                 continue;
             }
 
-            Console.WriteLine(string.Create(
+            Log.Info(string.Create(
                 CultureInfo.InvariantCulture, $"Intro: {name}, {movies.Seconds:F1}s"));
 
             double began = stopwatch.Elapsed.TotalSeconds;
@@ -4035,7 +4210,7 @@ public static class Application
 
             foreach (Diagnostic diagnostic in movies.Diagnostics.Items)
             {
-                Console.Error.WriteLine(diagnostic);
+                Log.Report(diagnostic);
             }
 
             if (window.IsClosing)
@@ -4047,7 +4222,7 @@ public static class Application
             {
                 // Said, but not obeyed for the rest of them: the next film is a different
                 // thing to have decided about.
-                Console.WriteLine($"Intro: {name} skipped");
+                Log.Info($"Intro: {name} skipped");
             }
         }
     }
@@ -4117,7 +4292,7 @@ public static class Application
 
         if (loaded > 0)
         {
-            Console.WriteLine(
+            Log.Info(
                 $"Driving map: {loaded} of {DrivingMap.All.Count + 1} pictures" +
                 (upscaled > 0 ? $", {upscaled} enhanced" : string.Empty));
         }
@@ -4544,7 +4719,7 @@ public static class Application
 
         if (known.Count == 0)
         {
-            Console.WriteLine(
+            Log.Info(
                 $"Story: {scene} has no timeblock of its own, so its conditions stay " +
                 "undecided and its objects answer to nothing.");
 
@@ -4553,13 +4728,13 @@ public static class Application
 
         string chosen = known[0];
 
-        Console.WriteLine(timeblock is { Length: > 0 } asOfDay
+        Log.Info(timeblock is { Length: > 0 } asOfDay
             ? $"Story: '{asOfDay}' is a time of day, not a point in the story, so nothing " +
               $"in the room would answer to anything. Using {chosen} instead."
             : $"Story: no timeblock given, so nothing in the room would answer to " +
               $"anything. Using {chosen}.");
 
-        Console.WriteLine($"  {scene} knows: {string.Join(" ", known)}");
+        Log.Info($"  {scene} knows: {string.Join(" ", known)}");
 
         return SceneRequest.For(scene, chosen);
     }
@@ -4766,9 +4941,13 @@ public static class Application
                 Directory.Exists(candidate) &&
                 Directory.EnumerateFiles(candidate, "*" + Formats.Rebarn.RebarnFormat.Extension).Any())
             {
+                StartupReport.Searched("Packs", candidates, candidate);
+
                 return candidate;
             }
         }
+
+        StartupReport.Searched("Packs", candidates, null);
 
         return AppContext.BaseDirectory;
     }
@@ -4807,24 +4986,94 @@ public static class Application
         "day123.brn", "day2.brn", "day23.brn", "day3.brn",
     ];
 
+    /// <summary>
+    /// Says which of the eight archives are not there, and which are there unseen.
+    /// </summary>
+    /// <param name="dataDirectory">The directory that was searched.</param>
+    /// <param name="found">How many archives were actually opened from it.</param>
+    /// <remarks>
+    /// <para>
+    /// Two things go wrong with a copied installation and neither says so by itself. A
+    /// partial copy plays until it reaches a day whose archive was never brought across,
+    /// and then fails at a room rather than at the missing file. And a copy taken straight
+    /// off the CD is named <c>CORE.BRN</c>, which the search for <c>*.brn</c> matches on
+    /// Windows and does not match on Linux or macOS - so eight archives the player can see
+    /// in their file manager are, to the game, an empty directory.
+    /// </para>
+    /// <para>
+    /// The second is why this is worth the directory listing it costs. "No game archives
+    /// in ~/GK3/Data", said to somebody looking at eight archives in ~/GK3/Data, is the
+    /// kind of message that ends in a bug report rather than in a fix.
+    /// </para>
+    /// </remarks>
+    private static void ReportArchives(string dataDirectory, int found)
+    {
+        string[] present;
+
+        try
+        {
+            present = [.. Directory.EnumerateFiles(dataDirectory).Select(Path.GetFileName)!];
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Log.Detail($"Content: {dataDirectory} could not be listed. ({error.Message})");
+
+            return;
+        }
+
+        string[] unseen = [.. present.Where(name =>
+            Path.GetExtension(name).Equals(".brn", StringComparison.OrdinalIgnoreCase) &&
+            !Path.GetExtension(name).Equals(".brn", StringComparison.Ordinal))];
+
+        if (unseen.Length > 0)
+        {
+            Log.Error($"Content: {dataDirectory} holds {unseen.Length} archive(s) whose "
+                + $"names are spelled differently: {string.Join("  ", unseen)}");
+
+            Log.Error("Linux and macOS match file names exactly, so those are not found. "
+                + "Rename them to lower case, extension included.");
+        }
+
+        if (found == 0)
+        {
+            // Every one of the eight is missing, which the message that follows this says
+            // better than a list would.
+            return;
+        }
+
+        string[] absent = [.. RetailArchives.Where(archive =>
+            !present.Any(name => name.Equals(archive, StringComparison.OrdinalIgnoreCase)))];
+
+        if (absent.Length > 0)
+        {
+            // A warning, not a refusal: a copy without day3.brn plays for two days, and
+            // stopping it from starting would be worse than saying what it will not reach.
+            Log.Warning($"Content: {absent.Length} of the eight archives are not in "
+                + $"{dataDirectory}: {string.Join("  ", absent)}");
+
+            Log.Warning("The game will start, but the rooms and cutscenes in them cannot "
+                + "be loaded.");
+        }
+    }
+
     /// <summary>Says what is missing and where it goes.</summary>
     /// <param name="dataDirectory">Where the archives were looked for.</param>
     private static void ExplainMissingArchives(string dataDirectory)
     {
-        Console.Error.WriteLine();
-        Console.Error.WriteLine(
+        Log.Error();
+        Log.Error(
             "GK3Reborn reads the original game's archives; it does not contain them.");
 
-        Console.Error.WriteLine(
+        Log.Error(
             $"Copy these from your installation's Data directory into {dataDirectory}:");
 
-        Console.Error.WriteLine("    " + string.Join("  ", RetailArchives));
-        Console.Error.WriteLine();
-        Console.Error.WriteLine(
+        Log.Error("    " + string.Join("  ", RetailArchives));
+        Log.Error();
+        Log.Error(
             "Nothing else from the original is needed: the .bik and .avi movies are "
             + "replaced by converted video in the .rebarn packs.");
 
-        Console.Error.WriteLine(
+        Log.Error(
             "Or pass --data <dir> to read them where they already are.");
     }
 
@@ -4876,9 +5125,15 @@ public static class Application
             if (Directory.Exists(candidate) &&
                 Directory.EnumerateFiles(candidate, "*.brn").Any())
             {
+                StartupReport.Searched("Content", candidates, candidate);
+
                 return candidate;
             }
         }
+
+        // Every place that was tried, since the message below names only one of them and
+        // "it is not where you say it is" is not an answer somebody can act on.
+        StartupReport.Searched("Content", candidates, null);
 
         // Nothing anywhere: name the place a player is meant to fill rather than the one a
         // developer's checkout happens to have, because that is the message they will read.
@@ -4909,8 +5164,8 @@ public static class Application
         string path = Path.Combine(InstallPaths.WritableRoot, "offscreen.png");
         File.WriteAllBytes(path, Formats.Bitmaps.PngWriter.Encode(image));
 
-        Console.WriteLine($"Rendered {image.Width}x{image.Height} on {renderer.DeviceName}");
-        Console.WriteLine($"Wrote {path}");
+        Log.Info($"Rendered {image.Width}x{image.Height} on {renderer.DeviceName}");
+        Log.Info($"Wrote {path}");
 
         return 0;
     }
@@ -4932,7 +5187,7 @@ public static class Application
         // point is to prove the chain reaches the screen at all.
         using var renderer = Rendering.Vulkan.VulkanRenderer.Create(window, window, bringUp: true);
 
-        Console.WriteLine($"Renderer: {renderer}");
+        Log.Info($"Renderer: {renderer}");
 
         window.Resized += (_, _) => renderer.Invalidate();
 
@@ -4957,7 +5212,7 @@ public static class Application
             }
         }
 
-        Console.WriteLine($"Presented {presented} frames at {renderer.SwapchainSize.Width}x"
+        Log.Info($"Presented {presented} frames at {renderer.SwapchainSize.Width}x"
             + $"{renderer.SwapchainSize.Height} across {renderer.SwapchainImageCount} swapchain images");
 
         return 0;
@@ -4978,7 +5233,7 @@ public static class Application
     /// frame, and doing it on another thread to hide that lost a device about one run in six.
     /// </param>
     private static void ReportGraphics(Rendering.Vulkan.VulkanDeviceReport? report = null) =>
-        Console.Write(GraphicsReport(report ?? Rendering.Vulkan.VulkanDeviceSelector.Survey()));
+        Log.Write(GraphicsReport(report ?? Rendering.Vulkan.VulkanDeviceSelector.Survey()));
 
     private static string GraphicsReport(Rendering.Vulkan.VulkanDeviceReport report)
     {

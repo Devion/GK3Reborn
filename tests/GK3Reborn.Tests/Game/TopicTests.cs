@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Actions;
+﻿using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Actions;
@@ -24,9 +24,10 @@ public sealed class TopicTests
     /// <summary>The shape of a real VERBS.TXT, cut down to what is read.</summary>
     private const string VerbsFile = """
         [VERBS]
-        LOOK, up=v_look_std, type=Normal
+        LOOK, up=v_look_std, hover=v_look_hov, type=Normal
         OPEN, up=v_open_std
-        BLACK_MARKER, up=i_blkmarker_std, type=Inventory
+        CLICK, type=Normal
+        BLACK_MARKER, up=i_blkmarker_std, hover=i_blkmarker_hov, type=Inventory
         T_INTRODUCE, up=i_intro_std, type=Topic
         T_TOUR_GROUP, up=i_tour_std, type=Topic
         T_HANDSHAKE, up=i_shake_std, type=RecurringTopic
@@ -239,5 +240,42 @@ public sealed class TopicTests
         resolver.Add(NvcFile.Parse(TalkingFile, "test.nvc", new DiagnosticBag()));
 
         Assert.Contains("TALK", Offered(resolver, "BUTHANE"));
+    }
+
+    [Fact]
+    public void The_file_also_says_what_each_verb_looks_like()
+    {
+        // The original's verb ring was pictures and no words at all, so this file is the
+        // only place that says which picture belongs to which verb. The names in it are
+        // lowercase and extensionless; what is in the archives is neither.
+        VerbLibrary verbs = Verbs;
+
+        Assert.Equal("V_LOOK_STD.BMP", verbs.IconOf("LOOK"));
+        Assert.Equal("V_LOOK_HOV.BMP", verbs.IconOf("LOOK", lit: true));
+
+        // Asked for by whatever case the action file happened to write.
+        Assert.Equal("I_BLKMARKER_STD.BMP", verbs.IconOf("black_marker"));
+    }
+
+    [Fact]
+    public void A_verb_with_no_lit_picture_is_drawn_resting()
+    {
+        // WALK_DOWN in the shipped file names an up and a down and no hover. Falling back
+        // to the resting picture keeps the row drawn; leaving it null would make the icon
+        // vanish at exactly the moment the player put the pointer on it.
+        Assert.Equal("V_OPEN_STD.BMP", Verbs.IconOf("OPEN", lit: true));
+    }
+
+    [Fact]
+    public void A_verb_the_file_gives_no_picture_answers_with_nothing()
+    {
+        // Three of the 287 name no art — CLICK, SELECT and WRITE. Those are drawn by their
+        // word alone rather than by a blank square, and so is a verb the file never lists.
+        VerbLibrary verbs = Verbs;
+
+        Assert.Null(verbs.IconOf("CLICK"));
+        Assert.Null(verbs.IconOf("NOT_A_VERB"));
+        Assert.Null(verbs.IconOf(null));
+        Assert.Equal(6, verbs.IconCount);
     }
 }

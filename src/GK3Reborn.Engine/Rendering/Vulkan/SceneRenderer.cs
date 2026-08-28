@@ -1,5 +1,6 @@
 ﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Foundation.Diagnostics;
 using Silk.NET.Vulkan;
 
 namespace GK3Reborn.Rendering.Vulkan;
@@ -395,7 +396,7 @@ public sealed unsafe class SceneRenderer : IDisposable
             {
                 _warnedAboutDeferred = true;
 
-                Console.Error.WriteLine(
+                Log.Warning(
                     "WARNING GK3R3411: The compositing stages could not be built, so the " +
                     "scene is rendered without ray tracing. (" + error.Message + ")");
             }

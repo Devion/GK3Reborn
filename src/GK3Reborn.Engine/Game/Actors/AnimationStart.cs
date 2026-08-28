@@ -141,8 +141,60 @@ public static class AnimationStart
             return null;
         }
 
-        return Vector3.Transform(local, pose * toWorld);
+        Vector3 standing = Vector3.Transform(local, pose * toWorld);
+
+        // The hips are a third of a metre up, so their height is not the ground's. The
+        // reference takes the position from the hips and the height from the lower shoe
+        // less its sole — GKActor::GetModelFloorAndShoePositions — and it matters because
+        // this is the height a walk's first floor query is asked about: handed a Y thirty-
+        // four units above the feet, a room whose floor covers the same ground twice
+        // answers about the wrong storey.
+        if (Soles(clip, frame, repeat, character, toWorld) is { } ground)
+        {
+            standing.Y = ground;
+        }
+
+        return standing;
     }
+
+    /// <summary>The height a pose puts a character's soles at, in the room.</summary>
+    /// <returns>The height, or null when the clip poses neither shoe.</returns>
+    /// <remarks>
+    /// The lower of the two, which is the one taking their weight: mid-stride the other is
+    /// in the air, and averaging them would have every walk bob half a step deep into the
+    /// floor and half a step above it.
+    /// </remarks>
+    private static float? Soles(
+        Formats.Animation.ActFile clip,
+        float frame,
+        bool repeat,
+        CharacterConfig character,
+        Matrix4x4 toWorld)
+    {
+        float? left = Sole(clip, frame, repeat, character.LeftShoe, toWorld);
+        float? right = Sole(clip, frame, repeat, character.RightShoe, toWorld);
+
+        return (left, right) switch
+        {
+            ({ } l, { } r) => MathF.Min(l, r) - character.ShoeThickness,
+            ({ } l, null) => l - character.ShoeThickness,
+            (null, { } r) => r - character.ShoeThickness,
+            _ => null,
+        };
+    }
+
+    /// <summary>Where one shoe's triad sits, vertically, in the room.</summary>
+    private static float? Sole(
+        Formats.Animation.ActFile clip,
+        float frame,
+        bool repeat,
+        CharacterAxes? axes,
+        Matrix4x4 toWorld) =>
+        axes is { } shoe &&
+        clip.PoseAt(shoe.Mesh, frame, repeat) is { } pose &&
+        Point(clip, shoe) is { } local
+            ? Vector3.Transform(local, pose * toWorld).Y
+            : null;
 
     /// <summary>
     /// Which way a character is facing at a moment of a clip.

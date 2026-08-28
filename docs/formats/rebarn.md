@@ -18,6 +18,25 @@ the original, so a partial pack is a perfectly good pack.
 ## Building one
 
 ```
+rebuild-content.cmd
+```
+
+In the directory above the repository, beside `ContentWorkspace` and `PbrLab`, and it is
+the whole chain: it derives the normal, emissive, material and ORM/height sets for whatever
+base colour changed, packs both volumes, verifies them, and copies them to the game's
+publish directory. Every pass skips work whose inputs are unchanged, so a handful of
+redrawn textures is a couple of minutes. `--packs-only` when the derived channels are
+already current, `--dry-run` to see what it would do.
+
+**Packing alone is not the whole job.** A texture in `enhanced/textures` is the source of
+its normal map, which is the source of its ORM and its height map. Repacking without
+re-deriving ships a set where the material channels belong to a picture that no longer
+exists — which verifies perfectly, because a pack cannot see an absence, and shows up as a
+surface lighting wrongly.
+
+The packing half by itself:
+
+```
 dotnet run --project tools/GK3Reborn.Tools -- pack-content --workspace <ContentWorkspace>
 ```
 

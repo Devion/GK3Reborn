@@ -29,6 +29,11 @@ public readonly record struct CharacterAxes(int Mesh, int Group, int Point);
 /// What they have on their feet — "Male Leather", "Female Heels" — which with the floor
 /// underfoot decides what a step sounds like. See <see cref="Footsteps"/>.
 /// </param>
+/// <param name="ShoeThickness">
+/// How far the shoe triads sit above the ground the character is standing on, in scene
+/// units. Between a quarter of a unit and eighteen and a half across the cast; the
+/// reference's default for a character who does not say is 0.75, which is Gabriel's.
+/// </param>
 public sealed record CharacterConfig(
     string Identifier,
     float WalkerHeight,
@@ -38,8 +43,12 @@ public sealed record CharacterConfig(
     CharacterAxes? Hips = null,
     CharacterAxes? LeftShoe = null,
     CharacterAxes? RightShoe = null,
-    string? ShoeType = null)
+    string? ShoeType = null,
+    float ShoeThickness = 0.75f)
 {
+    /// <summary>The thickness assumed for a character whose entry omits it.</summary>
+    public const float DefaultShoeThickness = 0.75f;
+
     /// <summary>Whether the game records this character as a woman.</summary>
     /// <remarks>
     /// Out of <see cref="ShoeType"/>, which every one of the file's 45 characters gives and
@@ -139,7 +148,9 @@ public sealed class CharacterLibrary
                 Axes("Hip"),
                 Axes("LShoe"),
                 Axes("RShoe"),
-                Value("ShoeType"));
+                Value("ShoeType"),
+                Line("ShoeThickness")?.Head.AsNumber()
+                    ?? CharacterConfig.DefaultShoeThickness);
         }
 
         return library;

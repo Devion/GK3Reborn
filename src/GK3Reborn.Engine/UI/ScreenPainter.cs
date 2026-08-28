@@ -45,6 +45,10 @@ namespace GK3Reborn.UI;
 /// written about an item rather than about the room, and every one of them is guarded by
 /// a case that asks whether the inventory is what the player is looking at.
 /// </param>
+/// <param name="Icons">
+/// The game's own picture of an item, by item name. Null when nothing has been loaded, and
+/// an item may answer with nothing, so both are ordinary.
+/// </param>
 public readonly record struct ScreenView(
     Screen Screen,
     IReadOnlyList<string> Inventory,
@@ -59,7 +63,8 @@ public readonly record struct ScreenView(
     Vector2 Aim = default,
     IReadOnlyList<string>? Verbs = null,
     IReadOnlyList<JournalDay>? Journal = null,
-    int Prints = -1);
+    int Prints = -1,
+    Func<string, ItemIcon>? Icons = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -293,9 +298,14 @@ public sealed class ScreenPainter
             return;
         }
 
-        float cell = 210f * unit;
-        float rowHeight = Overlay.LineHeight + (18 * unit);
+        // The item's own picture, where the game has one. Reserved whether it has or not,
+        // so that the names down a column start in the same place — an inventory where
+        // every other row is indented reads as a list that has gone wrong.
+        float art = view.Icons is null ? 0 : 40 * unit;
+        float cell = (210f * unit) + art;
+        float rowHeight = MathF.Max(Overlay.LineHeight + (18 * unit), art + (12 * unit));
         int columns = Math.Max(1, (int)((body.Z - (32 * unit)) / cell));
+        Vector4? open = null;
 
         for (int i = 0; i < view.Inventory.Count; i++)
         {
@@ -314,16 +324,25 @@ public sealed class ScreenPainter
 
             Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, held ? PanelLit : Panel);
             Overlay.Rect(bounds.X, bounds.Y, bounds.Z, 1, held ? Accent : Rule);
-            Overlay.Text(Pretty(item), x + (10 * unit), y + (8 * unit), held ? Accent : Ink);
+
+            if (view.Icons?.Invoke(item) is { Drawn: true } icon)
+            {
+                Vector4 at = icon.Fit(x + (8 * unit), y + ((rowHeight - art) / 2), art);
+
+                Overlay.Picture(icon.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+            }
+
+            Overlay.Text(
+                Pretty(item),
+                x + (10 * unit) + art,
+                y + ((rowHeight - Overlay.LineHeight) / 2),
+                held ? Accent : Ink);
 
             _hits.Add(("item:" + item, bounds));
 
-            // The verbs for whichever item was clicked, beside it, exactly as a right click
-            // in the room offers a noun's verbs where the pointer is. Asked for: clicking a
-            // thing in your pocket used to open a page of its own to hold two words on.
             if (string.Equals(view.Subject, item, StringComparison.OrdinalIgnoreCase))
             {
-                Beside(view, bounds, body, unit);
+                open = bounds;
             }
         }
 
@@ -336,6 +355,19 @@ public sealed class ScreenPainter
             body.X + (20 * unit),
             body.Y + body.W - Overlay.LineHeight - (12 * unit),
             Dim);
+
+        // The verbs for whichever item was clicked, beside it, exactly as a right click in
+        // the room offers a noun's verbs where the pointer is. Asked for: clicking a thing
+        // in your pocket used to open a page of its own to hold two words on.
+        //
+        // After every item rather than beside its own, which is the same thing said twice:
+        // laid down last it is drawn over the rest of the page instead of under the next
+        // row of it, and hit-tested before the page, so a click on a word is that word and
+        // not the item the words are covering.
+        if (open is { } slot)
+        {
+            Beside(view, slot, body, unit);
+        }
     }
 
     /// <summary>
@@ -672,9 +704,25 @@ public sealed class ScreenPainter
     {
         string subject = view.Screen.Subject ?? view.Held ?? string.Empty;
 
-        Overlay.Text(Pretty(subject), body.X + (20 * unit), top, Ink);
+        // Larger here than in the list. This is the screen for one thing, and the picture
+        // is the fastest way of saying which thing it is.
+        ItemIcon icon = view.Icons?.Invoke(subject) ?? default;
+        float art = icon.Drawn ? 72 * unit : 0;
 
-        float y = top + (Overlay.LineHeight * 2);
+        if (icon.Drawn)
+        {
+            Vector4 at = icon.Fit(body.X + (16 * unit), top, art);
+
+            Overlay.Picture(icon.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+        }
+
+        Overlay.Text(
+            Pretty(subject),
+            body.X + (20 * unit) + art,
+            art > 0 ? top + ((art - Overlay.LineHeight) / 2) : top,
+            Ink);
+
+        float y = top + MathF.Max(Overlay.LineHeight * 2, art + (10 * unit));
 
         if (view.Verbs is not { Count: > 0 } verbs)
         {

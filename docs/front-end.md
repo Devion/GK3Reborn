@@ -98,6 +98,8 @@ destinations, and there are no others in the file.
 | Write out what is said | whether the caption reaches the interface at all |
 | Play the intro on starting | the two films below |
 | Easter eggs | `GameState.EasterEggs`, which is the story's `EGG` flag: the built-in `EGG` action case and Sidney's sixth email |
+| Skip the cat-hair moustache | `BLACK_MOUSTACHE` in Gabriel's pocket at Day 1, 2pm, and `Faces.ComposedFrom` so he wears it |
+| Gabriel cannot be killed | `GameState.PlotArmour`, which `ScriptHost` reads on the way into every script function |
 
 **Easter eggs are the game's own switch, finished.** `EGG` is one of the built-in cases an
 action file may be written against, and the original hard-codes it false with a note saying
@@ -111,6 +113,75 @@ Off by default, because the game as it shipped is the game as it shipped. And it
 preference rather than a fact about the story, so it wins over a save: loading somebody
 else's game does not turn it on, and loading a game saved before it was turned on does not
 turn it off.
+
+## Made easier
+
+The last two rows are on a page of their own, and away from Playing on purpose: everything
+on Playing is a preference about how the game is *presented*, and these two change what the
+story asks of the player. Both are off by default, both name the puzzle they take away
+rather than saying "easier", and both work by changing what the shipped scripts do rather
+than by editing them. `Game/Assists.cs` is the whole of it — every item, flag and function
+name either of them touches is in that one file.
+
+**The moustache.** GK3's most notorious chain is spray the cat, tape the hole it squeezes
+through, peel the fur off the tape, combine that with a packet of maple syrup. This hands
+over the finished `BLACK_MOUSTACHE` on the way into the first room of Day 1, 2pm — the only
+timeblock any of those nouns exists in — and skips all of it. What is left is the cap, the
+coat and the marker on Mosely's passport, which is assembly rather than puzzle; taking that
+away too would leave the moped shop with nothing in front of it.
+
+Once, and recorded as a story flag so it travels in the save: a player who has combined the
+moustache into the cap and then reloads must not be handed another. A player already
+carrying anything the moustache can *become* is past the puzzle and is given nothing, which
+is what makes turning this on halfway through a game played without it safe.
+
+**And he wears it, which is the game's own artwork.** `GA3` is a character in `FACES.TXT`
+and `CHARACTERS.TXT` in his own right — the disguised Gabriel the original places offstage
+and hidden in the moped shop — and his face bitmap is Gabriel's own with a moustache
+painted into it, on the same layout, with all eight lip-sync mouths, a forehead, eyelids and
+two blink animations to match. So `Faces` composes Gabriel's face out of `GA3`'s bitmaps and
+paints the result onto `GAB`'s texture: he keeps his own model, his own clothes and his own
+animations, and grows a moustache. `GABSMILE.ANM` and its eight relatives name `GAB_SMILE_01`
+outright rather than through the config, so a patch named for the face it was painted for is
+looked for under the artwork in use first — otherwise a smile would shave him for as long as
+it lasted.
+
+He wears it **all the time**, from the moment the row is switched on: in every room, on
+every day, whatever the clock says and whatever he is actually carrying. The item and the
+look are deliberately not tied together — one is a puzzle being skipped and the other is a
+look somebody wanted — so he has it in the hotel on the first morning, hours before the game
+has anything to say about a moustache. Toggling it does not wait for the next door either:
+the faces in a room are composed when the room is built, so `Faces.Recompose` composes them
+again on the spot and the console says how many changed.
+
+The rest of the disguise stays in the bag. The cap and the gold coat are on GA3's *model*
+rather than on his face, and a Gabriel permanently dressed as somebody else is not what the
+row says. The pre-rendered films are films, so he is clean-shaven in those whatever this
+says.
+
+**Plot armour.** Five scripts in the game can kill Gabriel, all of them in the temple under
+the château on the last night, and every one of them goes through the same door: a `Die`
+function that stops the music, puts up the death screen and resets the puzzle behind it.
+`TE1`, `TE3`, `TE4`, `TE5` and `TE6` are the only scripts in the corpus with a function by
+that name, and the only ones with the `Restart` and `PostDeath` pair the death screen calls
+back into when the player chooses to try again.
+
+So the assistance answers that one door differently: `ScriptHost` runs `Restart` and then
+`PostDeath` — the puzzle reset, and then started running again — and never enters `Die` at
+all. That is exactly what the original does after a death, without the death and without the
+screen. Both halves are checked before intervening, so a script with a `Die` and nowhere to
+restart is left alone rather than half-run.
+
+The staging still plays. He falls, or the pendulum swings, or the demon strikes: that is the
+scene telling the player what went wrong, and it is over by the time the game says he is
+dead. The console says `Plot armour: TE6 would have killed Gabriel` when it steps in,
+because otherwise a player has no way to tell a puzzle that reset him from one that killed
+him.
+
+`PlotArmour` is on `GameState` beside `CinematicsEnabled` rather than read out of the
+settings where it is wanted, and it is in the state hash: two runs made with different
+answers to it diverge, and the harness should be able to see why. Like the easter eggs it is
+a preference rather than a fact about the story, so it wins over a save.
 
 The five volumes reach nine buses because there are nine and only five sliders. A bus
 left out is a sound nobody can turn down, and **which** one that would be depends on
@@ -177,7 +248,7 @@ dragging a slider. A menu that can only be used one way is a menu somebody canno
 | `--front` | show the menu first even with `--scene` |
 | `--start NAME` | begin somewhere other than `R25` |
 | `--skip-intro` | this run only; the setting is not touched |
-| `--front-page audio\|video\|gameplay\|options` | open on that page |
+| `--front-page audio\|video\|gameplay\|assists\|options` | open on that page |
 | `--font-file PATH` | draw the interface with that typeface |
 | `--bitmap-font` | draw it with GK3's own sheets instead |
 | `--frames N` `--screenshot PATH` | with `--front`: draw N frames of the menu, photograph it, and end |

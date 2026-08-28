@@ -22,6 +22,9 @@ public enum FrontEndPage
     /// <summary>How the game plays.</summary>
     Gameplay,
 
+    /// <summary>What the game will do for the player rather than ask of them.</summary>
+    Assists,
+
     /// <summary>The slots a game can be written to.</summary>
     Save,
 
@@ -122,6 +125,7 @@ public sealed class FrontEnd
         FrontEndPage.Audio => "Sound",
         FrontEndPage.Save => "Save Game",
         FrontEndPage.Load => "Restore Game",
+        FrontEndPage.Assists => "Made Easier",
         _ => "Playing",
     };
 
@@ -134,6 +138,7 @@ public sealed class FrontEnd
         FrontEndPage.Audio => Audio(),
         FrontEndPage.Save => Slots(writing: true),
         FrontEndPage.Load => Slots(writing: false),
+        FrontEndPage.Assists => Easier(),
         _ => Gameplay(),
     };
 
@@ -175,6 +180,10 @@ public sealed class FrontEnd
 
             case "gameplay":
                 Page = FrontEndPage.Gameplay;
+                return FrontEndOutcome.Stay;
+
+            case "assists":
+                Page = FrontEndPage.Assists;
                 return FrontEndOutcome.Stay;
 
             case "save":
@@ -231,7 +240,8 @@ public sealed class FrontEnd
         // the moment saving was added.
         Page = Page switch
         {
-            FrontEndPage.Video or FrontEndPage.Audio or FrontEndPage.Gameplay =>
+            FrontEndPage.Video or FrontEndPage.Audio or FrontEndPage.Gameplay
+                or FrontEndPage.Assists =>
                 FrontEndPage.Options,
 
             _ => FrontEndPage.Main,
@@ -449,6 +459,7 @@ public sealed class FrontEnd
         MenuItem.Button("video", "Picture"),
         MenuItem.Button("audio", "Sound"),
         MenuItem.Button("gameplay", "Playing"),
+        MenuItem.Button("assists", "Made Easier"),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -507,6 +518,34 @@ public sealed class FrontEnd
         MenuItem.Button("back", "Back"),
     ];
 
+    /// <summary>
+    /// The two things the game will do for the player rather than ask of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Their own page, and away from Playing, because these are not preferences about how
+    /// the game is presented: each one changes what the story asks of the player, and a
+    /// switch that quietly does that does not belong in the same list as the captions.
+    /// </para>
+    /// <para>
+    /// Both off by default and both say plainly what they take away. Somebody turning one
+    /// on should know exactly which puzzle they are giving up.
+    /// </para>
+    /// </remarks>
+    private IReadOnlyList<MenuItem> Easier() =>
+    [
+        MenuItem.Toggle("moustache", "Skip the cat-hair moustache", Settings.AlwaysWearsMoustache),
+
+        // Named, because "skip a puzzle" is no help to somebody who has not met it yet and
+        // no reassurance to somebody who has.
+        MenuItem.Label("Gabriel has the moustache made by the time he needs it, and wears it."),
+        MenuItem.Toggle("armour", "Gabriel cannot be killed", Settings.PlotArmour),
+
+        // Where it matters, since nothing in the first two days can kill anybody.
+        MenuItem.Label("The temple's traps put you back to the start instead of ending the game."),
+        MenuItem.Button("back", "Back"),
+    ];
+
     private void Change(MenuAction action)
     {
         Settings before = Settings;
@@ -536,6 +575,13 @@ public sealed class FrontEnd
             "captions" => Settings with { Captions = !Settings.Captions },
             "intro" => Settings with { PlayIntro = !Settings.PlayIntro },
             "eggs" => Settings with { EasterEggs = !Settings.EasterEggs },
+
+            "moustache" => Settings with
+            {
+                AlwaysWearsMoustache = !Settings.AlwaysWearsMoustache,
+            },
+
+            "armour" => Settings with { PlotArmour = !Settings.PlotArmour },
 
             _ => Settings,
         };

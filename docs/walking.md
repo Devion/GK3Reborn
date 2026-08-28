@@ -1,4 +1,4 @@
-# Walking
+﻿# Walking
 
 How an actor gets from one side of a room to the other, and how they stay on the floor
 while they do it.
@@ -69,13 +69,28 @@ barycentric in the horizontal plane: the same three weights that decide whether 
 over the triangle mix the corners' heights, so a slope reads as a slope rather than as
 steps.
 
-**Rooms are not single-storey.** A stairwell's floor object covers the same ground twice
-and a gallery over a hall covers it a third time, so "the triangle under this point" is
-several triangles and which one is meant depends on where the actor already is. The nearest
-candidate that is not an implausible climb wins — up to a step's height above, rather more
-below, because walking off a kerb is ordinary and climbing onto a landing is not — and
-failing that, the nearest of any, so an actor who has drifted is put back on something
-rather than left in the air.
+**Rooms are not single-storey.** A stairwell's floor object covers the same ground twice, a
+gallery over a hall covers it a third time, and an outdoor room's floor usually carries the
+hillside it stands on as well as the ground walked on — a third of CD1's does. So "the
+triangle under this point" is several triangles, and which one is meant depends on where the
+actor already is.
+
+**The highest candidate that is not an implausible climb wins** — up to a step's height
+above them, rather more below, because walking off a kerb is ordinary and climbing onto a
+landing is not — and failing all of them, the nearest of any, so an actor who has drifted is
+put back on something rather than left in the air.
+
+Highest rather than nearest, because the reference asks this question by dropping a ray from
+ten thousand units up and keeping the first surface it meets (`BSP::GetFloorInfo`): what you
+stand on is the topmost floor over your feet, full stop. The window is that with the storeys
+above and below rejected, which is the part the ray from the sky gets wrong at the foot of a
+staircase. Taking the nearest instead reads correctly on a stair and wrongly on a hillside:
+at CD1 the terrain runs eleven units under the paved ruins and forty under the tower
+platform, so an actor stepping onto them was handed the terrain — the nearer of the two —
+and walked the ruins knee-deep and the tower up to the chest. Across the corpus the two
+rules pick the same surface at all 830 authored positions, and of 10,232 straight walks
+between pairs of them they end more than a unit apart 80 times, all in CD1 and at Larry's
+front step, and every one of the 80 is nearer the artists' authored height under this rule.
 
 A vertical triangle inside the floor object has no "under". Its horizontal area is zero and
 dividing by it answers with an infinity that then wins every nearest-height comparison in
@@ -90,6 +105,15 @@ report says which, because the failure is otherwise silent until the first ramp:
 Both the walk and `Place` snap to it. Placing matters as much as walking: a spot authored
 at zero in a room whose floor is not at zero would otherwise start every walk from the
 wrong storey, and that is the one mistake the height query cannot recover from afterwards.
+
+**What the actor's own height is measured from matters for the same reason.** While a clip
+plays, the logical position follows the pose rather than the placement, and the pose is read
+at the hip triad — but the *height* has to come from the shoes. `AnimationStart.Standing`
+takes the hips' X and Z and the lower shoe's Y less `ShoeThickness` from `CHARACTERS.TXT`,
+which is the reference's `GKActor::GetModelFloorAndShoePositions`. Reading the hips outright
+left every actor standing 33.8 units in the air the moment a walk ended, and since that is
+the height the *next* walk's first floor query is asked about, it widened the step an actor
+could climb from thirty units to sixty-four.
 
 ## How fast
 

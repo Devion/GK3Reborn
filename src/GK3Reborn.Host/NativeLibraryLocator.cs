@@ -34,6 +34,9 @@ public static class NativeLibraryLocator
         ? [".dll"]
         : OperatingSystem.IsMacOS() ? [".dylib"] : [".so"];
 
+    /// <summary>Library names already written down, so that a log says each thing once.</summary>
+    private static readonly HashSet<string> _reported = new(StringComparer.Ordinal);
+
     private static string? _libsRoot;
     private static bool _installed;
 
@@ -127,10 +130,60 @@ public static class NativeLibraryLocator
         string? candidate = FindCandidate(libraryName);
         if (candidate is null)
         {
-            // Fall through to the default probing logic rather than failing here.
+            // Fall through to the default probing logic rather than failing here. Recorded
+            // rather than ignored: when the default probing then fails too, the exception
+            // says only that a library was not found, and this line says where the game
+            // had expected it to be.
+            Note(libraryName, $"{libraryName}: not under {_libsRoot}, asking the system loader");
+
             return IntPtr.Zero;
         }
 
-        return NativeLibrary.TryLoad(candidate, out IntPtr handle) ? handle : IntPtr.Zero;
+        if (NativeLibrary.TryLoad(candidate, out IntPtr handle))
+        {
+            Note(libraryName, $"{libraryName}: loaded {candidate}");
+
+            return handle;
+        }
+
+        // The file is there and will not load, which on Linux almost always means one of
+        // its own dependencies is missing - libX11 for GLFW, a stale glibc for anything.
+        // The default probing runs next and fails with a message that names neither, so
+        // this is the only place the difference between "absent" and "unloadable" exists.
+        Warn(libraryName, $"{libraryName}: {candidate} exists but could not be loaded. "
+            + "Its own dependencies are probably missing; on Linux, `ldd` on that file "
+            + "names them.");
+
+        return IntPtr.Zero;
+    }
+
+    /// <summary>Records what happened to one library, once per library.</summary>
+    /// <remarks>
+    /// A resolver is asked about the same name repeatedly, and once is all a log needs. The
+    /// engine's log is reached from here rather than the other way round because this runs
+    /// long after startup, when the assembly it lives in is loaded and open.
+    /// </remarks>
+    private static void Note(string libraryName, string message)
+    {
+        if (FirstTime(libraryName))
+        {
+            GK3Reborn.Foundation.Diagnostics.Log.Detail(message);
+        }
+    }
+
+    private static void Warn(string libraryName, string message)
+    {
+        if (FirstTime(libraryName))
+        {
+            GK3Reborn.Foundation.Diagnostics.Log.Warning(message);
+        }
+    }
+
+    private static bool FirstTime(string libraryName)
+    {
+        lock (_reported)
+        {
+            return _reported.Add(libraryName);
+        }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Platform;
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
@@ -771,7 +772,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             {
                 // Said out loud and once: a cutscene that silently does not appear looks
                 // like the game having hung, and the sound plays either way.
-                Console.Error.WriteLine(
+                Log.Warning(
                     "WARNING GK3R3420: The movie pipeline could not be built, so cutscenes " +
                     "play without a picture. (" + error.Message + ")");
 
@@ -814,7 +815,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             }
             catch (VulkanException error)
             {
-                Console.Error.WriteLine(
+                Log.Warning(
                     "WARNING GK3R3420: The movie pipeline could not be built, so the menu "
                     + "has no picture behind it. (" + error.Message + ")");
 
@@ -1632,7 +1633,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 // Said out loud, because the room still draws without it — with the
                 // lighting it had before any of this existed — and a renderer that
                 // quietly loses a whole stage looks like one that never had it.
-                Console.Error.WriteLine(
+                Log.Warning(
                     "WARNING GK3R3410: The occlusion denoiser could not be built, so " +
                     "the room is lit without it. (" + error.Message + ")");
 
@@ -1950,7 +1951,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         {
             // A transition that cuts rather than fades is a transition. Losing the room
             // over it would not be.
-            Console.Error.WriteLine(
+            Log.Warning(
                 "WARNING GK3R3421: The fade pipeline could not be built, so scene changes "
                 + "cut rather than fade. (" + error.Message + ")");
 
