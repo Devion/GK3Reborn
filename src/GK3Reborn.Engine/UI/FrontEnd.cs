@@ -1,6 +1,9 @@
 ﻿using System.Globalization;
 using GK3Reborn.Audio;
 using GK3Reborn.Game;
+using GK3Reborn.Platform;
+using GK3Reborn.Rendering;
+using GK3Reborn.Rendering.Upscaling;
 
 namespace GK3Reborn.UI;
 
@@ -15,6 +18,12 @@ public enum FrontEndPage
 
     /// <summary>What the picture costs.</summary>
     Video,
+
+    /// <summary>The window, the monitor, and how bright the display goes.</summary>
+    Display,
+
+    /// <summary>Drawing the room small and enlarging it.</summary>
+    Upscaling,
 
     /// <summary>How loud everything is.</summary>
     Audio,
@@ -81,6 +90,63 @@ public sealed class FrontEnd
     private static readonly PictureQuality[] Pictures =
         [PictureQuality.Original, PictureQuality.Improved, PictureQuality.High, PictureQuality.Highest];
 
+    private static readonly WindowMode[] Windows =
+        [WindowMode.Windowed, WindowMode.BorderlessFullscreen, WindowMode.ExclusiveFullscreen];
+
+    /// <summary>Every upscaler there is, which is the default when nobody has narrowed it.</summary>
+    private static readonly UpscalerKind[] EveryUpscaler =
+        [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr, UpscalerKind.Dlss];
+
+    private static readonly UpscalerQuality[] Ratios =
+    [
+        UpscalerQuality.Native,
+        UpscalerQuality.UltraQuality,
+        UpscalerQuality.Quality,
+        UpscalerQuality.Balanced,
+        UpscalerQuality.Performance,
+        UpscalerQuality.UltraPerformance,
+    ];
+
+    private static readonly FrameGeneration[] Generations =
+        [FrameGeneration.Off, FrameGeneration.Interpolated];
+
+    private static readonly HdrTransfer[] Transfers =
+        [HdrTransfer.Automatic, HdrTransfer.PerceptualQuantiser, HdrTransfer.ExtendedLinear];
+
+    private static readonly ToneMapping[] Curves =
+        [ToneMapping.Clip, ToneMapping.Reinhard, ToneMapping.Filmic];
+
+    /// <summary>The ends of the text-size slider.</summary>
+    /// <remarks>
+    /// Named from the settings rather than written again, so the row cannot offer a size
+    /// the file will clamp away the moment it is saved.
+    /// </remarks>
+    private const float SmallestText = GK3Reborn.Game.Settings.SmallestText;
+
+    /// <summary>The other end.</summary>
+    private const float LargestText = GK3Reborn.Game.Settings.LargestText;
+
+    /// <summary>
+    /// The sizes the display page offers, plus whatever the monitor's own is.
+    /// </summary>
+    /// <remarks>
+    /// A short list of the ones people actually use rather than everything the driver will
+    /// enumerate. A monitor reports dozens of modes, most of them refresh variants of four
+    /// or five sizes, and a settings page that lists all of them is a page nobody can find
+    /// their resolution on. Anything not here is reachable by leaving it on the monitor's
+    /// own and resizing the window.
+    /// </remarks>
+    private static readonly (int Width, int Height)[] Sizes =
+    [
+        (0, 0),
+        (1280, 720),
+        (1600, 900),
+        (1920, 1080),
+        (2560, 1440),
+        (3440, 1440),
+        (3840, 2160),
+    ];
+
     /// <summary>Creates a front end over some settings.</summary>
     /// <param name="settings">What the player has chosen so far.</param>
     /// <param name="inGame">Whether there is a room to go back to.</param>
@@ -122,6 +188,8 @@ public sealed class FrontEnd
             : Illustrated ? string.Empty : "Gabriel Knight 3",
         FrontEndPage.Options => "Settings",
         FrontEndPage.Video => "Picture",
+        FrontEndPage.Display => "Display",
+        FrontEndPage.Upscaling => "Upscaling",
         FrontEndPage.Audio => "Sound",
         FrontEndPage.Save => "Save Game",
         FrontEndPage.Load => "Restore Game",
@@ -135,6 +203,8 @@ public sealed class FrontEnd
         FrontEndPage.Main => Main(),
         FrontEndPage.Options => Options(),
         FrontEndPage.Video => Video(),
+        FrontEndPage.Display => Display(),
+        FrontEndPage.Upscaling => Upscaling(),
         FrontEndPage.Audio => Audio(),
         FrontEndPage.Save => Slots(writing: true),
         FrontEndPage.Load => Slots(writing: false),
@@ -172,6 +242,14 @@ public sealed class FrontEnd
 
             case "video":
                 Page = FrontEndPage.Video;
+                return FrontEndOutcome.Stay;
+
+            case "display":
+                Page = FrontEndPage.Display;
+                return FrontEndOutcome.Stay;
+
+            case "upscaling":
+                Page = FrontEndPage.Upscaling;
                 return FrontEndOutcome.Stay;
 
             case "audio":
@@ -240,8 +318,8 @@ public sealed class FrontEnd
         // the moment saving was added.
         Page = Page switch
         {
-            FrontEndPage.Video or FrontEndPage.Audio or FrontEndPage.Gameplay
-                or FrontEndPage.Assists =>
+            FrontEndPage.Video or FrontEndPage.Display or FrontEndPage.Upscaling
+                or FrontEndPage.Audio or FrontEndPage.Gameplay or FrontEndPage.Assists =>
                 FrontEndPage.Options,
 
             _ => FrontEndPage.Main,
@@ -265,8 +343,18 @@ public sealed class FrontEnd
         }
 
         Dirty = false;
-        return Settings.Save(path);
+        return Settings.Save(path ?? StoredAt);
     }
+
+    /// <summary>
+    /// Where these settings came from, and where they go back to.
+    /// </summary>
+    /// <remarks>
+    /// Null for the player's own profile, which is the ordinary case. Set when the host was
+    /// pointed at another file, so that a run taking a photograph of a display setting
+    /// writes its changes to that file rather than to the one somebody is playing with.
+    /// </remarks>
+    public string? StoredAt { get; set; }
 
     /// <summary>Which slot the player last pointed at.</summary>
     /// <remarks>
@@ -454,9 +542,69 @@ public sealed class FrontEnd
             $"{name}  -  {called}  -  {save.Written.LocalDateTime:dd/MM HH:mm}");
     }
 
+    /// <summary>
+    /// Which of the vendors' runtimes are installed, for the rows that need to say.
+    /// </summary>
+    /// <remarks>
+    /// Set by the host. Null draws every upscaler as unavailable, which is the honest
+    /// answer for a front end nobody has told: it has no way to look for a file itself and
+    /// no business doing so.
+    /// </remarks>
+    public UpscalerRuntimes? Runtimes { get; set; }
+
+    /// <summary>How big the window is, so the upscaling page can say what it will draw.</summary>
+    public (int Width, int Height) Window { get; set; } = (1920, 1080);
+
+    /// <summary>
+    /// Which upscalers this machine may be offered.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set by the host from the card the renderer chose. DLSS is not on the list on a card
+    /// that is not NVIDIA's, and the row does not step onto it: a permanently unavailable
+    /// option is worse than an absent one, because it reads as something the game has
+    /// failed to do rather than as something this hardware cannot.
+    /// </para>
+    /// <para>
+    /// FSR stays on every list. FidelityFX is compute and runs on anything, which is
+    /// exactly why an NVIDIA player who has not installed NVIDIA's runtime still has a good
+    /// temporal upscaler available to them.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<UpscalerKind> Offered { get; set; } = EveryUpscaler;
+
+    /// <summary>Whether the display actually gave back a high dynamic range colour space.</summary>
+    /// <remarks>
+    /// Distinct from the setting. Asking for HDR on a monitor in SDR mode changes nothing,
+    /// and a page that shows the switch on and says nothing else has told the player their
+    /// display is the problem in the least useful way available.
+    /// </remarks>
+    public bool HighDynamicRangeActive { get; set; }
+
+    /// <summary>What is actually upscaling, in the renderer's own words.</summary>
+    public string UpscalerRunning { get; set; } = string.Empty;
+
+    /// <summary>Whether DLSS started and this card can run it.</summary>
+    /// <remarks>
+    /// Not the same question as whether the files are installed, and the page says so
+    /// differently: a missing file is a download, and a card that cannot run it is not.
+    /// </remarks>
+    public bool DlssAvailable { get; set; }
+
+    /// <summary>Whether DLSS can denoise the traced light as well as upscale it.</summary>
+    public bool DlssRayReconstruction { get; set; }
+
+    /// <summary>Why it cannot, when the files for it are installed.</summary>
+    public string DlssRayReconstructionNote { get; set; } = string.Empty;
+
+    /// <summary>Whether DLSS can generate frames.</summary>
+    public bool DlssFrameGeneration { get; set; }
+
     private static IReadOnlyList<MenuItem> Options() =>
     [
         MenuItem.Button("video", "Picture"),
+        MenuItem.Button("display", "Display"),
+        MenuItem.Button("upscaling", "Upscaling"),
         MenuItem.Button("audio", "Sound"),
         MenuItem.Button("gameplay", "Playing"),
         MenuItem.Button("assists", "Made Easier"),
@@ -466,19 +614,220 @@ public sealed class FrontEnd
     private IReadOnlyList<MenuItem> Video() =>
     [
         MenuItem.Choice("picture", "Lighting", Describe(Settings.Picture)),
-
-        // Each explanation directly under the row it explains. A page whose notes are
-        // collected at the bottom makes the reader work out which belongs to which.
-        MenuItem.Label(Explain(Settings.Picture)),
         MenuItem.Toggle("enhanced", "Higher-resolution textures", Settings.EnhancedTextures),
         MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
         MenuItem.Toggle("terrain", "Reconstructed horizon", Settings.TerrainBackdrop),
 
-        // The room standing round the player was built from whichever set was chosen when
-        // it loaded. Rebuilding it here would mean reloading the scene underneath them.
-        MenuItem.Label("Textures, trees and horizon change as you go through the next door."),
+        // The one thing on this page a player cannot see for themselves: the room standing
+        // round them was built from whichever set was chosen when it loaded, and rebuilding
+        // it here would mean reloading the scene underneath them.
+        MenuItem.Label("The last three take effect at the next door."),
         MenuItem.Button("back", "Back"),
     ];
+
+    /// <summary>
+    /// The window, the monitor, and how bright the display is allowed to go.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Separate from Picture because it is about the <em>display</em> rather than about the
+    /// room: nothing on this page changes what is drawn, only how large it is shown and how
+    /// bright the brightest part of it is allowed to be.
+    /// </para>
+    /// <para>
+    /// The four luminances only appear once HDR is on. They are meaningless without it —
+    /// there is nowhere above white to put anything on an 8-bit sRGB display — and four
+    /// dead rows on a page is how a settings screen teaches somebody that rows can be dead.
+    /// </para>
+    /// <para>
+    /// <b>No row explains itself.</b> A settings page is read by somebody looking for one
+    /// thing, and a paragraph under every row is what they have to scroll past to find it.
+    /// What is left is what the player cannot see for themselves: whether the display took
+    /// the colour space it was asked for.
+    /// </para>
+    /// </remarks>
+    private List<MenuItem> Display()
+    {
+        List<MenuItem> rows =
+        [
+            MenuItem.Choice("window", "Window", Describe(Settings.Display)),
+
+            // Dead rather than explained. A borderless window is the size of the monitor
+            // by definition, so there is no size to choose; a row the player cannot land
+            // on says that in no words at all, where the sentence it replaces cost three
+            // lines of the page.
+            MenuItem.Choice("size", "Resolution", DescribeSize()) with
+            {
+                Enabled = Settings.Display != WindowMode.BorderlessFullscreen,
+            },
+
+            MenuItem.Slider(
+                "textsize",
+                "Text size",
+                Fraction(Settings.TextScale, SmallestText, LargestText),
+                DescribeTextScale()),
+
+            MenuItem.Toggle("vsync", "Wait for the display", Settings.VerticalSync),
+            MenuItem.Toggle("hdr", "High dynamic range", Settings.HighDynamicRange),
+        ];
+
+        if (Settings.HighDynamicRange)
+        {
+            // Kept, because it is the one row here that is not a preference: the display
+            // either gave back the colour space or it did not, and a switch shown on over a
+            // monitor in SDR mode is the least useful true statement available.
+            rows.Add(MenuItem.Label(HighDynamicRangeActive
+                ? "The display took it."
+                : "Asked for, and this display did not offer it."));
+
+            rows.Add(MenuItem.Choice("transfer", "Encoding", Describe(Settings.HdrTransfer)));
+
+            rows.Add(MenuItem.Slider(
+                "paperwhite",
+                "Paper white",
+                Fraction(Settings.PaperWhiteNits, 80f, 400f),
+                Nits(Settings.PaperWhiteNits)));
+
+            rows.Add(MenuItem.Slider(
+                "peak",
+                "Brightest the display goes",
+                Fraction(Settings.PeakNits, 400f, 4000f),
+                Nits(Settings.PeakNits)));
+
+            rows.Add(MenuItem.Slider(
+                "sun",
+                "Sunlight",
+                Fraction(Settings.SunNits, 200f, 4000f),
+                Nits(Settings.SunNits)));
+
+            rows.Add(MenuItem.Slider(
+                "lights",
+                "Lamps and windows",
+                Fraction(Settings.LightNits, 200f, 4000f),
+                Nits(Settings.LightNits)));
+        }
+        else
+        {
+            rows.Add(MenuItem.Choice("tonemap", "Tone curve", Describe(Settings.ToneMapping)));
+        }
+
+        rows.Add(MenuItem.Button("back", "Back"));
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Drawing the room smaller than the window and enlarging it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every row here changes while the game is running, including the upscaler itself: the
+    /// renderer rebuilds its targets at the top of the next frame, the same way it does for
+    /// a resize. Somebody comparing two upscalers should be able to do it by pressing left
+    /// and right, not by restarting the game twice.
+    /// </para>
+    /// <para>
+    /// The two vendors' rows are drawn whether or not their runtimes are installed, and say
+    /// which file is missing. Hiding a row the player has read about elsewhere teaches them
+    /// that the game does not support it.
+    /// </para>
+    /// <para>
+    /// Nothing here says what a row <em>does</em>. What is left is what the player cannot
+    /// find out by trying it: which file to go and fetch, why a row is dead, the two
+    /// resolutions the picture is drawn between, and what is actually running.
+    /// </para>
+    /// </remarks>
+    private List<MenuItem> Upscaling()
+    {
+        RuntimeFiles files =
+            Runtimes?.For(Settings.Upscaler) ?? UpscalerRuntimes.Unknown(Settings.Upscaler);
+
+        List<MenuItem> rows =
+        [
+            MenuItem.Choice("upscaler", "Upscaler", Describe(Settings.Upscaler)),
+        ];
+
+        if (Settings.Upscaler is UpscalerKind.Fsr or UpscalerKind.Dlss && !files.Present)
+        {
+            rows.Add(MenuItem.Label(
+                $"Not installed: copy {List(files.Missing)} into the game's libs folder."));
+        }
+        else if (Settings.Upscaler == UpscalerKind.Dlss && !DlssAvailable)
+        {
+            // Installed and refused, which is a different sentence: there is nothing to
+            // download and nothing the player did wrong.
+            rows.Add(MenuItem.Label("Installed, and this card cannot run it: DLSS needs a GeForce RTX."));
+        }
+
+        if (Settings.Upscaler != UpscalerKind.Off)
+        {
+            rows.Add(MenuItem.Choice(
+                "ratio", "Quality", Describe(Settings.UpscalerQuality)));
+
+            rows.Add(MenuItem.Label(Settings.Upscaling.Describe(Window.Width, Window.Height)));
+
+            rows.Add(MenuItem.Toggle("sharpen", "Sharpen", Settings.Sharpening));
+
+            if (Settings.Sharpening)
+            {
+                rows.Add(MenuItem.Slider(
+                    "sharpness",
+                    "How much",
+                    Settings.Sharpness,
+                    MenuPage.Percent(Settings.Sharpness)));
+            }
+        }
+
+        if (Settings.Upscaler == UpscalerKind.Dlss)
+        {
+            rows.Add(MenuItem.Choice(
+                "preset", "Model", DlssPresets.Describe(Settings.DlssPreset)));
+
+            rows.Add(MenuItem.Toggle(
+                "reconstruction", "Ray reconstruction", Settings.RayReconstruction) with
+            {
+                Enabled = DlssRayReconstruction,
+            });
+
+            // Only when it cannot be had. Why a row is dead is worth a line; what a row
+            // does when it works is what the row itself says.
+            if (!DlssRayReconstruction)
+            {
+                rows.Add(MenuItem.Label(
+                    DlssRayReconstructionNote is { Length: > 0 } why
+                        ? "Not available: " + why + "."
+                        : "Needs sl.dlss_d.dll and nvngx_dlssnr.dll in the libs folder."));
+            }
+        }
+
+        bool generation = Settings.Upscaler switch
+        {
+            UpscalerKind.Fsr => Runtimes?.Fsr.Present ?? false,
+            UpscalerKind.Dlss => DlssFrameGeneration,
+            _ => false,
+        };
+
+        rows.Add(MenuItem.Choice(
+            "generation", "Frame generation", Describe(Settings.FrameGeneration)) with
+        {
+            Enabled = generation,
+        });
+
+        if (!generation)
+        {
+            rows.Add(MenuItem.Label(
+                "Needs FSR or DLSS, and their frame-generation runtime, in the libs folder."));
+        }
+
+        if (UpscalerRunning is { Length: > 0 })
+        {
+            rows.Add(MenuItem.Label("Running: " + UpscalerRunning));
+        }
+
+        rows.Add(MenuItem.Button("back", "Back"));
+
+        return rows;
+    }
 
     private IReadOnlyList<MenuItem> Audio() =>
     [
@@ -491,8 +840,8 @@ public sealed class FrontEnd
 
         // Said rather than quietly not done. The device is opened once at startup, and a
         // player who changes this and hears no difference would reasonably conclude the
-        // setting is broken.
-        MenuItem.Label("Speakers take effect the next time the game starts."),
+        // setting is broken. Every other row on this page is heard while it is dragged.
+        MenuItem.Label("Speakers take effect at the next start."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -504,17 +853,11 @@ public sealed class FrontEnd
             (Settings.HurryFactor - 1f) / 3f,
             string.Create(CultureInfo.InvariantCulture, $"{Settings.HurryFactor:F1}x")),
 
-        MenuItem.Label("How much faster a double-click sends Gabriel."),
         MenuItem.Toggle("glide", "Camera travels between angles", Settings.CameraGlide),
         MenuItem.Toggle("cinematics", "Let the story move the camera", Settings.Cinematics),
         MenuItem.Toggle("captions", "Write out what is said", Settings.Captions),
         MenuItem.Toggle("intro", "Play the intro on starting", Settings.PlayIntro),
         MenuItem.Toggle("eggs", "Easter eggs", Settings.EasterEggs),
-
-        // What it actually does, because "easter eggs" on its own could mean anything. The
-        // switch is the game's own: EGG is a case an action file may be written against,
-        // and the original left it hard-coded off.
-        MenuItem.Label("Lets the game show the jokes its authors left switched off."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -528,21 +871,16 @@ public sealed class FrontEnd
     /// switch that quietly does that does not belong in the same list as the captions.
     /// </para>
     /// <para>
-    /// Both off by default and both say plainly what they take away. Somebody turning one
-    /// on should know exactly which puzzle they are giving up.
+    /// Both off by default, and both name the puzzle they take away <em>in the row itself</em>
+    /// rather than in a sentence under it. "Skip a puzzle" is no help to somebody who has
+    /// not met it yet and no reassurance to somebody who has; "skip the cat-hair moustache"
+    /// is both, and costs no second line.
     /// </para>
     /// </remarks>
     private IReadOnlyList<MenuItem> Easier() =>
     [
         MenuItem.Toggle("moustache", "Skip the cat-hair moustache", Settings.AlwaysWearsMoustache),
-
-        // Named, because "skip a puzzle" is no help to somebody who has not met it yet and
-        // no reassurance to somebody who has.
-        MenuItem.Label("Gabriel has the moustache made by the time he needs it, and wears it."),
         MenuItem.Toggle("armour", "Gabriel cannot be killed", Settings.PlotArmour),
-
-        // Where it matters, since nothing in the first two days can kill anybody.
-        MenuItem.Label("The temple's traps put you back to the start instead of ending the game."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -566,6 +904,65 @@ public sealed class FrontEnd
 
             "speakers" => Settings with { Speakers = Step(Layouts, Settings.Speakers, action.Step) },
             "picture" => Settings with { Picture = Step(Pictures, Settings.Picture, action.Step) },
+
+            "window" => Settings with { Display = Step(Windows, Settings.Display, action.Step) },
+            "size" => Size(action.Step),
+            "vsync" => Settings with { VerticalSync = !Settings.VerticalSync },
+            "textsize" => Settings with { TextScale = TextSize(Settings.TextScale, action) },
+
+            "upscaler" => Settings with
+            {
+                Upscaler = Step(
+                    Offered.Count > 0 ? [.. Offered] : EveryUpscaler,
+                    Settings.Upscaler,
+                    action.Step),
+            },
+
+            "ratio" => Settings with
+            {
+                UpscalerQuality = Step(Ratios, Settings.UpscalerQuality, action.Step),
+            },
+
+            "sharpen" => Settings with { Sharpening = !Settings.Sharpening },
+            "sharpness" => Settings with { Sharpness = Level(Settings.Sharpness, action) },
+
+            "generation" => Settings with
+            {
+                FrameGeneration = Step(Generations, Settings.FrameGeneration, action.Step),
+            },
+
+            "reconstruction" => Settings with { RayReconstruction = !Settings.RayReconstruction },
+
+            // Round the letters rather than stopping at the ends, the same way every other
+            // choice on these pages does, and past the ones with names as well: a preset a
+            // future runtime adds is reachable without this file changing.
+            "preset" => Settings with
+            {
+                DlssPreset = Wrapped(
+                    Settings.DlssPreset + (action.Step == 0 ? 1 : action.Step),
+                    DlssPresets.Highest + 1),
+            },
+
+            "hdr" => Settings with { HighDynamicRange = !Settings.HighDynamicRange },
+
+            "transfer" => Settings with
+            {
+                HdrTransfer = Step(Transfers, Settings.HdrTransfer, action.Step),
+            },
+
+            "tonemap" => Settings with
+            {
+                ToneMapping = Step(Curves, Settings.ToneMapping, action.Step),
+            },
+
+            "paperwhite" => Settings with
+            {
+                PaperWhiteNits = Nits(Settings.PaperWhiteNits, 80f, 400f, action),
+            },
+
+            "peak" => Settings with { PeakNits = Nits(Settings.PeakNits, 400f, 4000f, action) },
+            "sun" => Settings with { SunNits = Nits(Settings.SunNits, 200f, 4000f, action) },
+            "lights" => Settings with { LightNits = Nits(Settings.LightNits, 200f, 4000f, action) },
 
             "enhanced" => Settings with { EnhancedTextures = !Settings.EnhancedTextures },
             "trees" => Settings with { ModelledTrees = !Settings.ModelledTrees },
@@ -592,6 +989,96 @@ public sealed class FrontEnd
         }
     }
 
+    /// <summary>The next resolution in the list, keeping the two dimensions together.</summary>
+    /// <remarks>
+    /// A width and a height are one decision and are stepped as one. The list holds the
+    /// monitor's own size as a pair of noughts, which is the first entry, so a player who
+    /// has never touched this row is already on it.
+    /// </remarks>
+    private Settings Size(int by)
+    {
+        int at = Array.FindIndex(
+            Sizes,
+            s => s.Width == Settings.DisplayWidth && s.Height == Settings.DisplayHeight);
+
+        int next = Wrapped((at < 0 ? 0 : at) + (by == 0 ? 1 : by), Sizes.Length);
+
+        return Settings with
+        {
+            DisplayWidth = Sizes[next].Width,
+            DisplayHeight = Sizes[next].Height,
+        };
+    }
+
+    /// <summary>Where the text-size slider ends up.</summary>
+    /// <remarks>
+    /// Rounded to a twentieth, so the row reads in fives and a player can get back to a
+    /// hundred per cent by dragging. A slider that stopped at 97% would leave somebody
+    /// unable to undo what they had just done to their menu.
+    /// </remarks>
+    private static float TextSize(float current, MenuAction action)
+    {
+        float part = Level(Fraction(current, SmallestText, LargestText), action);
+
+        return MathF.Round(
+            (SmallestText + ((LargestText - SmallestText) * part)) * 20f) / 20f;
+    }
+
+    /// <summary>How the text-size row reads.</summary>
+    private string DescribeTextScale() => string.Create(
+        CultureInfo.InvariantCulture, $"{Settings.TextScale * 100f:F0}%");
+
+    /// <summary>How this page reads the resolution row.</summary>
+    /// <remarks>
+    /// A borderless window is the size of the monitor by definition, whatever size the file
+    /// remembers, so the row reads that way and is not selectable. The stored pair is kept
+    /// rather than cleared: it is what the player goes back to on choosing windowed again.
+    /// </remarks>
+    private string DescribeSize() =>
+        Settings.Display == WindowMode.BorderlessFullscreen ||
+        Settings.DisplayWidth <= 0 || Settings.DisplayHeight <= 0
+            ? "The monitor's own"
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"{Settings.DisplayWidth}x{Settings.DisplayHeight}");
+
+    /// <summary>Where a luminance slider sits between its two ends.</summary>
+    private static float Fraction(float value, float low, float high) =>
+        Math.Clamp((value - low) / MathF.Max(high - low, 1f), 0f, 1f);
+
+    /// <summary>Where a luminance slider ends up.</summary>
+    /// <remarks>
+    /// Rounded to ten candelas. A slider that reads 843 nits is a slider pretending to a
+    /// precision nobody's eye or monitor has, and it makes two settings that look different
+    /// and are not.
+    /// </remarks>
+    private static float Nits(float current, float low, float high, MenuAction action)
+    {
+        float part = Level(Fraction(current, low, high), action);
+
+        return MathF.Round((low + ((high - low) * part)) / 10f) * 10f;
+    }
+
+    /// <summary>How a luminance reads.</summary>
+    private static string Nits(float value) =>
+        string.Create(CultureInfo.InvariantCulture, $"{value:F0} nits");
+
+    /// <summary>The next index round a list of a given length, either way.</summary>
+    private static int Wrapped(int at, int length) => ((at % length) + length) % length;
+
+    /// <summary>Several file names, as a sentence rather than as a list.</summary>
+    /// <remarks>
+    /// Commas and a final "and". "a and b and c" is what joining on one separator gives and
+    /// it reads like a machine wrote it, which on a page asking somebody to go and download
+    /// three files is exactly the wrong impression.
+    /// </remarks>
+    private static string List(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "nothing",
+        1 => names[0],
+        _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
+    };
+
     /// <summary>Where a slider ends up: dragged outright, or stepped a twentieth.</summary>
     private static float Level(float current, MenuAction action) =>
         Math.Clamp(
@@ -617,12 +1104,46 @@ public sealed class FrontEnd
         _ => "Everything",
     };
 
-    private static string Explain(PictureQuality quality) => quality switch
+    private static string Describe(WindowMode mode) => mode switch
     {
-        PictureQuality.Original => "The 1999 picture: the light the artists baked, and no rays.",
-        PictureQuality.Improved => "Traced shadows, at the smallest ray budget.",
-        PictureQuality.High => "Traced shadows, contact shading and reflections.",
-        _ => "The same, with as many rays as the picture can use.",
+        WindowMode.BorderlessFullscreen => "Borderless, filling the monitor",
+        WindowMode.ExclusiveFullscreen => "Fullscreen",
+        _ => "A window",
+    };
+
+    private static string Describe(UpscalerKind kind) => kind switch
+    {
+        UpscalerKind.Spatial => "Built in",
+        UpscalerKind.Fsr => "FSR (AMD)",
+        UpscalerKind.Dlss => "DLSS (NVIDIA)",
+        _ => "Off",
+    };
+
+    private static string Describe(UpscalerQuality quality) => quality switch
+    {
+        UpscalerQuality.Native => "Native (anti-aliasing only)",
+        UpscalerQuality.UltraQuality => "Ultra quality",
+        UpscalerQuality.Quality => "Quality",
+        UpscalerQuality.Balanced => "Balanced",
+        UpscalerQuality.Performance => "Performance",
+        _ => "Ultra performance",
+    };
+
+    private static string Describe(FrameGeneration generation) =>
+        generation == FrameGeneration.Interpolated ? "On" : "Off";
+
+    private static string Describe(HdrTransfer transfer) => transfer switch
+    {
+        HdrTransfer.PerceptualQuantiser => "HDR10",
+        HdrTransfer.ExtendedLinear => "scRGB",
+        _ => "Whichever the display prefers",
+    };
+
+    private static string Describe(ToneMapping curve) => curve switch
+    {
+        ToneMapping.Reinhard => "Rolled off",
+        ToneMapping.Filmic => "Filmic",
+        _ => "Clipped, as it was",
     };
 
     private static string Describe(SpeakerLayout layout) => layout switch

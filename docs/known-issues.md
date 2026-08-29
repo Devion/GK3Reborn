@@ -125,12 +125,30 @@ image) scored a median of 11.4% across all 7,462 enhanced textures and did not p
 in its top twenty-five, so the check has to be about the background region specifically
 rather than about the picture as a whole.
 
-## 3. HDR output (feature)
+## 3. HDR output (feature) (done 2026-08-29)
 
-**Requested:** 2026-08-19.
+**Requested:** 2026-08-19. **Done 2026-08-29**, with upscaling, in
+[docs/upscaling.md](upscaling.md). Verified on an RTX 5090: the surface comes back
+`VK_COLOR_SPACE_HDR10_ST2084_EXT` in `A2B10G10R10_UNORM_PACK32`, the room and the interface
+are both encoded through ST.2084, and a screenshot is decoded back to sRGB rather than
+written as garbage.
 
-Output in high dynamic range where the display supports it, with settings for the
-display's characteristics — maximum luminance and the rest.
+What follows is the diagnosis as it stood, kept because the four steps it names are what was
+built. Two things it did not anticipate:
+
+- **Everything that writes the swapchain has to encode, not just the room.** There is no
+  hardware encode on an HDR surface, so the interface, a movie and the fade each needed the
+  transfer function too. Drawn without it they come out through the wrong curve — a correct
+  room with a washed-out menu over it.
+- **The interesting settings are not the display's.** Paper white and peak luminance are
+  necessary and dull. What makes an HDR frame look like HDR rather than like a brighter SDR
+  frame is letting *the sun* and *the lamps* exceed diffuse white, and the game already
+  knows exactly which pixels those are: `GpuLight.IsDistantKey` for the one, GK3's own
+  self-lit surface flag for the other.
+
+What is still open is the exposure note at the end of this section: the lightmap multiplier
+is still the original's gamma-space 2, and the SDR tone curve still defaults to the clip it
+has always been, because every reference image in the corpus was taken through it.
 
 **What already exists.** `VulkanDeviceSelector` detects `VK_EXT_hdr_metadata` and
 reports a `HighDynamicRange` tier; an RTX 5090 already comes back as HDR-capable.

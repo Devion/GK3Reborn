@@ -366,6 +366,31 @@ install has anyway. Naming `--enhanced`, `--workspace` or `--uncompressed` is
 what asks for the loose sets instead; `--rebarn` still forces packs-only and
 refuses to start without a pack, which is what makes a measurement honest.
 
+### Upscaling and HDR
+
+Settings → Upscaling offers four: off, the engine's own, FSR and DLSS. The first two need
+nothing installed and work on any device the game runs on. The other two are proprietary
+redistributables which **this project ships none of** — copy them into `libs/` beside the
+executable and the game finds them at the next launch:
+
+| For | Copy in | From |
+|---|---|---|
+| FSR | `amd_fidelityfx_vk.dll` | [FidelityFX SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) |
+| DLSS | `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `nvngx_dlss.dll` | [Streamline](https://github.com/NVIDIA-RTX/Streamline) and [DLSS](https://github.com/NVIDIA/DLSS) |
+| DLSS frame generation | `sl.dlss_g.dll`, `nvngx_dlssg.dll` | as above |
+
+NVIDIA's download unpacks to a `streamline` subdirectory; `libs/streamline/` is looked in
+too, so there is nothing to flatten. `--libs-dir` names somewhere else. The startup log and
+the settings page both say what was found, what is missing and — when a runtime is installed
+and still will not run — why.
+
+DLSS is not offered on a card that is not NVIDIA's. FSR is offered on every card, because
+FidelityFX is compute and runs anywhere.
+
+Settings → Display carries the window mode — windowed, borderless over the monitor, or
+fullscreen — the resolution, and high dynamic range with the display's luminances. See
+[docs/upscaling.md](docs/upscaling.md) for the whole chain and for what is not done yet.
+
 ### When it will not start
 
 Every run writes `log.txt` beside the executable, or in the user's own directory

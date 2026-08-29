@@ -2,7 +2,9 @@
 using System.Text.Json.Serialization;
 using GK3Reborn.Audio;
 using GK3Reborn.Foundation;
+using GK3Reborn.Platform;
 using GK3Reborn.Rendering;
+using GK3Reborn.Rendering.Upscaling;
 
 namespace GK3Reborn.Game;
 
@@ -71,6 +73,122 @@ public sealed record Settings
 
     /// <summary>Whether to use the higher-resolution textures where they exist.</summary>
     public bool EnhancedTextures { get; init; } = true;
+
+    /// <summary>Whether the window has a border, covers a monitor, or takes one over.</summary>
+    /// <remarks>
+    /// Windowed by default, which is the only one of the three that is right on a machine
+    /// nobody has told the game anything about. A player who wants the screen says so once.
+    /// </remarks>
+    public WindowMode Display { get; init; } = WindowMode.Windowed;
+
+    /// <summary>How wide the window is, in pixels, or nought for the monitor's own size.</summary>
+    /// <remarks>
+    /// Only read for <see cref="WindowMode.Windowed"/> and
+    /// <see cref="WindowMode.ExclusiveFullscreen"/>. A borderless window is the size of the
+    /// monitor by definition — that is what makes it borderless fullscreen rather than a
+    /// large window — so a size stored here is remembered and not applied.
+    /// </remarks>
+    public int DisplayWidth { get; init; }
+
+    /// <summary>How tall it is.</summary>
+    public int DisplayHeight { get; init; }
+
+    /// <summary>
+    /// How much larger or smaller the interface's letters are than the size the window
+    /// would pick on its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The automatic size is a share of the window's height, which is the right rule for a
+    /// display nobody has told the game anything about and is not the right rule for
+    /// everybody: the same share is crowded on a large monitor sat close to and too small
+    /// on a television across a room. This multiplies whatever that rule arrived at, so it
+    /// is a correction to the automatic size rather than a replacement for it — a player
+    /// who then goes fullscreen still gets letters cut for the new window, only their own
+    /// share of it.
+    /// </para>
+    /// <para>
+    /// Applied after the automatic size has been clamped, not before. The share is already
+    /// capped above about 1440 lines — a twenty-sixth of a 4K screen is nobody's idea of a
+    /// settings page — and a multiplier that went in ahead of that cap would do nothing at
+    /// all on exactly the large displays this row exists for.
+    /// </para>
+    /// <para>
+    /// Both atlases move together. The menu is drawn larger than the room's captions and
+    /// stays so; this is one preference about reading, not two.
+    /// </para>
+    /// </remarks>
+    public float TextScale { get; init; } = 1f;
+
+    /// <summary>The smallest the interface's letters may be asked to go.</summary>
+    /// <remarks>
+    /// Ends rather than a free number, because the two things past either of them are
+    /// unreadable text and a settings page with four rows on it. Sixty per cent is where a
+    /// caption stops being comfortable at 1080 lines and is still a third off the menu on a
+    /// 4K display, which is the complaint this row exists to answer.
+    /// </remarks>
+    public const float SmallestText = 0.6f;
+
+    /// <summary>The largest.</summary>
+    public const float LargestText = 1.6f;
+
+    /// <summary>Whether frames wait for the display.</summary>
+    /// <remarks>
+    /// On, because the alternative is tearing and because FIFO is the only present mode
+    /// Vulkan guarantees exists. Off asks for the fastest mode the surface offers and
+    /// quietly stays on where there is none.
+    /// </remarks>
+    public bool VerticalSync { get; init; } = true;
+
+    /// <summary>Which upscaler to use, if any.</summary>
+    public UpscalerKind Upscaler { get; init; } = UpscalerKind.Off;
+
+    /// <summary>How much of the picture to actually draw.</summary>
+    public UpscalerQuality UpscalerQuality { get; init; } = UpscalerQuality.Quality;
+
+    /// <summary>Whether the upscaled picture is sharpened.</summary>
+    public bool Sharpening { get; init; } = true;
+
+    /// <summary>How hard, from nothing to as much as the filter will do.</summary>
+    public float Sharpness { get; init; } = 0.5f;
+
+    /// <summary>Whether frames are generated between the ones the game draws.</summary>
+    public FrameGeneration FrameGeneration { get; init; } = FrameGeneration.Off;
+
+    /// <summary>
+    /// Whether DLSS is allowed to denoise the traced light as well as upscale it.
+    /// </summary>
+    /// <remarks>
+    /// On by default and only meaningful with DLSS and ray tracing both on. The two
+    /// denoisers are the same job done twice, and doing it twice is what smears a picture;
+    /// off keeps the engine's own filter, which is what somebody comparing the two wants.
+    /// </remarks>
+    public bool RayReconstruction { get; init; } = true;
+
+    /// <summary>Which of DLSS's trained models to ask for, or nought for its own choice.</summary>
+    /// <remarks>The letter's ordinal. See <see cref="DlssPresets"/>.</remarks>
+    public int DlssPreset { get; init; }
+
+    /// <summary>Whether to ask the display for a high dynamic range colour space.</summary>
+    public bool HighDynamicRange { get; init; }
+
+    /// <summary>Which encoding to ask for, where the display offers a choice.</summary>
+    public HdrTransfer HdrTransfer { get; init; } = HdrTransfer.Automatic;
+
+    /// <summary>What the standard-range picture is put through.</summary>
+    public ToneMapping ToneMapping { get; init; } = ToneMapping.Clip;
+
+    /// <summary>Where a sheet of white paper sits, in candelas per square metre.</summary>
+    public float PaperWhiteNits { get; init; } = 200f;
+
+    /// <summary>The brightest the display can go.</summary>
+    public float PeakNits { get; init; } = 1000f;
+
+    /// <summary>Where a sunlit surface is allowed to reach.</summary>
+    public float SunNits { get; init; } = 800f;
+
+    /// <summary>Where a lamp, a bulb or a lit window is allowed to reach.</summary>
+    public float LightNits { get; init; } = 1000f;
 
     /// <summary>
     /// Whether a foliage card is replaced by a modelled tree where one has been grown.
@@ -215,6 +333,13 @@ public sealed record Settings
     public static string DefaultPath => Path.Combine(InstallPaths.UserData, "settings.json");
 
     /// <summary>The ray-tracing level this picture quality asks for.</summary>
+    /// <remarks>
+    /// Derived, and kept out of the file. It and the two plans below are views of settings
+    /// that are already stored; writing them as well would put the same decision in the
+    /// file twice, in a form nothing reads back — and a hand-edited copy of one of them
+    /// would then silently do nothing.
+    /// </remarks>
+    [JsonIgnore]
     public RayTracingQuality Quality => Picture switch
     {
         PictureQuality.Original => RayTracingQuality.None,
@@ -222,6 +347,38 @@ public sealed record Settings
         PictureQuality.High => RayTracingQuality.Medium,
         _ => RayTracingQuality.High,
     };
+
+    /// <summary>What the renderer should do about upscaling.</summary>
+    /// <remarks>
+    /// Built rather than stored, so that there is one place these settings mean something
+    /// and the renderer never sees a half-applied change. Whether the colour is high
+    /// dynamic range is deliberately not set here: it is a fact about the output chain
+    /// the renderer owns, and asserting it from a settings file would let the two disagree.
+    /// </remarks>
+    [JsonIgnore]
+    public UpscalePlan Upscaling => new UpscalePlan
+    {
+        Kind = Upscaler,
+        Quality = UpscalerQuality,
+        Sharpen = Sharpening,
+        Sharpness = Sharpness,
+        FrameGeneration = FrameGeneration,
+        RayReconstruction = RayReconstruction,
+        DlssPreset = DlssPreset,
+    }.Sane();
+
+    /// <summary>What the renderer should do about the display.</summary>
+    [JsonIgnore]
+    public OutputPlan Output => new OutputPlan
+    {
+        HighDynamicRange = HighDynamicRange,
+        Transfer = HdrTransfer,
+        ToneMap = ToneMapping,
+        PaperWhiteNits = PaperWhiteNits,
+        PeakNits = PeakNits,
+        SunNits = SunNits,
+        LightNits = LightNits,
+    }.Sane();
 
     /// <summary>Reads the settings, or returns the defaults.</summary>
     /// <param name="path">Where to read from, or null for this user's own.</param>
@@ -292,7 +449,42 @@ public sealed record Settings
         Picture = Enum.IsDefined(Picture) ? Picture : PictureQuality.High,
         HurryFactor = float.IsFinite(HurryFactor) ? Math.Clamp(HurryFactor, 1f, 4f) : 2f,
         SmoothHeads = Math.Clamp(SmoothHeads, 0, Actors.HeadRefinement.MaximumLevels),
+
+        Display = Enum.IsDefined(Display) ? Display : WindowMode.Windowed,
+
+        TextScale = float.IsFinite(TextScale)
+            ? Math.Clamp(TextScale, SmallestText, LargestText)
+            : 1f,
+
+        // Nought means "the monitor's own", which is the answer for a display nobody has
+        // chosen a size for. Anything else is clamped to something a swapchain can be made
+        // at; the driver clamps again to what the surface allows.
+        DisplayWidth = DisplayWidth <= 0 ? 0 : Math.Clamp(DisplayWidth, 320, 16_384),
+        DisplayHeight = DisplayHeight <= 0 ? 0 : Math.Clamp(DisplayHeight, 240, 16_384),
+
+        Upscaler = Enum.IsDefined(Upscaler) ? Upscaler : UpscalerKind.Off,
+        UpscalerQuality = Enum.IsDefined(UpscalerQuality)
+            ? UpscalerQuality
+            : UpscalerQuality.Quality,
+        Sharpness = float.IsFinite(Sharpness) ? Math.Clamp(Sharpness, 0f, 1f) : 0.5f,
+        FrameGeneration = Enum.IsDefined(FrameGeneration) ? FrameGeneration : FrameGeneration.Off,
+        DlssPreset = Math.Clamp(DlssPreset, 0, DlssPresets.Highest),
+
+        HdrTransfer = Enum.IsDefined(HdrTransfer) ? HdrTransfer : HdrTransfer.Automatic,
+        ToneMapping = Enum.IsDefined(ToneMapping) ? ToneMapping : ToneMapping.Clip,
+
+        // The luminances are clamped in one place, by the plan that consumes them, because
+        // their bounds depend on each other — a peak below paper white is not a peak — and
+        // two implementations of that rule would be one too many.
+        PaperWhiteNits = Sensible(PaperWhiteNits, 200f),
+        PeakNits = Sensible(PeakNits, 1000f),
+        SunNits = Sensible(SunNits, 800f),
+        LightNits = Sensible(LightNits, 1000f),
     };
+
+    /// <summary>A luminance that is at least a number, before the plan bounds it.</summary>
+    private static float Sensible(float value, float fallback) =>
+        float.IsFinite(value) && value > 0f ? value : fallback;
 
     /// <summary>Hands the audio levels to the mixer.</summary>
     /// <param name="audio">The device, or null when there is none.</param>

@@ -13,6 +13,32 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <param name="Color">Its tint, straight alpha.</param>
 public readonly record struct OverlayVertex(Vector2 Position, Vector2 TexCoord, Vector4 Color);
 
+/// <summary>What the interface's fragment stage is told, per run of quads.</summary>
+/// <param name="Picture">Nought for a glyph, one for one of the screens' own pictures.</param>
+/// <param name="Pad0">Padding to the vector's alignment.</param>
+/// <param name="Pad1">Padding.</param>
+/// <param name="Pad2">Padding.</param>
+/// <param name="Transfer">Which encoding the swapchain wants.</param>
+/// <param name="PaperWhite">Where diffuse white sits.</param>
+/// <param name="Headroom">How far above it the display goes.</param>
+/// <param name="Unused">Padding, so the vector is a whole float4.</param>
+/// <remarks>
+/// Twelve bytes of padding between the flag and the vector, because a vector in a push
+/// constant block is aligned to sixteen bytes whatever precedes it. Writing this as an
+/// <c>int</c> and three floats put the shader's idea of paper white twelve bytes past the
+/// end of what was pushed, and the interface came out almost black on an HDR display.
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+internal readonly record struct OverlayConstants(
+    int Picture,
+    int Pad0,
+    int Pad1,
+    int Pad2,
+    float Transfer,
+    float PaperWhite,
+    float Headroom,
+    float Unused);
+
 /// <summary>
 /// Draws the interface on top of the room.
 /// </summary>
@@ -64,7 +90,18 @@ public sealed unsafe class OverlayPipeline : IDisposable
         }
         """;
 
-    private const string FragmentSource = """
+    /// <summary>
+    /// The fragment stage, with the shared display encode spliced into the middle of it.
+    /// </summary>
+    /// <remarks>
+    /// Two halves and a shared function between them, rather than one string, because the
+    /// encode is the same arithmetic in four passes and four copies of ST.2084 is four
+    /// places for it to be wrong differently. See <see cref="DisplayEncoding"/>.
+    /// </remarks>
+    private static readonly string FragmentSource =
+        FragmentPrelude + "\n" + DisplayEncoding.Glsl + "\n" + FragmentBody;
+
+    private const string FragmentPrelude = """
         #version 450
 
         layout(binding = 0) uniform sampler2D atlas;
@@ -72,16 +109,29 @@ public sealed unsafe class OverlayPipeline : IDisposable
         // Zero for the sheet of letters, one for one of the screens' own pictures. A
         // picture is content rather than a stencil, so it is drawn as it is; a glyph is a
         // shape cut out of a colour.
+        // The offsets are stated rather than left to the compiler. A vector is aligned to
+        // sixteen bytes in this layout whatever precedes it, so an int followed by a vec3
+        // does *not* put the vector at offset four — it puts it at sixteen, and a push of
+        // sixteen bytes then leaves the shader reading past the end of the range. Which it
+        // did: the interface came out almost black, because what it read as "paper white"
+        // was whatever the driver had left there.
         layout(push_constant) uniform Draw
         {
-            int picture;
+            layout(offset = 0) int picture;
+
+            // Which encoding the swapchain wants, where paper white sits, and how far
+            // above it the display goes. All nought on an ordinary sRGB surface, where
+            // the hardware does the encode and this shader writes linear light.
+            layout(offset = 16) vec4 display;
         } draw;
 
         layout(location = 0) in vec2 fragTexCoord;
         layout(location = 1) in vec4 fragColor;
 
         layout(location = 0) out vec4 outColor;
+        """;
 
+    private const string FragmentBody = """
         void main()
         {
             vec4 texel = texture(atlas, fragTexCoord);
@@ -91,7 +141,9 @@ public sealed unsafe class OverlayPipeline : IDisposable
                 // The game's own art: its colour, tinted, and nothing inferred from its
                 // brightness. Running a photograph of the Rennes-le-Château countryside
                 // through the glyph rule below turns it into a silhouette.
-                outColor = vec4(texel.rgb * fragColor.rgb, fragColor.a * texel.a);
+                outColor = vec4(
+                    EncodeForDisplay(texel.rgb * fragColor.rgb, draw.display.xyz),
+                    fragColor.a * texel.a);
 
                 return;
             }
@@ -102,7 +154,9 @@ public sealed unsafe class OverlayPipeline : IDisposable
             // transparency at all, and brightness is exactly their antialiasing.
             float brightness = max(texel.r, max(texel.g, texel.b));
 
-            outColor = vec4(fragColor.rgb, fragColor.a * texel.a * brightness);
+            outColor = vec4(
+                EncodeForDisplay(fragColor.rgb, draw.display.xyz),
+                fragColor.a * texel.a * brightness);
         }
         """;
 
@@ -149,6 +203,14 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// a 640-by-480 painting every time somebody opens the map, which is why they are kept.
     /// </remarks>
     public const int MostPictures = 256;
+
+    /// <summary>What the swapchain wants written into it.</summary>
+    /// <remarks>
+    /// Set by the renderer whenever the output chain changes, which in practice is when
+    /// somebody turns HDR on. Standard by default, which is the sRGB target the hardware
+    /// encodes and where this shader writes exactly what it always wrote.
+    /// </remarks>
+    public DisplayEncode Display { get; set; } = DisplayEncode.Standard;
 
     /// <summary>How many rectangles have been prepared for this frame.</summary>
     public int Rectangles => _count / 6;
@@ -449,9 +511,26 @@ public sealed unsafe class OverlayPipeline : IDisposable
             _vk.CmdBindDescriptorSets(
                 command, PipelineBindPoint.Graphics, _layout, 0, 1, in set, 0, null);
 
-            int kind = picture > 0 ? 1 : 0;
+            // The kind of run, and what the display wants. Both in one push because they
+            // are one push constant range and Vulkan will not let a range be written in
+            // pieces of different stages.
+            OverlayConstants pushed = new(
+                picture > 0 ? 1 : 0,
+                0,
+                0,
+                0,
+                Display.Transfer,
+                Display.PaperWhite,
+                Display.Headroom,
+                0f);
+
             _vk.CmdPushConstants(
-                command, _layout, ShaderStageFlags.FragmentBit, 0, sizeof(int), &kind);
+                command,
+                _layout,
+                ShaderStageFlags.FragmentBit,
+                0,
+                (uint)sizeof(OverlayConstants),
+                &pushed);
 
             _vk.CmdDraw(command, (uint)count, 1, (uint)first, 0);
         }
@@ -602,6 +681,37 @@ public sealed unsafe class OverlayPipeline : IDisposable
         _vk.UpdateDescriptorSets(_context.Device, 1, in write, 0, null);
     }
 
+    /// <summary>Rebuilds the pipeline for a different colour target.</summary>
+    /// <param name="colorFormat">The new format.</param>
+    /// <param name="depthFormat">Depth target format, unchanged in practice.</param>
+    /// <remarks>
+    /// For the swapchain changing format underneath, which happens exactly once in a
+    /// session: when the player turns HDR on and an 8-bit sRGB surface becomes a ten-bit
+    /// one. A pipeline carries the format it writes and the old one is then invalid.
+    /// <para>
+    /// Only the pipeline and its layout. Everything expensive the interface owns — the
+    /// sheet of letters, and every picture the screens have handed over — is kept, because
+    /// throwing those away would leave the menu drawing blank squares where the save
+    /// thumbnails were and nothing would know to put them back.
+    /// </para>
+    /// </remarks>
+    public void Retarget(Format colorFormat, Format depthFormat)
+    {
+        if (_pipeline.Handle != 0)
+        {
+            _vk.DestroyPipeline(_context.Device, _pipeline, null);
+            _pipeline = default;
+        }
+
+        if (_layout.Handle != 0)
+        {
+            _vk.DestroyPipelineLayout(_context.Device, _layout, null);
+            _layout = default;
+        }
+
+        BuildPipeline(colorFormat, depthFormat);
+    }
+
     private void BuildPipeline(Format colorFormat, Format depthFormat)
     {
         DescriptorSetLayout setLayout = _setLayout;
@@ -611,7 +721,7 @@ public sealed unsafe class OverlayPipeline : IDisposable
         {
             StageFlags = ShaderStageFlags.FragmentBit,
             Offset = 0,
-            Size = sizeof(int),
+            Size = (uint)sizeof(OverlayConstants),
         };
 
         var layoutInfo = new PipelineLayoutCreateInfo

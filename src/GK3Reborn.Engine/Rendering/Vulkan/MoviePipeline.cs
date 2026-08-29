@@ -32,12 +32,18 @@ public sealed unsafe class MoviePipeline : IDisposable
     private const string VertexSource = """
         #version 450
 
+        // Declared identically in both stages, members this one never reads included. A
+        // push constant block is one block across the pipeline, and two stages describing
+        // it differently is a validation error at best and a driver disagreement at worst.
         layout(push_constant) uniform Fit
         {
             // How much of the window the picture covers, and where it starts. In clip
             // space, so the whole of the letterboxing is two numbers and an offset.
             vec2 scale;
             vec2 offset;
+
+            // The fragment stage's, and unread here.
+            vec4 display;
         } fit;
 
         layout(location = 0) out vec2 fragTexCoord;
@@ -58,14 +64,33 @@ public sealed unsafe class MoviePipeline : IDisposable
         }
         """;
 
-    private const string FragmentSource = """
+    /// <summary>The fragment stage, with the shared display encode spliced in.</summary>
+    /// <remarks>See <see cref="DisplayEncoding"/>: one copy of ST.2084 rather than four.</remarks>
+    private static readonly string FragmentSource =
+        FragmentPrelude + "\n" + DisplayEncoding.Glsl + "\n" + FragmentBody;
+
+    private const string FragmentPrelude = """
         #version 450
 
         layout(binding = 0) uniform sampler2D picture;
 
+        // The same block the vertex stage declares, member for member.
+        layout(push_constant) uniform Fit
+        {
+            // The vertex stage's, and unread here.
+            vec2 scale;
+            vec2 offset;
+
+            // Which encoding the swapchain wants, where paper white sits, and how far
+            // above it the display goes. All nought on an ordinary sRGB surface.
+            vec4 display;
+        } fit;
+
         layout(location = 0) in vec2 fragTexCoord;
         layout(location = 0) out vec4 outColor;
+        """;
 
+    private const string FragmentBody = """
         void main()
         {
             // Outside the picture is the letterbox, and the letterbox is black. Leaving it
@@ -74,6 +99,7 @@ public sealed unsafe class MoviePipeline : IDisposable
 
             if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
             {
+                // Black is black in every encoding, so there is nothing to convert.
                 outColor = vec4(0.0, 0.0, 0.0, 1.0);
                 return;
             }
@@ -81,7 +107,12 @@ public sealed unsafe class MoviePipeline : IDisposable
             // Opaque. A movie has nothing behind it worth showing through, and a frame
             // whose alpha channel the decoder filled with something unhelpful should not
             // be able to make the room appear underneath it.
-            outColor = vec4(texture(picture, uv).rgb, 1.0);
+            //
+            // The film is standard-range material and stays at paper white on an HDR
+            // display: a 1999 cutscene has no highlights above white to recover, and
+            // stretching it into the headroom would only make the whites glare.
+            outColor = vec4(
+                EncodeForDisplay(texture(picture, uv).rgb, fit.display.xyz), 1.0);
         }
         """;
 
@@ -109,6 +140,13 @@ public sealed unsafe class MoviePipeline : IDisposable
 
     /// <summary>Whether there is a frame to draw.</summary>
     public bool HasFrame => _picture is not null && _bound;
+
+    /// <summary>What the swapchain wants written into it.</summary>
+    /// <remarks>
+    /// Set by the renderer. Standard by default, which is the sRGB target the hardware
+    /// encodes and where the film is written exactly as it always was.
+    /// </remarks>
+    public DisplayEncode Display { get; set; } = DisplayEncode.Standard;
 
     /// <summary>Builds the pass.</summary>
     /// <param name="context">Device context.</param>
@@ -262,12 +300,24 @@ public sealed unsafe class MoviePipeline : IDisposable
 
         (float x, float y) = Fit(_width, _height, width, height, Cover);
 
-        Span<float> fit = [x, y, 0f, 0f];
+        Span<float> fit =
+        [
+            x, y, 0f, 0f,
+            Display.Transfer, Display.PaperWhite, Display.Headroom, 0f,
+        ];
 
         fixed (float* values = fit)
         {
+            // Both stages, because a push constant block is one block: the vertex stage
+            // reads the first four floats and the fragment stage the last four, and Vulkan
+            // requires the range to name every stage that reads any of it.
             _vk.CmdPushConstants(
-                command, _layout, ShaderStageFlags.VertexBit, 0, sizeof(float) * 4, values);
+                command,
+                _layout,
+                ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+                0,
+                sizeof(float) * 8,
+                values);
         }
 
         _vk.CmdDraw(command, 3, 1, 0, 0);
@@ -438,9 +488,9 @@ public sealed unsafe class MoviePipeline : IDisposable
 
         var range = new PushConstantRange
         {
-            StageFlags = ShaderStageFlags.VertexBit,
+            StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
             Offset = 0,
-            Size = sizeof(float) * 4,
+            Size = sizeof(float) * 8,
         };
 
         var layoutInfo = new PipelineLayoutCreateInfo

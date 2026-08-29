@@ -75,6 +75,39 @@ transcriptions are credited in the files that hold them:
 The values are those of ITU-T H.264 and ISO/IEC 14496-3; only their arrangement in a
 source file was borrowed. No code from either project is used.
 
+## The upscalers, which nothing here ships
+
+FSR and DLSS are proprietary redistributables, and **no archive of this game contains
+either of them**. The game looks for them in `libs/` at run time, says on its settings page
+what it found, and works without them — with the built-in upscaler, which is part of this
+project and is GPL-3.0 like the rest of it.
+
+| Component | Files the game looks for | Where it comes from |
+|---|---|---|
+| AMD FidelityFX Super Resolution 3.1 | `amd_fidelityfx_vk.dll` | https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK |
+| NVIDIA Streamline | `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll` | https://github.com/NVIDIA-RTX/Streamline |
+| NVIDIA DLSS Super Resolution | `nvngx_dlss.dll` | https://github.com/NVIDIA/DLSS |
+| NVIDIA DLSS Frame Generation | `sl.dlss_g.dll`, `nvngx_dlssg.dll` | as above |
+| NVIDIA DLSS Ray Reconstruction | `sl.dlss_d.dll`, `nvngx_dlssnr.dll` | as above |
+
+**On the GPL.** The GPL's terms are about the program that is conveyed, and none of these
+is conveyed here: not in the repository, not in a release archive, not fetched by a build
+script. What the project contains is code that resolves a handful of C entry points by name
+from a file that may not exist, which is the same arrangement as the OpenAL note above and
+a good deal weaker than it — the game has a working upscaler of its own and treats these as
+an improvement a player may install.
+
+Nobody who builds this from source acquires an obligation about somebody else's binary, and
+nobody who plays it is required to have one. A player who installs one is doing what the
+licences of those runtimes contemplate: putting a redistributable next to an application
+that knows how to look for it. If that reading ever stops holding, the answer is to remove
+the loader, not to ship the DLLs.
+
+The interop layers — `Rendering/Vulkan/FfxApi.cs`, `FsrUpscaler.cs`, `Streamline.cs`,
+`StreamlineTypes.cs`, `DlssUpscaler.cs` — contain no vendor code. They are structure
+layouts and function signatures transcribed from the vendors' published headers, which is
+the interface rather than the implementation.
+
 ## Attribution rather than redistribution
 
 G-Engine (GPL-3.0) is the behavioural oracle and format reference, and three of its

@@ -3,6 +3,7 @@ using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Platform;
+using GK3Reborn.Rendering.Upscaling;
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
@@ -58,7 +59,23 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private Image[] _images = [];
     private ImageView[] _imageViews = [];
     private Format _format;
+    private ColorSpaceKHR _colorSpace = ColorSpaceKHR.SpaceSrgbNonlinearKhr;
     private Extent2D _extent;
+
+    /// <summary>
+    /// The size the room is actually drawn at, which is the window's size divided by
+    /// whatever the upscaler was asked for.
+    /// </summary>
+    /// <remarks>
+    /// Everything between the first triangle and the upscale is this size: the depth
+    /// buffer, the whole G-buffer, the traced occlusion, the reflections and the lit
+    /// picture. Everything after it — the encode onto the swapchain, the movie, the
+    /// interface and the fade — is <see cref="_extent"/>. Getting an interface drawn at
+    /// render resolution and then stretched is the single most visible way to do this
+    /// wrong, which is why the two are separate fields with separate names rather than one
+    /// field and a multiplier.
+    /// </remarks>
+    private Extent2D _renderExtent;
 
     private CommandPool _commandPool;
     private CommandBuffer[] _commandBuffers = [];
@@ -173,13 +190,77 @@ public sealed unsafe class VulkanRenderer : IDisposable
     private DeviceMemory _depthMemory;
     private ImageView _depthView;
 
+    /// <summary>The picture at the size it will be shown, when something upscaled it.</summary>
+    /// <remarks>
+    /// Absent when nothing is being upscaled, and the output pass reads the lit target
+    /// directly. Keeping it optional rather than always allocating one and copying into it
+    /// is worth about 32 MB at 4K and, more to the point, means the picture nobody upscaled
+    /// is not resampled twice.
+    /// </remarks>
+    private Image _upscaledImage;
+    private DeviceMemory _upscaledMemory;
+    private ImageView _upscaledView;
+
+    private OutputPipeline? _outputPipeline;
+    private IUpscaler? _upscaler;
+    private bool _upscalerFailed;
+    private ImageView _outputSource;
+
+    /// <summary>What the player has asked the upscaler for.</summary>
+    private UpscalePlan _upscaling = UpscalePlan.None;
+
+    /// <summary>What the player has asked the display for.</summary>
+    private OutputPlan _output = OutputPlan.Standard;
+
+    /// <summary>
+    /// How many frames have been drawn, which is where the jitter sequence is up to.
+    /// </summary>
+    /// <remarks>
+    /// Never reset. The sequence is taken modulo its own length, so a counter that runs for
+    /// the length of a session is a valid index into it, and restarting it at every scene
+    /// change would put every room's first frames on the same few sample points.
+    /// </remarks>
+    private long _frameIndex;
+
+    /// <summary>Whether the next frame has no usable history.</summary>
+    /// <remarks>
+    /// Set by a resize, a new upscaler, and by whoever loads a room. A temporal upscaler
+    /// that is not told smears the last frame of the hotel lobby across the first frame of
+    /// the street outside.
+    /// </remarks>
+    private bool _resetHistory = true;
+
+    private readonly System.Diagnostics.Stopwatch _sinceLastFrame =
+        System.Diagnostics.Stopwatch.StartNew();
+
+    /// <summary>Where inside its pixel this frame samples, in pixels.</summary>
+    private Vector2 _jitterPixels;
+
+    /// <summary>How long the last frame took, which is what a frame generator is paced by.</summary>
+    private float _secondsSinceLastFrame = 1f / 60f;
+
+    /// <summary>
+    /// Streamline, when the host started it — which it must do before this device exists.
+    /// </summary>
+    /// <remarks>
+    /// Its features ask for device extensions and for queues of their own, so it has to be
+    /// consulted between choosing the physical device and creating the logical one. That is
+    /// the whole reason it is passed in rather than started here.
+    /// </remarks>
+    private readonly Streamline? _streamline;
+
     private VulkanRenderer(
-        Vk vk, IGameWindow window, IVulkanSurfaceSource surfaceSource, bool bringUp)
+        Vk vk,
+        IGameWindow window,
+        IVulkanSurfaceSource surfaceSource,
+        bool bringUp,
+        Streamline? streamline)
     {
         _vk = vk;
         _window = window;
         _surfaceSource = surfaceSource;
         _bringUp = bringUp;
+        _streamline = streamline;
     }
 
     /// <summary>Whether to build the bring-up triangle. See <see cref="_triangle"/>.</summary>
@@ -187,6 +268,35 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     /// <summary>The device this renderer is using.</summary>
     public string DeviceName { get; private set; } = "unknown";
+
+    /// <summary>Who made it.</summary>
+    /// <remarks>
+    /// Read by the settings page, which does not offer DLSS on a card that could never run
+    /// it. Showing a row that is permanently unavailable teaches the player that the game
+    /// does not support their hardware properly, when the truth is that NVIDIA's upscaler
+    /// only runs on NVIDIA's cards.
+    /// </remarks>
+    public GpuVendor Vendor { get; private set; } = GpuVendor.Unknown;
+
+    /// <summary>
+    /// Which upscalers it makes sense to offer the player on this machine.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off and the built-in one always. FSR whatever the card is, because FidelityFX is
+    /// compute and runs anywhere — an NVIDIA player without NVIDIA's runtime installed can
+    /// still use AMD's. DLSS only on NVIDIA, and only because the alternative is a row that
+    /// can never be made to work.
+    /// </para>
+    /// <para>
+    /// A vendor the driver did not identify gets DLSS offered rather than hidden: a card
+    /// nobody here has heard of is more likely to be a new one than a wrong one, and
+    /// selecting it on a card that cannot run it falls back with a message either way.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<UpscalerKind> OfferedUpscalers => Vendor is GpuVendor.Nvidia or GpuVendor.Unknown
+        ? [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr, UpscalerKind.Dlss]
+        : [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr];
 
     /// <summary>Tiers the chosen device satisfies.</summary>
     public RenderCapabilityTier Tiers { get; private set; }
@@ -236,6 +346,167 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
 
+    /// <summary>Which of the vendors' runtimes the player has installed.</summary>
+    /// <remarks>
+    /// Handed in rather than found here, because where to look is a command-line question
+    /// and the renderer is not where command lines are read. Null means nothing was
+    /// offered, which is the same as nothing being installed.
+    /// </remarks>
+    public UpscalerRuntimes? Runtimes { get; set; }
+
+    /// <summary>
+    /// What the upscaler is asked to do.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Settable at any time, including in the middle of a game. Changing it marks the
+    /// frame's targets for rebuilding at the top of the next frame, which is the only place
+    /// it is safe to do — a resize does the same thing for the same reason. The player sees
+    /// one frame at the old size and then the new one; there is no stall and no reload.
+    /// </para>
+    /// <para>
+    /// The plan handed back is what was <em>asked for</em>. What is actually running is
+    /// <see cref="UpscalerName"/>, which differs whenever a vendor runtime could not be
+    /// built and the fallback took over.
+    /// </para>
+    /// </remarks>
+    public UpscalePlan Upscaling
+    {
+        get => _upscaling;
+
+        set
+        {
+            UpscalePlan wanted = (value ?? UpscalePlan.None).Sane();
+
+            if (wanted == _upscaling)
+            {
+                return;
+            }
+
+            _upscaling = wanted;
+
+            // A backend that failed once is worth another try when the player changes the
+            // setting: they may have changed it *because* it failed.
+            _upscalerFailed = false;
+            _needsRecreate = true;
+        }
+    }
+
+    /// <summary>How the finished picture is encoded for the display.</summary>
+    /// <remarks>
+    /// Also settable at any time. A change of colour space needs a new swapchain and a new
+    /// output pipeline, so it goes through the same rebuild; a change of paper white or of
+    /// the sun's brightness needs neither and takes effect on the next frame.
+    /// </remarks>
+    public OutputPlan Output
+    {
+        get => _output;
+
+        set
+        {
+            OutputPlan wanted = (value ?? OutputPlan.Standard).Sane();
+
+            if (wanted == _output)
+            {
+                return;
+            }
+
+            bool rebuild = wanted.HighDynamicRange != _output.HighDynamicRange ||
+                           wanted.Transfer != _output.Transfer;
+
+            _output = wanted;
+
+            if (rebuild)
+            {
+                _needsRecreate = true;
+            }
+
+            // The sun is packed into the rig on the way to the GPU, so a change to how
+            // bright it burns has to re-upload it. Only when it actually changed: this is
+            // a couple of hundred kilobytes and a light grid rebuild.
+            _frames?.Relight(_output.SunGain);
+            _rayTracedFrames?.Relight(_output.SunGain);
+        }
+    }
+
+    /// <summary>
+    /// Whether frames wait for the display.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On means FIFO, which is the only present mode the specification guarantees exists
+    /// and the only one that cannot tear. Off asks for mailbox and then for immediate, and
+    /// quietly stays on FIFO where the surface offers neither — which is a real outcome on
+    /// some Wayland compositors and is not worth failing over.
+    /// </para>
+    /// <para>
+    /// Changing it needs a new swapchain, which is why it goes through the same rebuild as
+    /// a resize rather than taking effect on the next frame.
+    /// </para>
+    /// </remarks>
+    public bool VerticalSync
+    {
+        get;
+
+        set
+        {
+            if (field == value)
+            {
+                return;
+            }
+
+            field = value;
+            _needsRecreate = true;
+        }
+    } = true;
+
+    /// <summary>What is actually upscaling, or "off".</summary>
+    public string UpscalerName => _upscaler is { } running
+        ? $"{running.Kind} ({running.Describe()})"
+        : "off";
+
+    /// <summary>Whether DLSS started and this device can run it.</summary>
+    /// <remarks>
+    /// Distinct from the files being installed. A GeForce older than Turing has all the
+    /// files and none of the hardware, and the settings page should say which.
+    /// </remarks>
+    public bool DlssAvailable => _streamline is { Ready: true };
+
+    /// <summary>Whether DLSS can denoise the traced light as well as upscale it.</summary>
+    public bool DlssRayReconstruction => _streamline is { HasRayReconstruction: true };
+
+    /// <summary>Why it cannot, when it looked as though it should be able to.</summary>
+    public string DlssRayReconstructionNote =>
+        _streamline?.RayReconstructionNote ?? string.Empty;
+
+    /// <summary>Whether DLSS can generate frames.</summary>
+    public bool DlssFrameGeneration => _streamline is { HasFrameGeneration: true };
+
+    /// <summary>Whether the surface gave back a high dynamic range colour space.</summary>
+    /// <remarks>
+    /// Asked for is not got. A monitor in SDR mode, a compositor that does not pass HDR
+    /// through, a driver that offers the extension and no HDR format: all of them leave
+    /// this false with the setting on, and the settings page says so rather than leaving
+    /// somebody to wonder why nothing looks different.
+    /// </remarks>
+    public bool HighDynamicRangeActive =>
+        _colorSpace is ColorSpaceKHR.SpaceHdr10ST2084Ext or ColorSpaceKHR.SpaceExtendedSrgbLinearExt;
+
+    /// <summary>The size the room is being drawn at, before any upscale.</summary>
+    public (int Width, int Height) RenderSize =>
+        ((int)_renderExtent.Width, (int)_renderExtent.Height);
+
+    /// <summary>
+    /// Says that the next frame has nothing to accumulate against.
+    /// </summary>
+    /// <remarks>
+    /// Called by whoever changes what is on screen discontinuously: a new room, a camera
+    /// cut, the end of a cutscene. Without it a temporal upscaler spends several frames
+    /// reconciling the last room with this one, which reads as the new room arriving
+    /// smeared.
+    /// </remarks>
+    public void ResetHistory() => _resetHistory = true;
+
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
     /// <param name="scene">What the geometry occupies; default decides nothing.</param>
@@ -257,6 +528,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// </remarks>
     public void SetScene(SceneGeometry? scene, Camera? camera)
     {
+        // A different room has nothing in common with the last one, so nothing a temporal
+        // upscaler accumulated about the last one is worth keeping. Told here rather than
+        // by the caller because this is the one call every room change goes through.
+        if (!ReferenceEquals(scene, _scene))
+        {
+            _resetHistory = true;
+        }
+
         scene?.Finish();
 
         if (scene?.RayTracing is not null)
@@ -284,16 +563,23 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// back to. For the smoke test that has nothing else to draw; the game never wants it.
     /// </param>
     /// <returns>The renderer.</returns>
+    /// <param name="streamline">
+    /// NVIDIA's loader, already started, or null. It has to be consulted while the device
+    /// is being created — its features ask for extensions and queues — which is why it
+    /// arrives here rather than being started when DLSS is first selected.
+    /// </param>
     public static VulkanRenderer Create(
         IGameWindow window,
         IVulkanSurfaceSource surfaceSource,
         bool enableValidation = true,
-        bool bringUp = false)
+        bool bringUp = false,
+        Streamline? streamline = null)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(surfaceSource);
 
-        var renderer = new VulkanRenderer(VulkanContext.LoadApi(), window, surfaceSource, bringUp);
+        var renderer = new VulkanRenderer(
+            VulkanContext.LoadApi(), window, surfaceSource, bringUp, streamline);
 
         try
         {
@@ -306,6 +592,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             renderer.CreateGBuffer();
             renderer.CreateSceneTarget();
             renderer.CreateLitTarget();
+            renderer.CreateUpscaleTarget();
             renderer.CreateCommandResources();
             renderer.CreateSynchronization();
             renderer.CreatePipelines();
@@ -365,6 +652,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
         // over a pose a frame still in flight is drawing.
         _scene?.Flush(_frame);
 
+        Jitter();
+
         RecordClear(_commandBuffers[_frame], _images[imageIndex], _imageViews[imageIndex], red, green, blue);
         _lastImageIndex = imageIndex;
 
@@ -412,15 +701,79 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
 
         _frame = (_frame + 1) % FramesInFlight;
+        _frameIndex++;
         _presentedAnything = true;
+
+        // Whatever the last frame had to reconcile, it has now reconciled.
+        _resetHistory = false;
+
         return true;
+    }
+
+    /// <summary>
+    /// Moves this frame's sample point, and measures how long the last frame took.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only a temporal upscaler wants a jitter. Moving the camera by half a pixel with
+    /// nothing accumulating the result is not anti-aliasing, it is a picture that wobbles —
+    /// so with the spatial upscaler or none at all the offset is exactly zero and the
+    /// motion vectors, which have this added back into them, are unchanged.
+    /// </para>
+    /// <para>
+    /// Set on the camera the renderer was handed rather than on a copy. Everything in the
+    /// frame has to agree about where it sampled — the raster, the depth, the traced
+    /// occlusion and the reflections all reproject against each other — and one of them
+    /// holding a different matrix is a class of error that looks like a denoiser bug.
+    /// </para>
+    /// </remarks>
+    private void Jitter()
+    {
+        _secondsSinceLastFrame = (float)_sinceLastFrame.Elapsed.TotalSeconds;
+        _sinceLastFrame.Restart();
+
+        // A frame that took longer than a second is a load, a breakpoint or a machine that
+        // went to sleep, and pacing anything against it produces nonsense.
+        if (!float.IsFinite(_secondsSinceLastFrame) ||
+            _secondsSinceLastFrame is <= 0f or > 1f)
+        {
+            _secondsSinceLastFrame = 1f / 60f;
+        }
+
+        if (!_upscaling.Temporal || _renderExtent.Width == 0)
+        {
+            _jitterPixels = Vector2.Zero;
+        }
+        else
+        {
+            int phases = JitterSequence.PhaseCount(
+                (int)_renderExtent.Width, (int)_extent.Width);
+
+            _jitterPixels = JitterSequence.Offset(_frameIndex, phases);
+        }
+
+        if (_camera is not null)
+        {
+            _camera.Jitter = JitterSequence.ToClip(
+                _jitterPixels, (int)_renderExtent.Width, (int)_renderExtent.Height);
+        }
     }
 
     /// <summary>Reads back the last frame that was presented.</summary>
     /// <returns>The image, or null if nothing has been presented yet.</returns>
     /// <remarks>
+    /// <para>
     /// Copies out of the swapchain image rather than re-rendering, so what comes back is
     /// exactly what the player saw — including anything a re-render would get differently.
+    /// </para>
+    /// <para>
+    /// <b>An HDR frame is brought back down.</b> A screenshot is an 8-bit sRGB file and
+    /// there is no other kind; a ten-bit PQ frame or a half-float scRGB one is decoded, put
+    /// back into a linear scale where paper white is one, and encoded for sRGB. What that
+    /// loses is exactly what an HDR display was showing that an ordinary one cannot, which
+    /// is unavoidable and worth stating: a screenshot taken in HDR is not a photograph of
+    /// what was on the screen, it is the nearest ordinary picture to it.
+    /// </para>
     /// </remarks>
     public Formats.Bitmaps.DecodedImage? Capture()
     {
@@ -435,10 +788,15 @@ public sealed unsafe class VulkanRenderer : IDisposable
         int height = (int)_extent.Height;
         Image image = _images[_lastImageIndex];
 
+        // Four bytes a pixel for everything except the half-float surface scRGB is carried
+        // in, which is eight. Getting this wrong is not a wrong colour, it is a buffer half
+        // the size the copy needs.
+        int stride = _format == Format.R16G16B16A16Sfloat ? 8 : 4;
+
         var bufferInfo = new BufferCreateInfo
         {
             SType = StructureType.BufferCreateInfo,
-            Size = (ulong)(width * height * 4),
+            Size = (ulong)(width * height * stride),
             Usage = BufferUsageFlags.TransferDstBit,
             SharingMode = SharingMode.Exclusive,
         };
@@ -475,14 +833,20 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
             _context.EndOneShot(command);
 
-            byte[] pixels = new byte[width * height * 4];
+            byte[] raw = new byte[width * height * stride];
             void* mapped;
-            _vk.MapMemory(_device, memory, 0, (ulong)pixels.Length, 0, &mapped);
-            new ReadOnlySpan<byte>(mapped, pixels.Length).CopyTo(pixels);
+            _vk.MapMemory(_device, memory, 0, (ulong)raw.Length, 0, &mapped);
+            new ReadOnlySpan<byte>(mapped, raw.Length).CopyTo(raw);
             _vk.UnmapMemory(_device, memory);
 
+            byte[] pixels = HighDynamicRangeActive
+                ? Ordinary(raw, width, height)
+                : raw;
+
             // Most surfaces hand out a BGRA format; the decoded image is RGBA throughout.
-            if (_format is Format.B8G8R8A8Srgb or Format.B8G8R8A8Unorm)
+            // The HDR paths above have already put their channels the right way round.
+            if (!HighDynamicRangeActive &&
+                _format is Format.B8G8R8A8Srgb or Format.B8G8R8A8Unorm)
             {
                 for (int i = 0; i < pixels.Length; i += 4)
                 {
@@ -497,6 +861,93 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _vk.DestroyBuffer(_device, buffer, null);
             _vk.FreeMemory(_device, memory, null);
         }
+    }
+
+    /// <summary>
+    /// Turns a high dynamic range frame back into an ordinary 8-bit sRGB one.
+    /// </summary>
+    /// <param name="raw">The swapchain's own bytes.</param>
+    /// <param name="width">Frame width.</param>
+    /// <param name="height">Frame height.</param>
+    /// <returns>Four bytes a pixel, RGBA, sRGB-encoded.</returns>
+    /// <remarks>
+    /// The exact inverse of what <see cref="OutputPipeline"/> did on the way out, followed
+    /// by the sRGB encode the hardware would have done had the surface been an ordinary
+    /// one. Anything above paper white clips, which is the whole point of the format it is
+    /// being converted into.
+    /// </remarks>
+    private byte[] Ordinary(byte[] raw, int width, int height)
+    {
+        byte[] pixels = new byte[width * height * 4];
+        float paperWhite = MathF.Max(_output.PaperWhiteNits, 1f);
+
+        for (int i = 0; i < width * height; i++)
+        {
+            float r;
+            float g;
+            float b;
+
+            if (_format == Format.R16G16B16A16Sfloat)
+            {
+                // scRGB: linear light in sRGB primaries, where one unit is 80 candelas.
+                int at = i * 8;
+                float scale = 80f / paperWhite;
+
+                r = (float)BitConverter.ToHalf(raw, at) * scale;
+                g = (float)BitConverter.ToHalf(raw, at + 2) * scale;
+                b = (float)BitConverter.ToHalf(raw, at + 4) * scale;
+            }
+            else
+            {
+                // HDR10: ten bits a channel through ST.2084, in Rec.2020 primaries. The
+                // pack order is A2B10G10R10, so red is the low ten bits.
+                uint packed = BitConverter.ToUInt32(raw, i * 4);
+
+                float wideRed = Luminance(packed & 0x3FF) / paperWhite;
+                float wideGreen = Luminance((packed >> 10) & 0x3FF) / paperWhite;
+                float wideBlue = Luminance((packed >> 20) & 0x3FF) / paperWhite;
+
+                // Rec.2020 back to Rec.709, which is the inverse of the matrix the output
+                // pass applied. Out-of-gamut colours come back negative and are clamped.
+                r = (1.6605f * wideRed) - (0.5876f * wideGreen) - (0.0728f * wideBlue);
+                g = (-0.1246f * wideRed) + (1.1329f * wideGreen) - (0.0083f * wideBlue);
+                b = (-0.0182f * wideRed) - (0.1006f * wideGreen) + (1.1187f * wideBlue);
+            }
+
+            pixels[(i * 4) + 0] = Encode(r);
+            pixels[(i * 4) + 1] = Encode(g);
+            pixels[(i * 4) + 2] = Encode(b);
+            pixels[(i * 4) + 3] = 255;
+        }
+
+        return pixels;
+    }
+
+    /// <summary>Undoes ST.2084, giving absolute luminance in candelas.</summary>
+    private static float Luminance(uint tenBits)
+    {
+        const float M1 = 0.1593017578125f;
+        const float M2 = 78.84375f;
+        const float C1 = 0.8359375f;
+        const float C2 = 18.8515625f;
+        const float C3 = 18.6875f;
+
+        float encoded = MathF.Pow(tenBits / 1023f, 1f / M2);
+        float numerator = MathF.Max(encoded - C1, 0f);
+
+        return 10_000f * MathF.Pow(numerator / (C2 - (C3 * encoded)), 1f / M1);
+    }
+
+    /// <summary>A linear value as an sRGB byte.</summary>
+    private static byte Encode(float linear)
+    {
+        float value = Math.Clamp(linear, 0f, 1f);
+
+        float encoded = value <= 0.0031308f
+            ? value * 12.92f
+            : (1.055f * MathF.Pow(value, 1f / 2.4f)) - 0.055f;
+
+        return (byte)Math.Clamp(MathF.Round(encoded * 255f), 0f, 255f);
     }
 
     /// <summary>Reads the frame's motion vectors back, in pixels.</summary>
@@ -520,8 +971,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         _vk.DeviceWaitIdle(_device);
 
-        int width = (int)_extent.Width;
-        int height = (int)_extent.Height;
+        int width = (int)_renderExtent.Width;
+        int height = (int)_renderExtent.Height;
         Image image = _extraImages[GBuffer.Motion - 1];
 
         var bufferInfo = new BufferCreateInfo
@@ -879,6 +1330,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
             DestroyGBuffer();
             DestroySceneTarget();
             DestroyLitTarget();
+            DestroyUpscaleTarget();
+            _upscaler?.Dispose();
+            _upscaler = null;
+            _outputPipeline?.Dispose();
+            _outputPipeline = null;
             _reflections?.Dispose();
             _reflections = null;
             _denoiser?.Dispose();
@@ -915,8 +1371,15 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         // The window's own extensions, plus the one that lets a portability driver be
         // enumerated at all. Without it there is no device to find on macOS.
+        IEnumerable<string> asked = _surfaceSource.RequiredInstanceExtensions;
+
+        if (_streamline is { InstanceExtensions.Count: > 0 })
+        {
+            asked = asked.Concat(_streamline.InstanceExtensions);
+        }
+
         string[] extensions = VulkanPortability.InstanceExtensions(
-            _vk, _surfaceSource.RequiredInstanceExtensions, out InstanceCreateFlags flags);
+            _vk, asked, out InstanceCreateFlags flags);
 
         nint extensionNames = SilkMarshal.StringArrayToPtr(extensions);
         nint layerNames = 0;
@@ -1018,6 +1481,18 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 _graphicsFamily = graphics;
                 _presentFamily = present;
                 DeviceName = SilkMarshal.PtrToString((nint)properties.DeviceName) ?? "unknown";
+
+                // From the PCI identifier rather than from the name. Which upscalers the
+                // settings page may offer hangs off this, and a card whose marketing string
+                // changes between driver releases must not change what the menu shows.
+                Vendor = properties.VendorID switch
+                {
+                    0x10DE => GpuVendor.Nvidia,
+                    0x1002 or 0x1022 => GpuVendor.Amd,
+                    0x8086 => GpuVendor.Intel,
+                    0x106B => GpuVendor.Apple,
+                    _ => GpuVendor.Unknown,
+                };
             }
         }
 
@@ -1070,8 +1545,31 @@ public sealed unsafe class VulkanRenderer : IDisposable
             ? [_graphicsFamily]
             : [_graphicsFamily, _presentFamily];
 
+        // Streamline runs some of its own work on queues it asks the application to
+        // create. There is nowhere to add a queue after the fact — a device's queues are
+        // fixed at creation — so this is the one chance to ask for them, and asking when
+        // DLSS is merely *installed* rather than switched on is what lets it be switched
+        // on later without restarting the game.
+        uint extra = _streamline is null
+            ? 0
+            : _streamline.GraphicsQueuesWanted + _streamline.ComputeQueuesWanted;
+
+        // And never more than the family actually has. A device that will not create the
+        // queues is a device the game cannot draw on at all, which is a far worse outcome
+        // than an upscaler that has to share one.
+        extra = Math.Min(extra, QueuesAvailable(_graphicsFamily) - 1);
+        _streamlineQueue = extra > 0 ? 1u : 0u;
+
         DeviceQueueCreateInfo[] queues = new DeviceQueueCreateInfo[families.Length];
-        float priority = 1f;
+
+        float* priorities = stackalloc float[(int)(extra + 1)];
+
+        for (int i = 0; i <= extra; i++)
+        {
+            // The game's own queue first and highest: an upscaler starved of work is a
+            // slower frame, and a renderer starved of work is a frozen window.
+            priorities[i] = i == 0 ? 1f : 0.5f;
+        }
 
         for (int i = 0; i < families.Length; i++)
         {
@@ -1079,8 +1577,8 @@ public sealed unsafe class VulkanRenderer : IDisposable
             {
                 SType = StructureType.DeviceQueueCreateInfo,
                 QueueFamilyIndex = families[i],
-                QueueCount = 1,
-                PQueuePriorities = &priority,
+                QueueCount = families[i] == _graphicsFamily ? extra + 1 : 1,
+                PQueuePriorities = priorities,
             };
         }
 
@@ -1092,6 +1590,11 @@ public sealed unsafe class VulkanRenderer : IDisposable
         string[] wanted = _rayTracingEnabled
             ? [KhrSwapchain.ExtensionName, .. VulkanContext.RayTracingExtensions]
             : [KhrSwapchain.ExtensionName];
+
+        if (_streamline is { DeviceExtensions.Count: > 0 })
+        {
+            wanted = [.. wanted, .. _streamline.DeviceExtensions];
+        }
 
         // A portability driver requires its subset extension to be enabled wherever it is
         // advertised, and no driver that is not one advertises it.
@@ -1173,6 +1676,42 @@ public sealed unsafe class VulkanRenderer : IDisposable
         {
             throw new VulkanException("The swapchain extension is unavailable.");
         }
+
+        // And now Streamline can be told what was made. It asks the driver whether this
+        // device can run DLSS at all, which is the answer the settings page reports.
+        _streamline?.Attach(
+            (nint)_instance.Handle,
+            (nint)_physicalDevice.Handle,
+            (nint)_device.Handle,
+            _graphicsFamily,
+            _streamlineQueue,
+            _graphicsFamily,
+            _streamlineQueue);
+    }
+
+    /// <summary>Which queue index in the graphics family Streamline was given.</summary>
+    /// <remarks>Nought when there was no room for one of its own, and it shares.</remarks>
+    private uint _streamlineQueue;
+
+    /// <summary>How many queues a family has.</summary>
+    private uint QueuesAvailable(uint family)
+    {
+        uint count = 0;
+        _vk.GetPhysicalDeviceQueueFamilyProperties(_physicalDevice, ref count, null);
+
+        if (family >= count)
+        {
+            return 1;
+        }
+
+        var properties = new QueueFamilyProperties[count];
+
+        fixed (QueueFamilyProperties* pointer = properties)
+        {
+            _vk.GetPhysicalDeviceQueueFamilyProperties(_physicalDevice, ref count, pointer);
+        }
+
+        return Math.Max(1, properties[family].QueueCount);
     }
 
     private void CreateSwapchain()
@@ -1182,7 +1721,20 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         SurfaceFormatKHR surfaceFormat = ChooseFormat();
         _format = surfaceFormat.Format;
+        _colorSpace = surfaceFormat.ColorSpace;
         _extent = ChooseExtent(capabilities);
+
+        // And the size the room is drawn at, which is the window's divided by whatever the
+        // upscaler was asked for. Decided here rather than per frame because every target
+        // between the first triangle and the upscale is built to it.
+        (int drawnWidth, int drawnHeight) =
+            _upscaling.RenderSize((int)_extent.Width, (int)_extent.Height);
+
+        _renderExtent = new Extent2D((uint)drawnWidth, (uint)drawnHeight);
+
+        // Nothing that accumulates across frames has anything worth keeping across a
+        // swapchain rebuild: every target it was accumulating into has just been destroyed.
+        _resetHistory = true;
 
         uint imageCount = capabilities.MinImageCount + 1;
         if (capabilities.MaxImageCount > 0 && imageCount > capabilities.MaxImageCount)
@@ -1207,9 +1759,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             PreTransform = capabilities.CurrentTransform,
             CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr,
 
-            // FIFO is the only mode the specification guarantees, so it is the safe
-            // default until the settings screen offers the alternatives.
-            PresentMode = PresentModeKHR.FifoKhr,
+            PresentMode = ChoosePresentMode(),
             Clipped = true,
         };
 
@@ -1265,6 +1815,72 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Picks how frames are handed to the display.
+    /// </summary>
+    /// <returns>The present mode, which is FIFO unless the player asked otherwise.</returns>
+    /// <remarks>
+    /// FIFO is the only mode the specification guarantees, so it is both the default and
+    /// the fallback. With the wait switched off, mailbox first — it is the one that does
+    /// not tear — and immediate after it. A surface offering neither leaves the setting on
+    /// in fact while the row says off, which is the honest outcome and is why the row does
+    /// not promise a frame rate.
+    /// </remarks>
+    private PresentModeKHR ChoosePresentMode()
+    {
+        if (VerticalSync)
+        {
+            return PresentModeKHR.FifoKhr;
+        }
+
+        uint count = 0;
+        _khrSurface.GetPhysicalDeviceSurfacePresentModes(_physicalDevice, _surface, ref count, null);
+
+        if (count == 0)
+        {
+            return PresentModeKHR.FifoKhr;
+        }
+
+        var modes = new PresentModeKHR[count];
+
+        fixed (PresentModeKHR* pointer = modes)
+        {
+            _khrSurface.GetPhysicalDeviceSurfacePresentModes(
+                _physicalDevice, _surface, ref count, pointer);
+        }
+
+        if (Array.IndexOf(modes, PresentModeKHR.MailboxKhr) >= 0)
+        {
+            return PresentModeKHR.MailboxKhr;
+        }
+
+        return Array.IndexOf(modes, PresentModeKHR.ImmediateKhr) >= 0
+            ? PresentModeKHR.ImmediateKhr
+            : PresentModeKHR.FifoKhr;
+    }
+
+    /// <summary>
+    /// Picks the swapchain's format and colour space from what the surface actually offers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Standard range is the easy half: an sRGB surface means the display hardware does the
+    /// encoding on write, so shading stays linear and there is nothing to decide.
+    /// </para>
+    /// <para>
+    /// High dynamic range is asked for and not demanded. A surface may offer the colour
+    /// space and no format the game can write, a monitor may be in SDR mode, a compositor
+    /// may not pass HDR through at all — and none of those is a reason to fail to open a
+    /// window. What is chosen here is reported through
+    /// <see cref="HighDynamicRangeActive"/>, so the settings page can say "asked for, not
+    /// available" rather than leaving somebody to wonder why nothing changed.
+    /// </para>
+    /// <para>
+    /// PQ before scRGB when both are offered and the player expressed no preference. Ten
+    /// bits through ST.2084 carry further up the luminance range than ten bits of anything
+    /// linear, and PQ is what a television and most HDR monitors are actually driven with.
+    /// </para>
+    /// </remarks>
     private SurfaceFormatKHR ChooseFormat()
     {
         uint count = 0;
@@ -1274,6 +1890,25 @@ public sealed unsafe class VulkanRenderer : IDisposable
         fixed (SurfaceFormatKHR* pointer = formats)
         {
             _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref count, pointer);
+        }
+
+        if (_output.HighDynamicRange)
+        {
+            if (Match(formats, _output.Transfer) is { } wide)
+            {
+                Log.Info($"Display: {wide.ColorSpace} in {wide.Format}");
+                return wide;
+            }
+
+            // Said once, with what the surface actually offered. "HDR did nothing" is the
+            // hardest kind of complaint to act on, and the difference between a monitor in
+            // SDR mode, a compositor that will not pass HDR through and a driver that
+            // never offered the format is only visible in this list.
+            Log.Info(
+                "Display: high dynamic range was asked for and this surface offers none. " +
+                "It offers " + string.Join(
+                    ", ",
+                    formats.Select(f => f.ColorSpace.ToString()).Distinct()));
         }
 
         // An sRGB surface means the display does the encoding, so shading stays linear.
@@ -1287,6 +1922,49 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
 
         return formats.Length > 0 ? formats[0] : throw new VulkanException("The surface offers no formats.");
+    }
+
+    /// <summary>The best HDR pair the surface offers, or null for none.</summary>
+    /// <param name="formats">What the surface reported.</param>
+    /// <param name="wanted">Which encoding the player asked for.</param>
+    private static SurfaceFormatKHR? Match(SurfaceFormatKHR[] formats, HdrTransfer wanted)
+    {
+        // Ten bits for PQ and sixteen-bit float for scRGB, which is what each is defined
+        // to be carried in. An 8-bit HDR10 surface would band visibly across a night sky
+        // and is not worth taking over an sRGB one.
+        SurfaceFormatKHR? pq = First(
+            formats,
+            ColorSpaceKHR.SpaceHdr10ST2084Ext,
+            [Format.A2B10G10R10UnormPack32, Format.A2R10G10B10UnormPack32]);
+
+        SurfaceFormatKHR? extended = First(
+            formats,
+            ColorSpaceKHR.SpaceExtendedSrgbLinearExt,
+            [Format.R16G16B16A16Sfloat]);
+
+        return wanted switch
+        {
+            HdrTransfer.PerceptualQuantiser => pq ?? extended,
+            HdrTransfer.ExtendedLinear => extended ?? pq,
+            _ => pq ?? extended,
+        };
+    }
+
+    private static SurfaceFormatKHR? First(
+        SurfaceFormatKHR[] formats, ColorSpaceKHR space, Format[] wanted)
+    {
+        foreach (Format candidate in wanted)
+        {
+            foreach (SurfaceFormatKHR format in formats)
+            {
+                if (format.ColorSpace == space && format.Format == candidate)
+                {
+                    return format;
+                }
+            }
+        }
+
+        return null;
     }
 
     private Extent2D ChooseExtent(SurfaceCapabilitiesKHR capabilities)
@@ -1368,6 +2046,33 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Records the whole of a frame: the room, the upscale, the encode and the interface.
+    /// </summary>
+    /// <param name="buffer">The frame's command buffer.</param>
+    /// <param name="image">The swapchain image the frame is going to.</param>
+    /// <param name="view">Its view.</param>
+    /// <param name="r">Clear red.</param>
+    /// <param name="g">Clear green.</param>
+    /// <param name="b">Clear blue.</param>
+    /// <remarks>
+    /// <para>
+    /// Four stages, in one order whatever the settings say. The room is drawn at
+    /// <see cref="_renderExtent"/> into a floating-point target; something may then upscale
+    /// that to <see cref="_extent"/>; the result is tone-mapped and encoded onto the
+    /// swapchain; and the movie, the interface and the fade go on top at the size of the
+    /// window.
+    /// </para>
+    /// <para>
+    /// It used to be two orders — the traced path composited into a target and copied out,
+    /// the plain path drew straight onto the screen — and every feature since has had to be
+    /// written twice or has silently only worked on one of them. Unifying them costs one
+    /// full-screen pass in the plain path and buys upscaling, HDR and tone mapping in both.
+    /// The interface staying at the size of the window is not a detail: an interface drawn
+    /// at render resolution and stretched with the room is the most visible way to get an
+    /// upscaler wrong.
+    /// </para>
+    /// </remarks>
     private void RecordClear(CommandBuffer buffer, Image image, ImageView view, float r, float g, float b)
     {
         _vk.ResetCommandBuffer(buffer, 0);
@@ -1380,8 +2085,6 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         _vk.BeginCommandBuffer(buffer, in begin);
 
-        Transition(buffer, image, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
-
         PrepareDeferred(buffer);
 
         // Whether the room's pass produces a picture or only the raw materials of one.
@@ -1391,19 +2094,21 @@ public sealed unsafe class VulkanRenderer : IDisposable
                         _denoiser is not null &&
                         _composite is not null;
 
+        int width = (int)_renderExtent.Width;
+        int height = (int)_renderExtent.Height;
+
         RenderingAttachmentInfo* attachments =
             stackalloc RenderingAttachmentInfo[(int)GBuffer.Targets];
 
-        if (deferred)
-        {
-            Transition(
-                buffer, _sceneImage, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
-        }
+        Image roomImage = deferred ? _sceneImage : _litImage;
+        ImageView roomView = deferred ? _sceneView : _litView;
+
+        Transition(buffer, roomImage, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
 
         attachments[GBuffer.Colour] = new RenderingAttachmentInfo
         {
             SType = StructureType.RenderingAttachmentInfo,
-            ImageView = deferred ? _sceneView : view,
+            ImageView = roomView,
             ImageLayout = ImageLayout.ColorAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
@@ -1443,7 +2148,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         var rendering = new RenderingInfo
         {
             SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D { Extent = _extent },
+            RenderArea = new Rect2D { Extent = _renderExtent },
             LayerCount = 1,
             ColorAttachmentCount = GBuffer.Targets,
             PColorAttachments = attachments,
@@ -1454,7 +2159,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _vk.CmdBeginRendering(buffer, in rendering);
 
         // The room's sky, built the first time this geometry is drawn. It needs the shader
-        // compiler and the swapchain's formats, which the geometry does not have.
+        // compiler and the formats, which the geometry does not have.
         if (_scene is not null && !ReferenceEquals(_scene, _skyOwner))
         {
             _skyOwner = _scene;
@@ -1468,7 +2173,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 try
                 {
                     _skybox = SkyboxPipeline.Create(
-                        _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler,
+                        _context!, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler,
                         faces, _scene.SkyboxAzimuth);
                 }
                 catch (VulkanException)
@@ -1483,7 +2188,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 try
                 {
                     _terrain = TerrainPipeline.Create(
-                        _context!, _format, SceneRenderer.DepthFormat, _shaderCompiler,
+                        _context!, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler,
                         backdrop);
                 }
                 catch (VulkanException)
@@ -1511,21 +2216,19 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
             frames.Seconds = (float)_wind.Elapsed.TotalSeconds;
 
+            // Where inside its pixel this frame samples, and how far above white a lamp is
+            // allowed to burn. Both are per-frame facts about presentation rather than
+            // about the room, which is why they are set here and not by whoever loaded it.
+            frames.JitterPixels = _jitterPixels;
+            frames.EmissiveGain = _output.EmissiveGain;
+
             if (tracing)
             {
                 frames.Settings = RayTracingSettings.For(Quality);
             }
 
             SceneDraw.Record(
-                _vk,
-                buffer,
-                pipeline,
-                frames,
-                _scene,
-                _frame,
-                (int)_extent.Width,
-                (int)_extent.Height,
-                _camera);
+                _vk, buffer, pipeline, frames, _scene, _frame, width, height, _camera);
         }
         else if (_triangle is not null)
         {
@@ -1534,12 +2237,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
             var viewport = new Viewport
             {
-                Width = _extent.Width,
-                Height = _extent.Height,
+                Width = width,
+                Height = height,
                 MaxDepth = 1f,
             };
 
-            var scissor = new Rect2D { Extent = _extent };
+            var scissor = new Rect2D { Extent = _renderExtent };
 
             _vk.CmdSetViewport(buffer, 0, 1, in viewport);
             _vk.CmdSetScissor(buffer, 0, 1, in scissor);
@@ -1547,37 +2250,24 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _vk.CmdDraw(buffer, 3, 1, 0, 0);
         }
 
-        // The sky and the interface only belong here when this scope is producing the
-        // picture. When it is not, they wait for the pass that turns its parts into one.
-        if (!deferred)
+        // The horizon after the room, and only where this scope is producing the picture.
+        // The traced path has a compositing pass to run first and draws its sky there,
+        // over the result, because the sky is not something the compositing pass has any
+        // parts for.
+        if (!deferred && _camera is not null)
         {
-            // The horizon after the room: the reconstructed backdrop brings its own sky,
-            // and the painted cubemap must not draw behind it — its mountains are baked
-            // into the picture and would double-expose against the real ridge. The
-            // cubemap is the fallback for a backdrop that would not build, nothing more.
-            if (_camera is not null)
+            // The reconstructed backdrop brings its own sky, and the painted cubemap must
+            // not draw behind it — its mountains are baked into the picture and would
+            // double-expose against the real ridge. The cubemap is the fallback for a
+            // backdrop that would not build, nothing more.
+            if (_terrain is not null)
             {
-                if (_terrain is not null)
-                {
-                    _terrain.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
-                }
-                else
-                {
-                    _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
-                }
+                _terrain.Record(buffer, _camera, width, height);
             }
-
-            // Over the room and under the interface. A movie covers the window, so what
-            // is behind it does not matter; the captions that go with one do.
-            _movie?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
-
-            // On top of the room and inside the same pass: the interface has no business
-            // in the depth buffer, and starting a second pass to say so would cost a store
-            // and a load of the whole colour target.
-            _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
-
-            // And last of all, over the interface as well as the room. See Fade.
-            RecordFade(buffer);
+            else
+            {
+                _skybox?.Record(buffer, _camera, width, height);
+            }
         }
 
         _vk.CmdEndRendering(buffer);
@@ -1587,8 +2277,32 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         if (deferred)
         {
-            Compose(buffer, image, view);
+            // Leaves the lit target holding the finished room, in shader-read layout.
+            Compose(buffer);
         }
+        else
+        {
+            Transition(
+                buffer, _litImage, ImageLayout.ColorAttachmentOptimal,
+                ImageLayout.ShaderReadOnlyOptimal);
+
+            for (int i = 0; i < _extraViews.Length; i++)
+            {
+                Transition(
+                    buffer, _extraImages[i], ImageLayout.ColorAttachmentOptimal,
+                    ImageLayout.ShaderReadOnlyOptimal);
+            }
+
+            _context!.Transition(
+                buffer, _depthImage, ImageLayout.DepthStencilAttachmentOptimal,
+                ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
+        }
+
+        _litSettled = true;
+
+        ImageView picture = Upscale(buffer) ? _upscaledView : _litView;
+
+        Present(buffer, image, view, picture);
 
         Transition(buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr);
 
@@ -1596,6 +2310,372 @@ public sealed unsafe class VulkanRenderer : IDisposable
         {
             throw new VulkanException("Could not record the frame.");
         }
+    }
+
+    /// <summary>
+    /// Runs whatever upscaler the plan asks for, building it if this is the first frame.
+    /// </summary>
+    /// <param name="buffer">The frame's command buffer.</param>
+    /// <returns>True when the upscaled target holds the picture.</returns>
+    /// <remarks>
+    /// <para>
+    /// Built here rather than at startup for the same reason the denoiser is: it needs to
+    /// know the two sizes, and the player can change what it is at any moment. A backend
+    /// that will not build, or that declines a frame, is logged once and switched off for
+    /// the rest of the session — the fallback is the picture at render resolution, stretched
+    /// by the output pass, which is worse and is not nothing.
+    /// </para>
+    /// <para>
+    /// Every backend is handed its inputs in shader-read layout and its output in general
+    /// layout, and this is the only place that decides so. See <see cref="IUpscaler"/>.
+    /// </para>
+    /// </remarks>
+    private bool Upscale(CommandBuffer buffer)
+    {
+        if (!_upscaling.Active || _upscalerFailed || _context is null ||
+            _shaderCompiler is null || _upscaledImage.Handle == 0)
+        {
+            return false;
+        }
+
+        if (_upscaler is not null && !_upscaler.Serves(_upscaling, _renderExtent, _extent))
+        {
+            _upscaler.Dispose();
+            _upscaler = null;
+        }
+
+        if (_upscaler is null)
+        {
+            try
+            {
+                _upscaler = BuildUpscaler();
+            }
+            catch (Exception error) when (error is VulkanException or DllNotFoundException
+                                              or EntryPointNotFoundException or BadImageFormatException)
+            {
+                Log.Warning(
+                    "WARNING GK3R3431: " + _upscaling.Kind + " could not be started, so the "
+                    + "picture is drawn at the size of the window. (" + error.Message + ")");
+
+                _upscaler = null;
+                _upscalerFailed = true;
+
+                return false;
+            }
+
+            if (_upscaler is null)
+            {
+                _upscalerFailed = true;
+                return false;
+            }
+
+            Log.Info($"Upscaling: {UpscalerName}");
+            _resetHistory = true;
+        }
+
+        _context.Transition(
+            buffer, _upscaledImage, ImageLayout.Undefined, ImageLayout.General);
+
+        var frame = new UpscaleFrame(
+            new UpscaleImage(
+                _litImage, _litView, GBuffer.LightFormat, _renderExtent,
+                ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit |
+                ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit),
+            new UpscaleImage(
+                _depthImage, _depthView, SceneRenderer.DepthFormat, _renderExtent,
+                ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit),
+            new UpscaleImage(
+                _extraImages[GBuffer.Motion - 1], _extraViews[GBuffer.Motion - 1],
+                GBuffer.MotionFormat, _renderExtent,
+                ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit |
+                ImageUsageFlags.TransferSrcBit),
+            new UpscaleImage(
+                _upscaledImage, _upscaledView, GBuffer.LightFormat, _extent,
+                ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit |
+                ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit |
+                ImageUsageFlags.TransferDstBit),
+            _jitterPixels,
+            _secondsSinceLastFrame,
+            _resetHistory,
+            _camera,
+            _renderExtent.Height > 0 ? _renderExtent.Width / (float)_renderExtent.Height : 1f,
+            _upscaling.Sharpen,
+            _upscaling.Sharpness,
+            HighDynamicRangeActive);
+
+        bool worked;
+
+        try
+        {
+            worked = _upscaler.Record(buffer, in frame);
+        }
+        catch (Exception error) when (error is VulkanException or InvalidOperationException)
+        {
+            Log.Warning(
+                "WARNING GK3R3432: " + _upscaling.Kind + " stopped upscaling, so the picture "
+                + "is drawn at the size of the window. (" + error.Message + ")");
+
+            worked = false;
+        }
+
+        if (!worked)
+        {
+            _upscaler.Dispose();
+            _upscaler = null;
+            _upscalerFailed = true;
+
+            return false;
+        }
+
+        _context.Transition(
+            buffer, _upscaledImage, ImageLayout.General, ImageLayout.ShaderReadOnlyOptimal);
+
+        return true;
+    }
+
+    /// <summary>Makes the upscaler the plan asks for.</summary>
+    /// <returns>It, or null when its runtime is not installed.</returns>
+    private IUpscaler? BuildUpscaler() => _upscaling.Kind switch
+    {
+        UpscalerKind.Spatial =>
+            SpatialUpscaler.Create(_context!, _shaderCompiler!, _renderExtent, _extent),
+
+        UpscalerKind.Fsr =>
+            (IUpscaler?)FsrUpscaler.TryCreate(
+                _context!, Runtimes, _upscaling, _renderExtent, _extent) ??
+            Fallback(UpscalerKind.Fsr, UpscalerRuntimes.FidelityFx),
+
+        UpscalerKind.Dlss =>
+            (IUpscaler?)DlssUpscaler.TryCreate(
+                _context!, Runtimes, _upscaling, _renderExtent, _extent, _streamline,
+                tracing: Quality != RayTracingQuality.None && _scene?.RayTracing is not null) ??
+            Fallback(UpscalerKind.Dlss, UpscalerRuntimes.StreamlineInterposer),
+
+        _ => null,
+    };
+
+    /// <summary>
+    /// Says why a vendor upscaler is not running, and uses the engine's own instead.
+    /// </summary>
+    /// <param name="named">What the player asked for.</param>
+    /// <param name="wanted">The file that would have made it possible.</param>
+    /// <returns>The spatial upscaler, told which backend it is standing in for.</returns>
+    /// <remarks>
+    /// <para>
+    /// Falling back rather than switching off, because the player asked for the picture to
+    /// be drawn small and stretched, and the engine can do that without anybody's runtime.
+    /// What they do not get is the quality they were expecting, which is why this is said
+    /// out loud and why the settings page says the same thing where they can read it.
+    /// </para>
+    /// <para>
+    /// The stand-in is told what it is standing in for. Without that it answers "no" when
+    /// asked whether it serves a plan that names DLSS, and the frame loop dutifully tears
+    /// it down and builds another one — every frame, with a warning each time.
+    /// </para>
+    /// </remarks>
+    private SpatialUpscaler Fallback(UpscalerKind named, string wanted)
+    {
+        // Two quite different reasons, and the player can only act on one of them. A
+        // runtime that is not there is a download; a runtime that is there and declined is
+        // a card, a driver or a bug, and telling somebody to copy a file they have already
+        // copied is the least useful thing this could say.
+        bool installed = Runtimes?.For(named).Present ?? false;
+
+        Log.Warning(installed
+            ? $"WARNING GK3R3433: {named} is installed but would not start on this device, "
+              + "so the built-in upscaler is used instead."
+            : $"WARNING GK3R3433: {named} was chosen but {wanted} was not found in "
+              + $"{UpscalerRuntimes.LibraryDirectory}, so the built-in upscaler is used instead.");
+
+        return SpatialUpscaler.Create(
+            _context!, _shaderCompiler!, _renderExtent, _extent, named);
+    }
+
+    /// <summary>
+    /// Puts the finished picture on the screen, with the movie, the interface and the fade
+    /// over it.
+    /// </summary>
+    /// <param name="buffer">The frame's command buffer.</param>
+    /// <param name="image">The swapchain image.</param>
+    /// <param name="view">Its view.</param>
+    /// <param name="picture">The linear frame to encode, at the size of the window.</param>
+    /// <remarks>
+    /// All four in one rendering scope. The encode covers every pixel, so there is nothing
+    /// to load; everything after it blends over what it wrote.
+    /// </remarks>
+    private void Present(CommandBuffer buffer, Image image, ImageView view, ImageView picture)
+    {
+        Transition(buffer, image, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
+
+        if (_outputPipeline is null)
+        {
+            // Nothing to encode with. The room still reaches the screen — a blit converts
+            // the format and scales — and the tone curve and the HDR encode are what is
+            // lost. Better than a black window, which is the only other answer.
+            Blit(
+                buffer,
+                image,
+                picture.Handle == _upscaledView.Handle ? _upscaledImage : _litImage);
+        }
+        else
+        {
+            if (_outputSource.Handle != picture.Handle)
+            {
+                _outputPipeline.Bind(picture);
+                _outputSource = picture;
+            }
+        }
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = view,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+
+            // The encode covers the frame; a blit already did if there was no encode.
+            LoadOp = _outputPipeline is null ? AttachmentLoadOp.Load : AttachmentLoadOp.DontCare,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = _extent },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+        };
+
+        // Everything drawn after the room has to encode itself the same way the room was
+        // encoded, because on an HDR surface there is no hardware encode to fall back on.
+        DisplayEncode display = Encoding();
+
+        if (_overlay is not null)
+        {
+            _overlay.Display = display;
+        }
+
+        if (_movie is not null)
+        {
+            _movie.Display = display;
+        }
+
+        if (_fadePipeline is not null)
+        {
+            _fadePipeline.Display = display;
+        }
+
+        _vk.CmdBeginRendering(buffer, in rendering);
+
+        _outputPipeline?.Record(
+            buffer,
+            (int)_extent.Width,
+            (int)_extent.Height,
+            new OutputConstants(
+                new Vector4(
+                    display.Transfer,
+                    display.PaperWhite,
+                    display.Headroom,
+                    (float)_output.ToneMap),
+
+                // Only the engine's own upscaler leaves the sharpening to this pass. The
+                // vendors' runtimes have their own, tuned against their own accumulation,
+                // and running a second one over the top is how a picture ends up crunchy.
+                new Vector4(
+                    _upscaling.Sharpen && _upscaling.Kind is UpscalerKind.Spatial or UpscalerKind.Off
+                        ? _upscaling.Sharpness
+                        : 0f,
+                    _extent.Width > 0 ? 1f / _extent.Width : 0f,
+                    _extent.Height > 0 ? 1f / _extent.Height : 0f,
+                    0f)));
+
+        // Over the room and under the interface. A movie covers the window, so what is
+        // behind it does not matter; the captions that go with one do.
+        _movie?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+
+        // On top of everything and at the size of the window, never at the size the room
+        // was drawn at.
+        _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
+
+        // And last of all, over the interface as well as the room. See Fade.
+        RecordFade(buffer);
+
+        _vk.CmdEndRendering(buffer);
+    }
+
+    /// <summary>
+    /// What every pass writing the swapchain has to do to its colours.
+    /// </summary>
+    /// <remarks>
+    /// One answer, derived from the colour space the surface actually gave back rather than
+    /// from what was asked for. A frame where the room encoded for HDR10 and the interface
+    /// did not is not a subtle mismatch: it is a correct picture with a washed-out menu over
+    /// it, which is what it looked like before this existed.
+    /// </remarks>
+    private DisplayEncode Encoding() => HighDynamicRangeActive
+        ? new DisplayEncode(
+            _colorSpace == ColorSpaceKHR.SpaceHdr10ST2084Ext
+                ? OutputPipeline.TransferPerceptualQuantiser
+                : OutputPipeline.TransferExtendedLinear,
+            _output.PaperWhiteNits,
+            _output.Headroom)
+        : DisplayEncode.Standard;
+
+    /// <summary>Copies a picture onto the swapchain, scaling and converting as it goes.</summary>
+    /// <param name="buffer">The frame's command buffer.</param>
+    /// <param name="image">The swapchain image.</param>
+    /// <param name="source">The picture, in shader-read layout.</param>
+    /// <remarks>
+    /// The path taken only when the output pass could not be built. A blit rather than a
+    /// copy because the two differ in format and may differ in size.
+    /// </remarks>
+    private void Blit(CommandBuffer buffer, Image image, Image source)
+    {
+        if (source.Handle == 0)
+        {
+            return;
+        }
+
+        Extent2D from = source.Handle == _upscaledImage.Handle ? _extent : _renderExtent;
+
+        _context!.Transition(
+            buffer, source, ImageLayout.ShaderReadOnlyOptimal, ImageLayout.TransferSrcOptimal);
+
+        Transition(
+            buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferDstOptimal);
+
+        var region = new ImageBlit
+        {
+            SrcSubresource = new ImageSubresourceLayers
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LayerCount = 1,
+            },
+            DstSubresource = new ImageSubresourceLayers
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LayerCount = 1,
+            },
+        };
+
+        region.SrcOffsets.Element1 = new Offset3D((int)from.Width, (int)from.Height, 1);
+        region.DstOffsets.Element1 = new Offset3D((int)_extent.Width, (int)_extent.Height, 1);
+
+        _vk.CmdBlitImage(
+            buffer,
+            source,
+            ImageLayout.TransferSrcOptimal,
+            image,
+            ImageLayout.TransferDstOptimal,
+            1,
+            in region,
+            Filter.Linear);
+
+        Transition(
+            buffer, image, ImageLayout.TransferDstOptimal, ImageLayout.ColorAttachmentOptimal);
+
+        _context.Transition(
+            buffer, source, ImageLayout.TransferSrcOptimal, ImageLayout.ShaderReadOnlyOptimal);
     }
 
     /// <summary>Builds the denoiser and the compositing pass, and keeps them pointed
@@ -1691,15 +2771,17 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     /// <summary>Traces the occlusion, filters it, and puts the picture together.</summary>
     /// <param name="buffer">Command buffer being recorded.</param>
-    /// <param name="image">The swapchain image the frame is going to.</param>
-    /// <param name="view">Its view.</param>
     /// <remarks>
-    /// Between the two scopes rather than inside either: the tracing reads the depth and
-    /// the normals the first one wrote, which cannot be sampled while they are still
-    /// attachments, and the sky and the interface belong on top of what this produces
-    /// rather than underneath it.
+    /// Between the room's pass and the upscale: the tracing reads the depth and the normals
+    /// the first one wrote, which cannot be sampled while they are still attachments, and
+    /// the sky belongs on top of what this produces rather than underneath it.
+    /// <para>
+    /// It leaves the lit target holding the finished room in shader-read layout, which is
+    /// where the upscale and the encode expect to find it — and where the <em>next</em>
+    /// frame's reflections expect to find last frame's picture.
+    /// </para>
     /// </remarks>
-    private void Compose(CommandBuffer buffer, Image image, ImageView view)
+    private void Compose(CommandBuffer buffer)
     {
         Transition(
             buffer, _sceneImage, ImageLayout.ColorAttachmentOptimal,
@@ -1726,12 +2808,12 @@ public sealed unsafe class VulkanRenderer : IDisposable
             settings.OcclusionSamples);
 
         // Last frame's picture, which is the one there is to reflect. It ends every frame
-        // as the source of the copy to the screen, so that is where it is coming from.
-        Transition(
-            buffer,
-            _litImage,
-            _litSettled ? ImageLayout.TransferSrcOptimal : ImageLayout.Undefined,
-            ImageLayout.ShaderReadOnlyOptimal);
+        // in shader-read layout, so on every frame but the first there is nothing to do.
+        if (!_litSettled)
+        {
+            Transition(
+                buffer, _litImage, ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal);
+        }
 
         _reflections!.Record(buffer, _camera!, Rendering.Materials.SurfaceFinish.Roughest);
 
@@ -1748,7 +2830,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             SType = StructureType.RenderingAttachmentInfo,
 
             // Into a picture of its own rather than straight onto the screen, so that the
-            // next frame has something to reflect.
+            // next frame has something to reflect and this one has something to upscale.
             ImageView = _litView,
             ImageLayout = ImageLayout.ColorAttachmentOptimal,
 
@@ -1764,105 +2846,51 @@ public sealed unsafe class VulkanRenderer : IDisposable
             ImageView = _depthView,
             ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
             LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.DontCare,
+            StoreOp = AttachmentStoreOp.Store,
         };
 
         var rendering = new RenderingInfo
         {
             SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D { Extent = _extent },
+            RenderArea = new Rect2D { Extent = _renderExtent },
             LayerCount = 1,
             ColorAttachmentCount = 1,
             PColorAttachments = &attachment,
             PDepthAttachment = _depthView.Handle != 0 ? &depthAttachment : null,
         };
 
+        int width = (int)_renderExtent.Width;
+        int height = (int)_renderExtent.Height;
+
         _vk.CmdBeginRendering(buffer, in rendering);
 
         _composite!.Record(
-            buffer,
-            (int)_extent.Width,
-            (int)_extent.Height,
-            _reflections.Parity,
-            RayTracingSettings.For(Quality).OcclusionStrength);
+            buffer, width, height, _reflections.Parity, settings.OcclusionStrength);
 
         if (_camera is not null)
         {
             if (_terrain is not null)
             {
-                _terrain.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+                _terrain.Record(buffer, _camera, width, height);
             }
             else
             {
-                _skybox?.Record(buffer, _camera, (int)_extent.Width, (int)_extent.Height);
+                _skybox?.Record(buffer, _camera, width, height);
             }
         }
 
         _vk.CmdEndRendering(buffer);
 
-        // Onto the screen. A copy rather than another full-screen triangle because the two
-        // are the same size and the same format, so there is nothing to do but move it.
         Transition(
             buffer, _litImage, ImageLayout.ColorAttachmentOptimal,
-            ImageLayout.TransferSrcOptimal);
+            ImageLayout.ShaderReadOnlyOptimal);
 
-        Transition(
-            buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.TransferDstOptimal);
-
-        var region = new ImageCopy
-        {
-            SrcSubresource = new ImageSubresourceLayers
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                LayerCount = 1,
-            },
-            DstSubresource = new ImageSubresourceLayers
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                LayerCount = 1,
-            },
-            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
-        };
-
-        _vk.CmdCopyImage(
-            buffer,
-            _litImage,
-            ImageLayout.TransferSrcOptimal,
-            image,
-            ImageLayout.TransferDstOptimal,
-            1,
-            in region);
-
-        Transition(
-            buffer, image, ImageLayout.TransferDstOptimal, ImageLayout.ColorAttachmentOptimal);
-
-        _litSettled = true;
-
-        // The interface last and straight onto the screen, so that it is never part of
-        // what the next frame reflects. A floor should show the room, not the inventory.
-        var overlayAttachment = new RenderingAttachmentInfo
-        {
-            SType = StructureType.RenderingAttachmentInfo,
-            ImageView = view,
-            ImageLayout = ImageLayout.ColorAttachmentOptimal,
-            LoadOp = AttachmentLoadOp.Load,
-            StoreOp = AttachmentStoreOp.Store,
-        };
-
-        var overlayRendering = new RenderingInfo
-        {
-            SType = StructureType.RenderingInfo,
-            RenderArea = new Rect2D { Extent = _extent },
-            LayerCount = 1,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &overlayAttachment,
-        };
-
-        _vk.CmdBeginRendering(buffer, in overlayRendering);
-        _movie?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
-        _overlay?.Record(buffer, (int)_extent.Width, (int)_extent.Height);
-        RecordFade(buffer);
-        _vk.CmdEndRendering(buffer);
+        // And the depth, for whatever upscales this. Left as an attachment it is not
+        // something a compute shader or a vendor runtime may read, and the one that
+        // notices is the one that produces a frame of noise rather than an error.
+        _context.Transition(
+            buffer, _depthImage, ImageLayout.DepthStencilAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
     }
 
     /// <summary>Draws the fade over whatever the frame ended up as.</summary>
@@ -1933,10 +2961,84 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _vk, _instance, _physicalDevice, _device, _graphicsQueue, _graphicsFamily,
             _commandPool, DeviceName, _rayTracingEnabled, _capabilities);
 
+        // Light, not a picture — the same reason the ray-traced pipeline below says so.
+        // The room is drawn into a floating-point target now whether or not it is traced,
+        // because that is the only form an upscaler or an HDR encode can use, and the
+        // swapchain's own format is nothing this pipeline ever writes.
         _meshPipeline = MeshPipeline.Create(
-            _context, _format, SceneRenderer.DepthFormat, _shaderCompiler);
+            _context, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler);
 
         _frames = FrameUniformSet.Create(_context, _meshPipeline, FramesInFlight);
+
+        RebuildForFormat();
+
+        if (_context.SupportsRayTracing)
+        {
+            // Light, not a picture. The ray-traced room writes half its lighting into the
+            // scene target, which is GBuffer.LightFormat because those values run past
+            // white; declaring the swapchain's format here instead described a pipeline
+            // that never ran against a target of that format.
+            _rayTracedPipeline = MeshPipeline.Create(
+                _context, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler,
+                rayTracing: true);
+
+            _rayTracedFrames = FrameUniformSet.Create(_context, _rayTracedPipeline, FramesInFlight);
+        }
+    }
+
+    /// <summary>What the swapchain's format was when the passes that write it were built.</summary>
+    private Format _builtForFormat = Format.Undefined;
+
+    /// <summary>
+    /// Builds, or rebuilds, everything that writes straight onto the swapchain.
+    /// </summary>
+    /// <remarks>
+    /// A graphics pipeline carries the format of the attachment it writes, so the four
+    /// passes that end up on the swapchain — the encode, the fade, the interface and a
+    /// movie — have to be rebuilt when that format changes. Which it does exactly once in a
+    /// session, when somebody turns HDR on: an 8-bit sRGB surface becomes a ten-bit one and
+    /// every pipeline built for the first is invalid against the second.
+    /// </remarks>
+    private void RebuildForFormat()
+    {
+        if (_context is null || _shaderCompiler is null || _format == _builtForFormat)
+        {
+            return;
+        }
+
+        _vk.DeviceWaitIdle(_device);
+
+        _outputPipeline?.Dispose();
+        _outputPipeline = null;
+        _outputSource = default;
+
+        _fadePipeline?.Dispose();
+        _fadePipeline = null;
+
+        _movie?.Dispose();
+        _movie = null;
+
+        if (_bringUp)
+        {
+            _triangle?.Dispose();
+            _triangle = TrianglePipeline.Create(_vk, _device, _format, _shaderCompiler);
+        }
+
+        try
+        {
+            _outputPipeline = OutputPipeline.Create(_context, _shaderCompiler, _format);
+        }
+        catch (VulkanException error)
+        {
+            // Without it there is no picture at all: it is the pass that puts the frame on
+            // the screen. Said loudly, and the frame falls back to a straight copy — which
+            // cannot tone-map or encode, but does show the room.
+            Log.Warning(
+                "WARNING GK3R3430: The output pass could not be built, so the picture is "
+                + "copied to the screen without tone mapping. (" + error.Message + ")");
+
+            _outputPipeline = null;
+        }
 
         // Built at startup rather than the first time something fades, because the first
         // time something fades is a scene change — the one moment in the game where a
@@ -1958,18 +3060,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _fadePipeline = null;
         }
 
-        if (_context.SupportsRayTracing)
-        {
-            // Light, not a picture. The ray-traced room writes half its lighting into the
-            // scene target, which is GBuffer.LightFormat because those values run past
-            // white; declaring the swapchain's format here instead described a pipeline
-            // that never ran against a target of that format.
-            _rayTracedPipeline = MeshPipeline.Create(
-                _context, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler,
-                rayTracing: true);
+        // The interface's pipeline carries the format too, but the interface owns the
+        // sheet of letters and every picture the screens have handed it. Retargeting
+        // rebuilds only the pipeline and keeps all of that: disposing it would leave the
+        // save menu drawing blank squares where the thumbnails were, with nothing left
+        // that knew to put them back.
+        _overlay?.Retarget(_format, SceneRenderer.DepthFormat);
 
-            _rayTracedFrames = FrameUniformSet.Create(_context, _rayTracedPipeline, FramesInFlight);
-        }
+        _builtForFormat = _format;
     }
 
     /// <summary>Creates the normal and motion targets the frame writes beside its picture.</summary>
@@ -1988,7 +3086,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 SType = StructureType.ImageCreateInfo,
                 ImageType = ImageType.Type2D,
                 Format = formats[i],
-                Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+                Extent = new Extent3D(_renderExtent.Width, _renderExtent.Height, 1),
                 MipLevels = 1,
                 ArrayLayers = 1,
                 Samples = SampleCountFlags.Count1Bit,
@@ -2038,7 +3136,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
             Format = GBuffer.LightFormat,
-            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+            Extent = new Extent3D(_renderExtent.Width, _renderExtent.Height, 1),
             MipLevels = 1,
             ArrayLayers = 1,
             Samples = SampleCountFlags.Count1Bit,
@@ -2077,21 +3175,41 @@ public sealed unsafe class VulkanRenderer : IDisposable
         }
     }
 
-    /// <summary>Builds the picture the swapchain is copied from.</summary>
+    /// <summary>
+    /// Builds the finished room, in linear light and at the size it was drawn.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Floating point rather than the swapchain's format, and that is the change everything
+    /// else here rests on. A ray-traced highlight, a lamp on an HDR display and a temporal
+    /// upscaler's history all need values above one to survive to the end of the frame, and
+    /// an 8-bit target clips every one of them at white. It is also what the two vendor
+    /// runtimes expect to be handed.
+    /// </para>
+    /// <para>
+    /// Both paths write into this now — the traced one through the compositing pass and the
+    /// plain one directly — which is what lets the upscale and the encode be one place
+    /// rather than two. The interface is emphatically not in here: it is drawn afterwards,
+    /// onto the swapchain, at the size of the window.
+    /// </para>
+    /// </remarks>
     private void CreateLitTarget()
     {
         var imageInfo = new ImageCreateInfo
         {
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
-            Format = _format,
-            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+            Format = GBuffer.LightFormat,
+            Extent = new Extent3D(_renderExtent.Width, _renderExtent.Height, 1),
             MipLevels = 1,
             ArrayLayers = 1,
             Samples = SampleCountFlags.Count1Bit,
             Tiling = ImageTiling.Optimal,
+
+            // Storage as well, because an upscaler that needs no upscaling to do — DLAA, or
+            // a ratio of one — may be pointed straight at it.
             Usage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit |
-                    ImageUsageFlags.TransferSrcBit,
+                    ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit,
             InitialLayout = ImageLayout.Undefined,
         };
 
@@ -2110,7 +3228,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             SType = StructureType.ImageViewCreateInfo,
             Image = _litImage,
             ViewType = ImageViewType.Type2D,
-            Format = _format,
+            Format = GBuffer.LightFormat,
             SubresourceRange = new ImageSubresourceRange
             {
                 AspectMask = ImageAspectFlags.ColorBit,
@@ -2145,6 +3263,93 @@ public sealed unsafe class VulkanRenderer : IDisposable
         {
             _vk.FreeMemory(_device, _litMemory, null);
             _litMemory = default;
+        }
+    }
+
+    /// <summary>
+    /// Builds the image an upscaler fills, at the size of the window.
+    /// </summary>
+    /// <remarks>
+    /// Only when something is upscaling. With no upscaler the lit target is already the
+    /// size of the window and the output pass reads it directly — allocating a second
+    /// full-resolution float image to copy it into would cost 32 MB at 4K and a resample
+    /// nobody asked for.
+    /// </remarks>
+    private void CreateUpscaleTarget()
+    {
+        if (!_upscaling.Active)
+        {
+            return;
+        }
+
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Format = GBuffer.LightFormat,
+            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+
+            // Storage for the compute paths to write, sampled for the output pass to read,
+            // and a colour attachment because AMD's runtime asks what a resource may be
+            // used as and declines to write into one that says it cannot be written.
+            Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit |
+                    ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit |
+                    ImageUsageFlags.TransferDstBit,
+            InitialLayout = ImageLayout.Undefined,
+        };
+
+        if (_vk.CreateImage(_device, in imageInfo, null, out _upscaledImage) != Result.Success)
+        {
+            throw new VulkanException("Could not create the upscaled target.");
+        }
+
+        _vk.GetImageMemoryRequirements(_device, _upscaledImage, out MemoryRequirements requirements);
+
+        _upscaledMemory = AllocateDepthMemory(requirements);
+        _vk.BindImageMemory(_device, _upscaledImage, _upscaledMemory, 0);
+
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = _upscaledImage,
+            ViewType = ImageViewType.Type2D,
+            Format = GBuffer.LightFormat,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LevelCount = 1,
+                LayerCount = 1,
+            },
+        };
+
+        if (_vk.CreateImageView(_device, in viewInfo, null, out _upscaledView) != Result.Success)
+        {
+            throw new VulkanException("Could not create the upscaled target's view.");
+        }
+    }
+
+    private void DestroyUpscaleTarget()
+    {
+        if (_upscaledView.Handle != 0)
+        {
+            _vk.DestroyImageView(_device, _upscaledView, null);
+            _upscaledView = default;
+        }
+
+        if (_upscaledImage.Handle != 0)
+        {
+            _vk.DestroyImage(_device, _upscaledImage, null);
+            _upscaledImage = default;
+        }
+
+        if (_upscaledMemory.Handle != 0)
+        {
+            _vk.FreeMemory(_device, _upscaledMemory, null);
+            _upscaledMemory = default;
         }
     }
 
@@ -2201,7 +3406,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
             Format = SceneRenderer.DepthFormat,
-            Extent = new Extent3D(_extent.Width, _extent.Height, 1),
+            Extent = new Extent3D(_renderExtent.Width, _renderExtent.Height, 1),
             MipLevels = 1,
             ArrayLayers = 1,
             Samples = SampleCountFlags.Count1Bit,
@@ -2350,16 +3555,34 @@ public sealed unsafe class VulkanRenderer : IDisposable
         _composite = null;
         _composed = false;
 
+        // The upscaler holds a history at the old size and descriptors pointing at images
+        // about to be destroyed. Both go; the next frame builds whatever the plan now asks
+        // for, which is also how a change of upscaler from the settings page takes effect.
+        _upscaler?.Dispose();
+        _upscaler = null;
+        _outputSource = default;
+
         DestroyDepthBuffer();
         DestroyGBuffer();
         DestroySceneTarget();
         DestroyLitTarget();
+        DestroyUpscaleTarget();
         DestroySwapchain();
         CreateSwapchain();
         CreateDepthBuffer();
         CreateGBuffer();
         CreateSceneTarget();
         CreateLitTarget();
+        CreateUpscaleTarget();
+
+        // A pipeline carries the format it writes into, so one built against an 8-bit sRGB
+        // swapchain cannot write a 10-bit HDR one. Rebuilt only when the format actually
+        // changed, which is the difference between switching HDR on and dragging a corner.
+        if (_format != _builtForFormat)
+        {
+            RebuildForFormat();
+        }
+
         _needsRecreate = false;
     }
 

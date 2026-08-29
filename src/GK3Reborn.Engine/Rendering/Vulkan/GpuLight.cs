@@ -56,13 +56,29 @@ public readonly record struct GpuLight(
     /// <summary>Converts an authored light.</summary>
     /// <param name="light">The light as the scene asset declares it.</param>
     /// <param name="scene">What the geometry occupies; default decides nothing.</param>
+    /// <param name="sunGain">
+    /// How much brighter a distant key is than the artists made it. One everywhere except
+    /// on an HDR display, where a sun that comes out at the same brightness as the wall it
+    /// lights is the thing that makes an exterior look flat. See
+    /// <see cref="OutputPlan.SunNits"/>.
+    /// </param>
     /// <returns>Its packed form.</returns>
-    public static GpuLight From(AuthoredLight light, SceneExtent scene = default)
+    /// <remarks>
+    /// The gain is applied here rather than in the shader because "which light is the sun"
+    /// is a question this file already answers — <see cref="IsDistantKey"/> — and the
+    /// shader would have to be told the answer for every light in the rig to ask it again.
+    /// It is also, deliberately, the only thing in the room that gets it: brightening every
+    /// lamp in a hotel lobby by four is not high dynamic range, it is an exposure error.
+    /// </remarks>
+    public static GpuLight From(AuthoredLight light, SceneExtent scene = default, float sunGain = 1f)
     {
         ArgumentNullException.ThrowIfNull(light);
 
         float end = RangeOf(light);
         bool directional = IsDistantKey(light, scene);
+
+        float intensity = light.Intensity *
+            (directional && float.IsFinite(sunGain) ? MathF.Max(sunGain, 0f) : 1f);
 
         // The near range too, whatever the switch says. A light whose start equals its end
         // has no ramp at all — it is full brightness to a hard edge and then nothing — and
@@ -82,7 +98,7 @@ public readonly record struct GpuLight(
 
         return new GpuLight(
             new Vector4(light.Position, start),
-            new Vector4(light.Color, light.Intensity),
+            new Vector4(light.Color, intensity),
             new Vector4(light.Direction, MathF.Max(end, start + 1f)),
             // The emitter radius rides in the spare component: soft shadows jitter their
             // rays across it, so a two-unit bulb and a twenty-unit window behave

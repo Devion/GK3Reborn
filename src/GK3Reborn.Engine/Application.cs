@@ -294,11 +294,20 @@ public static class Application
         // What the player has chosen, read before anything that obeys it exists. A first
         // run has no file and gets the defaults, which is not a failure and is not reported
         // as one.
-        Settings settings = Settings.Load();
+        //
+        // --settings names a different file. For photographing a display setting without
+        // editing the one the player is actually using: every row on the picture pages is
+        // now something a screenshot can be taken of, and taking one should not cost
+        // somebody their own choices.
+        string settingsPath = Option(args, "--settings") is { Length: > 0 } elsewhere
+            ? Path.GetFullPath(elsewhere)
+            : Settings.DefaultPath;
 
-        Log.Info(File.Exists(Settings.DefaultPath)
-            ? $"Settings: {Settings.DefaultPath}"
-            : $"Settings: none yet, they will be written to {Settings.DefaultPath}");
+        Settings settings = Settings.Load(settingsPath);
+
+        Log.Info(File.Exists(settingsPath)
+            ? $"Settings: {settingsPath}"
+            : $"Settings: none yet, they will be written to {settingsPath}");
 
         // The three directories the game writes to, probed now rather than at the moment
         // somebody first tries to save. Each one has already chosen between beside the
@@ -324,7 +333,22 @@ public static class Application
             int.TryParse(Option(args, "--height"), out int windowHeight) && windowHeight > 0
                 ? windowHeight
                 : 720);
-        using var renderer = VulkanRenderer.Create(window, window);
+        // What the player has dropped into libs/, and NVIDIA's loader started against it.
+        //
+        // Both before the renderer, and Streamline emphatically so: its features ask for
+        // Vulkan device extensions and for queues of their own, and there is no way to add
+        // either to a device that already exists. Starting it here is what makes DLSS
+        // selectable from the pause menu rather than only at the next launch.
+        var runtimes = Rendering.Upscaling.UpscalerRuntimes.Find(Option(args, "--libs-dir"));
+        Log.Info(runtimes.ToString());
+
+        using Rendering.Vulkan.Streamline? streamline =
+            Rendering.Vulkan.Streamline.TryStart(runtimes);
+
+        using var renderer = VulkanRenderer.Create(
+            window, window, streamline: streamline);
+
+        renderer.Runtimes = runtimes;
 
         ReportGraphics(renderer.Survey());
         Log.Info($"Renderer: {renderer}");
@@ -577,7 +601,7 @@ public static class Application
             ? $"Typeface: {chosen.Family}, {chosen.CharacterCount} characters, drawn from outlines"
             : "Typeface: GK3's own bitmap sheets");
 
-        int wantedGlyph = WantedGlyphHeight(window.FramebufferHeight);
+        int wantedGlyph = UI.TextSizing.Sheet(window.FramebufferHeight, settings.TextScale);
 
         // --font names one outright, for looking at a particular sheet.
         string[] ladder = Option(args, "--font") is { Length: > 0 } named
@@ -587,19 +611,26 @@ public static class Application
         // The atlas the room's interface draws with, and the larger one the menu does.
         // Two sizes rather than one magnified: an outline drawn at the size it is wanted
         // is the whole point of having one.
+        //
+        // The player's text size is read here rather than passed in, because this closes
+        // over the settings the menu writes to: a row dragged in the pause menu is felt by
+        // the next cut without anything having to hand the new value along.
         OverlayAtlas? Cut(bool menu)
         {
             int height = window.FramebufferHeight;
+            float scale = settings.TextScale;
 
             if (face is not null &&
-                OverlayAtlas.Build(face, TextPixels(height, menu)) is { } drawn)
+                OverlayAtlas.Build(face, UI.TextSizing.Em(height, menu, scale)) is { } drawn)
             {
                 return drawn;
             }
 
             int wanted = menu
-                ? Math.Max(WantedGlyphHeight(height), TextPixels(height, true) * 2 / 3)
-                : WantedGlyphHeight(height);
+                ? Math.Max(
+                    UI.TextSizing.Sheet(height, scale),
+                    UI.TextSizing.Em(height, true, scale) * 2 / 3)
+                : UI.TextSizing.Sheet(height, scale);
 
             return fonts.Nearest(wanted, ladder) is { } sheet ? OverlayAtlas.Build(sheet) : null;
         }
@@ -739,10 +770,30 @@ public static class Application
             return icon;
         }
 
+        // A setting carried over from another machine, or from another card. DLSS is
+        // NVIDIA's and runs on nothing else, so a settings file that asks for it on a Radeon
+        // is answered here rather than by a menu row that can never be made to work.
+        //
+        // Not written back. The file keeps what it says until the player changes something
+        // on that page themselves, so moving a profile between two machines does not cost
+        // them the setting on the one that could use it.
+        if (!renderer.OfferedUpscalers.Contains(settings.Upscaler))
+        {
+            Log.Info(
+                $"Upscaling: {settings.Upscaler} needs an NVIDIA card and this is a " +
+                $"{renderer.Vendor} one, so the built-in upscaler is used instead.");
+
+            settings = settings with { Upscaler = Rendering.Upscaling.UpscalerKind.Spatial };
+        }
+
         // The menu, and what changing something in it reaches. Everything below is set
         // live rather than at the next room: a volume that only takes effect after a door
         // is a volume the player cannot hear themselves setting.
-        var front = new FrontEnd(settings);
+        var front = new FrontEnd(settings)
+        {
+            Offered = renderer.OfferedUpscalers,
+            StoredAt = settingsPath,
+        };
 
         MenuPage? pages = hud is null
             ? null
@@ -762,6 +813,16 @@ public static class Application
             {
                 renderer.Quality = chosen.Quality;
             }
+
+            // The picture's own two plans. Both are values, so handing over one that has
+            // not changed does nothing at all, and handing over one that has takes effect
+            // at the top of the next frame — which is what makes every row on those two
+            // pages something the player can watch happen.
+            renderer.Upscaling = chosen.Upscaling;
+            renderer.Output = chosen.Output;
+            renderer.VerticalSync = chosen.VerticalSync;
+
+            window.Present(chosen.Display, chosen.DisplayWidth, chosen.DisplayHeight);
 
             api.State.CameraGliding = chosen.CameraGlide;
             api.State.CinematicsEnabled = chosen.Cinematics;
@@ -1919,33 +1980,6 @@ public static class Application
                 enhanced,
             what);
 
-    /// <summary>How tall the interface's letters should be for a given display.</summary>
-    /// <param name="framebufferHeight">The framebuffer's height in pixels.</param>
-    /// <returns>A wanted glyph height, which the ladder is matched against.</returns>
-    /// <remarks>
-    /// Proportional to the display rather than fixed, because a bitmap font does not scale:
-    /// the same 17-pixel sheet that is comfortable on a 480-line screen is a third the
-    /// apparent size on a 1440-line one, which is exactly the complaint. 2.8% puts a
-    /// 1080-line display on the 26-point rung and anything above it on the 26-point rung
-    /// too, that being the largest the game shipped.
-    /// </remarks>
-    private static int WantedGlyphHeight(int framebufferHeight) =>
-        Math.Max(12, (int)MathF.Round(Math.Max(1, framebufferHeight) * 0.028f));
-
-    /// <summary>How tall an em should be, in pixels, for a window of a given height.</summary>
-    /// <param name="framebufferHeight">How tall the window is.</param>
-    /// <param name="menu">Whether this is the menu rather than the room's interface.</param>
-    /// <returns>The em size to draw the outline font at.</returns>
-    /// <remarks>
-    /// A share of the window rather than a fixed size, so the interface is the same
-    /// apparent size on every display. The menu is drawn larger than the room's captions
-    /// on purpose: captions must not cover the room, and a menu is the only thing on
-    /// screen.
-    /// </remarks>
-    private static int TextPixels(int framebufferHeight, bool menu) => Math.Max(
-        menu ? 16 : 12,
-        (int)MathF.Round(Math.Max(1, framebufferHeight) / (menu ? 26f : 33f)));
-
     /// <summary>
     /// Finds the typeface the interface draws with.
     /// </summary>
@@ -2690,7 +2724,12 @@ public static class Application
         // What the interface was laid out for. A window that goes fullscreen doubles its
         // height, and a bitmap font cannot follow it by scaling — the sheet has one size —
         // so the ladder has to be re-picked and the atlas rebuilt.
+        //
+        // The text size is the second half of the same question, and is watched the same
+        // way: dragging that row in the pause menu changes what the letters should be cut
+        // at without the window having moved at all.
         int laidOutFor = window.FramebufferHeight;
+        float laidOutAt = front.Settings.TextScale;
 
         bool flicker = options.Contains("--flicker", StringComparer.OrdinalIgnoreCase);
         byte[]? previousFrame = null;
@@ -2723,15 +2762,18 @@ public static class Application
 
             // A window that goes fullscreen doubles in height. An outline is re-cut at
             // the new size; a bitmap sheet can only step up the ladder and be magnified.
-            if (hud is not null && window.FramebufferHeight != laidOutFor)
+            if (hud is not null &&
+                (window.FramebufferHeight != laidOutFor ||
+                 front.Settings.TextScale != laidOutAt))
             {
                 laidOutFor = window.FramebufferHeight;
+                laidOutAt = front.Settings.TextScale;
 
                 if (cut(false) is { } grown)
                 {
                     int magnify = grown.Scalable || grown.Font is null
                         ? 1
-                        : Magnification(grown.Font, WantedGlyphHeight(laidOutFor));
+                        : Magnification(grown.Font, UI.TextSizing.Sheet(laidOutFor, laidOutAt));
 
                     if (!grown.Scalable &&
                         grown.Name.Equals(hud.Overlay.Atlas.Name, StringComparison.Ordinal))
@@ -2739,11 +2781,28 @@ public static class Application
                         // The sheet is right and only the magnification wrong, which costs
                         // a field rather than a rebuild.
                         hud.Overlay.Magnify = magnify;
+
+                        if (screens is not null)
+                        {
+                            screens.Overlay.Magnify = magnify;
+                        }
                     }
                     else
                     {
                         hud.Retarget(grown);
                         hud.Overlay.Magnify = magnify;
+
+                        // The screens in front of the room are cut from the same sheet as
+                        // the captions and were being left on the old one: the inventory
+                        // and Sidney stayed the size the window started at, whatever it
+                        // had since become. Invisible while this only followed the window
+                        // — nobody resizes mid-game — and obvious the moment there is a
+                        // row that changes it with the game standing still.
+                        if (screens is not null)
+                        {
+                            screens.Retarget(grown);
+                            screens.Overlay.Magnify = magnify;
+                        }
 
                         Log.Info(
                             $"Interface: {grown.Name} at {grown.Height}px" +
@@ -3990,6 +4049,7 @@ public static class Application
     {
         FrontEndPage showing = front.Page;
         int laidOutFor = window.FramebufferHeight;
+        float laidOutAt = front.Settings.TextScale;
 
         // The menu owns the screen while it is up, so nothing left over from a transition
         // gets to darken it: pausing on the frame a room was still fading in used to open
@@ -4008,14 +4068,33 @@ public static class Application
         {
             window.PumpEvents();
 
+            // What the picture pages need to be able to say, refreshed every frame because
+            // every one of them can change while they are on screen: the window is
+            // resizable, the upscaler is rebuilt at the top of a frame, and whether the
+            // display took the HDR colour space is only known once the swapchain exists.
+            front.Runtimes = renderer.Runtimes;
+            front.Window = renderer.SwapchainSize;
+            front.HighDynamicRangeActive = renderer.HighDynamicRangeActive;
+            front.UpscalerRunning = renderer.UpscalerName;
+            front.Offered = renderer.OfferedUpscalers;
+            front.DlssAvailable = renderer.DlssAvailable;
+            front.DlssRayReconstruction = renderer.DlssRayReconstruction;
+            front.DlssRayReconstructionNote = renderer.DlssRayReconstructionNote;
+            front.DlssFrameGeneration = renderer.DlssFrameGeneration;
+
             IReadOnlyList<MenuItem> items = front.Items;
 
             // A window that goes fullscreen doubles in height, and a menu that stayed the
             // size it was laid out at would be a postage stamp in the middle of it. An
             // outline is re-cut for the new size; a sheet is magnified to reach it.
-            if (window.FramebufferHeight != laidOutFor)
+            //
+            // And for the text size, which is the one row on these pages the player can
+            // watch working on the page they are dragging it on.
+            if (window.FramebufferHeight != laidOutFor ||
+                front.Settings.TextScale != laidOutAt)
             {
                 laidOutFor = window.FramebufferHeight;
+                laidOutAt = front.Settings.TextScale;
 
                 if (pages.Overlay.Atlas.Scalable && cut() is { } again)
                 {
@@ -4025,7 +4104,8 @@ public static class Application
 
             pages.Overlay.Magnify = pages.Overlay.Atlas.Scalable
                 ? 1
-                : MenuMagnification(window.FramebufferHeight, pages.Overlay.Atlas.Height);
+                : UI.TextSizing.MenuMagnification(
+                    window.FramebufferHeight, pages.Overlay.Atlas.Height, laidOutAt);
 
             Vector2 pointer = new(
                 window.PointerPosition.X * window.DpiScale,
@@ -4101,7 +4181,7 @@ public static class Application
                 // across a page is a hundred changes and none of them is worth a write.
                 if (front.Commit())
                 {
-                    Log.Info($"Settings: written to {Settings.DefaultPath}");
+                    Log.Info($"Settings: written to {front.StoredAt ?? Settings.DefaultPath}");
                 }
 
                 // The click that chose Play is still on the frame's books, and this is the
@@ -4150,20 +4230,6 @@ public static class Application
         front.Commit();
         return FrontEndOutcome.Quit;
     }
-
-    /// <summary>How much to draw the menu's letters at.</summary>
-    /// <param name="framebufferHeight">How tall the window is, in pixels.</param>
-    /// <param name="glyphHeight">How tall the sheet's letters are.</param>
-    /// <returns>A whole-number magnification, one or more.</returns>
-    /// <remarks>
-    /// A menu is not a caption. Captions are sized to be readable without covering the
-    /// room; a menu is the only thing on screen, and one drawn at caption size on a large
-    /// display reads as a dialogue box from another decade. A row comes out at about a
-    /// twenty-second of the window's height, which is roughly what the original's own
-    /// buttons were on the screen they were drawn for.
-    /// </remarks>
-    private static int MenuMagnification(int framebufferHeight, int glyphHeight) =>
-        Math.Max(1, (int)MathF.Round(framebufferHeight / 22f / Math.Max(1, glyphHeight)));
 
     /// <summary>
     /// Puts the page where it does not cover what is behind it.
@@ -4532,7 +4598,11 @@ public static class Application
         int width,
         int height)
     {
-        Matrix4x4 viewProjection = camera.View * camera.Projection((float)width / Math.Max(1, height));
+        // Without the jitter. A hotspot label is placed for a reader rather than for an
+        // accumulator, and a temporal upscaler's sub-pixel offset would make every label on
+        // screen shiver by half a pixel in a different direction each frame.
+        Matrix4x4 viewProjection =
+            camera.View * camera.ProjectionWithoutJitter((float)width / Math.Max(1, height));
 
         List<(string Noun, Vector2 At, float Depth)> found = [];
 

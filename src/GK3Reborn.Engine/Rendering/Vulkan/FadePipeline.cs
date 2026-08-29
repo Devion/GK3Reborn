@@ -4,6 +4,13 @@ using Silk.NET.Vulkan;
 
 namespace GK3Reborn.Rendering.Vulkan;
 
+/// <summary>What the fade is told: the colour to draw, and what the display wants.</summary>
+/// <param name="Color">The wash, straight alpha.</param>
+/// <param name="Display">Which encoding, paper white, and the headroom above it.</param>
+[System.Runtime.InteropServices.StructLayout(
+    System.Runtime.InteropServices.LayoutKind.Sequential)]
+internal readonly record struct FadeConstants(Vector4 Color, DisplayEncode Display);
+
 /// <summary>
 /// Draws a flat colour over the finished picture, at whatever opacity it is given.
 /// </summary>
@@ -47,18 +54,32 @@ void main()
 }
 ";
 
-    private const string FragmentSource = @"#version 450
+    /// <summary>The fragment stage, with the shared display encode spliced in.</summary>
+    /// <remarks>See <see cref="DisplayEncoding"/>: one copy of ST.2084 rather than four.</remarks>
+    private static readonly string FragmentSource =
+        FragmentPrelude + "\n" + DisplayEncoding.Glsl + "\n" + FragmentBody;
+
+    private const string FragmentPrelude = @"#version 450
 
 layout(push_constant) uniform Fade
 {
     vec4 color;
+
+    // Which encoding the swapchain wants, where paper white sits, and how far above it
+    // the display goes. All nought on an ordinary sRGB surface.
+    vec4 display;
 } fade;
 
 layout(location = 0) out vec4 outColor;
+";
 
+    private const string FragmentBody = @"
 void main()
 {
-    outColor = fade.color;
+    // The fade covers the interface as well as the room, so it is encoded the same way
+    // both of them were. A fade written unencoded onto a PQ surface is a wash of the
+    // wrong colour that gets *lighter* as it deepens.
+    outColor = vec4(EncodeForDisplay(fade.color.rgb, fade.display.xyz), fade.color.a);
 }
 ";
 
@@ -75,6 +96,13 @@ void main()
         _context = context;
         _vk = context.Api;
     }
+
+    /// <summary>What the swapchain wants written into it.</summary>
+    /// <remarks>
+    /// Set by the renderer. Standard by default, which is the sRGB target the hardware
+    /// encodes and where the wash is written exactly as it always was.
+    /// </remarks>
+    public DisplayEncode Display { get; set; } = DisplayEncode.Standard;
 
     /// <summary>Builds the pipeline.</summary>
     /// <param name="context">The device it belongs to.</param>
@@ -132,13 +160,16 @@ void main()
         _vk.CmdSetViewport(command, 0, 1, in viewport);
         _vk.CmdSetScissor(command, 0, 1, in scissor);
         _vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, _pipeline);
+
+        FadeConstants pushed = new(color, Display);
+
         _vk.CmdPushConstants(
             command,
             _layout,
             ShaderStageFlags.FragmentBit,
             0,
-            (uint)sizeof(Vector4),
-            &color);
+            (uint)sizeof(FadeConstants),
+            &pushed);
 
         _vk.CmdDraw(command, 3, 1, 0, 0);
     }
@@ -200,7 +231,7 @@ void main()
         {
             StageFlags = ShaderStageFlags.FragmentBit,
             Offset = 0,
-            Size = (uint)sizeof(Vector4),
+            Size = (uint)sizeof(FadeConstants),
         };
 
         var layoutInfo = new PipelineLayoutCreateInfo

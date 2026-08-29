@@ -40,4 +40,24 @@ public interface IGameWindow : IDisposable
 
     /// <summary>Pumps platform events once.</summary>
     void PumpEvents();
+
+    /// <summary>
+    /// Puts the window into a mode, at a size.
+    /// </summary>
+    /// <param name="mode">Windowed, borderless over the monitor, or fullscreen.</param>
+    /// <param name="width">Width in logical pixels, or nought for the monitor's own.</param>
+    /// <param name="height">Height, or nought.</param>
+    /// <remarks>
+    /// <para>
+    /// A size is only meaningful for two of the three: a borderless window is the size of
+    /// the monitor by definition, and asking for anything else would make it a large window
+    /// with no border, which is not what anybody means by the phrase.
+    /// </para>
+    /// <para>
+    /// Implementations must be safe to call with what is already true, because the settings
+    /// are applied whenever anything on the page changes and most of those changes are not
+    /// this one.
+    /// </para>
+    /// </remarks>
+    void Present(WindowMode mode, int width = 0, int height = 0);
 }

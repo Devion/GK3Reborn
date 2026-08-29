@@ -55,13 +55,74 @@ public sealed class Camera
     /// <summary>Colour the target is cleared to.</summary>
     public Vector3 Background { get; init; } = new(0.08f, 0.09f, 0.12f);
 
+    /// <summary>
+    /// Where inside its pixel this frame samples, in clip space.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Zero unless a temporal upscaler is running. It is what turns a sequence of frames
+    /// into a denser sampling of one image: without it a still camera renders the same
+    /// picture every frame and there is nothing for an accumulator to accumulate. See
+    /// <see cref="Upscaling.JitterSequence"/>, which decides where.
+    /// </para>
+    /// <para>
+    /// In clip units rather than pixels, because that is what goes into the matrix and
+    /// because a camera does not know how big the target is. The conversion is
+    /// <see cref="Upscaling.JitterSequence.ToClip"/>.
+    /// </para>
+    /// <para>
+    /// The one settable property on an otherwise immutable camera, and set by the renderer
+    /// rather than by whoever built it. Where the frame samples is a fact about this frame
+    /// and this target, not about where the player is standing, and threading it through
+    /// every place a camera is constructed — the free camera, the conversation camera, the
+    /// scene's own angles — would put a presentation detail in all of them.
+    /// </para>
+    /// </remarks>
+    public Vector2 Jitter { get; set; }
+
     /// <summary>The view matrix.</summary>
     public Matrix4x4 View => Matrix4x4.CreateLookAtLeftHanded(Position, Target, Up);
 
-    /// <summary>Builds the projection matrix.</summary>
+    /// <summary>Builds the projection matrix, including this frame's jitter.</summary>
     /// <param name="aspect">Width divided by height.</param>
     /// <returns>The projection.</returns>
+    /// <remarks>
+    /// Everything that rasterises or traces against this frame uses this one, jitter and
+    /// all, so that a depth buffer, a normal and a fragment position all describe the same
+    /// picture. The only thing that wants the unjittered form is the motion vector, which
+    /// is a statement about where geometry went and not about where it was sampled — see
+    /// <see cref="ProjectionWithoutJitter"/>.
+    /// </remarks>
     public Matrix4x4 Projection(float aspect)
+    {
+        Matrix4x4 projection = ProjectionWithoutJitter(aspect);
+
+        if (Jitter == Vector2.Zero)
+        {
+            return projection;
+        }
+
+        // Added to the z-to-x and z-to-y terms rather than to the translation row, because
+        // the offset has to be proportional to w. This projection's w is the view-space
+        // depth, so a constant added there would move a wall by a pixel and a distant
+        // hillside by a hundred.
+        projection.M31 += Jitter.X;
+        projection.M32 += Jitter.Y;
+
+        return projection;
+    }
+
+    /// <summary>The projection with the sample point back in the middle of the pixel.</summary>
+    /// <param name="aspect">Width divided by height.</param>
+    /// <returns>The projection.</returns>
+    /// <remarks>
+    /// What a motion vector is measured against. A vector taken between two jittered
+    /// projections carries the difference between two jitters as well as the movement, and
+    /// every temporal upscaler then filters against a signal that shakes by half a pixel
+    /// whether or not anything moved. Keeping the previous frame's matrix unjittered and
+    /// adding this frame's offset back in the fragment shader is how the two are separated.
+    /// </remarks>
+    public Matrix4x4 ProjectionWithoutJitter(float aspect)
     {
         Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(
             FieldOfView, aspect, NearPlane, FarPlane);

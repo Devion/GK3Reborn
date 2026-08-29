@@ -147,9 +147,23 @@ public sealed class MenuPage
     /// <summary>A band to read light letters against, over a painting of any colour.</summary>
     private static readonly Vector4 Shade = new(0f, 0f, 0f, 0.62f);
 
-    private readonly List<(string Id, Vector4 Bounds, MenuItemKind Kind)> _rows = [];
+    /// <summary>
+    /// Where each drawn row went, and which item it was.
+    /// </summary>
+    /// <remarks>
+    /// The item's own index is kept because a page that scrolls does not draw its first
+    /// row first: the pointer lands on the fourth thing drawn and that may be the
+    /// seventeenth setting.
+    /// </remarks>
+    private readonly List<(int At, string Id, Vector4 Bounds, MenuItemKind Kind)> _rows = [];
+
+    /// <summary>Each label's text, already broken to fit the panel.</summary>
+    private readonly List<string[]> _wrapped = [];
 
     private Vector4 _panel;
+
+    /// <summary>Which item is the first one drawn, when the page is taller than the window.</summary>
+    private int _scroll;
 
     /// <summary>Creates a page.</summary>
     /// <param name="overlay">Where it draws.</param>
@@ -263,15 +277,23 @@ public sealed class MenuPage
 
         // Wide enough for the longest thing on the page, and never wider than the window
         // has room for. A page of short labels should not be a page-wide slab.
+        //
+        // Labels are deliberately not measured here. They are sentences of explanation and
+        // the longest of them would make the panel as wide as the window on every page that
+        // has one; they are wrapped to whatever width the rows settle on instead.
         float widest = title.Length > 0 ? Overlay.Measure(title) * large / (float)ink : 0;
 
         bool illustrated = false;
 
         foreach (MenuItem item in items)
         {
-            widest = Math.Max(
-                widest,
-                Overlay.Measure(item.Text) + Overlay.Measure("    ") + Overlay.Measure(item.Value));
+            if (item.Kind != MenuItemKind.Label)
+            {
+                widest = Math.Max(
+                    widest,
+                    Overlay.Measure(item.Text) + Overlay.Measure("    ") +
+                    Overlay.Measure(item.Value));
+            }
 
             illustrated |= item.Picture > 0;
         }
@@ -284,26 +306,64 @@ public sealed class MenuPage
         // is a column of short words and should be no wider than it needs.
         float least = (title.Length > 0 ? 22 : 12) * unit;
 
-        float panelWidth = Math.Min(width - (4 * unit), Math.Max(widest + (6 * unit), least));
+        // Never wider than the window, and never so wide it becomes the window: a settings
+        // panel that reaches both edges of a 4K monitor is a page whose rows are a metre
+        // apart. Forty-four ems is about the width a line of prose is comfortable at.
+        float panelWidth = Math.Min(
+            Math.Min(width - (4 * unit), 44 * unit),
+            Math.Max(widest + (6 * unit), least));
+
+        panelWidth = Math.Max(panelWidth, Math.Min(width - (4 * unit), least));
 
         // No heading where the art already carries the game's name. Drawing "Gabriel
         // Knight 3" over a picture that says Gabriel Knight is how a menu looks like a
         // placeholder.
         float titleHeight = title.Length > 0 ? row + (titleUnit - unit) : pad / 2f;
 
-        // Tightened until it fits. The pages this was built for have five rows; a list of
-        // save slots has fifteen, and at the spacing five rows want that runs off the bottom
-        // of the window. Rather than a fixed height and a scroll bar, the rows close up —
-        // the whole page stays visible, which is what a menu is for, and a row can go down
-        // to a hair over one line before the letters would touch.
-        float available = height - (4 * unit) - titleHeight - pad;
+        // The explanations, broken to the width the panel came out at. Done before the
+        // heights are worked out, because a sentence that takes two lines takes two lines
+        // of room.
+        float inner = panelWidth - (2 * pad);
+        float labelLine = unit * 1.25f;
 
-        if (items.Count > 0 && row * items.Count > available)
+        _wrapped.Clear();
+
+        foreach (MenuItem item in items)
         {
-            row = Math.Max(unit * 1.08f, available / items.Count);
+            _wrapped.Add(
+                item.Kind == MenuItemKind.Label ? Wrap(item.Text, inner) : []);
         }
 
-        float panelHeight = titleHeight + (row * items.Count) + pad;
+        // How tall each row is. Everything is one row high except an explanation, which is
+        // as tall as the number of lines it broke into — so a page never has a sentence
+        // running off the side of it, and never has one silently truncated either.
+        float[] heights = new float[items.Count];
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            heights[i] = items[i].Kind == MenuItemKind.Label
+                ? MathF.Max(1, _wrapped[i].Length) * labelLine
+                : row;
+        }
+
+        // What is left of the window once the panel's margins and its heading are taken
+        // off. The page is fitted into this rather than allowed to run past it.
+        float available = Math.Max(row, height - (4 * unit) - titleHeight - pad);
+
+        // Which rows are drawn. Everything, when everything fits; otherwise a window of
+        // them that contains the one the player is on.
+        //
+        // This used to squeeze the rows instead — closing the spacing until the whole page
+        // fitted — which works for a save menu of fifteen short rows and does not work for
+        // a picture page with a dozen settings and six lines of explanation. Past a certain
+        // number of rows there is no spacing at which they fit, and the page simply ran off
+        // the bottom of the window with the last few settings unreachable.
+        (int first, int shown, float used) = Window(heights, available, Index);
+
+        _scroll = first;
+
+        bool scrolls = shown < items.Count;
+        float panelHeight = titleHeight + used + pad;
 
         float x = MathF.Round(Math.Clamp(
             (width * across) - (panelWidth / 2f),
@@ -338,7 +398,8 @@ public sealed class MenuPage
 
         // The pointer picks the row before anything is drawn, so hovering and the keyboard
         // land on the same row and the drawn highlight is the one that will be clicked.
-        int hovered = RowUnder(at, x, y + titleHeight, panelWidth, row, items);
+        int hovered = RowUnder(
+            at, x, y + titleHeight, panelWidth, heights, items, first, shown);
 
         if (hovered >= 0)
         {
@@ -365,15 +426,160 @@ public sealed class MenuPage
             Overlay.Picture(items[Index].Picture, left, topOf, wide, tall, Vector4.One);
         }
 
-        for (int i = 0; i < items.Count; i++)
+        float top = y + titleHeight;
+
+        for (int i = first; i < first + shown && i < items.Count; i++)
         {
             MenuItem item = items[i];
-            float top = y + titleHeight + (row * i);
 
-            Draw(item, i, x, top, panelWidth, row, unit);
+            Draw(item, i, x, top, panelWidth, heights[i], unit, labelLine, _wrapped[i]);
 
-            _rows.Add((item.Id, new Vector4(x, top, panelWidth, row), item.Kind));
+            _rows.Add((i, item.Id, new Vector4(x, top, panelWidth, heights[i]), item.Kind));
+
+            top += heights[i];
         }
+
+        if (scrolls)
+        {
+            Scrollbar(x, y + titleHeight, panelWidth, used, items.Count, first, shown);
+        }
+    }
+
+    /// <summary>
+    /// Which run of rows to draw, so that the page fits and the chosen row is on it.
+    /// </summary>
+    /// <param name="heights">How tall each row is.</param>
+    /// <param name="available">How much room there is below the heading.</param>
+    /// <param name="index">The row the player is on.</param>
+    /// <returns>The first row drawn, how many, and how much room they take.</returns>
+    /// <remarks>
+    /// Grows the window downwards from the chosen row's position and then backwards, which
+    /// is what keeps the selection from sitting against the top edge as soon as the player
+    /// steps past the middle of a long list.
+    /// </remarks>
+    private static (int First, int Shown, float Used) Window(
+        float[] heights, float available, int index)
+    {
+        if (heights.Length == 0)
+        {
+            return (0, 0, 0f);
+        }
+
+        float total = 0f;
+
+        foreach (float height in heights)
+        {
+            total += height;
+        }
+
+        if (total <= available)
+        {
+            return (0, heights.Length, total);
+        }
+
+        int at = Math.Clamp(index, 0, heights.Length - 1);
+        int first = at;
+        int last = at;
+        float used = heights[at];
+
+        // Outwards from the chosen row, downwards first, so that stepping down a list
+        // reveals what is coming rather than what has been passed.
+        bool grew = true;
+
+        while (grew)
+        {
+            grew = false;
+
+            if (last + 1 < heights.Length && used + heights[last + 1] <= available)
+            {
+                used += heights[++last];
+                grew = true;
+            }
+
+            if (first - 1 >= 0 && used + heights[first - 1] <= available)
+            {
+                used += heights[--first];
+                grew = true;
+            }
+        }
+
+        return (first, last - first + 1, used);
+    }
+
+    /// <summary>Draws the bar that says how much of a long page is showing.</summary>
+    /// <remarks>
+    /// A bar rather than arrows, because it says two things at once — that there is more,
+    /// and how much more — and because it needs no target to click on: this page is stepped
+    /// with the keyboard and the wheel, and a scroll bar nobody drags is a scroll bar that
+    /// only has to be read.
+    /// </remarks>
+    private void Scrollbar(
+        float x, float top, float panelWidth, float used, int count, int first, int shown)
+    {
+        float unit = Overlay.LineHeight;
+        float thick = MathF.Max(2f, unit / 4f);
+        float left = x + panelWidth - thick - (unit / 3f);
+
+        Overlay.Rect(left, top, thick, used, Track);
+
+        float part = shown / (float)Math.Max(1, count);
+        float start = first / (float)Math.Max(1, count);
+
+        Overlay.Rect(
+            left,
+            MathF.Round(top + (used * start)),
+            thick,
+            MathF.Max(unit / 2f, used * part),
+            Accent);
+    }
+
+    /// <summary>Breaks a sentence into lines no wider than the panel.</summary>
+    /// <param name="text">The sentence.</param>
+    /// <param name="wide">How much room there is across.</param>
+    /// <returns>The lines.</returns>
+    /// <remarks>
+    /// On spaces, and never mid-word: a word broken across two lines of a settings page is
+    /// harder to read than a page that is one line taller. A single word wider than the
+    /// panel is left to overhang, which cannot happen with any language this game is in and
+    /// is a better failure than dropping it.
+    /// </remarks>
+    private string[] Wrap(string text, float wide)
+    {
+        if (text.Length == 0 || wide <= 0)
+        {
+            return [text];
+        }
+
+        if (Overlay.Measure(text) <= wide)
+        {
+            return [text];
+        }
+
+        List<string> lines = [];
+        var line = new System.Text.StringBuilder();
+
+        foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string candidate = line.Length == 0 ? word : line + " " + word;
+
+            if (line.Length > 0 && Overlay.Measure(candidate) > wide)
+            {
+                lines.Add(line.ToString());
+                line.Clear();
+                line.Append(word);
+                continue;
+            }
+
+            line.Clear();
+            line.Append(candidate);
+        }
+
+        if (line.Length > 0)
+        {
+            lines.Add(line.ToString());
+        }
+
+        return lines.Count > 0 ? [.. lines] : [text];
     }
 
     /// <summary>Moves the selection, skipping anything that cannot be landed on.</summary>
@@ -428,11 +634,9 @@ public sealed class MenuPage
     {
         ArgumentNullException.ThrowIfNull(items);
 
-        for (int i = 0; i < _rows.Count && i < items.Count; i++)
+        foreach ((int at, string id, Vector4 bounds, MenuItemKind kind) in _rows)
         {
-            (string id, Vector4 bounds, MenuItemKind kind) = _rows[i];
-
-            if (!Inside(point, bounds) || !items[i].Selectable)
+            if (at >= items.Count || !Inside(point, bounds) || !items[at].Selectable)
             {
                 continue;
             }
@@ -456,16 +660,27 @@ public sealed class MenuPage
     {
         ArgumentNullException.ThrowIfNull(items);
 
-        if (Index < 0 || Index >= _rows.Count || Index >= items.Count)
+        if (Index < 0 || Index >= items.Count)
         {
             return MenuAction.None;
         }
 
-        (string id, Vector4 bounds, MenuItemKind kind) = _rows[Index];
+        // Found by item rather than taken at the same position, because a page that scrolls
+        // draws the eleventh setting fourth. Dragging a slider off the top of a scrolled
+        // page then moved a different one.
+        foreach ((int at, string id, Vector4 bounds, MenuItemKind kind) in _rows)
+        {
+            if (at != Index)
+            {
+                continue;
+            }
 
-        return kind == MenuItemKind.Slider && items[Index].Selectable
-            ? new MenuAction(id, Fraction: FractionAt(point.X, bounds))
-            : MenuAction.None;
+            return kind == MenuItemKind.Slider && items[Index].Selectable
+                ? new MenuAction(id, Fraction: FractionAt(point.X, bounds))
+                : MenuAction.None;
+        }
+
+        return MenuAction.None;
     }
 
     /// <summary>What choosing the current row means.</summary>
@@ -622,7 +837,16 @@ public sealed class MenuPage
         }
     }
 
-    private void Draw(MenuItem item, int index, float x, float top, float width, float row, float unit)
+    private void Draw(
+        MenuItem item,
+        int index,
+        float x,
+        float top,
+        float width,
+        float row,
+        float unit,
+        float labelLine,
+        string[] wrapped)
     {
         float pad = unit;
         bool chosen = index == Index && item.Selectable;
@@ -638,7 +862,17 @@ public sealed class MenuPage
 
         if (item.Kind == MenuItemKind.Label)
         {
-            Overlay.Text(item.Text, MathF.Round(x + pad), text, Dim);
+            // As many lines as the sentence needed, tightly spaced: an explanation belongs
+            // to the row above it, and spacing it like a row of its own would separate the
+            // two.
+            float line = MathF.Round(top + ((labelLine - unit) / 2f));
+
+            foreach (string part in wrapped.Length > 0 ? wrapped : [item.Text])
+            {
+                Overlay.Text(part, MathF.Round(x + pad), line, Dim);
+                line += labelLine;
+            }
+
             return;
         }
 
@@ -672,17 +906,40 @@ public sealed class MenuPage
         }
     }
 
+    /// <summary>Which row the pointer is over, or -1.</summary>
+    /// <remarks>
+    /// Walked rather than divided, because rows are no longer all the same height: an
+    /// explanation that wrapped onto three lines is three lines tall, and dividing by one
+    /// row's height would put the pointer on the wrong setting for the rest of the page.
+    /// </remarks>
     private static int RowUnder(
-        Vector2 point, float x, float top, float width, float row, IReadOnlyList<MenuItem> items)
+        Vector2 point,
+        float x,
+        float top,
+        float width,
+        float[] heights,
+        IReadOnlyList<MenuItem> items,
+        int first,
+        int shown)
     {
         if (point.X < x || point.X > x + width)
         {
             return -1;
         }
 
-        int index = (int)MathF.Floor((point.Y - top) / row);
+        float at = top;
 
-        return index >= 0 && index < items.Count && items[index].Selectable ? index : -1;
+        for (int i = first; i < first + shown && i < items.Count; i++)
+        {
+            if (point.Y >= at && point.Y < at + heights[i])
+            {
+                return items[i].Selectable ? i : -1;
+            }
+
+            at += heights[i];
+        }
+
+        return -1;
     }
 
     private float FractionAt(float pointerX, Vector4 bounds)

@@ -43,6 +43,22 @@ public readonly record struct MeshVertex(
 /// room it only keeps an unreached corner off black, and where they are gone it is the
 /// whole of what the walls and floor bounce back.
 /// </param>
+/// <param name="Exposure">
+/// This frame's jitter in pixels in xy, how much brighter a surface that carries its own
+/// light is drawn in z, and nothing in w.
+/// <para>
+/// The jitter is here because the fragment stage has to take it back out of the motion
+/// vectors. <c>gl_FragCoord</c> comes from the jittered projection and the previous clip
+/// position comes from an unjittered one, so the difference between them is the movement
+/// plus this frame's offset; adding the offset back leaves the movement.
+/// </para>
+/// <para>
+/// The brightness is the HDR path's, and it is one in SDR. A bulb and a diffuse white wall
+/// both come out of the shading at about one, which is the only answer an 8-bit target can
+/// hold; on a display with somewhere above white to go, they should not be the same
+/// brightness at all. See <see cref="Rendering.OutputPlan"/>.
+/// </para>
+/// </param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
     Matrix4x4 ViewProjection,
@@ -53,7 +69,8 @@ public readonly record struct FrameUniforms(
     Vector4 Tuning,
     Vector4 GridOrigin,
     Vector4 GridCounts,
-    Vector4 Ambient);
+    Vector4 Ambient,
+    Vector4 Exposure);
 
 /// <summary>Constants that change per draw, delivered as push constants.</summary>
 /// <param name="Model">Model to world space.</param>

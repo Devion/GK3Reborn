@@ -71,6 +71,24 @@ public sealed unsafe class FrameUniformSet : IDisposable
     public RayTracingSettings Settings { get; set; } = RayTracingSettings.For(RayTracingQuality.None);
 
     /// <summary>
+    /// Where inside its pixel this frame samples, in pixels.
+    /// </summary>
+    /// <remarks>
+    /// The same offset the camera's projection was built with, said again in the units the
+    /// fragment stage works in. It is not derived from the camera here because the camera
+    /// carries it in clip space and converting back would need the viewport, which is a
+    /// second place for the two to disagree.
+    /// </remarks>
+    public Vector2 JitterPixels { get; set; }
+
+    /// <summary>How far above white a surface that carries its own light may go.</summary>
+    /// <remarks>
+    /// One in SDR, which is the picture the game has always drawn. See
+    /// <see cref="OutputPlan.EmissiveGain"/> for why it is more than that in HDR.
+    /// </remarks>
+    public float EmissiveGain { get; set; } = 1f;
+
+    /// <summary>
     /// The clock the wind runs on, in seconds since the renderer started.
     /// </summary>
     /// <remarks>
@@ -268,9 +286,21 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// far outside the room with a range it could never span. Default decides nothing and
     /// every light keeps its stored range.
     /// </param>
-    public void SetLights(IReadOnlyList<AuthoredLight> lights, SceneExtent scene = default)
+    /// <param name="sunGain">
+    /// How much brighter a distant key burns than it was authored. One in standard range.
+    /// </param>
+    public void SetLights(
+        IReadOnlyList<AuthoredLight> lights, SceneExtent scene = default, float sunGain = 1f)
     {
         ArgumentNullException.ThrowIfNull(lights);
+
+        // Kept, because turning HDR on from the pause menu has to be able to re-light the
+        // room the player is standing in without reloading it. The rig is a room's own and
+        // is uploaded once when it loads; the gain is a display setting and changes
+        // whenever somebody drags a slider.
+        _lights = lights;
+        _extent = scene;
+        _sunGain = sunGain;
 
         IReadOnlyList<AuthoredLight> chosen = GpuLight.Choose(lights, scene);
 
@@ -285,7 +315,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
         for (int i = 0; i < chosen.Count; i++)
         {
-            packed[i] = GpuLight.From(chosen[i], scene);
+            packed[i] = GpuLight.From(chosen[i], scene, sunGain);
             MemoryMarshal.Write(bytes.AsSpan(16 + (i * stride), stride), in packed[i]);
         }
 
@@ -293,6 +323,29 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
         BuildGrid(packed, scene);
     }
+
+    /// <summary>Uploads the rig again with a different sun.</summary>
+    /// <param name="sunGain">The new gain.</param>
+    /// <returns>True when anything was re-uploaded.</returns>
+    /// <remarks>
+    /// For the display settings changing while a room is loaded. Nothing else about the rig
+    /// can change without a new scene, so there is no general "re-upload" here — only this
+    /// one number, and only when it is actually different.
+    /// </remarks>
+    public bool Relight(float sunGain)
+    {
+        if (_lights is null || Math.Abs(sunGain - _sunGain) < 0.0001f)
+        {
+            return false;
+        }
+
+        SetLights(_lights, _extent, sunGain);
+        return true;
+    }
+
+    private IReadOnlyList<AuthoredLight>? _lights;
+    private SceneExtent _extent;
+    private float _sunGain = 1f;
 
     /// <summary>
     /// Works out which lights reach which part of the room, and uploads the answer.
@@ -422,12 +475,16 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
         Matrix4x4 viewProjection = camera.View * camera.Projection(aspect);
 
+        // Kept without the jitter, because this is what the motion vectors are measured
+        // against and a jitter is not movement. See Camera.ProjectionWithoutJitter.
+        Matrix4x4 steady = camera.View * camera.ProjectionWithoutJitter(aspect);
+
         // The first frame has no previous one, and a motion vector against an identity
         // matrix is the whole screen moving at once. Its own is the honest answer: nothing
         // moved, because there was nothing to move from.
-        Matrix4x4 previous = _previousViewProjection ?? viewProjection;
+        Matrix4x4 previous = _previousViewProjection ?? steady;
 
-        _previousViewProjection = viewProjection;
+        _previousViewProjection = steady;
 
         // The same argument for the clock as for the matrix above: on the first frame there
         // is no earlier one, and its own value is the honest answer.
@@ -457,7 +514,12 @@ public sealed unsafe class FrameUniformSet : IDisposable
             // out which cell it stands in. Constant for as long as a room is loaded.
             _gridOrigin,
             _gridCounts,
-            new Vector4(settings.Ambient, settings.LightmapHint));
+            new Vector4(settings.Ambient, settings.LightmapHint),
+
+            // The jitter the projection above was built with, so the fragment stage can
+            // take it back out of the motion vectors, and how far above white a surface
+            // that carries its own light may go.
+            new Vector4(JitterPixels.X, JitterPixels.Y, EmissiveGain, 0f));
 
         _buffers[index].Write<FrameUniforms>([uniforms]);
 

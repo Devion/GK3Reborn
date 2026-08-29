@@ -57,10 +57,58 @@ tested against every shape of picture and window that turns up.
 **No page says which keys work.** A menu that explains what an arrow key does is a menu that
 thinks the player has not used one.
 
+**No row explains itself either.** Every settings row used to carry a sentence under it
+saying what it did, each one true and well written, and together they were the reason a
+picture page did not fit on the screen. A settings page is not read: it is scanned by
+somebody who came for one row, and a paragraph under every other row is what they have to
+get past to find it. So the rows are on their own, and the label carries the meaning —
+`Skip the cat-hair moustache` rather than `Skip a puzzle` with a sentence explaining which.
+
+What is allowed to stay is what the player cannot find out by trying it:
+
+| stays | because |
+| --- | --- |
+| `Not installed: copy sl.dlss.dll…` | naming the file is the only way they can act on it |
+| `Installed, and this card cannot run it` | a different sentence: nothing to download, nothing done wrong |
+| `Asked for, and this display did not offer it` | the switch is on and the monitor is in SDR mode |
+| `1280x720 to 2560x1440` | a reading of the row above, like a percentage |
+| `Running: …` | what the renderer actually chose, which may not be what was asked |
+| `The last three take effect at the next door` | the room was built from the sets chosen when it loaded |
+| `Speakers take effect at the next start` | the device is opened once, and silence reads as broken |
+
+Twenty-two label rows became nine, and only two of those nine are ever on screen at once in
+a working game: the rest wait for a missing runtime, a refused colour space, or an upscaler
+that is actually running. Where a sentence existed to explain a **dead** row, the row is dead
+instead: choosing borderless fullscreen makes `Resolution` read `The monitor's own` and stop
+being selectable, which says the same thing in no words at all. `DisplaySettingsTests` holds
+the budget — a page may draw at most one line of prose, and Display, Playing and Made Easier
+may draw none — so this cannot quietly grow back.
+
 **The menu grows with the window.** Its atlas is cut for the window's height — an em of
 about a twenty-sixth of it — and re-cut when that changes, so going fullscreen re-draws the
 letters rather than stretching them. Captions are sized smaller, at a thirty-third, because
 they must not cover the room.
+
+**Up to a point, and then the player says.** The share is capped above about 1440 lines: a
+twenty-sixth of a 4K screen is 83 pixels, which is nobody's idea of a settings page. That
+cap is a single number standing in for every large display, and on plenty of them it is
+still too big — so **Text size** on the Display page multiplies whatever the automatic rule
+arrived at, from 60% to 160% in fives. It is a correction to the rule rather than a
+replacement for it: a player who then goes fullscreen still gets letters cut for the new
+window, only at their own share of it.
+
+It is applied **after** the cap, not before, and that is the whole of why it works. Three
+quarters of a twenty-sixth of 4K is 62 pixels, which caps straight back to the same 36 the
+player was complaining about — a multiplier in front of the cap would be swallowed whole on
+exactly the displays it exists for. Both atlases move together, because this is one
+preference about reading and not two, and both are re-cut the frame after the row changes,
+so the menu resizes under the slider being dragged.
+
+The rule itself is `UI/TextSizing.cs` — arithmetic on a window height and a preference,
+touching no device, font or atlas, which is what lets `TextSizingTests` check the thing a
+player would actually ask about. Under `--bitmap-font` there is nothing to re-cut, so the
+row moves which rung of GK3's ladder is asked for and how many screen pixels a sheet pixel
+covers; whole numbers only, so there it is a step rather than a slider.
 
 ## What it is made of
 
@@ -92,6 +140,7 @@ destinations, and there are no others in the file.
 | Speakers | the layout `OpenAlBackend` opens with, at the next start |
 | Lighting | `RayTracingQuality`, from the baked 1999 picture to every ray the frame can use |
 | Higher-resolution textures | the enhanced set **and** its compressed build, so answering "no" means the original art |
+| Text size | `TextSizing.Em`, which is the size both atlases are cut at, and the magnification a bitmap sheet gets |
 | Hurrying pace | `SceneUpdate.HurryFactor`: what a double-click multiplies, and how much faster the stride plays to match |
 | Camera travels between angles | `GameState.CameraGliding`, which scripts also read and set |
 | Let the story move the camera | `GameState.CinematicsEnabled` |

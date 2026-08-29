@@ -284,6 +284,104 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     }
 
     /// <inheritdoc/>
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// Borderless is a hidden border plus the monitor's own size and position, not a
+    /// window state of its own: Silk.NET's <c>Fullscreen</c> is the exclusive kind, which
+    /// takes the display over and makes alt-tabbing a mode change. The borderless
+    /// arrangement is what most people mean by fullscreen now — it composites, it switches
+    /// away instantly, and it costs a frame of latency nobody in an adventure game will
+    /// notice.
+    /// </para>
+    /// <para>
+    /// Every branch checks what is already true before changing anything. This is called
+    /// whenever any setting changes, and setting a window state it is already in makes
+    /// some backends flash the window.
+    /// </para>
+    /// </remarks>
+    public void Present(WindowMode mode, int width = 0, int height = 0)
+    {
+        IMonitor? monitor = _window.Monitor ?? Silk.NET.Windowing.Monitor.GetMainMonitor(_window);
+
+        switch (mode)
+        {
+            case WindowMode.BorderlessFullscreen:
+                if (_window.WindowState == WindowState.Fullscreen)
+                {
+                    _window.WindowState = WindowState.Normal;
+                }
+
+                if (_window.WindowBorder != WindowBorder.Hidden)
+                {
+                    _window.WindowBorder = WindowBorder.Hidden;
+                }
+
+                if (monitor is not null)
+                {
+                    Vector2D<int> at = monitor.Bounds.Origin;
+                    Vector2D<int> size = monitor.Bounds.Size;
+
+                    if (_window.Position != at)
+                    {
+                        _window.Position = at;
+                    }
+
+                    if (_window.Size != size)
+                    {
+                        _window.Size = size;
+                    }
+                }
+
+                break;
+
+            case WindowMode.ExclusiveFullscreen:
+                if (width > 0 && height > 0 && _window.Size != new Vector2D<int>(width, height))
+                {
+                    _window.Size = new Vector2D<int>(width, height);
+                }
+
+                if (_window.WindowState != WindowState.Fullscreen)
+                {
+                    _window.WindowState = WindowState.Fullscreen;
+                }
+
+                break;
+
+            default:
+                if (_window.WindowState == WindowState.Fullscreen)
+                {
+                    _window.WindowState = WindowState.Normal;
+                }
+
+                if (_window.WindowBorder != WindowBorder.Resizable)
+                {
+                    _window.WindowBorder = WindowBorder.Resizable;
+                }
+
+                if (width > 0 && height > 0 && _window.Size != new Vector2D<int>(width, height))
+                {
+                    _window.Size = new Vector2D<int>(width, height);
+
+                    // Put back on the monitor after a resize that would otherwise leave it
+                    // half off the bottom, which is what happens when a small window is
+                    // enlarged near an edge.
+                    if (monitor is not null)
+                    {
+                        Vector2D<int> bounds = monitor.Bounds.Size;
+                        Vector2D<int> origin = monitor.Bounds.Origin;
+
+                        _window.Position = new Vector2D<int>(
+                            Math.Clamp(_window.Position.X, origin.X, origin.X + Math.Max(0, bounds.X - width)),
+                            Math.Clamp(_window.Position.Y, origin.Y, origin.Y + Math.Max(0, bounds.Y - height)));
+                    }
+                }
+
+                break;
+        }
+    }
+
+    /// <inheritdoc/>
     public void PumpEvents()
     {
         _window.DoEvents();

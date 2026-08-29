@@ -59,6 +59,10 @@ internal static class MeshShaders
 
             // xyz the ambient floor, w how much the bake shapes it
             vec4 ambientFloor;
+
+            // xy this frame's jitter in pixels, z how much brighter a self-lit surface is
+            // drawn, w unused
+            vec4 exposure;
         } frame;
 
         layout(push_constant) uniform Draw
@@ -984,7 +988,15 @@ internal static class MeshShaders
             if (inPreviousClip.w > 1e-4)
             {
                 vec2 there = inPreviousClip.xy / inPreviousClip.w;
-                outMotion = (there * 0.5 + 0.5) * frame.tuning.zw - gl_FragCoord.xy;
+
+                // This frame's jitter added back. The previous position was projected
+                // without one and this fragment's coordinate carries this frame's, so the
+                // raw difference is the movement plus the offset between two sample points
+                // inside the same pixel. Left in, every temporal upscaler sees the whole
+                // screen shaking by half a pixel whether or not anything moved, and spends
+                // its disocclusion budget on it.
+                outMotion =
+                    ((there * 0.5 + 0.5) * frame.tuning.zw) - gl_FragCoord.xy + frame.exposure.xy;
             }
 
             // A surface the bake never lit: a bulb, a shade with a lamp inside it, the
@@ -995,7 +1007,12 @@ internal static class MeshShaders
             {
                 // Alpha says how much occlusion applies to this pixel: none, here. A bulb
                 // does not get darker for being in a corner.
-                outColor = vec4(albedo, 0.0);
+                //
+                // And it is the one thing in the room allowed above white. In SDR the gain
+                // is one and this is the texture untouched, as it has always been; with an
+                // HDR display to write to, a lamp is several times the brightness of the
+                // wall it lights and there is finally somewhere to put that.
+                outColor = vec4(albedo * frame.exposure.z, 0.0);
                 return;
             }
 

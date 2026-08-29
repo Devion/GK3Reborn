@@ -70,6 +70,17 @@ public static unsafe class VulkanPortability
     /// <summary>Instance extension that allows a portability driver to be enumerated.</summary>
     public const string EnumerationExtension = "VK_KHR_portability_enumeration";
 
+    /// <summary>
+    /// Instance extension that lets a surface report colour spaces other than sRGB.
+    /// </summary>
+    /// <remarks>
+    /// Nothing to do with portability, and here because this is where instance extensions
+    /// are decided. It is what makes <c>VK_COLOR_SPACE_HDR10_ST2084_EXT</c> and
+    /// <c>VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT</c> appear in the list of formats a
+    /// surface supports; without it the list stops at sRGB whatever the display can do.
+    /// </remarks>
+    public const string ColorSpaceExtension = "VK_EXT_swapchain_colorspace";
+
     /// <summary>Device extension a portability driver requires to be enabled.</summary>
     public const string SubsetExtension = "VK_KHR_portability_subset";
 
@@ -103,6 +114,15 @@ public static unsafe class VulkanPortability
         ArgumentNullException.ThrowIfNull(wanted);
 
         List<string> names = [.. wanted];
+
+        // The colour spaces beyond sRGB. Enabled whenever the loader has it, whether or not
+        // HDR is switched on: it adds nothing to a frame, and without it at *instance*
+        // creation the surface never reports an HDR format at all — so a player turning HDR
+        // on from the pause menu would be told their monitor cannot do it.
+        if (InstanceSupports(api, ColorSpaceExtension))
+        {
+            names.Add(ColorSpaceExtension);
+        }
 
         if (InstanceSupports(api, EnumerationExtension))
         {
