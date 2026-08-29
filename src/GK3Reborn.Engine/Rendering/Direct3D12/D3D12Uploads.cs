@@ -34,7 +34,6 @@ public sealed unsafe class D3D12Uploads : IDisposable
 {
     private readonly D3D12Context _context;
     private readonly List<ComPtr<ID3D12Resource>> _staging = [];
-    private readonly List<(nint Resource, ResourceStates To)> _after = [];
     private bool _submitted;
     private bool _disposed;
 
@@ -95,15 +94,19 @@ public sealed unsafe class D3D12Uploads : IDisposable
             staging.Unmap(0, (Silk.NET.Direct3D12.Range*)null);
         }
 
-        // A buffer in device memory was created in Common, which is a state a copy may
-        // write from. Transitioning into CopyDest and back would be two barriers to say
-        // what Common already allows.
+        // No barriers, either side. Direct3D promotes a buffer out of Common to whatever
+        // state it is first used in, automatically and on every queue, and decays it back
+        // to Common when the list is submitted. So a buffer written by a copy and then read
+        // as vertices needs nothing said about either: it is promoted to CopyDest here and
+        // to VertexAndConstantBuffer when something draws with it.
+        //
+        // This was written the other way round first, with a transition from Common
+        // afterwards, and the debug layer refused it: by then the copy had already promoted
+        // the buffer to CopyDest, so the barrier described a state it was no longer in. The
+        // state a caller asks for is therefore taken as documentation of intent rather than
+        // as something to record.
+        _ = state;
         List->CopyBufferRegion(destination, 0, staging.Handle, 0, bytes);
-
-        if (state != ResourceStates.Common)
-        {
-            _after.Add(((nint)destination, state));
-        }
     }
 
     /// <summary>Gives the batch a staging buffer somebody else filled.</summary>
@@ -123,12 +126,6 @@ public sealed unsafe class D3D12Uploads : IDisposable
 
     /// <summary>Submits every copy and waits for them.</summary>
     /// <exception cref="D3D12Exception">The batch could not be submitted.</exception>
-    /// <remarks>
-    /// The transitions the callers asked for are recorded here, at the end, in one go. A
-    /// transition recorded next to its copy would be correct and would also mean a barrier
-    /// per buffer; recorded together they are one call, which on a room of seven hundred
-    /// buffers is the difference worth having.
-    /// </remarks>
     public void Submit()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -150,36 +147,6 @@ public sealed unsafe class D3D12Uploads : IDisposable
         }
 
         _submitted = true;
-
-        if (_after.Count > 0)
-        {
-            var barriers = new ResourceBarrier[_after.Count];
-
-            for (int i = 0; i < _after.Count; i++)
-            {
-                (nint resource, ResourceStates to) = _after[i];
-
-                barriers[i] = new ResourceBarrier
-                {
-                    Type = ResourceBarrierType.Transition,
-                    Flags = ResourceBarrierFlags.None,
-                };
-
-                barriers[i].Anonymous.Transition = new ResourceTransitionBarrier
-                {
-                    PResource = (ID3D12Resource*)resource,
-                    Subresource = 0xFFFFFFFF,
-                    StateBefore = ResourceStates.Common,
-                    StateAfter = to,
-                };
-            }
-
-            fixed (ResourceBarrier* first = barriers)
-            {
-                List->ResourceBarrier((uint)barriers.Length, first);
-            }
-        }
-
         _context.EndOneShot();
     }
 

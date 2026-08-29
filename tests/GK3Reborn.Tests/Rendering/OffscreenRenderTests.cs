@@ -13,6 +13,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// without a GPU still reports a green run. A machine that *does* have one gets the real
 /// check, which is the only way to tell "drew nothing" apart from "did not crash".
 /// </remarks>
+[Collection(GpuTests.Name)]
 public sealed class OffscreenRenderTests
 {
     private static bool HasDevice()

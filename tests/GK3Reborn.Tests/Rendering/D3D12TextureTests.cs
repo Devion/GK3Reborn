@@ -16,6 +16,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// mip level of odd width has an edge column with nothing to average against, which if
 /// reached past rather than clamped makes a texture drift sideways as it coarsens.
 /// </remarks>
+[Collection(GpuTests.Name)]
 public sealed class D3D12TextureTests
 {
     private static bool HasDevice()

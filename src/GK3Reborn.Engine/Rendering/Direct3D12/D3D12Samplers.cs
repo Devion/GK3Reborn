@@ -49,7 +49,7 @@ public sealed unsafe class D3D12Samplers : IDisposable
         _clamp = clamp;
     }
 
-    /// <summary>The heap holding them, which a command list binds.</summary>
+    /// <summary>The heap holding them, which nothing binds and everything copies from.</summary>
     public ID3D12DescriptorHeap* Handle => _heap.Handle;
 
     /// <summary>Creates the shared samplers.</summary>
@@ -60,8 +60,12 @@ public sealed unsafe class D3D12Samplers : IDisposable
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // Not shader-visible, and that is a rule rather than a saving. CopyDescriptors
+        // refuses a source heap that is shader-visible, and this heap exists to be copied
+        // out of: it is where the two samplers are written once, and every pass takes the
+        // ones it wants into a bound heap of its own.
         D3D12DescriptorHeap heap = D3D12DescriptorHeap.Create(
-            context.Device, DescriptorHeapType.Sampler, 8, shaderVisible: true);
+            context.Device, DescriptorHeapType.Sampler, 8);
 
         try
         {
@@ -76,12 +80,6 @@ public sealed unsafe class D3D12Samplers : IDisposable
             throw;
         }
     }
-
-    /// <summary>Where one of the samplers is, for a shader to read.</summary>
-    /// <param name="addressing">Which one.</param>
-    /// <returns>Its handle.</returns>
-    public GpuDescriptorHandle Gpu(SamplerAddressing addressing) =>
-        _heap.Gpu(addressing == SamplerAddressing.Clamp ? _clamp : _repeat);
 
     /// <summary>Copies one of the samplers into a descriptor slot in another heap.</summary>
     /// <param name="context">The device.</param>

@@ -24,6 +24,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// in the right place or obviously not.
 /// </para>
 /// </remarks>
+[Collection(GpuTests.Name)]
 public sealed class D3D12RayTracingTests
 {
     private static bool CanTrace()

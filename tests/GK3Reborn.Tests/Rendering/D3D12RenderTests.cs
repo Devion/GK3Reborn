@@ -14,6 +14,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// with no adapter that reaches the compatibility tier. A build agent without a GPU still
 /// reports a green run; a machine that has one gets the real check.
 /// </remarks>
+[Collection(GpuTests.Name)]
 public sealed class D3D12RenderTests
 {
     private static bool HasDevice()
