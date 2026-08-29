@@ -807,6 +807,17 @@ public static class Application
 
         void Apply(Settings chosen)
         {
+            // Before the assignment, because `settings` is still the old answer here and
+            // this is the only place the two can be compared. The room says "camera bounds"
+            // when it loads and would otherwise say nothing at all about a switch thrown
+            // halfway through it.
+            if (chosen.FreeCamera != settings.FreeCamera)
+            {
+                Log.Info(chosen.FreeCamera
+                    ? "Camera bounds: off, so the camera may leave the room"
+                    : "Camera bounds: back on");
+            }
+
             settings = chosen;
             chosen.ApplyTo(audio);
 
@@ -1055,12 +1066,19 @@ public static class Application
             // renderer that the church floor is polished and the pews are not.
             if (first)
             {
-                finishes = SurfaceFinishes.Load(Path.Combine(
-                    Path.GetDirectoryName(
-                        CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty)
-                            .TrimEnd(Path.DirectorySeparatorChar, '/')) ?? ".",
-                    "manifests",
-                    "material-library.json"));
+                finishes = SurfaceFinishes.Load(
+                    Path.Combine(
+                        Path.GetDirectoryName(
+                            CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty)
+                                .TrimEnd(Path.DirectorySeparatorChar, '/')) ?? ".",
+                        "manifests",
+                        "material-library.json"),
+
+                    // And from the packs where there is no workspace to read it from,
+                    // which is every installation that is not a development one. Without
+                    // this the shipped game has no material library at all: every surface
+                    // matte, no specular lobe anywhere, and no message to say why.
+                    packs);
 
                 if (finishes.Count > 0)
                 {
@@ -2575,33 +2593,44 @@ public static class Application
         // Whoever asked for the shell to be turned off is looking at the room rather than
         // playing it, and the story is not allowed to take the camera off them either. It
         // is the same escape hatch GameCamera makes for Tools::Active.
-        bool flying = options.Contains("--free-camera", StringComparer.OrdinalIgnoreCase);
+        //
+        // <b>Asked every frame, not decided here.</b> It is a row on the Playing page as
+        // well as a switch on the command line, and a setting the player can only see work
+        // by walking through a door is a setting they will take to be broken.
+        bool onTheCommandLine =
+            options.Contains("--free-camera", StringComparer.OrdinalIgnoreCase);
+
+        bool Flying() => onTheCommandLine || front.Settings.FreeCamera;
 
         // The shell the scene's artists drew around the space the camera may occupy. Without
         // it the player can walk the view out through a wall and look at the room from
-        // behind, which is a picture no part of the game was built to survive.
-        // --free-camera gives that back, because looking at the geometry from outside is
-        // exactly how some of it gets checked.
+        // behind, which is a picture no part of the game was built to survive. The free
+        // camera gives that back, because looking at the geometry from outside is exactly
+        // how some of it gets checked.
         if (scene.CameraShell is not { IsEmpty: false } shell)
         {
             Log.Info("Camera bounds: none, so the camera may go anywhere");
-        }
-        else if (flying)
-        {
-            Log.Info("Camera bounds: off, so the camera may leave the room");
         }
         else
         {
             // A script may turn the shell off for a shot that has to be outside it, and
             // the original only turns it off until the next room — so this asks the story
-            // every frame rather than being decided once here.
+            // every frame rather than being decided once here. The player's own switch is
+            // asked in the same breath and for the same reason.
             camera.Confine = (from, movement) =>
-                story.CameraBoundaries ? shell.Resolve(from, movement) : from + movement;
+                story.CameraBoundaries && !Flying()
+                    ? shell.Resolve(from, movement)
+                    : from + movement;
+
+            if (Flying())
+            {
+                Log.Info("Camera bounds: off, so the camera may leave the room");
+            }
 
             // A viewpoint outside its own shell is not fatal — the way back in is always
             // open — but it is worth saying, because from out there the walls behave
             // backwards and there is nothing on screen to explain why.
-            if (!shell.Contains(template.Position))
+            else if (!shell.Contains(template.Position))
             {
                 Log.Info($"Camera bounds: {scene.Name}'s view starts outside them");
             }
@@ -3163,14 +3192,14 @@ public static class Application
             }
 
             // And while it is telling one, the camera is the story's rather than the
-            // player's: see SceneUpdate.Directing, which is the whole rule. --free-camera
-            // is the exception, the same one GameCamera makes for Tools::Active.
+            // player's: see SceneUpdate.Directing, which is the whole rule. The free
+            // camera is the exception, the same one GameCamera makes for Tools::Active.
             //
             // Leaving it out was reported as the view jumping. Nothing stopped a player
             // flying off during a cutscene, and the next thing the script cut to snapped
             // the view back across the room from wherever they had got to — which reads as
             // the camera losing its place rather than as the player having moved it.
-            if (!console.Open && !(update.Directing && !flying))
+            if (!console.Open && !(update.Directing && !Flying()))
             {
                 camera.Update(window, delta);
             }

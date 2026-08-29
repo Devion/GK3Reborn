@@ -251,6 +251,25 @@ public sealed record Settings
     /// <summary>Whether the story is allowed to move the camera for effect.</summary>
     public bool Cinematics { get; init; } = true;
 
+    /// <summary>
+    /// Whether the camera may fly out of the room and keep flying through a cutscene.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two things at once, and they are the same thing: the artists' camera shell stops
+    /// fencing the view in, and <c>SceneUpdate.Directing</c> stops taking the controls away
+    /// while the story is telling something. It is the escape hatch the original makes for
+    /// <c>Tools::Active</c>, and what <c>--free-camera</c> has always asked for.
+    /// </para>
+    /// <para>
+    /// Off by default and deliberately not an assist: it changes nothing the story asks of
+    /// the player, and it is here for somebody photographing the game rather than playing
+    /// it. Turning it on is how the geometry gets looked at from outside, which is a
+    /// picture no part of the game was built to survive — so the row says what it does.
+    /// </para>
+    /// </remarks>
+    public bool FreeCamera { get; init; }
+
     /// <summary>Whether what is said is also written.</summary>
     public bool Captions { get; init; } = true;
 

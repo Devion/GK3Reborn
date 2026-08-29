@@ -10,7 +10,9 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using GK3Reborn.Content.Authoring;
+using GK3Reborn.Content;
 using GK3Reborn.Content.Manifests;
+using GK3Reborn.Formats.Rebarn;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Rendering.Materials;
@@ -32,7 +34,7 @@ namespace GK3Reborn.Rendering.Materials;
 public sealed class SurfaceFinishes
 {
     /// <summary>What a surface nobody has measured is assumed to be.</summary>
-    public static readonly SurfaceFinish Matte = new(1f, 0.5f, 0f, 1f, 0f, false, false, false);
+    public static readonly SurfaceFinish Matte = new(1f, 0.5f, 0f, 1f, 0f, false, false, false, 0, 0f, 0f);
 
     /// <summary>The deepest relief a height field may claim, in world units.</summary>
     /// <remarks>
@@ -42,6 +44,23 @@ public sealed class SurfaceFinishes
     /// silhouette, and displaced geometry starts to lift off whatever it abuts.
     /// </remarks>
     public const float MaximumRelief = 8f;
+
+    /// <summary>The most shells a coat may ask for.</summary>
+    /// <remarks>
+    /// Each one is another draw of the whole batch, so this is a cost ceiling rather than
+    /// a judgement about fur. Past about sixteen the shells are closer together than a
+    /// pixel anyway and the coat stops getting denser.
+    /// </remarks>
+    public const int MaximumShells = 24;
+
+    /// <summary>How far fur may stand off the surface it grows on, in world units.</summary>
+    /// <remarks>
+    /// Four units is ten centimetres, which is a sheep rather than a texture. The shells
+    /// are pushed along a *stored* normal, and the models animate by having their vertex
+    /// positions rewritten with those normals left alone — so the deeper the coat, the
+    /// further the fur on a moving limb drifts from the limb.
+    /// </remarks>
+    public const float MaximumFur = 4f;
 
     private readonly Dictionary<string, SurfaceFinish> _finishes;
 
@@ -106,6 +125,7 @@ public sealed class SurfaceFinishes
 
     /// <summary>Reads the library the workspace's material pass wrote, and its corrections.</summary>
     /// <param name="path">Path to <c>manifests/material-library.json</c>.</param>
+    /// <param name="packs">The shipped volumes, consulted where the loose file is absent.</param>
     /// <param name="diagnostics">Receives warnings about corrections that no longer apply.</param>
     /// <returns>The finishes, or empty ones if the file is missing or unreadable.</returns>
     /// <remarks>
@@ -115,39 +135,43 @@ public sealed class SurfaceFinishes
     /// </para>
     /// <para>
     /// <b>The corrections beside it are read too</b>, from
-    /// <c>material-library.materials.edits.json</c>. That layer is the whole point of
+    /// <c>material-library.materials.edits.json</c>, loose or from the pack. That layer is
+    /// the whole point of
     /// ADR 0006 — a classifier guesses, and the person looking at the scene in-engine knows
     /// better — and it was being written and never read, so every correction anybody made
     /// to a material did nothing at all. A generated roughness of 0.44 on somebody's hair
     /// is exactly what it exists to fix.
     /// </para>
     /// </remarks>
-    public static SurfaceFinishes Load(string path, DiagnosticBag? diagnostics = null)
+    public static SurfaceFinishes Load(
+        string path, RebarnContent? packs = null, DiagnosticBag? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(path);
 
-        if (!File.Exists(path))
-        {
-            return Empty;
-        }
-
         try
         {
-            MaterialLibrary? library = JsonSerializer.Deserialize<MaterialLibrary>(
-                File.ReadAllText(path), ManifestJson.Options);
+            byte[] library = Read(path, packs, LibraryKey);
 
-            if (library is null)
+            if (library.Length == 0)
+            {
+                return Empty;
+            }
+
+            MaterialLibrary? read = JsonSerializer.Deserialize<MaterialLibrary>(
+                library, ManifestJson.Options);
+
+            if (read is null)
             {
                 return Empty;
             }
 
             var bag = diagnostics ?? new DiagnosticBag();
-            int before = Authored(library);
+            int before = Authored(read);
 
-            library = library.WithEdits(Corrections(path), bag);
+            read = read.WithEdits(Corrections(path, packs), bag);
 
-            SurfaceFinishes finishes = From(library);
-            finishes.Corrected = Authored(library) - before;
+            SurfaceFinishes finishes = From(read);
+            finishes.Corrected = Authored(read) - before;
 
             return finishes;
         }
@@ -161,6 +185,41 @@ public sealed class SurfaceFinishes
         }
     }
 
+    /// <summary>What the library is called inside a pack.</summary>
+    /// <remarks>
+    /// <b>With its extension, and that is not cosmetic.</b> A pack key is the file name with
+    /// its last extension removed, applied on the way in <em>and</em> on the way out — so a
+    /// name is only asked for correctly if it is asked for the way it was written.
+    /// <c>material-library.materials.edits.json</c> is stored under
+    /// <c>material-library.materials.edits</c>, and looking that up strips <c>.edits</c> and
+    /// finds nothing. The corrections were silently absent from a packed build for exactly
+    /// as long as it took to write a test for them.
+    /// </remarks>
+    private const string LibraryKey = "material-library.json";
+
+    /// <summary>And what the corrections beside it are called there.</summary>
+    private const string EditsKey = "material-library.materials.edits.json";
+
+    /// <summary>Reads one of the two files, from the workspace if it is there and the pack if not.</summary>
+    /// <remarks>
+    /// <b>The loose file wins</b>, which is how every other enhanced set here works and for
+    /// the same reason: a roughness corrected during a session has to reach the screen
+    /// without the packs being rebuilt first. A player has only the packs, and until
+    /// 2026-08-29 had no library at all — which left every surface in the game matte, with
+    /// no specular lobe anywhere, and nothing said so.
+    /// </remarks>
+    private static byte[] Read(string path, RebarnContent? packs, string key)
+    {
+        string loose = key == LibraryKey ? path : Beside(path);
+
+        if (File.Exists(loose))
+        {
+            return File.ReadAllBytes(loose);
+        }
+
+        return packs?.Read(RebarnKind.Manifest, key) ?? [];
+    }
+
     /// <summary>How many of a library's materials a person has had a hand in.</summary>
     private static int Authored(MaterialLibrary library) =>
         library.Materials.Count(m => m.Provenance != AuthoringProvenance.Derived);
@@ -170,21 +229,15 @@ public sealed class SurfaceFinishes
     /// Named for the library rather than chosen: <c>&lt;library&gt;.materials.edits.json</c>
     /// is what <c>MaterialEdits</c> documents and what the authoring store writes.
     /// </remarks>
-    private static MaterialEdits? Corrections(string path)
+    private static MaterialEdits? Corrections(string path, RebarnContent? packs)
     {
-        string beside = Path.Combine(
-            Path.GetDirectoryName(path) ?? string.Empty,
-            Path.GetFileNameWithoutExtension(path) + ".materials.edits.json");
-
-        if (!File.Exists(beside))
-        {
-            return null;
-        }
-
         try
         {
-            return JsonSerializer.Deserialize<MaterialEdits>(
-                File.ReadAllText(beside), ManifestJson.Options);
+            byte[] bytes = Read(path, packs, EditsKey);
+
+            return bytes.Length == 0
+                ? null
+                : JsonSerializer.Deserialize<MaterialEdits>(bytes, ManifestJson.Options);
         }
         catch (JsonException)
         {
@@ -195,6 +248,11 @@ public sealed class SurfaceFinishes
             return null;
         }
     }
+
+    /// <summary>Where the corrections sit beside a library on disk.</summary>
+    private static string Beside(string path) => Path.Combine(
+        Path.GetDirectoryName(path) ?? string.Empty,
+        Path.GetFileNameWithoutExtension(path) + ".materials.edits.json");
 
     /// <summary>Builds a lookup over a library already in hand.</summary>
     /// <param name="library">The materials.</param>
@@ -216,7 +274,10 @@ public sealed class SurfaceFinishes
                 Math.Clamp(material.HeightDepth, 0f, MaximumRelief),
                 material.Emissive != System.Numerics.Vector3.Zero,
                 material.Provenance != AuthoringProvenance.Derived,
-                material.Displaced);
+                material.Displaced,
+                Math.Clamp(material.Shells, 0, MaximumShells),
+                Math.Clamp(material.ShellDepth, 0f, MaximumFur),
+                Math.Clamp(material.ShellDensity, 1f, 4096f));
         }
 
         return new SurfaceFinishes(finishes);
@@ -266,6 +327,12 @@ public sealed class SurfaceFinishes
 /// paved, tiled or boarded surface wants this; see
 /// <see cref="MaterialDefinition.Displaced"/>.
 /// </param>
+/// <param name="Shells">
+/// How many fur shells stand over the surface, and zero for everything that is not an
+/// animal. See <see cref="MaterialDefinition.Shells"/>.
+/// </param>
+/// <param name="ShellDepth">How far the outermost shell stands off, in world units.</param>
+/// <param name="ShellDensity">How many strands stand across one turn of the texture.</param>
 /// <remarks>
 /// <b>An authored finish beats a generated map.</b> Where a surface has an ORM map, the map
 /// is normally the answer — it is a measurement of that surface and the library's value is
@@ -282,8 +349,14 @@ public readonly record struct SurfaceFinish(
     float HeightDepth = 0f,
     bool Emits = false,
     bool Authored = false,
-    bool Displaced = false)
+    bool Displaced = false,
+    int Shells = 0,
+    float ShellDepth = 0f,
+    float ShellDensity = 0f)
 {
+    /// <summary>Whether anything grows on this surface.</summary>
+    public bool Furred => Shells > 0 && ShellDepth > 0f;
+
     /// <summary>Whether this surface should stop a ray.</summary>
     /// <remarks>
     /// A light fitting must not. The rig puts its emitters where the bulb is — inside the

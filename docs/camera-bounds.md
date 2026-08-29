@@ -81,10 +81,19 @@ worth the code.
 camera may not pass through is a question about the room and the room belongs to the game
 rather than to the renderer. `Application` fills it in when the scene has a shell.
 
-`--free-camera` leaves it null and gives the old behaviour back. Flying outside a room is
-how some of its geometry gets checked, and that is worth keeping — the doc comment on
-`FreeCamera` has always said the camera exists to look at scenes from places the game never
-looks at them from.
+**Free camera**, on the Playing page and as `--free-camera`, turns the shell off. Flying
+outside a room is how some of its geometry gets checked, and that is worth keeping — the doc
+comment on `FreeCamera` has always said the camera exists to look at scenes from places the
+game never looks at them from — and it is worth having in the menu, because somebody
+photographing the game should not have to restart it from a command line to do so.
+
+It turns off two things and they are the same thing: the shell stops fencing the view in,
+and `SceneUpdate.Directing` stops taking the controls away while the story is telling
+something. Both are **asked every frame** rather than decided when the room loads, so the
+row works under the player's hand rather than at the next door: the hook the shell is wired
+through already asked the story about `CameraBoundaries` every frame, and it asks the
+player's switch in the same breath. Off by default, and on the Playing page rather than Made
+Easier — it changes nothing the story asks of the player.
 
 `--eye x,y,z` and `--aim heading,pitch` stand the camera somewhere and point it, in world
 units and degrees, and hold it there against anything a scene's entry script tries to do

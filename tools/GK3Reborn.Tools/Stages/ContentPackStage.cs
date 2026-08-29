@@ -130,6 +130,23 @@ public sealed class ContentPackStage
         new(RebarnKind.Normal, "enhanced/normals", "BC5_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Orm, "enhanced/orm", "BC7_UNORM", false, 1024, "RebornMaterials"),
         new(RebarnKind.Height, "enhanced/height", "BC4_UNORM", false, 512, "RebornMaterials"),
+
+        // **The material library, and the corrections filed beside it.** The three maps
+        // above say what a surface is *like*; this says what it *is*, and without it every
+        // one of them is read at the shader's own defaults — matte, non-metallic, no
+        // specular lobe anywhere in the game.
+        //
+        // It was left out until 2026-08-29, and the gap was invisible because nobody had
+        // run against the packs alone: the loader reads the library as a loose file from
+        // the workspace, and in development the workspace is always there. A player has
+        // only the two volumes.
+        //
+        // Both files, and the edits *must* travel with it. They are where a person's
+        // judgement lives — the roughness of every face, every pair of jeans and the cat's
+        // coat is a correction, not a classification — and a library shipped without them
+        // is the classifier's first guess.
+        new(RebarnKind.Manifest, "manifests", null, false, 0, "RebornMaterials",
+            "material-library*.json"),
     ];
 
     /// <summary>Encodes and packs.</summary>

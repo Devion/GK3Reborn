@@ -62,6 +62,187 @@ The maps are mostly right and mostly agree with the library: dirt 0.94, stone 0.
 `CS3FLOOR` 0.34 in the map as well as the library, the generator having made the same
 mistake as the classifier. That is what the edit layer is for.
 
+## People, and why they came out wet
+
+Reported as "faces and jeans are extremely shiny; Gabriel's jeans look wet, plastic, not
+like fabric at all", and later "the cat is reflective instead of furry". All three are the
+same fault, and the table above is where it starts: the class defaults were chosen for
+*surfaces*, and the four classes a person is made of were never calibrated against a
+person.
+
+What the corpus actually said about the 248 textures somebody wears:
+
+| what it is | what CLIP called it | roughness on screen |
+| --- | --- | ---: |
+| Gabriel's jeans (`GAB_JEAN`) | `water` | 0.10 |
+| Grace's jeans (`GRA_JEANBUTT`) | `water` | 0.11 |
+| Gabriel's coat (`GAB_JACKET`) | `metal_polished` | 0.22, and **metallic** |
+| the cat | `water` | 0.10 |
+| Gabriel's jeans as worn (`GABEJEAN2`) | `leather` | 0.57 |
+| Grace's khakis | `leather` | 0.57 |
+| every face in the game | `skin` | 0.55–0.58 |
+
+Three things compound here and each is worth stating on its own.
+
+**The class table is miscalibrated for people.** `skin` at 0.55 and `leather` at 0.55 are
+values for wet skin and for patent leather. A face at 0.55 with a specular reflectance of
+0.45 catches a highlight from every one of a room's sixty-three lamps, and GK3's diffuse
+textures already have their highlights painted in — so it is counted twice. `hair` at 0.42
+is worse and had already been corrected by hand for fourteen characters.
+
+**CLIP cannot read clothing at 64 pixels, and the name table never knew the word.**
+`TOKENS["fabric"]` listed `CLOTH, SHIRT, PANT, COAT, DRESS…` and not `JEAN`, `DENIM`,
+`JACK` or `KHAKI`, so a small blue picture of twill had nothing but the picture to go on
+and came back *water*. Forty-eight worn textures landed in `leather`, including six
+pairs of trousers — `MON_PANT`, `EML_PANT`, `HE1_PANT`, `JAM_PANT`, `VM1_PANT`,
+`WIL_PANT` — and a shirt, `LAR_SHIRT`, at a confidence of 0.05.
+
+**The worn prior never fired on the clothes nobody is wearing yet.** A character's changes
+of clothes hang on their own models — `GABCLOTHESDAY01..03`, `COAT`,
+`R25_GRACLOTHESDAY01..03` — and `model-roles.json` calls each of those a **prop**, because
+that is what a coat on a hook is. So `GAB_JEAN` arrived at the classifier with
+`usedByCharacters: 0` and got no help at all, which is the single reason Gabriel's spare
+jeans are the worst material in the game and his worn ones are only the second worst.
+
+### What was done
+
+**124 corrections in `material-library.materials.edits.json`**, which is where a person's
+judgement belongs and the only thing that outranks a generated map. They are grouped, and
+the grouping is the whole argument:
+
+| | roughness | reflectance | n |
+| --- | ---: | ---: | ---: |
+| skin — faces, hands, arms, ears | 0.72 | 0.35 | 63 |
+| worn leather — boots, shoes, belts | 0.65 | 0.45 | 21 |
+| cloth — shirts, trousers, robes, cloaks, vests, a canvas rucksack | 0.90 | 0.40 | 21 |
+| coats and jackets | 0.85 | 0.42 | 10 |
+| denim — jeans and khakis | 0.92 | 0.35 | 6 |
+| fur — the cat | 0.88 | 0.30 | 1 |
+| hair — a beard the fourteen `*_HAIR` corrections missed, because it is not named `HAIR` | 0.75 | 0.45 | 1 |
+| feathers — the chicken | 0.80 | 0.35 | 1 |
+
+Two of them clear a metalness as well: `GAB_JACKET` and `VIT_FACE2` were both called
+`metal_polished`, and a conductor has no diffuse term at all, so leaving it set makes a
+coat and a face reflect the room in their own colour.
+
+**And the pipeline was taught the words**, so a rerun does not put it back:
+`gk3pbr/materials.py` recalibrates `skin`, `hair` and `leather`; a new `WORN_TOKENS` table
+carries the garment and body words that would be false positives anywhere else — `ARM` is
+a sleeve on a person and a chair everywhere else, `EAR` is a head on a person and the earth
+under a road — and is consulted *only* where the corpus says the surface is worn; `EXACT`
+holds the handful of whole names no rule generalises, which today is `CAT`; and
+`classify_materials._worn` now counts a texture hanging on a clothes model as worn, with a
+guard so that a texture also on a room's walls stays the room's.
+
+**None of that reaches an existing map.** `make_orm.py` skips on the *normal map's* hash,
+so recalibrating a class changes nothing on disk until a forced rerun. That is deliberate
+and it is why the edit layer carries the fix.
+
+### The village roofline
+
+Reported alongside the characters: RC3's roofs render as polished brass. Same fault, one
+street further out — and worth its own note because the roofs of Rennes-le-Château are
+**ceramic**, and the class table had them as four different things, none of which is fired
+clay.
+
+| texture | called | roughness on screen | world units |
+| --- | --- | ---: | ---: |
+| `RC1STONE_B_RFTILE` | `tile` — *glazed* ceramic | 0.36 | 5,233,668 |
+| `RC1STONE_A_RFTILE` | `tile` | 0.37 | 3,806,948 |
+| `RC1YELLOWROOF` | `wood` | 0.63 | 1,937,291 |
+| `RC1REDROOF2`, `RC2LREDROOF`, `RC1REDROOF` | `brick` | 0.89–0.90 | 10,823,846 |
+| `RL1TILEROOF` | `tile` | 0.37 | 499,956 |
+| `RL1SHINGLES` | `wood` | 0.64 | 333,947 |
+| `RC3ROOFTILETP` | `metal_polished`, **metallic** | 0.25 | 588 |
+
+`RC1YELLOWROOF` is the one that was reported. It is a cream-yellow barrel tile stained with
+lichen — the 1999 art is the same colour, so the gold is the texture's own — and at
+roughness 0.63 the specular lobe laid a hard white glare across it that read as brass. The
+two `_RFTILE` roofs are worse arithmetic and less visible: `tile` in the class table means
+*glazed ceramic*, a bathroom wall, and between them they are the largest single surface in
+the game to carry it.
+
+They are one finish now, **0.78 at 0.45 reflectance**, because a roofline where half the
+tiles are `brick` and half are `tile` reads as two different buildings. Two exceptions, both
+stated rather than defaulted: `RC1STONE_A_RFTILE` is slate, not clay — flat grey overlapping
+shingles — and keeps a little more sheen at 0.72; and `RL1SHINGLES` is split wood silvered
+by weather, which is end grain and splinters and rougher than anything else on a building,
+at 0.82.
+
+`RC3ROOFTILE` and `RC3ROOFTILETP` are not roof tiles at all despite their names: a glazed
+faience frieze along RC3's eaves and the gilded finial above it. Glazed ornament is the
+smoothest ceramic on the building and keeps 0.60 — but the finial was written **metallic**
+into its ORM map, and a conductor has no diffuse term at all, so it was mirroring the
+courtyard in its own colour.
+
+The remaining warmth in the picture is the texture's, not the shading's. Measured on RC3's
+`Pet_Cat` camera: 6.0% of the frame changed and the roof's mean luminance fell from 110 to
+99, which is the glare and not the tiles.
+
+### Shell fur, and why a roughness was not enough
+
+The cat is the only animal in the game. Correcting it from `water` to fur stops it looking
+wet and cannot make it look furry, because at the size it is drawn — a hundred pixels
+across a courtyard, and black — almost all of what reads as an animal is its outline
+against the wall behind it, and a material cannot touch an outline.
+
+So it has a coat: `Shells`, `ShellDepth` and `ShellDensity` on a material, sixteen shells
+1.2 units deep at 650 strands to a turn of the texture on `CAT`. The batch is drawn again
+for each shell with every vertex pushed further out along its own normal, and each shell
+keeps only the texels a strand still reaches at that height — a hash over a grid in texture
+space, evaluated in the fragment shader, so nothing is added to the mesh and nothing is
+added to memory. Taller hairs survive to the outer shells and shorter ones drop away, which
+is what makes the silhouette ragged instead of sixteen concentric outlines of the same cat.
+Each hair narrows as it rises and leans by the square of its height, so the coat has a lie
+to it.
+
+### The first version was a hedgehog
+
+Reported as "the hair spikes all the way; it doesn't look like hair". It did not, and there
+were three causes, all in the strand function rather than in the shell count:
+
+1. **A hair that leaned out of its own cell vanished.** The test looked only at the cell
+   under the fragment, so past about half a cell of lean a hair simply stopped drawing over
+   the top half of its length. What survived was the hairs that leaned *least* — the
+   straight ones, standing along the normal — which is exactly the set that reads as
+   spines. It searches the nine cells around the fragment now.
+2. **Lengths were spread evenly**, `0.35 + 0.65·h`, so two thirds of the coat reached the
+   outermost shells. A coat is dense at the base and thin at the top; squaring the hash
+   (`0.18 + 0.82·h²`) puts two thirds of it in the inner half, and the fringe fades instead
+   of bristling.
+3. **The taper fell off linearly**, which spends most of a hair's length one texel wide —
+   and one texel wide, alpha-tested, is a hard black dot with nothing to blend it into its
+   neighbour. Squared, a hair is fat at the root and gone at the tip.
+
+The lean is also combed now — a fixed direction in texture space with per-hair jitter on top
+— because fur has a nap, and the two alternatives fail in the same picture: leaning every
+hair at random is a thistle, and leaning none is a hedgehog.
+
+**Few and long is a hedgehog; many and short is a cat.** The settled numbers are the
+consequence: the density went from 160 to 650 and the depth came down from 1.4 to 1.2.
+900 strands is finer still and was rejected — at that pitch a cell is smaller than a pixel
+at ordinary viewing distance, and a sub-pixel alpha test under a temporal upscaler shimmers.
+
+280 triangles become 4,760. Four things are worth knowing before turning it on anywhere
+else:
+
+- **It is off by default and must be.** GK3 paints fur, hair and cloth alike as flat
+  texture; shells over any of it would be a field of spikes. Only an edit grants a coat.
+- **The shells are drawn, not built.** Nothing is added to the acceleration structure, so a
+  shadow ray sees the animal and not its fur. At a coat 1.4 units deep — three and a half
+  centimetres — that is the right answer, and the alternative is twelve more structures.
+- **The offset uses the stored normal.** A character animates by having its vertex
+  positions rewritten with its normals left alone, so on a limb that has turned, the coat
+  leans by however much it turned. It is the same stale normal the model is already lit by,
+  and it is why `MaximumFur` is 4 units: the error is proportional to the depth.
+- **No parallax on a shell.** The march reads a height field belonging to the skin, and
+  running it a centimetre off that skin slides the strands sideways against the coat they
+  belong to.
+
+Measured on RC3's `Pet_Cat` camera, which is the only shot in the game where the animal is
+large enough to judge. The push constant grew by one `vec4` to 192 bytes — still past the
+128 Vulkan guarantees, as the two matrices already were.
+
 ## Why this is a separate pass, and why it comes second
 
 A normal map is derived detail. Deriving it from a 64×64 diffuse gives 64×64 worth of

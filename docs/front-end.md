@@ -144,6 +144,7 @@ destinations, and there are no others in the file.
 | Hurrying pace | `SceneUpdate.HurryFactor`: what a double-click multiplies, and how much faster the stride plays to match |
 | Camera travels between angles | `GameState.CameraGliding`, which scripts also read and set |
 | Let the story move the camera | `GameState.CinematicsEnabled` |
+| Free camera, which may leave the room | the scene's camera shell, and `Directing`'s hold on the controls — both asked every frame |
 | Write out what is said | whether the caption reaches the interface at all |
 | Play the intro on starting | the two films below |
 | Easter eggs | `GameState.EasterEggs`, which is the story's `EGG` flag: the built-in `EGG` action case and Sidney's sixth email |

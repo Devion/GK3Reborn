@@ -2333,7 +2333,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 // whole of the sway off in the vertex shader on its first line.
                 batch.Foliage
                     ? new Vector4(LeafSway, WindSpeed, previousSeconds, 0f)
-                    : Vector4.Zero));
+                    : Vector4.Zero,
+
+                // The skin under the coat. The shells over it are drawn below, and a
+                // surface with no coat is told so with a zero depth in y rather than by
+                // being left out, because the shader darkens the skin under fur and has to
+                // be able to tell "the innermost of twelve shells" from "not an animal".
+                FurOf(batch.TextureName, 0f)));
 
             // The animated buffer when something has reshaped this batch, and the one the
             // model was built with otherwise.
@@ -2346,7 +2352,62 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             vk.CmdBindVertexBuffers(command, 0, 2, streams, offsets);
             vk.CmdBindIndexBuffer(command, batch.Indices.Handle, 0, batch.IndexType);
             vk.CmdDrawIndexed(command, batch.IndexCount, 1, 0, 0, 0);
+
+            // And the coat over it, if it has one: the same triangles again, each shell
+            // pushed a little further out along the vertices' own normals and keeping only
+            // the texels a hair still reaches at that height.
+            //
+            // Everything else about the draw is already bound — the descriptor set, both
+            // vertex streams, the indices — so a shell is one push and one draw. That is
+            // what makes twelve of them affordable on a model and would not make them
+            // affordable on a room.
+            //
+            // Nothing is added to the acceleration structure by this. The shells are
+            // drawn, not built, so a shadow ray still sees the animal and not its fur,
+            // which is the right answer at this scale: a coat one unit deep casts no
+            // shadow anybody could see, and the alternative is twelve more structures.
+            SurfaceFinish coat = Materials.Of(batch.TextureName);
+
+            if (!coat.Furred)
+            {
+                continue;
+            }
+
+            for (int shell = 1; shell <= coat.Shells; shell++)
+            {
+                pipeline.PushConstants(command, new DrawConstants(
+                    batch.Transform,
+                    batch.Previous,
+                    new Vector4(
+                        _lightmap is not null && batch.UseLightmap ? 1f : 0f,
+                        LightmapMultiplier,
+                        (batch.SelfLit ? 1f : 0f) + (batch.IsModel ? 2f : 0f),
+
+                        // No parallax on a shell. The march reads a height field belonging
+                        // to the skin, and running it on a surface standing a centimetre
+                        // off that skin shifts the strands sideways against the coat they
+                        // are part of.
+                        0f),
+                    MaterialOf(batch.TextureName),
+                    Vector4.Zero,
+                    FurOf(batch.TextureName, shell / (float)coat.Shells)));
+
+                vk.CmdDrawIndexed(command, batch.IndexCount, 1, 0, 0, 0);
+            }
         }
+    }
+
+    /// <summary>What the shader needs to know about one shell of a surface's coat.</summary>
+    /// <param name="texture">The batch's texture, which is what a coat is filed under.</param>
+    /// <param name="height">Where this shell stands, from zero at the skin to one at the tips.</param>
+    /// <returns>The fur constant, all zero for a surface that has no coat.</returns>
+    private Vector4 FurOf(string texture, float height)
+    {
+        SurfaceFinish finish = Materials.Of(texture);
+
+        return finish.Furred
+            ? new Vector4(height, finish.ShellDepth, finish.ShellDensity, 0f)
+            : Vector4.Zero;
     }
 
     /// <inheritdoc/>

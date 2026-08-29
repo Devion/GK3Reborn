@@ -46,6 +46,15 @@ public sealed record MaterialPatch
     /// <summary>New double-sided flag, or null to keep.</summary>
     public bool? DoubleSided { get; init; }
 
+    /// <summary>How many fur shells to draw over this surface, or null to keep.</summary>
+    public int? Shells { get; init; }
+
+    /// <summary>How far the fur stands off the surface in world units, or null to keep.</summary>
+    public float? ShellDepth { get; init; }
+
+    /// <summary>How many strands across one turn of the texture, or null to keep.</summary>
+    public float? ShellDensity { get; init; }
+
     /// <summary>Note explaining the correction.</summary>
     public string? ReviewNote { get; init; }
 }
@@ -188,6 +197,48 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
     /// <summary>Whether the surface renders from both sides.</summary>
     public bool DoubleSided { get; init; }
 
+    /// <summary>How many fur shells stand over this surface. Zero, for all but a few.</summary>
+    /// <remarks>
+    /// <para>
+    /// Shell fur: the batch is drawn again for each shell, every vertex pushed a little
+    /// further out along its own normal, and each shell keeps only the texels a strand
+    /// still reaches at that height. Nothing is added to the mesh — the strands are a hash
+    /// over the texture coordinate, evaluated in the fragment shader — so a coat costs
+    /// this many extra draws of a model and no memory at all.
+    /// </para>
+    /// <para>
+    /// It is off everywhere by default and has to be. GK3's people are painted fur, hair
+    /// and cloth alike as flat texture, and shells over any of that would be a field of
+    /// spikes. The one thing in the game that is an animal is the cat, and it is 280
+    /// triangles: twelve shells make it 3,360, which is less than a doorframe.
+    /// </para>
+    /// <para>
+    /// <b>What this buys is the silhouette.</b> A roughness correction stops fur looking
+    /// wet and cannot make it look like fur, because at the size an animal is drawn nearly
+    /// all of what reads as a coat is its outline against the wall behind it. That is the
+    /// one thing a material cannot touch and shells can.
+    /// </para>
+    /// </remarks>
+    public int Shells { get; init; }
+
+    /// <summary>How far the outermost shell stands off the surface, in model units.</summary>
+    /// <remarks>
+    /// A length rather than a texture-space depth, for the same reason
+    /// <see cref="HeightDepth"/> is one: the same number in texture coordinates is a
+    /// different length on every surface it is used on. A GK3 unit is roughly two and a
+    /// half centimetres and the game places its models unscaled, so a cat's coat is about
+    /// one unit and that is also one unit in the room.
+    /// </remarks>
+    public float ShellDepth { get; init; } = 1f;
+
+    /// <summary>How many strands stand across one turn of the texture.</summary>
+    /// <remarks>
+    /// The strands are a hash over a grid in texture space, so this is the grid's pitch.
+    /// Too few and the coat reads as scales; too many and every strand is thinner than a
+    /// pixel and the whole coat dissolves into noise the temporal filter then smears.
+    /// </remarks>
+    public float ShellDensity { get; init; } = 160f;
+
     /// <summary>How this material's values were arrived at.</summary>
     public required AuthoringProvenance Provenance { get; init; }
 
@@ -225,6 +276,9 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
             Emissive = patch.Emissive ?? Emissive,
             AlphaCutoff = patch.AlphaCutoff ?? AlphaCutoff,
             DoubleSided = patch.DoubleSided ?? DoubleSided,
+            Shells = patch.Shells ?? Shells,
+            ShellDepth = patch.ShellDepth ?? ShellDepth,
+            ShellDensity = patch.ShellDensity ?? ShellDensity,
             ReviewNote = patch.ReviewNote ?? ReviewNote,
         };
     }

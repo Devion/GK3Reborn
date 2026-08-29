@@ -94,6 +94,14 @@ internal static class MeshShaders
             // movement to the temporal filter instead of reporting none, and a leaf that
             // claims to have been still is a leaf the filter smears.
             vec4 wind;
+
+            // Which shell of a coat this draw is: x how far up the fur it stands, zero at
+            // the skin and one at the tips, y how deep the whole coat is in world units,
+            // z how many strands cross one turn of the texture. All zero for everything
+            // that is not an animal, and `y` above zero is what says a surface has fur at
+            // all — so the shading below can darken the skin under a coat without also
+            // darkening every surface in the game.
+            vec4 fur;
         } draw;
         """;
 
@@ -150,9 +158,28 @@ internal static class MeshShaders
                 (cos(at * 0.83) + (0.30 * cos(at * 2.3))) * reach * 0.7);
         }
 
+        // A shell of fur stands off the skin along the vertex's own normal.
+        //
+        // Before the model transform, like the sway above, so the offset is in the model's
+        // own units. GK3 places its models with a rotation and a translation and no scale,
+        // so that is the same length in the world — and where a placement ever does scale,
+        // scaled fur on a scaled animal is the right answer anyway.
+        //
+        // The normal is the one the model was authored with. A character animates by having
+        // its vertex positions rewritten with its normals left where they were, so on a
+        // moving limb the coat leans by however much that limb has turned. It is the same
+        // stale normal everything else on the model is already lit by, and it is why the
+        // depth is capped: the error is proportional to it.
+        vec3 Shell(vec3 position, vec3 normal)
+        {
+            return draw.fur.x <= 0.0
+                ? position
+                : position + (normal * draw.fur.x * draw.fur.y);
+        }
+
         void main()
         {
-            vec4 world = draw.model * vec4(Sway(inPosition, frame.tuning.y), 1.0);
+            vec4 world = draw.model * vec4(Shell(Sway(inPosition, frame.tuning.y), inNormal), 1.0);
             vec4 clip = frame.viewProjection * world;
 
             gl_Position = clip;
@@ -164,7 +191,8 @@ internal static class MeshShaders
 
             outPreviousClip =
                 frame.previousViewProjection *
-                (draw.previousModel * vec4(Sway(inPreviousPosition, draw.wind.z), 1.0));
+                (draw.previousModel *
+                    vec4(Shell(Sway(inPreviousPosition, draw.wind.z), inNormal), 1.0));
         }
         """;
 
@@ -262,6 +290,90 @@ internal static class MeshShaders
         // with and the flat triangle the ray actually starts on, which on a face is most
         // of the error.
         const float kNormalBias = 6.0;
+
+        // One number in [0,1) per cell of the strand grid. Not a good hash by any standard
+        // — it is the sine-fract one everybody uses — but it is asked the same question
+        // about the same cell every frame, and being *stable* is the whole requirement.
+        // An unstable one would make the coat crawl.
+        float StrandNoise(vec2 cell)
+        {
+            return fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        // Which way the coat is combed, in texture space.
+        //
+        // Every hair leans the same way with a little of its own on top. Fur has a nap, and
+        // the two alternatives both fail in the same picture: leaning every hair at random
+        // is a thistle, and leaning none of them is a hedgehog — because at a silhouette,
+        // which is where nearly all of an animal this size is read, a hair standing along
+        // the normal points straight at the viewer's eye and draws as a spine.
+        const vec2 kComb = vec2(0.62, 0.28);
+
+        // Whether this shell still has fur here.
+        //
+        // The strands are a grid in texture space and never geometry: each cell holds one
+        // hair, and a shell keeps a hair only while it is still that tall. Short hairs drop
+        // away in the first shell or two and the few tall ones carry the fringe, so a
+        // silhouette that would otherwise be twelve concentric outlines of the same animal
+        // comes out ragged — which is the whole point of doing this rather than correcting
+        // a roughness.
+        //
+        // **Nine cells, not one.** A hair that leans far enough to leave its own cell has
+        // to be found from the cell it leans *into*, or it does not draw at all: the first
+        // version tested only the cell under the fragment, so every hair that leaned more
+        // than half a cell simply vanished over the top half of its length. What survived
+        // was the hairs that happened to lean least — the straight ones, standing along the
+        // normal — which is exactly the set that reads as spines.
+        bool InStrand(vec2 uv, float height)
+        {
+            vec2 cell = uv * draw.fur.z;
+            vec2 base = floor(cell);
+            vec2 within = fract(cell);
+
+            for (int y = -1; y <= 1; y++)
+            {
+                for (int x = -1; x <= 1; x++)
+                {
+                    vec2 id = base + vec2(x, y);
+
+                    // Most hairs are short. Squaring the hash puts two thirds of the coat
+                    // in the inner half of it, which is what a coat is; spread evenly, two
+                    // thirds of the hairs reach the outermost shells and every one of them
+                    // is a needle a pixel wide against a lit wall.
+                    float chance = StrandNoise(id);
+                    float tall = 0.18 + (0.82 * chance * chance);
+
+                    if (height > tall)
+                    {
+                        continue;
+                    }
+
+                    float rise = height / tall;
+
+                    // Where it is rooted, and where the lean has carried it by this height.
+                    // The lean grows with the square of the rise: a hair bending under its
+                    // own weight rather than a straight bristle tipped over.
+                    vec2 root = (vec2(StrandNoise(id + 17.0), StrandNoise(id + 91.0)) - 0.5) * 0.3;
+                    vec2 lean = kComb +
+                        ((vec2(StrandNoise(id + 41.0), StrandNoise(id + 73.0)) - 0.5) * 0.7);
+
+                    vec2 at = vec2(x, y) + 0.5 + root + (lean * rise * rise);
+
+                    // Fat at the root and gone at the tip. Squared, because a taper that
+                    // falls off linearly spends most of a hair's length one texel wide,
+                    // and one texel wide is the width at which a hair stops being hair and
+                    // becomes a hard black dot with nothing to blend it into its neighbour.
+                    float taper = 1.0 - rise;
+
+                    if (distance(within, at) <= (0.55 * taper * taper))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
 
         // Where a ray should start: off the surface, along its normal.
         vec3 RayStart(vec3 position, vec3 normal)
@@ -892,6 +1004,27 @@ internal static class MeshShaders
             if (sampled.a < 0.5 || distance(albedo, vec3(1.0, 0.0, 1.0)) < 0.1)
             {
                 discard;
+            }
+
+            // A shell of a coat keeps only what a hair still reaches. The innermost shell
+            // is the skin and is not tested: something has to be solid under the fur, or
+            // the animal is a cloud with a floor visible through it.
+            if (draw.fur.x > 0.0 && !InStrand(uv, draw.fur.x))
+            {
+                discard;
+            }
+
+            // Under a coat it is dark, and the deeper in the darker. This is the whole of
+            // the fur's self-shadowing and it is worth more than it costs: without it the
+            // shells are twelve equally lit copies of the same surface and the coat reads
+            // as a smear rather than as something with hairs in it.
+            //
+            // It applies to the skin shell too, which is the point — the skin is the part
+            // most buried. `fur.y` is what says there is a coat at all, so nothing without
+            // one is touched.
+            if (draw.fur.y > 0.0)
+            {
+                albedo *= mix(0.45, 1.0, draw.fur.x);
             }
 
             // Both extra targets, written before anything can return. A fragment that

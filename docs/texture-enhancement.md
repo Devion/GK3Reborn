@@ -238,6 +238,71 @@ into `enhanced/skyboxes/comfy/` (see `PbrLab/README.md`). `enhanced/skyboxes/ori
 is the 512 set and `enhanced/skyboxes/2048/` a plain Lanczos enlargement, with the 25
 `*_MASK` faces enlarged nearest-neighbour; masks are keyed colours and must stay so.
 
+## Costumes are a separate lane too, for the same reason
+
+`TexturePlanStage` collects referrers from `.MOD` and `.BSP` only. It never parses `.ANM`,
+so every texture a costume or an effect swaps in through an `[MTEXTURES]` line carries
+`referrers: []`, lands in tier 3, and the base-colour lane never runs on it.
+
+Reported 2026-08-29 as "Gabriel's shirt has a back but no front", and that is exactly what
+it was. `GABCLOTHES110A.ANM` paints the torso from two textures —
+
+    0,gab,4,0,Gab_WHTBK     back
+    0,gab,4,1,Gab_WHT       front
+
+— and `GAB_WHTBK` is *also* named by `GABCLOTHESDAY02.MOD`, so it scored tier 2 and came
+back at 2048 while the front stayed at 128. Day 1 Gabriel wore one enhanced half.
+
+208 animations carry `[MTEXTURES]`; they name 235 textures between them. Counting those as
+referrers, **250 referenced textures were missing from the enhanced set**: every character's
+wardrobe (Madeline, Vittorio, Wilkes, Mosely, Estelle, the taxi driver), Gabriel's bloodied
+and slashed shirts and dead faces from TE3/TE4, the TE5 veil glints, the PLO water frames.
+
+`PbrLab/make_restore.py` is that pass. It takes the union of "named by an `[MTEXTURES]`
+line" and "has referrers in the plan", subtracts what is already enhanced, and splits the
+remainder in two:
+
+- **Verbatim copy** for a source that is a single colour, a keyed mask, or under 32px on
+  its long edge. A 2x2 flat renders identically at any size, and a generator asked to
+  enlarge one invents a surface that was never there.
+- **SeedVR2, laddered** for the rest, at the corpus's 16x/2048 ceiling.
+
+Three things worth knowing about it:
+
+1. **Flatness is judged over the opaque texels only.** The plan's `isFlatColor` reads the
+   whole image, so a blood decal that is 89% transparent over one background colour is
+   recorded flat. What is drawn is the other 11%, and that is what decides the lane.
+   `GABEBLOOD` really is flat behind its mask and is copied; `CSEFLOORWINE2` is not.
+2. **Alpha goes around the model, not through it.** `GK3SaveTexture` writes RGB, and a
+   generator reads a keyed edge as a cliff and embosses it. The colour is bled outward
+   first, the alpha is enlarged separately, and every alpha in this set is binary, so it
+   is enlarged nearest-neighbour and re-thresholded and the silhouette is unchanged.
+3. **There is no `--force`.** The no-overwrite rule at the top of this document is checked
+   twice: when the work list is built and again immediately before each write.
+
+### The check nothing had: a periodic pattern
+
+The user's requirement was "no weird grids", and there is a reason for it. `GAB_WHTBK`'s
+enhanced version — Qwen-Image-Edit, from the earlier lane — carries a **halftone dot grid**
+and drifted from warm cream rgb(222,209,197) to cool grey-lilac rgb(196,193,199). Saturation
+went *down* 0.06, so the ±0.20 drift refusal never fired, and structure was fine.
+
+`make_restore.check` adds the missing test. Take the luma of a central 512 patch, window it,
+FFT it, and measure the strongest peak in the mid band as a multiple of that band's median —
+excluding the axes, where a real straight edge puts legitimate energy. Measured across the
+corpus:
+
+| | peak/median | 99.9th/median |
+|---|---|---|
+| `GAB_WHTBK`, `GAB_WHT` (Qwen halftone) | 368 | 80 |
+| `GAB_FACE` (Qwen, milder) | 98 | 65 |
+| sound Qwen output (`GAB_TANBK`, `GAB_GREEN`, `GAB_JEAN`) | 35–46 | 7–13 |
+| **SeedVR2 output from this lane** | **11–35** | **7–22** |
+
+The bar is 150 and 40, and it must also be four times the original's own score so a
+genuinely woven surface is not refused for being woven. SeedVR2 is a restoration model with
+no prompt: it has nothing to invent a grid *with*, and the measurements say it does not.
+
 ## Suggested order
 
 1. A pilot of twenty tier 0 textures spanning stone, wood, fabric and metal, to

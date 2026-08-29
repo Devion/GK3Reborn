@@ -188,10 +188,35 @@ so a later full run does not generate maps for it either.
 | models | `.glb`, stored | — | Already compact. |
 | scene-geometry | `.glb`, stored | — | Improved room objects. Same, and a kind of its own. |
 | video | `.mp4`, stored | — | Already a compressed video stream. |
-| manifests | `.json`, deflated | — | Text, and text deflates. |
+| manifests | `.json`, deflated | — | Text, and text deflates. The material library is one of these. |
 | raw: `*.splat.png` | `BC7_UNORM` | source | Four blend weights. Data, so **not** colour. |
 | raw: `*.tint.png` | `BC7_UNORM_SRGB` | source | The vista's colour. |
 | raw: everything else | stored or deflated by payload | — | Heightfields and forests. |
+
+### The material library ships too, and until 2026-08-29 it did not
+
+`manifests/material-library.json` and the corrections beside it,
+`material-library.materials.edits.json`, are packed into `RebornMaterials` as manifest
+entries. They belong there rather than in `Reborn`: the three maps in that volume say what
+a surface is *like*, and this says what it *is*.
+
+**The gap was invisible for exactly the reason it was worth fixing.** `SurfaceFinishes.Load`
+reads the library as a loose file from the workspace, and in a development checkout the
+workspace is always there — every render, every headless run, every screenshot. A player
+has only the two volumes, and a run against those alone got `finishes.Count == 0`: every
+surface matte, no specular lobe anywhere in the game, no floor polished, no fitting
+metal, and **no message to say so**, because a missing library is not an error. It is
+indistinguishable from a checkout that never ran the material pass.
+
+The loose file still wins where it exists, like every other enhanced set here and for the
+same reason: a roughness corrected during a session has to reach the screen without the
+packs being rebuilt first.
+
+**The edits must travel with the library and never without it.** That layer is where a
+person's judgement lives — the roughness of every face, every pair of jeans, the village's
+roofline and the cat's coat are corrections, not classifications — so a library shipped
+alone is the classifier's first guess, which is the thing they exist to overrule. One
+glob covers both: `material-library*.json`.
 
 ### Why improved room geometry is a kind and not a model
 
@@ -308,6 +333,15 @@ An entry answers to its **kind and its name without an extension or a directory*
 `R25WALLS`, not `textures/R25WALLS.dds`. Which is how every other layer in the engine
 addresses content — a surface refers to `R25WALLS`, the archive holds `R25WALLS.BMP`, the
 pack holds `R25WALLS.DDS`, and all three are the same thing.
+
+**The extension is stripped on the way out as well as on the way in**, and for a name with
+more than one dot in it that is a trap. `material-library.materials.edits.json` is stored
+under `material-library.materials.edits`; asking for that name back strips `.edits` and
+finds nothing. Ask with the name as it was written — `Read(Manifest,
+"material-library.materials.edits.json")` — and the two agree. Nothing reports the
+mismatch, because a key that is not in the pack is how "there is no such entry" looks: the
+corrections above were silently absent from a packed build for exactly as long as it took
+to write a test that read one back.
 
 The kind is part of the key rather than a property of the entry, because every material
 channel is named for the *colour* texture it belongs to. `R25WALLS` is a colour texture, a

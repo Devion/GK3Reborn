@@ -92,8 +92,14 @@ public readonly record struct FrameUniforms(
 /// model's own height, y how fast, z the clock as it stood a frame ago. All zero for
 /// everything that is not foliage, which is almost everything in the game.
 /// </param>
+/// <param name="Fur">
+/// Which shell of a coat this draw is: x how far up the fur it stands, from zero at the
+/// skin to one at the tips, y how deep the whole coat is in world units, z how many
+/// strands cross one turn of the texture. All zero for everything that is not an animal,
+/// which is everything but the cat.
+/// </param>
 /// <remarks>
-/// A hundred and seventy-six bytes, which is past the hundred and twenty-eight Vulkan
+/// A hundred and ninety-two bytes, which is past the hundred and twenty-eight Vulkan
 /// guarantees. Every desktop driver this renderer has run on offers 256, and the two
 /// matrices alone were already past the floor — but it is the number to look at first if
 /// a device ever refuses the pipeline layout, and the fix is a uniform buffer rather than
@@ -105,7 +111,8 @@ public readonly record struct DrawConstants(
     Matrix4x4 PreviousModel,
     Vector4 Shading,
     Vector4 Material,
-    Vector4 Wind);
+    Vector4 Wind,
+    Vector4 Fur);
 
 /// <summary>
 /// A textured, lit mesh pipeline, optionally with ray tracing compiled in.

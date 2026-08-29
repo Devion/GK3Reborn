@@ -260,6 +260,54 @@ public sealed class FrontEndTests
     }
 
     [Fact]
+    public void The_free_camera_is_a_row_on_the_playing_page_and_is_off_to_begin_with()
+    {
+        // Asked for by somebody photographing the game. It is a preference and not an
+        // assist: it changes nothing the story asks of the player, so it belongs beside the
+        // other two rows about who is holding the camera rather than on Made Easier.
+        FrontEnd front = Front();
+
+        front.Choose(new MenuAction("options"));
+        front.Choose(new MenuAction("gameplay"));
+
+        Assert.False(front.Settings.FreeCamera);
+        Assert.Equal("Off", Row(front, "freecamera").Value);
+
+        front.Choose(new MenuAction("freecamera"));
+
+        Assert.True(front.Settings.FreeCamera);
+        Assert.Equal("On", Row(front, "freecamera").Value);
+
+        front.Choose(new MenuAction("freecamera"));
+
+        Assert.False(front.Settings.FreeCamera);
+
+        // And it is not on Made Easier, which is the page that takes a puzzle away.
+        front.Choose(new MenuAction("back"));
+        front.Choose(new MenuAction("assists"));
+
+        Assert.DoesNotContain(front.Items, i => i.Id == "freecamera");
+    }
+
+    [Fact]
+    public void The_free_camera_survives_being_written_and_read_back()
+    {
+        // It is a preference about how somebody uses the game, so it outlives the session
+        // the way every other row does.
+        string file = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+
+        try
+        {
+            Assert.True(new Settings { FreeCamera = true }.Save(file));
+            Assert.True(Settings.Load(file).FreeCamera);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
     public void The_easter_eggs_are_off_until_the_player_asks_for_them()
     {
         // The game as it shipped is the game as it shipped: somebody meeting GK3 for the

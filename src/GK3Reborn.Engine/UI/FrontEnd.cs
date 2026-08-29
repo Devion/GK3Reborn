@@ -876,6 +876,12 @@ public sealed class FrontEnd
 
         MenuItem.Toggle("glide", "Camera travels between angles", Settings.CameraGlide),
         MenuItem.Toggle("cinematics", "Let the story move the camera", Settings.Cinematics),
+
+        // Named for what it does rather than for what it is for. "Free camera" is a word
+        // somebody already looking for it will find, and "leave the room" is the half that
+        // tells everybody else what turning it on will look like.
+        MenuItem.Toggle("freecamera", "Free camera, which may leave the room", Settings.FreeCamera),
+
         MenuItem.Toggle("captions", "Write out what is said", Settings.Captions),
         MenuItem.Toggle("intro", "Play the intro on starting", Settings.PlayIntro),
         MenuItem.Toggle("eggs", "Easter eggs", Settings.EasterEggs),
@@ -991,6 +997,7 @@ public sealed class FrontEnd
             "rooms" => Settings with { ImprovedSceneGeometry = !Settings.ImprovedSceneGeometry },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
+            "freecamera" => Settings with { FreeCamera = !Settings.FreeCamera },
             "captions" => Settings with { Captions = !Settings.Captions },
             "intro" => Settings with { PlayIntro = !Settings.PlayIntro },
             "eggs" => Settings with { EasterEggs = !Settings.EasterEggs },
