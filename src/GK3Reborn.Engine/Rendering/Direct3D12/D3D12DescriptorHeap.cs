@@ -88,7 +88,7 @@ public sealed unsafe class D3D12DescriptorHeap : IDisposable
     /// drivers and a validation error on others, so the request is corrected here.
     /// </remarks>
     public static D3D12DescriptorHeap Create(
-        ref ComPtr<ID3D12Device5> device,
+        ID3D12Device5* device,
         DescriptorHeapType type,
         uint capacity,
         bool shaderVisible = false)
@@ -110,13 +110,13 @@ public sealed unsafe class D3D12DescriptorHeap : IDisposable
         Guid heapId = ID3D12DescriptorHeap.Guid;
 
         D3D12Exception.ThrowIfFailed(
-            device.CreateDescriptorHeap(&description, &heapId, (void**)heap.GetAddressOf()),
+            device->CreateDescriptorHeap(&description, &heapId, (void**)heap.GetAddressOf()),
             $"create a {type} descriptor heap of {capacity}");
 
         // The device decides how big a descriptor is and the number is not in any header:
         // it differs between vendors and between heap types on one vendor. Every handle
         // below is the base plus an index times this.
-        uint stride = device.GetDescriptorHandleIncrementSize(type);
+        uint stride = device->GetDescriptorHandleIncrementSize(type);
 
         return new D3D12DescriptorHeap(heap, type, capacity, stride, visible);
     }

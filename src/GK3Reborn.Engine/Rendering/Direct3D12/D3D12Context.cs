@@ -44,7 +44,7 @@ public sealed unsafe class D3D12Context : IDisposable
     private ComPtr<ID3D12GraphicsCommandList4> _oneShotList;
     private ComPtr<ID3D12Fence1> _oneShotFence;
     private ulong _oneShotValue;
-    private ManualResetEvent? _oneShotEvent;
+    private AutoResetEvent? _oneShotEvent;
     private bool _oneShotOpen;
 
     private bool _disposed;
@@ -291,6 +291,79 @@ public sealed unsafe class D3D12Context : IDisposable
         _oneShotEvent.WaitOne();
     }
 
+    /// <summary>Everything the debug layer has said since it was last asked.</summary>
+    /// <returns>The messages, oldest first, or nothing when validation is off.</returns>
+    /// <remarks>
+    /// <para>
+    /// Direct3D's diagnostics do not arrive anywhere by themselves. The debug layer writes
+    /// them into a queue on the device and something has to come and read it; a program
+    /// that never does gets an <c>HRESULT</c> and no more, which for a whole class of
+    /// mistake — a resource in the wrong state, a root signature that does not match its
+    /// shader — is a number with no way back to the line that caused it.
+    /// </para>
+    /// <para>
+    /// Reading the queue clears it, so this is called after anything that failed and at the
+    /// end of a frame that did not, and the messages are attached to whatever is reported.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> DrainMessages()
+    {
+        if (_disposed || !Validating || _device.Handle is null)
+        {
+            return [];
+        }
+
+        ComPtr<ID3D12InfoQueue> queue = default;
+        Guid queueId = ID3D12InfoQueue.Guid;
+
+        if (_device.QueryInterface(&queueId, (void**)queue.GetAddressOf()) < 0)
+        {
+            return [];
+        }
+
+        try
+        {
+            ulong count = queue.GetNumStoredMessages();
+            if (count == 0)
+            {
+                return [];
+            }
+
+            List<string> messages = [];
+
+            for (ulong i = 0; i < count; i++)
+            {
+                nuint length = 0;
+                if (queue.GetMessageA(i, (Message*)null, &length) < 0 || length == 0)
+                {
+                    continue;
+                }
+
+                byte[] storage = new byte[length];
+                fixed (byte* bytes = storage)
+                {
+                    var message = (Message*)bytes;
+                    if (queue.GetMessageA(i, message, &length) < 0)
+                    {
+                        continue;
+                    }
+
+                    string text = System.Runtime.InteropServices.Marshal
+                        .PtrToStringAnsi((nint)message->PDescription, (int)Math.Max(0, (long)message->DescriptionByteLength - 1));
+
+                    messages.Add($"[{message->Severity}] {text}");
+                }
+            }
+
+            queue.ClearStoredMessages();
+            return messages;
+        }
+        finally
+        {
+            queue.Dispose();
+        }
+    }
+
     /// <summary>Moves a resource from one state to another.</summary>
     /// <param name="list">The list to record into.</param>
     /// <param name="resource">What to move.</param>
@@ -480,7 +553,13 @@ public sealed unsafe class D3D12Context : IDisposable
         // rather than anything the runtime can synthesise. Taking it from a managed event
         // keeps the handle owned and closed by something that knows how, which three
         // hand-written imports of kernel32 would not.
-        _oneShotEvent = new ManualResetEvent(false);
+        //
+        // Auto-reset, and that is not a detail. A manual-reset event stays signalled once
+        // the first wait has set it, so every wait after the first returns at once - which
+        // does not look like a synchronisation bug, it looks like the command allocator
+        // being reset while the device is still reading it, three messages deep in the
+        // debug layer and a removed device after that. It is how this was found.
+        _oneShotEvent = new AutoResetEvent(false);
     }
 
     private void SelectAdapter(AdapterInfo chosen)

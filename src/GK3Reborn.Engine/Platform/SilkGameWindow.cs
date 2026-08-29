@@ -26,6 +26,40 @@ public interface IVulkanSurfaceSource
 }
 
 /// <summary>
+/// Supplies the native window handle a Direct3D swapchain is made against.
+/// </summary>
+/// <remarks>
+/// The Direct3D counterpart of <see cref="IVulkanSurfaceSource"/>, and declared the same
+/// way and for the same reason: in terms of native handles, so that the platform layer
+/// does not depend on a graphics backend. The asymmetry between the two is not an
+/// oversight. Vulkan wants a surface *object*, which only the loader can make, so the
+/// window has to make one; Direct3D wants nothing but the window handle, and DXGI makes
+/// the swapchain itself.
+/// </remarks>
+public interface IWin32WindowSource
+{
+    /// <summary>The window's <c>HWND</c>, or zero where there is no such thing.</summary>
+    nint WindowHandle { get; }
+}
+
+/// <summary>Which graphics API a window is opened for.</summary>
+/// <remarks>
+/// Not a rendering type, deliberately: a window should not have to know what a backend is.
+/// The only thing it changes is what the window asks the platform for when it is created —
+/// a Vulkan window and a Direct3D window are both windows with no client API, but Silk
+/// refuses to make the Vulkan one on a machine with no loader, and a Direct3D machine
+/// should not need one.
+/// </remarks>
+public enum WindowGraphics
+{
+    /// <summary>No client API. What a Direct3D window wants.</summary>
+    None,
+
+    /// <summary>Vulkan, so the window can hand out a surface.</summary>
+    Vulkan,
+}
+
+/// <summary>
 /// A game window backed by Silk.NET.
 /// </summary>
 /// <remarks>
@@ -39,7 +73,7 @@ public interface IVulkanSurfaceSource
 /// wasteful and a source of driver confusion.
 /// </para>
 /// </remarks>
-public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInput
+public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32WindowSource, IGameInput
 {
     private static readonly Dictionary<CameraAction, Key[]> Bindings = new()
     {
@@ -191,14 +225,27 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
     /// <param name="title">Window title.</param>
     /// <param name="width">Initial width in logical pixels.</param>
     /// <param name="height">Initial height in logical pixels.</param>
+    /// <param name="graphics">Which API the window will present with.</param>
     /// <returns>The window.</returns>
-    public static SilkGameWindow Open(string title, int width = 1280, int height = 720)
+    /// <remarks>
+    /// Both kinds of window are windows with no client API — the platform is never asked
+    /// to set up a context, because the backend owns presentation entirely and an OpenGL
+    /// context alongside it would be both wasteful and a source of driver confusion. The
+    /// difference is only that a Vulkan window is declared as one, so that Silk will give
+    /// it a surface, and that declaration fails on a machine with no loader. A Direct3D
+    /// machine should not need one.
+    /// </remarks>
+    public static SilkGameWindow Open(
+        string title,
+        int width = 1280,
+        int height = 720,
+        WindowGraphics graphics = WindowGraphics.Vulkan)
     {
         WindowOptions options = WindowOptions.DefaultVulkan with
         {
             Title = title,
             Size = new Vector2D<int>(width, height),
-            API = GraphicsAPI.DefaultVulkan,
+            API = graphics == WindowGraphics.Vulkan ? GraphicsAPI.DefaultVulkan : GraphicsAPI.None,
         };
 
         IWindow window = Window.Create(options);
@@ -222,6 +269,15 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IGameInp
             .Create<nint>(new Silk.NET.Core.Native.VkHandle(vulkanInstance), null)
             .Handle;
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Zero anywhere but Windows, and zero on a Windows window Silk chose to back with
+    /// something other than Win32. A swapchain cannot be made against zero, so the caller
+    /// checks rather than assuming — the alternative is DXGI refusing with an invalid
+    /// argument and nothing to say which argument.
+    /// </remarks>
+    public nint WindowHandle => _window.Native?.Win32?.Hwnd ?? 0;
 
     /// <inheritdoc/>
     public Vector2 PointerDelta => _pointerDelta;
