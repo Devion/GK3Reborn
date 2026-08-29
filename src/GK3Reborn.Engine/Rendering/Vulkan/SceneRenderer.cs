@@ -152,11 +152,15 @@ public sealed unsafe class SceneRenderer : IDisposable
     /// <summary>Creates geometry this renderer can draw.</summary>
     /// <returns>Empty scene geometry.</returns>
     public SceneGeometry CreateGeometry() =>
-        SceneGeometry.Create(_context, _pipeline, Textures);
+        SceneGeometry.Create(GeometryDevice, Textures);
+
+    /// <summary>The seam a scene is put on this device through.</summary>
+    public VulkanGeometryDevice GeometryDevice =>
+        field ??= new VulkanGeometryDevice(_context, _pipeline);
 
     /// <summary>The textures the device holds, shared by every scene this renderer draws.</summary>
     public TextureCache Textures =>
-        field ??= new TextureCache(_context, SceneGeometry.CheckerBoard());
+        field ??= new TextureCache(GeometryDevice, SceneGeometry.CheckerBoard());
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
@@ -222,7 +226,7 @@ public sealed unsafe class SceneRenderer : IDisposable
 
         if (tracing)
         {
-            frames.SetScene(geometry.RayTracing!);
+            frames.SetScene(VulkanGeometry.Scene(geometry.RayTracing!));
             frames.Settings = Tracing;
         }
 
@@ -312,11 +316,11 @@ public sealed unsafe class SceneRenderer : IDisposable
                 direct.View,
             ];
 
-            SceneDraw.Begin(
+            VulkanSceneDraw.Begin(
                 _context.Api, command, colors, depth.View, width, height, camera.Background,
                 keepDepth: tracing);
 
-            SceneDraw.Record(
+            VulkanSceneDraw.Record(
                 _context.Api, command, pipeline, frames, geometry, 0, width, height, camera);
 
             _context.Api.CmdEndRendering(command);
@@ -466,7 +470,7 @@ public sealed unsafe class SceneRenderer : IDisposable
             depth.View,
             normal.View,
             motion.View,
-            geometry.RayTracing!.Handle,
+            VulkanGeometry.Scene(geometry.RayTracing!).Handle,
             frames.Rig.Handle,
             frames.Rig.Size);
 
@@ -649,13 +653,13 @@ public sealed unsafe class SceneRenderer : IDisposable
 }
 
 /// <summary>
-/// The recording steps a scene draw needs, independent of where it is drawn.
+/// The Vulkan recording steps a scene draw needs, independent of where it is drawn.
 /// </summary>
 /// <remarks>
 /// Shared between the offscreen renderer and the windowed one so that what a regression
 /// image shows and what a player sees cannot drift apart.
 /// </remarks>
-public static unsafe class SceneDraw
+public static unsafe class VulkanSceneDraw
 {
     /// <summary>Begins rendering into the frame's colour targets and its depth.</summary>
     /// <param name="vk">Vulkan API.</param>
@@ -775,6 +779,6 @@ public static unsafe class SceneDraw
         vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, pipeline.Handle);
 
         frames.Bind(command, pipeline, frame, camera, (float)width / height, width, height);
-        geometry.Record(command, pipeline, frames.PreviousSeconds);
+        MeshPipeline.Record(vk, command, pipeline, geometry.Draws(frames.PreviousSeconds));
     }
 }

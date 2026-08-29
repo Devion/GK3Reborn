@@ -49,8 +49,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     private const float ResidualRelief = 0.25f;
 
-    private readonly VulkanContext _context;
-    private readonly MeshPipeline _pipeline;
+    private readonly IGeometryDevice _device;
     private readonly List<Batch> _batches = [];
 
     /// <summary>
@@ -92,20 +91,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     private const int FramesInFlight = 2;
     private readonly TextureCache _textures;
-    private readonly VulkanTexture _whiteTexture;
 
 
-    private readonly List<RayTracingMesh> _traceable = [];
+    private readonly List<TraceableMesh> _traceable = [];
 
     /// <summary>The textures of this room's floor, whose height maps are kept readable.</summary>
     private readonly HashSet<string> _relief = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _rounded = [];
 
-    private RayTracingScene? _rayTracing;
-    private VulkanTexture? _lightmap;
+    private IGeometryAccelerationStructure? _rayTracing;
+    private bool _finished;
+    private IGeometryTexture? _lightmap;
     private IReadOnlyList<Vector4>? _lightmapRegions;
     private LightmapAtlas? _lightmapAtlas;
-    private DescriptorPool _descriptorPool;
 
     /// <summary>
     /// Pools opened after the room was built, for material sets nothing knew it needed.
@@ -128,23 +126,18 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// Kept because a face comes back to the same mouth shape a dozen times a sentence, and
     /// a set that is only a handful of image views is far cheaper to keep than to build.
     /// </remarks>
-    private readonly Dictionary<(string Painted, string Of, bool Lit), DescriptorSet> _repainted =
+    private readonly Dictionary<(string Painted, string Of, bool Lit), IGeometryMaterial> _repainted =
         new();
     private Vector3 _minimum = new(float.MaxValue);
     private Vector3 _maximum = new(float.MinValue);
 
-    private SceneGeometry(VulkanContext context, MeshPipeline pipeline, TextureCache textures)
+    private SceneGeometry(IGeometryDevice device, TextureCache textures)
     {
-        _context = context;
-        _pipeline = pipeline;
+        _device = device;
 
         // The renderer's, not this room's. A room that threw its textures away on the way
         // out spent most of the next room's load getting them back.
         _textures = textures;
-
-        // Bound wherever a batch has no lightmap. Vulkan requires every declared binding to
-        // point at something valid even when the shader ignores what it reads.
-        _whiteTexture = VulkanTexture.Create(context, Solid(255));
     }
 
     /// <summary>Total triangles loaded.</summary>
@@ -169,7 +162,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public int TexturesReused { get; private set; }
 
     /// <summary>The scene as rays see it, once <see cref="Finish"/> has built it.</summary>
-    public RayTracingScene? RayTracing => _rayTracing;
+    public IGeometryAccelerationStructure? RayTracing => _rayTracing;
 
     /// <summary>Whether and how finely a floor's relief becomes geometry.</summary>
     /// <remarks>
@@ -249,18 +242,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public Vector3 Maximum => _batches.Count > 0 ? _maximum : Vector3.One;
 
     /// <summary>Creates an empty scene.</summary>
-    /// <param name="context">Device context.</param>
-    /// <param name="pipeline">Pipeline its descriptor sets must match.</param>
+    /// <param name="device">Where the scene is put.</param>
     /// <param name="textures">The device's textures, which outlast any one room.</param>
     /// <returns>The scene.</returns>
-    public static SceneGeometry Create(
-        VulkanContext context, MeshPipeline pipeline, TextureCache textures)
+    public static SceneGeometry Create(IGeometryDevice device, TextureCache textures)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(pipeline);
+        ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(textures);
 
-        return new SceneGeometry(context, pipeline, textures);
+        return new SceneGeometry(device, textures);
     }
 
     /// <summary>Uploads a texture under a name models can reference.</summary>
@@ -549,7 +539,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         // As for the room: a character is a dozen meshes and a scene places dozens of
         // models, so the submissions add up even though each model is small.
-        using var uploads = new BufferUploads(_context);
+        using IGeometryUploads uploads = _device.BeginUploads();
 
         // Asked once for the whole model, so that a character's limbs agree with each
         // other; each group may still overrule it. See ModNormals.
@@ -637,9 +627,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
                 AddBatch(
                     vertices,
-                    VulkanBuffer.CreateDeviceLocal<ushort>(
-                        _context, submesh.Indices, BufferUsageFlags.IndexBufferBit, uploads),
-                    IndexType.Uint16,
+                    _device.CreateBuffer<ushort>(
+                        submesh.Indices, GeometryBufferKind.ShortIndices, uploads),
+                    shortIndices: true,
                     (uint)submesh.Indices.Length,
                     meshToWorld,
                     painted,
@@ -696,16 +686,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// where everything around it is lit. Cached, because a talking face comes back to the
     /// same eight mouth shapes over and over and a flashing floor to the same three.
     /// </remarks>
-    private DescriptorSet MaterialFor(string picture, string surface, bool lit = false)
+    private IGeometryMaterial MaterialFor(string picture, string surface, bool lit = false)
     {
-        if (_repainted.TryGetValue((picture, surface, lit), out DescriptorSet known))
+        if (_repainted.TryGetValue((picture, surface, lit), out IGeometryMaterial? known))
         {
             return known;
         }
 
-        DescriptorSet made = CreateMaterialSet(
+        IGeometryMaterial made = _device.CreateMaterial(
             TextureFor(picture),
-            lit ? _lightmap ?? _whiteTexture : _whiteTexture,
+            lit ? _lightmap ?? _textures.White : _textures.White,
             _textures.GetNormal(surface),
             _textures.GetOrm(surface),
             _textures.GetHeight(surface));
@@ -842,7 +832,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 continue;
             }
 
-            VulkanBuffer[] buffers = batch.Animated ?? Animate(index, ref batch);
+            IGeometryBuffer[] buffers = batch.Animated ?? Animate(index, ref batch);
             MeshVertex[] shape = batch.Shape;
 
             for (int i = 0; i < shape.Length; i++)
@@ -897,16 +887,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>Gives a batch the buffers it needs to be animated.</summary>
-    private VulkanBuffer[] Animate(int index, ref Batch batch)
+    private IGeometryBuffer[] Animate(int index, ref Batch batch)
     {
-        VulkanBuffer[] buffers = new VulkanBuffer[FramesInFlight + 1];
+        IGeometryBuffer[] buffers = new IGeometryBuffer[FramesInFlight + 1];
 
         for (int i = 0; i < buffers.Length; i++)
         {
-            buffers[i] = VulkanBuffer.CreateHostVisible(
-                _context,
-                (ulong)(batch.Shape.Length * Marshal.SizeOf<MeshVertex>()),
-                BufferUsageFlags.VertexBufferBit);
+            buffers[i] = _device.CreateDynamicVertices(
+                (ulong)(batch.Shape.Length * Marshal.SizeOf<MeshVertex>()));
         }
 
         batch = batch with { Animated = buffers };
@@ -1034,8 +1022,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         AddBatch(
             vertices,
-            VulkanBuffer.CreateDeviceLocal<uint>(_context, indices, BufferUsageFlags.IndexBufferBit),
-            IndexType.Uint32,
+            _device.CreateBuffer<uint>(indices, GeometryBufferKind.Indices),
+            shortIndices: false,
             (uint)indices.Length,
             Matrix4x4.Identity,
             name,
@@ -1385,8 +1373,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             // No mips and clamped addressing: both would sample across tile edges.
             _lightmap?.Dispose();
-            _lightmap = VulkanTexture.Create(
-                _context, atlas.Image, mipmaps: false, SamplerAddressMode.ClampToEdge);
+            _lightmap = _device.CreateTexture(atlas.Image, GeometryTextureKind.Atlas);
 
             _lightmapRegions = atlas.Regions;
 
@@ -1696,15 +1683,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         ReliefExpected = relief?.Triangles ?? 0;
         ReliefSetApart = relief?.SetApart ?? 0;
 
-        if (_context.SupportsRayTracing && occluderIndices.Count > 0)
+        if (_device.SupportsRayTracing && occluderIndices.Count > 0)
         {
-            _traceable.Add(new RayTracingMesh([.. occluders], [.. occluderIndices]));
+            _traceable.Add(new TraceableMesh([.. occluders], [.. occluderIndices]));
         }
 
         // One submission for the room's several hundred buffers rather than one each, and
         // one queue stall rather than several hundred. See BufferUploads: nothing reads
         // any of these until the batch is submitted, which is what makes it sound.
-        using var uploads = new BufferUploads(_context);
+        using IGeometryUploads uploads = _device.BeginUploads();
 
         foreach (((string texture, bool selfLit, bool displaced, string owner, bool hidden),
                   (List<MeshVertex> vertices, List<uint> indices)) in groups)
@@ -1726,12 +1713,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 // the larger scenes covers more geometry than a 16-bit index can address.
                 AddBatch(
                     CollectionsMarshal.AsSpan(vertices),
-                    VulkanBuffer.CreateDeviceLocal(
-                        _context,
-                        CollectionsMarshal.AsSpan(indices),
-                        BufferUsageFlags.IndexBufferBit,
-                        uploads),
-                    IndexType.Uint32,
+                    _device.CreateBuffer<uint>(
+                        CollectionsMarshal.AsSpan(indices), GeometryBufferKind.Indices, uploads),
+                    shortIndices: false,
                     (uint)indices.Count,
                     Matrix4x4.Identity,
                     texture,
@@ -2132,7 +2116,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // Nor anything that is its own light source. A room's own surfaces say so
         // through the flags the BSP carries; a placed model — which is what most of the
         // lamps in this game are — says so only here.
-        if (!_context.SupportsRayTracing ||
+        if (!_device.SupportsRayTracing ||
             _textures.Keyed.Contains(texture) ||
             !Materials.Of(texture).Occludes)
         {
@@ -2142,7 +2126,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // Keyed by the batch this is about to become, so that reshaping the batch can
         // reshape the geometry rays see. Recorded before the batch is added, which is
         // what makes the count the index it will have.
-        _traceable.Add(new RayTracingMesh(positions, indices.ToArray())
+        _traceable.Add(new TraceableMesh(positions, indices.ToArray())
         {
             Part = part,
             Key = _batches.Count,
@@ -2183,12 +2167,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     public void Finish()
     {
-        if (_descriptorPool.Handle != 0 || _batches.Count == 0)
+        if (_finished || _batches.Count == 0)
         {
             return;
         }
 
-        _rayTracing ??= RayTracingScene.Build(_context, _traceable);
+        _finished = true;
+        _rayTracing ??= _device.BuildAccelerationStructure(_traceable);
 
         // Where each model stands. A model's triangles go into the structure in the
         // model's own space and are placed by an instance transform — which is what makes
@@ -2220,25 +2205,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // than after a frame has gone by with every model in the wrong place.
         _rayTracing?.Settle();
 
-        var size = new DescriptorPoolSize
-        {
-            Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = (uint)(_batches.Count * 3),
-        };
-
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            PoolSizeCount = 1,
-            PPoolSizes = &size,
-            MaxSets = (uint)_batches.Count,
-        };
-
-        if (_context.Api.CreateDescriptorPool(_context.Device, in poolInfo, null, out _descriptorPool)
-            != Result.Success)
-        {
-            throw new VulkanException("Could not create a descriptor pool.");
-        }
+        // Room for exactly the materials this room loaded. What a device does with that is
+        // its own business — Vulkan opens a descriptor pool, Direct3D has a heap already —
+        // and either way it is better than growing one batch at a time.
+        _device.Reserve(_batches.Count);
 
         for (int i = 0; i < _batches.Count; i++)
         {
@@ -2246,9 +2216,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             _batches[i] = batch with
             {
-                Material = CreateMaterialSet(
+                Material = _device.CreateMaterial(
                     TextureFor(batch.TextureName),
-                    batch.UseLightmap && !batch.SelfLit ? _lightmap ?? _whiteTexture : _whiteTexture,
+                    batch.UseLightmap && !batch.SelfLit
+                        ? _lightmap ?? _textures.White
+                        : _textures.White,
                     _textures.GetNormal(batch.TextureName),
                     _textures.GetOrm(batch.TextureName),
                     _textures.GetHeight(batch.TextureName)),
@@ -2256,9 +2228,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
-    /// <summary>Records the draws for every loaded batch.</summary>
-    /// <param name="command">Command buffer, inside an active rendering scope.</param>
-    /// <param name="pipeline">The pipeline currently bound.</param>
+    /// <summary>Works out what every loaded batch needs drawn, and with what.</summary>
     /// <param name="previousSeconds">
     /// The wind's clock as it stood a frame ago, so that a leaf reports its own movement to
     /// the temporal filter rather than reporting none.
@@ -2277,33 +2247,22 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// drawing nothing at all.
     /// </para>
     /// </remarks>
-    public void Record(CommandBuffer command, MeshPipeline pipeline, float previousSeconds = 0f)
+    public IEnumerable<SceneDraw> Draws(float previousSeconds = 0f)
     {
-        ArgumentNullException.ThrowIfNull(pipeline);
-
-        Vk vk = _context.Api;
-
-        // Reused for every batch: two vertex streams, both from the start of their buffer.
-        Silk.NET.Vulkan.Buffer* streams = stackalloc Silk.NET.Vulkan.Buffer[2];
-        ulong* offsets = stackalloc ulong[2] { 0, 0 };
-
         foreach (Batch batch in _batches)
         {
-            if (batch.Material.Handle == 0 || batch.Hidden)
+            if (batch.Material is null || batch.Hidden)
             {
                 continue;
             }
 
-            DescriptorSet material = batch.Material;
-            vk.CmdBindDescriptorSets(
-                command, PipelineBindPoint.Graphics, pipeline.Layout, 1, 1, in material, 0, null);
-
-            pipeline.PushConstants(command, new DrawConstants(
+            var constants = new DrawConstants(
                 batch.Transform,
                 batch.Previous,
                 new Vector4(
                     _lightmap is not null && batch.UseLightmap ? 1f : 0f,
                     LightmapMultiplier,
+
                     // Two flags in one number: 1 for self-lit, 2 for a model standing in
                     // the room. The second is what lets a shadow ray leaving a character
                     // skip characters — see RayTracingScene.MaskFor.
@@ -2336,65 +2295,59 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     ? new Vector4(LeafSway, WindSpeed, previousSeconds, 0f)
                     : Vector4.Zero,
 
-                // The skin under the coat. The shells over it are drawn below, and a
-                // surface with no coat is told so with a zero depth in y rather than by
-                // being left out, because the shader darkens the skin under fur and has to
-                // be able to tell "the innermost of twelve shells" from "not an animal".
-                FurOf(batch.TextureName, 0f)));
-
-            // The animated buffer when something has reshaped this batch, and the one the
-            // model was built with otherwise.
-            // Two streams: this pose and the one before it. A batch nothing has animated
-            // binds the same buffer twice, which is the truth about it — its vertices are
-            // where they have always been, and only its transform can have moved.
-            streams[0] = (batch.Live ?? batch.Vertices).Handle;
-            streams[1] = (batch.Was ?? batch.Live ?? batch.Vertices).Handle;
-
-            vk.CmdBindVertexBuffers(command, 0, 2, streams, offsets);
-            vk.CmdBindIndexBuffer(command, batch.Indices.Handle, 0, batch.IndexType);
-            vk.CmdDrawIndexed(command, batch.IndexCount, 1, 0, 0, 0);
+                // The skin under the coat. The shells over it are below, and a surface with
+                // no coat is told so with a zero depth in y rather than by being left out,
+                // because the shader darkens the skin under fur and has to be able to tell
+                // "the innermost of twelve shells" from "not an animal".
+                FurOf(batch.TextureName, 0f));
 
             // And the coat over it, if it has one: the same triangles again, each shell
             // pushed a little further out along the vertices' own normals and keeping only
             // the texels a hair still reaches at that height.
             //
-            // Everything else about the draw is already bound — the descriptor set, both
-            // vertex streams, the indices — so a shell is one push and one draw. That is
-            // what makes twelve of them affordable on a model and would not make them
+            // Everything else about the draw is already bound — the material, both vertex
+            // streams, the indices — so a shell is one push and one draw. That is what
+            // makes twelve of them affordable on a model and would not make them
             // affordable on a room.
             //
-            // Nothing is added to the acceleration structure by this. The shells are
-            // drawn, not built, so a shadow ray still sees the animal and not its fur,
-            // which is the right answer at this scale: a coat one unit deep casts no
-            // shadow anybody could see, and the alternative is twelve more structures.
+            // Nothing is added to the acceleration structure by this. The shells are drawn,
+            // not built, so a shadow ray still sees the animal and not its fur, which is
+            // the right answer at this scale: a coat one unit deep casts no shadow anybody
+            // could see, and the alternative is twelve more structures.
             SurfaceFinish coat = Materials.Of(batch.TextureName);
+            DrawConstants[] shells = [];
 
-            if (!coat.Furred)
+            if (coat.Furred)
             {
-                continue;
-            }
+                shells = new DrawConstants[coat.Shells];
 
-            for (int shell = 1; shell <= coat.Shells; shell++)
-            {
-                pipeline.PushConstants(command, new DrawConstants(
-                    batch.Transform,
-                    batch.Previous,
-                    new Vector4(
-                        _lightmap is not null && batch.UseLightmap ? 1f : 0f,
-                        LightmapMultiplier,
-                        (batch.SelfLit ? 1f : 0f) + (batch.IsModel ? 2f : 0f),
-
+                for (int shell = 1; shell <= coat.Shells; shell++)
+                {
+                    shells[shell - 1] = constants with
+                    {
                         // No parallax on a shell. The march reads a height field belonging
                         // to the skin, and running it on a surface standing a centimetre
                         // off that skin shifts the strands sideways against the coat they
                         // are part of.
-                        0f),
-                    MaterialOf(batch.TextureName),
-                    Vector4.Zero,
-                    FurOf(batch.TextureName, shell / (float)coat.Shells)));
-
-                vk.CmdDrawIndexed(command, batch.IndexCount, 1, 0, 0, 0);
+                        Shading = constants.Shading with { W = 0f },
+                        Wind = Vector4.Zero,
+                        Fur = FurOf(batch.TextureName, shell / (float)coat.Shells),
+                    };
+                }
             }
+
+            // Two streams: this pose and the one before it. A batch nothing has animated
+            // reports the same buffer twice, which is the truth about it — its vertices are
+            // where they have always been, and only its transform can have moved.
+            yield return new SceneDraw(
+                batch.Live ?? batch.Vertices,
+                batch.Was ?? batch.Live ?? batch.Vertices,
+                batch.Indices,
+                batch.IndexCount,
+                batch.ShortIndices,
+                batch.Material,
+                constants,
+                shells);
         }
     }
 
@@ -2414,7 +2367,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        _context.Api.DeviceWaitIdle(_context.Device);
+        _device.Wait();
 
         foreach (Batch batch in _batches)
         {
@@ -2424,22 +2377,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         _batches.Clear();
 
-        if (_descriptorPool.Handle != 0)
-        {
-            _context.Api.DestroyDescriptorPool(_context.Device, _descriptorPool, null);
-            _descriptorPool = default;
-        }
-
-        foreach (DescriptorPool extra in _extraPools)
-        {
-            _context.Api.DestroyDescriptorPool(_context.Device, extra, null);
-        }
-
-        _extraPools.Clear();
         _repainted.Clear();
 
-        // The textures are the renderer's and outlast this room; see TextureCache.
-        _whiteTexture.Dispose();
+        // The textures are the renderer's and outlast this room; see TextureCache. The
+        // materials belong to the geometry device, which keeps them for as long as it keeps
+        // the descriptors they point at.
         _lightmap?.Dispose();
         _lightmap = null;
         _lightmapAtlas = null;
@@ -2560,8 +2502,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     private void AddBatch(
         ReadOnlySpan<MeshVertex> vertices,
-        VulkanBuffer indices,
-        IndexType indexType,
+        IGeometryBuffer indices,
+        bool shortIndices,
         uint indexCount,
         Matrix4x4 transform,
         string texture,
@@ -2571,18 +2513,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         bool isModel = false,
         bool displaced = false,
         bool hidden = false,
-        BufferUploads? into = null) =>
+        IGeometryUploads? into = null) =>
         _batches.Add(new Batch
         {
             Hidden = hidden,
             // Identity for the room's own geometry, which is already where it belongs.
             Local = local ?? Matrix4x4.Identity,
-            Vertices = VulkanBuffer.CreateDeviceLocal(
-                _context, vertices, BufferUsageFlags.VertexBufferBit, into),
+            Vertices = _device.CreateBuffer(vertices, GeometryBufferKind.Vertices, into),
             Shape = [.. vertices],
             Indices = indices,
             IndexCount = indexCount,
-            IndexType = indexType,
+            ShortIndices = shortIndices,
             Transform = transform,
 
             // Where it was is where it is, on the frame it first appears. A zero matrix
@@ -2600,199 +2541,24 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             Foliage = _wind.Contains(Path.GetFileNameWithoutExtension(texture)),
         });
 
-    private VulkanTexture TextureFor(string name) =>
-        _textures.Get(name);
-
-    /// <summary>Takes a material set from whichever pool still has room.</summary>
-    /// <remarks>
-    /// The room's own pool first, then any opened since, then a new one. Allocation
-    /// failing is how a pool says it is full — Vulkan reports it rather than trapping —
-    /// so it is a case to handle and not an error.
-    /// </remarks>
-    private DescriptorSet Allocate()
-    {
-        DescriptorSetLayout layout = _pipeline.MaterialLayout;
-
-        DescriptorSet? From(DescriptorPool pool)
-        {
-            if (pool.Handle == 0)
-            {
-                return null;
-            }
-
-            DescriptorSetLayout wanted = layout;
-
-            var info = new DescriptorSetAllocateInfo
-            {
-                SType = StructureType.DescriptorSetAllocateInfo,
-                DescriptorPool = pool,
-                DescriptorSetCount = 1,
-                PSetLayouts = &wanted,
-            };
-
-            return _context.Api.AllocateDescriptorSets(_context.Device, in info, out DescriptorSet set)
-                   == Result.Success
-                ? set
-                : null;
-        }
-
-        if (From(_descriptorPool) is { } fromRoom)
-        {
-            return fromRoom;
-        }
-
-        for (int i = _extraPools.Count - 1; i >= 0; i--)
-        {
-            if (From(_extraPools[i]) is { } fromExtra)
-            {
-                return fromExtra;
-            }
-        }
-
-        var size = new DescriptorPoolSize
-        {
-            Type = DescriptorType.CombinedImageSampler,
-
-            // Five images a set: colour, lightmap, normal, ORM, height. Raised with the
-            // layout, or a pool runs out partway through a room and the sets after it are
-            // never allocated.
-            DescriptorCount = ExtraPoolSets * 5,
-        };
-
-        var poolInfo = new DescriptorPoolCreateInfo
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            PoolSizeCount = 1,
-            PPoolSizes = &size,
-            MaxSets = ExtraPoolSets,
-        };
-
-        if (_context.Api.CreateDescriptorPool(_context.Device, in poolInfo, null, out DescriptorPool opened)
-            != Result.Success)
-        {
-            throw new VulkanException("Could not create a descriptor pool.");
-        }
-
-        _extraPools.Add(opened);
-
-        return From(opened) ??
-               throw new VulkanException("Could not allocate a material descriptor set.");
-    }
-
-    private DescriptorSet CreateMaterialSet(
-        VulkanTexture diffuse,
-        VulkanTexture lightmap,
-        VulkanTexture normal,
-        VulkanTexture orm,
-        VulkanTexture height)
-    {
-        DescriptorSet set = Allocate();
-
-        var diffuseInfo = new DescriptorImageInfo
-        {
-            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-            ImageView = diffuse.View,
-            Sampler = diffuse.Sampler,
-        };
-
-        var lightmapInfo = new DescriptorImageInfo
-        {
-            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-            ImageView = lightmap.View,
-            Sampler = lightmap.Sampler,
-        };
-
-        var normalInfo = new DescriptorImageInfo
-        {
-            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-            ImageView = normal.View,
-            Sampler = normal.Sampler,
-        };
-
-        var ormInfo = new DescriptorImageInfo
-        {
-            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-            ImageView = orm.View,
-            Sampler = orm.Sampler,
-        };
-
-        var heightInfo = new DescriptorImageInfo
-        {
-            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-            ImageView = height.View,
-            Sampler = height.Sampler,
-        };
-
-        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[5];
-        writes[0] = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = set,
-            DstBinding = 0,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            PImageInfo = &diffuseInfo,
-        };
-        writes[1] = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = set,
-            DstBinding = 1,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            PImageInfo = &lightmapInfo,
-        };
-
-        writes[2] = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = set,
-            DstBinding = 2,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            PImageInfo = &normalInfo,
-        };
-
-        writes[3] = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = set,
-            DstBinding = 3,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            PImageInfo = &ormInfo,
-        };
-
-        writes[4] = new WriteDescriptorSet
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = set,
-            DstBinding = 4,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            PImageInfo = &heightInfo,
-        };
-
-        _context.Api.UpdateDescriptorSets(_context.Device, 5, writes, 0, null);
-        return set;
-    }
+    private IGeometryTexture TextureFor(string name) => _textures.Get(name);
 
     /// <summary>One drawable piece: a mesh with one diffuse texture.</summary>
     private readonly record struct Batch
     {
-        public required VulkanBuffer Vertices { get; init; }
+        public required IGeometryBuffer Vertices { get; init; }
 
         /// <summary>The vertices as the model authored them, reused as scratch when animated.</summary>
         public required MeshVertex[] Shape { get; init; }
 
         /// <summary>One buffer per frame in flight, once anything has animated this batch.</summary>
-        public VulkanBuffer[]? Animated { get; init; }
+        public IGeometryBuffer[]? Animated { get; init; }
 
         /// <summary>Whichever animated buffer was written most recently.</summary>
-        public VulkanBuffer? Live { get; init; }
+        public IGeometryBuffer? Live { get; init; }
 
         /// <summary>The pose before that one.</summary>
-        public VulkanBuffer? Was { get; init; }
+        public IGeometryBuffer? Was { get; init; }
 
         /// <summary>This mesh's place within its model.</summary>
         /// <remarks>
@@ -2802,11 +2568,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// </remarks>
         public Matrix4x4 Local { get; init; }
 
-        public required VulkanBuffer Indices { get; init; }
+        public required IGeometryBuffer Indices { get; init; }
 
         public required uint IndexCount { get; init; }
 
-        public required IndexType IndexType { get; init; }
+        /// <summary>Whether the indices are sixteen bits each rather than thirty-two.</summary>
+        /// <remarks>
+        /// A model's submeshes are small enough for sixteen; a scene batch routinely is not,
+        /// because a single wall texture in the larger rooms covers more geometry than a
+        /// sixteen-bit index can address.
+        /// </remarks>
+        public required bool ShortIndices { get; init; }
 
         public required Matrix4x4 Transform { get; init; }
 
@@ -2857,6 +2629,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// </remarks>
         public bool Hidden { get; init; }
 
-        public DescriptorSet Material { get; init; }
+        public IGeometryMaterial? Material { get; init; }
     }
 }

@@ -1,3 +1,4 @@
+using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 
 namespace GK3Reborn.Rendering.Geometry;
@@ -74,6 +75,19 @@ public interface IGeometryTexture : IDisposable
 {
     /// <summary>How much device memory it takes.</summary>
     long Bytes { get; }
+
+    /// <summary>Replaces the pixels of a texture without replacing the texture.</summary>
+    /// <param name="pixels">The new picture, four bytes a pixel.</param>
+    /// <param name="width">Its width, which must be the one it was made at.</param>
+    /// <param name="height">Its height, which must be the one it was made at.</param>
+    /// <exception cref="InvalidOperationException">This texture cannot be refreshed.</exception>
+    /// <remarks>
+    /// One caller: the lightmap, when the time of day changes. It matters that the texture
+    /// survives rather than being replaced, because every material in the room already
+    /// points at it — a new texture would mean rebuilding several hundred materials to
+    /// change the light on geometry that has not moved.
+    /// </remarks>
+    void Refresh(ReadOnlySpan<byte> pixels, int width, int height);
 }
 
 /// <summary>The textures one batch is drawn with, bound together.</summary>
@@ -126,15 +140,6 @@ public interface IGeometryDevice : IDisposable
     /// <summary>Whether block-compressed textures can be uploaded as they are.</summary>
     bool BlockCompression { get; }
 
-    /// <summary>How many distinct textures are resident.</summary>
-    int TextureCount { get; }
-
-    /// <summary>How many times a request found a texture already resident.</summary>
-    int TexturesReused { get; }
-
-    /// <summary>How much device memory those textures occupy.</summary>
-    long TextureBytes { get; }
-
     /// <summary>Opens a batch of uploads.</summary>
     /// <returns>The batch.</returns>
     IGeometryUploads BeginUploads();
@@ -158,39 +163,30 @@ public interface IGeometryDevice : IDisposable
     /// </remarks>
     IGeometryBuffer CreateDynamicVertices(ulong bytes);
 
-    /// <summary>Whether a texture is already resident under that name.</summary>
-    /// <param name="name">The name.</param>
-    /// <returns>True if it is.</returns>
-    bool HasTexture(string name);
-
-    /// <summary>Puts a texture on the device under a name.</summary>
-    /// <param name="name">What to call it.</param>
+    /// <summary>Puts a picture on the device.</summary>
     /// <param name="image">The picture.</param>
-    /// <param name="kind">What it holds.</param>
-    void AddTexture(string name, DecodedImage image, GeometryTextureKind kind = GeometryTextureKind.Colour);
+    /// <param name="kind">What it holds, which decides how it is read.</param>
+    /// <param name="mipmaps">Whether to build a mip chain for it.</param>
+    /// <returns>The texture.</returns>
+    /// <remarks>
+    /// The whole of what a device is asked to do about textures. Which ones a session has
+    /// already paid for, which carry a colour key, and which height maps are kept as numbers
+    /// as well as as pictures are all <see cref="TextureCache"/>'s business, and none of it
+    /// is about a graphics API.
+    /// </remarks>
+    IGeometryTexture CreateTexture(
+        DecodedImage image,
+        GeometryTextureKind kind = GeometryTextureKind.Colour,
+        bool mipmaps = true);
 
-    /// <summary>Puts an already-compressed texture on the device under a name.</summary>
-    /// <param name="name">What to call it.</param>
-    /// <param name="image">The blocks.</param>
-    /// <param name="kind">What it holds.</param>
-    void AddTexture(string name, CompressedImage image, GeometryTextureKind kind = GeometryTextureKind.Colour);
-
-    /// <summary>Finds a texture by the name it was given.</summary>
-    /// <param name="name">The name.</param>
-    /// <returns>The texture, or the fallback where there is no such thing.</returns>
-    IGeometryTexture Texture(string name);
-
-    /// <summary>The white texture that stands in for a map a surface does not have.</summary>
-    IGeometryTexture White { get; }
-
-    /// <summary>The flat normal map, which says every surface faces the way it already does.</summary>
-    IGeometryTexture Flat { get; }
-
-    /// <summary>The neutral occlusion, roughness and metalness map.</summary>
-    IGeometryTexture Neutral { get; }
-
-    /// <summary>The level height map, which displaces nothing.</summary>
-    IGeometryTexture Level { get; }
+    /// <summary>Puts an already-compressed picture on the device.</summary>
+    /// <param name="image">The blocks, as the file holds them.</param>
+    /// <returns>The texture.</returns>
+    /// <remarks>
+    /// No kind and no mip choice: a block format says whether it carries an sRGB encode, and
+    /// the chain is the one the compressor already built.
+    /// </remarks>
+    IGeometryTexture CreateTexture(CompressedImage image);
 
     /// <summary>Binds five textures together as one material.</summary>
     /// <param name="diffuse">The base colour.</param>
@@ -206,6 +202,83 @@ public interface IGeometryDevice : IDisposable
         IGeometryTexture orm,
         IGeometryTexture height);
 
+    /// <summary>Says how many materials a room is about to ask for.</summary>
+    /// <param name="materials">How many.</param>
+    /// <remarks>
+    /// A hint with teeth on one backend and none on the other, which is why it is here
+    /// rather than in either. Vulkan hands descriptor sets out of a pool that has to be
+    /// sized in advance, and a pool that runs out mid-room spills every set after it into
+    /// an overflow that should not have been needed. Direct3D has a heap already and does
+    /// nothing with this.
+    /// </remarks>
+    void Reserve(int materials);
+
+    /// <summary>Builds an acceleration structure over some geometry.</summary>
+    /// <param name="meshes">What the rays can hit.</param>
+    /// <returns>The structure, or null where the device cannot trace or there is nothing to.</returns>
+    IGeometryAccelerationStructure? BuildAccelerationStructure(IReadOnlyList<TraceableMesh> meshes);
+
     /// <summary>Waits until the device has finished everything it was given.</summary>
     void Wait();
+}
+
+/// <summary>One piece of geometry the rays can hit.</summary>
+/// <param name="Positions">Its vertices, in the model's own space.</param>
+/// <param name="Indices">Its triangles.</param>
+/// <param name="Part">Which placement it belongs to; zero is the room itself.</param>
+/// <param name="Key">
+/// Which animated batch reshapes it, or -1 for geometry that never deforms.
+/// </param>
+public readonly record struct TraceableMesh(
+    Vector3[] Positions,
+    uint[] Indices,
+    int Part = 0,
+    int Key = -1);
+
+/// <summary>
+/// The acceleration structure a scene is traced against.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Two levels on both backends, and the division is the same on both: a bottom-level
+/// structure per piece of geometry and one top level holding an instance of each with its
+/// transform. The bottom level is the expensive part and does not change when something
+/// moves, so a walking character is a rewritten transform rather than ten thousand rewritten
+/// vertices.
+/// </para>
+/// <para>
+/// Everything below is recorded rather than done. <see cref="Settle"/> is what makes it
+/// true, and it has to be called after the fence and before the frame — rebuilding a
+/// structure the device is still tracing against is the same hazard as rewriting a vertex
+/// buffer it is still reading.
+/// </para>
+/// </remarks>
+public interface IGeometryAccelerationStructure : IDisposable
+{
+    /// <summary>Triangles in the structure.</summary>
+    int TriangleCount { get; }
+
+    /// <summary>Pieces it was built from.</summary>
+    int PartCount { get; }
+
+    /// <summary>Says where a piece now stands.</summary>
+    /// <param name="part">Which piece.</param>
+    /// <param name="transform">Where it stands.</param>
+    void Move(int part, Matrix4x4 transform);
+
+    /// <summary>Says whether a piece is in the picture at all.</summary>
+    /// <param name="part">Which piece.</param>
+    /// <param name="traced">Whether rays should see it.</param>
+    /// <remarks>
+    /// A hidden model that still casts a shadow is worse than one that is simply drawn.
+    /// </remarks>
+    void SetTraced(int part, bool traced);
+
+    /// <summary>Says that a deforming piece has a new shape.</summary>
+    /// <param name="key">Which animated batch.</param>
+    /// <param name="positions">Its vertices now.</param>
+    void Reshape(int key, ReadOnlySpan<Vector3> positions);
+
+    /// <summary>Makes everything recorded since the last one true.</summary>
+    void Settle();
 }

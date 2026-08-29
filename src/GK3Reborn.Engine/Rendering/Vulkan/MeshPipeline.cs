@@ -123,6 +123,68 @@ public sealed unsafe class MeshPipeline : IDisposable
             &value);
     }
 
+    /// <summary>Issues the draws a scene worked out.</summary>
+    /// <param name="vk">Vulkan API.</param>
+    /// <param name="command">Command buffer, inside an active rendering scope.</param>
+    /// <param name="pipeline">The pipeline currently bound.</param>
+    /// <param name="draws">What to draw, from <c>SceneGeometry.Draws</c>.</param>
+    /// <remarks>
+    /// <para>
+    /// The caller binds the pipeline, the viewport and the frame is descriptor set first;
+    /// this only issues what varies per draw. Nothing here decides anything — which pose is
+    /// current, whether the lightmap applies, how many shells of fur stand over a skin were
+    /// all settled before the draws arrived — which is what lets the same reasoning serve
+    /// the other backend.
+    /// </para>
+    /// <para>
+    /// The pipeline is passed in rather than taken from the geometry, because the raster and
+    /// ray-traced variants have different set 0 layouts and therefore incompatible pipeline
+    /// layouts. Binding a descriptor set or pushing constants through the wrong one is not an
+    /// error Vulkan reports: the vertex shader reads a garbage transform and the geometry
+    /// lands outside the frustum, which looks exactly like drawing nothing at all.
+    /// </para>
+    /// </remarks>
+    public static void Record(
+        Vk vk, CommandBuffer command, MeshPipeline pipeline, IEnumerable<SceneDraw> draws)
+    {
+        ArgumentNullException.ThrowIfNull(vk);
+        ArgumentNullException.ThrowIfNull(pipeline);
+        ArgumentNullException.ThrowIfNull(draws);
+
+        // Reused for every draw: two vertex streams, both from the start of their buffer.
+        Silk.NET.Vulkan.Buffer* streams = stackalloc Silk.NET.Vulkan.Buffer[2];
+        ulong* offsets = stackalloc ulong[2] { 0, 0 };
+
+        foreach (SceneDraw draw in draws)
+        {
+            DescriptorSet material = VulkanGeometry.Set(draw.Material);
+            vk.CmdBindDescriptorSets(
+                command, PipelineBindPoint.Graphics, pipeline.Layout, 1, 1, in material, 0, null);
+
+            pipeline.PushConstants(command, draw.Constants);
+
+            streams[0] = VulkanGeometry.Handle(draw.Vertices);
+            streams[1] = VulkanGeometry.Handle(draw.Previous);
+
+            vk.CmdBindVertexBuffers(command, 0, 2, streams, offsets);
+            vk.CmdBindIndexBuffer(
+                command,
+                VulkanGeometry.Handle(draw.Indices),
+                0,
+                draw.ShortIndices ? IndexType.Uint16 : IndexType.Uint32);
+
+            vk.CmdDrawIndexed(command, draw.IndexCount, 1, 0, 0, 0);
+
+            // Everything else about the draw is already bound, so a shell is one push and
+            // one draw. That is what makes twelve of them affordable on a model.
+            foreach (DrawConstants shell in draw.Shells)
+            {
+                pipeline.PushConstants(command, shell);
+                vk.CmdDrawIndexed(command, draw.IndexCount, 1, 0, 0, 0);
+            }
+        }
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {

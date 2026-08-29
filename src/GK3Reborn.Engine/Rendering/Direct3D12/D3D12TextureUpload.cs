@@ -180,6 +180,33 @@ public static unsafe class D3D12TextureUpload
         }
     }
 
+    /// <summary>Replaces the pixels of a texture that already exists.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="texture">The texture, which keeps its identity.</param>
+    /// <param name="image">The new picture.</param>
+    /// <exception cref="D3D12Exception">The copy failed.</exception>
+    /// <remarks>
+    /// One caller: the lightmap, when the time of day changes. The texture surviving is the
+    /// whole point — every material in the room already points at it, and a replacement
+    /// would mean rebuilding several hundred materials to change the light on geometry that
+    /// has not moved.
+    /// </remarks>
+    public static void Refresh(D3D12Context context, D3D12Texture texture, DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(texture);
+        ArgumentNullException.ThrowIfNull(image.Pixels);
+
+        if (image.Width != texture.Width || image.Height != texture.Height)
+        {
+            throw new D3D12Exception(
+                $"A refresh is {image.Width} by {image.Height} and the texture is "
+                + $"{texture.Width} by {texture.Height}.");
+        }
+
+        Fill(context, texture, [image.Pixels], 1, null);
+    }
+
     /// <summary>Copies levels of pixels or blocks into a texture.</summary>
     private static void Fill(
         D3D12Context context,

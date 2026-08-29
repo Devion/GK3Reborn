@@ -56,6 +56,10 @@ internal sealed class VulkanGeometryTexture : IGeometryTexture
     public long Bytes { get; }
 
     /// <inheritdoc/>
+    public void Refresh(ReadOnlySpan<byte> pixels, int width, int height) =>
+        Texture.Refresh(pixels, width, height);
+
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed || !_owned)
@@ -66,6 +70,83 @@ internal sealed class VulkanGeometryTexture : IGeometryTexture
         _disposed = true;
         Texture.Dispose();
     }
+}
+
+/// <summary>A Vulkan acceleration structure, as a scene refers to one.</summary>
+internal sealed class VulkanGeometryStructure : IGeometryAccelerationStructure
+{
+    private bool _disposed;
+
+    internal VulkanGeometryStructure(RayTracingScene scene) => Scene = scene;
+
+    /// <summary>The structure underneath, for whatever traces against it.</summary>
+    internal RayTracingScene Scene { get; }
+
+    /// <inheritdoc/>
+    public int TriangleCount => Scene.TriangleCount;
+
+    /// <inheritdoc/>
+    public int PartCount => Scene.PartCount;
+
+    /// <inheritdoc/>
+    public void Move(int part, System.Numerics.Matrix4x4 transform) => Scene.Move(part, transform);
+
+    /// <inheritdoc/>
+    public void SetTraced(int part, bool traced) => Scene.SetTraced(part, traced);
+
+    /// <inheritdoc/>
+    public void Reshape(int key, ReadOnlySpan<System.Numerics.Vector3> positions) =>
+        Scene.Reshape(key, positions);
+
+    /// <inheritdoc/>
+    public void Settle() => Scene.Settle();
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Scene.Dispose();
+    }
+}
+
+/// <summary>Reaching the Vulkan objects behind the seam, from inside the Vulkan backend.</summary>
+/// <remarks>
+/// The seam exists so that a scene need not know which API it is on. A Vulkan render pass
+/// very much does, and it is holding objects the seam deliberately made opaque — so it casts
+/// them back. That is legitimate here and nowhere else: these are the backend's own types
+/// arriving through its own interface, and the cast fails loudly if a scene built on one
+/// device is ever handed to the other.
+/// </remarks>
+internal static class VulkanGeometry
+{
+    /// <summary>The structure behind a scene's acceleration structure.</summary>
+    /// <param name="structure">What the scene is holding.</param>
+    /// <returns>The Vulkan structure.</returns>
+    internal static RayTracingScene Scene(IGeometryAccelerationStructure structure) =>
+        structure is VulkanGeometryStructure vulkan
+            ? vulkan.Scene
+            : throw new ArgumentException("That structure is not on this device.", nameof(structure));
+
+    /// <summary>The descriptor set behind a batch's material.</summary>
+    /// <param name="material">What the batch is holding.</param>
+    /// <returns>The set.</returns>
+    internal static DescriptorSet Set(IGeometryMaterial material) =>
+        material is VulkanGeometryMaterial vulkan
+            ? vulkan.Set
+            : throw new ArgumentException("That material is not on this device.", nameof(material));
+
+    /// <summary>The buffer behind a batch's vertices or indices.</summary>
+    /// <param name="buffer">What the batch is holding.</param>
+    /// <returns>The buffer.</returns>
+    internal static Buffer Handle(IGeometryBuffer buffer) =>
+        buffer is VulkanGeometryBuffer vulkan
+            ? vulkan.Buffer.Handle
+            : throw new ArgumentException("That buffer is not on this device.", nameof(buffer));
 }
 
 /// <summary>A Vulkan descriptor set, as a scene refers to one.</summary>
@@ -139,62 +220,29 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
 
     private readonly VulkanContext _context;
     private readonly MeshPipeline _pipeline;
-    private readonly TextureCache _textures;
-    private readonly VulkanGeometryTexture _white;
     private readonly List<DescriptorPool> _pools = [];
     private bool _disposed;
 
     /// <summary>Creates a device.</summary>
     /// <param name="context">The Vulkan device.</param>
     /// <param name="pipeline">The mesh pipeline whose material layout the sets are made for.</param>
-    /// <param name="textures">The renderer's texture cache, which outlives a room.</param>
-    public VulkanGeometryDevice(VulkanContext context, MeshPipeline pipeline, TextureCache textures)
+    public VulkanGeometryDevice(VulkanContext context, MeshPipeline pipeline)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pipeline);
-        ArgumentNullException.ThrowIfNull(textures);
 
         _context = context;
         _pipeline = pipeline;
-        _textures = textures;
-
-        // Bound wherever a batch has no lightmap. Vulkan requires every declared binding to
-        // point at something valid even when the shader ignores what it reads.
-        _white = new VulkanGeometryTexture(VulkanTexture.Create(context, Solid(255)), 0, owned: true);
     }
 
     /// <summary>The Vulkan device underneath.</summary>
     internal VulkanContext Context => _context;
-
-    /// <summary>The texture cache underneath.</summary>
-    internal TextureCache Textures => _textures;
 
     /// <inheritdoc/>
     public bool SupportsRayTracing => _context.SupportsRayTracing;
 
     /// <inheritdoc/>
     public bool BlockCompression => _context.Capabilities.BlockCompression;
-
-    /// <inheritdoc/>
-    public int TextureCount => _textures.Count;
-
-    /// <inheritdoc/>
-    public int TexturesReused => _textures.Reused;
-
-    /// <inheritdoc/>
-    public long TextureBytes => _textures.DeviceBytes;
-
-    /// <inheritdoc/>
-    public IGeometryTexture White => _white;
-
-    /// <inheritdoc/>
-    public IGeometryTexture Flat => new VulkanGeometryTexture(_textures.Flat, 0, owned: false);
-
-    /// <inheritdoc/>
-    public IGeometryTexture Neutral => new VulkanGeometryTexture(_textures.Neutral, 0, owned: false);
-
-    /// <inheritdoc/>
-    public IGeometryTexture Level => new VulkanGeometryTexture(_textures.Level, 0, owned: false);
 
     /// <inheritdoc/>
     public IGeometryUploads BeginUploads() => new VulkanGeometryUploads(new BufferUploads(_context));
@@ -220,43 +268,29 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
             VulkanBuffer.CreateHostVisible(_context, bytes, BufferUsageFlags.VertexBufferBit));
 
     /// <inheritdoc/>
-    public bool HasTexture(string name) => _textures.Has(name);
+    public IGeometryTexture CreateTexture(
+        DecodedImage image,
+        GeometryTextureKind kind = GeometryTextureKind.Colour,
+        bool mipmaps = true) =>
+        new VulkanGeometryTexture(
+            VulkanTexture.Create(
+                _context,
+                image,
+                mipmaps && kind != GeometryTextureKind.Atlas,
+
+                // An atlas is clamped rather than repeated. Both a mip chain and a wrapped
+                // sample cross a tile boundary, and a lightmap tile bleeding into its
+                // neighbour is a wall lit by the floor beside it.
+                kind == GeometryTextureKind.Atlas
+                    ? SamplerAddressMode.ClampToEdge
+                    : SamplerAddressMode.Repeat,
+                linear: kind == GeometryTextureKind.Data),
+            0,
+            owned: true);
 
     /// <inheritdoc/>
-    public void AddTexture(
-        string name, DecodedImage image, GeometryTextureKind kind = GeometryTextureKind.Colour)
-    {
-        switch (kind)
-        {
-            case GeometryTextureKind.Data:
-                _textures.AddNormal(name, image);
-                break;
-
-            default:
-                _textures.Add(name, image);
-                break;
-        }
-    }
-
-    /// <inheritdoc/>
-    public void AddTexture(
-        string name, CompressedImage image, GeometryTextureKind kind = GeometryTextureKind.Colour)
-    {
-        switch (kind)
-        {
-            case GeometryTextureKind.Data:
-                _textures.AddNormal(name, image);
-                break;
-
-            default:
-                _textures.Add(name, image);
-                break;
-        }
-    }
-
-    /// <inheritdoc/>
-    public IGeometryTexture Texture(string name) =>
-        new VulkanGeometryTexture(_textures.Get(name), 0, owned: false);
+    public IGeometryTexture CreateTexture(CompressedImage image) =>
+        new VulkanGeometryTexture(VulkanTexture.Create(_context, image), 0, owned: true);
 
     /// <inheritdoc/>
     public IGeometryMaterial CreateMaterial(
@@ -296,6 +330,23 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
     }
 
     /// <inheritdoc/>
+    public IGeometryAccelerationStructure? BuildAccelerationStructure(
+        IReadOnlyList<TraceableMesh> meshes)
+    {
+        ArgumentNullException.ThrowIfNull(meshes);
+
+        RayTracingScene? scene = RayTracingScene.Build(
+            _context,
+            [.. meshes.Select(m => new RayTracingMesh(m.Positions, m.Indices)
+            {
+                Part = m.Part,
+                Key = m.Key,
+            })]);
+
+        return scene is null ? null : new VulkanGeometryStructure(scene);
+    }
+
+    /// <inheritdoc/>
     public void Wait() => _context.Api.DeviceWaitIdle(_context.Device);
 
     /// <inheritdoc/>
@@ -307,7 +358,6 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
         }
 
         _disposed = true;
-        _white.Dispose();
 
         foreach (DescriptorPool pool in _pools)
         {

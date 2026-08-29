@@ -10,12 +10,12 @@ namespace GK3Reborn.Tests.Rendering;
 /// The Direct3D side of the seam a scene is put on a device through.
 /// </summary>
 /// <remarks>
-/// Not a rendering test — nothing here draws. What it checks is the bookkeeping that a
-/// scene depends on and that fails quietly: that a texture asked for twice is uploaded
-/// once, that a material takes the five contiguous slots the shader expects, and that the
-/// samplers stay a fixed run of five however many materials there are. That last one is a
-/// hard limit rather than a preference — a shader-visible sampler heap holds two thousand
-/// and forty-eight descriptors, and five a material would run out inside one room.
+/// Not a rendering test — nothing here draws. What it checks is the bookkeeping a scene
+/// depends on and that fails quietly: that a texture asked for twice is uploaded once, that
+/// a material takes the five contiguous slots the shader expects, and that the samplers stay
+/// a fixed run of five however many materials there are. That last one is a hard limit
+/// rather than a preference — a shader-visible sampler heap holds two thousand and
+/// forty-eight descriptors, and five a material would run out inside one room.
 /// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12GeometryDeviceTests
@@ -53,65 +53,100 @@ public sealed class D3D12GeometryDeviceTests
 
         using D3D12Context context = D3D12Context.Create(enableValidation: true);
         using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+        using var cache = new TextureCache(device, Flat(255));
 
-        Assert.False(device.HasTexture("wall"));
+        Assert.False(cache.Has("wall"));
 
-        device.AddTexture("wall", Flat(200));
-        Assert.True(device.HasTexture("wall"));
-        Assert.Equal(1, device.TextureCount);
-        Assert.Equal(0, device.TexturesReused);
+        cache.Add("wall", Flat(200));
+        Assert.True(cache.Has("wall"));
+        Assert.Equal(1, cache.Count);
+        Assert.Equal(0, cache.Reused);
 
-        device.AddTexture("wall", Flat(200));
-        Assert.Equal(1, device.TextureCount);
-        Assert.Equal(1, device.TexturesReused);
+        cache.Add("wall", Flat(200));
+        Assert.Equal(1, cache.Count);
+        Assert.Equal(1, cache.Reused);
 
         // Case-insensitively, because GK3's own files disagree with themselves about it and
         // a room that uploaded WALL.BMP beside wall.BMP would pay twice for one picture.
-        device.AddTexture("WALL", Flat(200));
-        Assert.Equal(1, device.TextureCount);
-        Assert.Equal(2, device.TexturesReused);
+        cache.Add("WALL", Flat(200));
+        Assert.Equal(1, cache.Count);
+        Assert.Equal(2, cache.Reused);
     }
 
     [Fact]
-    public void A_texture_nobody_added_reads_as_the_stand_in()
+    public void A_texture_nobody_added_reads_as_the_fallback()
     {
         Assert.SkipUnless(HasDevice(), "no Direct3D device");
 
         using D3D12Context context = D3D12Context.Create(enableValidation: true);
         using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+        using var cache = new TextureCache(device, Flat(255));
 
-        // Not null and not an exception. A room that names a texture its barn does not
-        // carry should draw in white rather than refuse to load, which is how the missing
+        // Not null and not an exception. A room that names a texture its barn does not carry
+        // should draw in the fallback rather than refuse to load, which is how the missing
         // one gets noticed and reported instead of stopping the game.
-        Assert.NotNull(device.Texture("nothing at all"));
+        Assert.Same(cache.Fallback, cache.Get("nothing at all"));
+
+        // And the maps a surface has none of come back as the stand-ins rather than null,
+        // because a material binds five textures whether or not five exist.
+        Assert.Same(cache.Flat, cache.GetNormal("nothing at all"));
+        Assert.Same(cache.Neutral, cache.GetOrm("nothing at all"));
+        Assert.Same(cache.Level, cache.GetHeight("nothing at all"));
     }
 
     [Fact]
-    public void Every_material_takes_five_slots_in_both_heaps()
+    public void Every_material_takes_five_slots_and_the_samplers_do_not_grow()
     {
         Assert.SkipUnless(HasDevice(), "no Direct3D device");
 
         using D3D12Context context = D3D12Context.Create(enableValidation: true);
         using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+        using var cache = new TextureCache(device, Flat(255));
 
-        device.AddTexture("wall", Flat(200));
+        cache.Add("wall", Flat(200));
 
         for (int i = 0; i < 8; i++)
         {
             IGeometryMaterial material = device.CreateMaterial(
-                device.Texture("wall"), device.White, device.Flat, device.Neutral, device.Level);
+                cache.Get("wall"), cache.White, cache.Flat, cache.Neutral, cache.Level);
 
             Assert.NotNull(material);
 
-            Assert.Equal((uint)(i + 1) * D3D12GeometryDevice.TexturesPerMaterial, device.ViewDescriptorsUsed);
+            Assert.Equal(
+                (uint)(i + 1) * D3D12GeometryDevice.TexturesPerMaterial,
+                device.ViewDescriptorsUsed);
 
-            // The samplers do not grow with them. A shader-visible sampler heap holds two
-            // thousand and forty-eight descriptors, so five a material would run out at
-            // four hundred and nine batches — which a room reaches. They need not be per
-            // material anyway: which sampler each of the five textures wants is a property
-            // of what the texture is, and that is the same for every material in the game.
+            // A shader-visible sampler heap holds two thousand and forty-eight descriptors,
+            // so five a material would run out at four hundred and nine batches — which a
+            // room reaches. They need not be per material anyway: which sampler each of the
+            // five textures wants is a property of what the texture is, and that is the same
+            // for every material in the game.
             Assert.Equal(D3D12GeometryDevice.TexturesPerMaterial, device.SamplerDescriptorsUsed);
         }
+    }
+
+    [Fact]
+    public void A_lightmap_can_be_refreshed_without_being_replaced()
+    {
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+
+        using D3D12Context context = D3D12Context.Create(enableValidation: true);
+        using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+
+        using IGeometryTexture lightmap =
+            device.CreateTexture(Flat(64, 32), GeometryTextureKind.Atlas);
+
+        // What a time-of-day change is. The texture surviving is the point: every material
+        // in the room already points at it, and replacing it would mean rebuilding several
+        // hundred materials to change the light on geometry that has not moved.
+        DecodedImage evening = Flat(180, 32);
+        lightmap.Refresh(evening.Pixels, evening.Width, evening.Height);
+
+        device.Wait();
+
+        Assert.DoesNotContain(
+            context.DrainMessages(),
+            m => !m.Contains("MessageSeverityInfo", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -121,23 +156,25 @@ public sealed class D3D12GeometryDeviceTests
 
         using D3D12Context context = D3D12Context.Create(enableValidation: true);
         using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+        using var cache = new TextureCache(device, Flat(255));
 
-        using IGeometryUploads batch = device.BeginUploads();
+        using (IGeometryUploads batch = device.BeginUploads())
+        {
+            using IGeometryBuffer vertices = device.CreateBuffer<float>(
+                [0f, 1f, 2f, 3f, 4f, 5f], GeometryBufferKind.Vertices, batch);
 
-        using IGeometryBuffer vertices = device.CreateBuffer<float>(
-            [0f, 1f, 2f, 3f, 4f, 5f], GeometryBufferKind.Vertices, batch);
+            using IGeometryBuffer indices = device.CreateBuffer<uint>(
+                [0, 1, 2], GeometryBufferKind.Indices, batch);
 
-        using IGeometryBuffer indices = device.CreateBuffer<uint>(
-            [0, 1, 2], GeometryBufferKind.Indices, batch);
+            batch.Submit();
 
-        batch.Submit();
+            Assert.Equal(24u, vertices.Bytes);
+            Assert.Equal(12u, indices.Bytes);
+        }
 
-        Assert.Equal(24u, vertices.Bytes);
-        Assert.Equal(12u, indices.Bytes);
-
-        device.AddTexture("wall", Flat(200));
+        cache.Add("wall", Flat(200));
         device.CreateMaterial(
-            device.Texture("wall"), device.White, device.Flat, device.Neutral, device.Level);
+            cache.Get("wall"), cache.White, cache.Flat, cache.Neutral, cache.Level);
 
         device.Wait();
 

@@ -321,7 +321,15 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// <summary>Creates geometry this renderer can draw.</summary>
     /// <returns>Empty scene geometry.</returns>
     public SceneGeometry CreateGeometry() =>
-        SceneGeometry.Create(Context, MeshPipeline, Textures);
+        SceneGeometry.Create(GeometryDevice, Textures);
+
+    /// <summary>The seam a scene is put on this device through.</summary>
+    /// <remarks>
+    /// One per renderer rather than one per room, because the descriptor pools it opens for
+    /// repainted faces are worth keeping for as long as the textures they point at are.
+    /// </remarks>
+    public VulkanGeometryDevice GeometryDevice =>
+        field ??= new VulkanGeometryDevice(Context, MeshPipeline);
 
     /// <summary>
     /// The textures the device is holding, across every room it has drawn.
@@ -332,7 +340,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// getting back what had just been discarded.
     /// </remarks>
     public TextureCache Textures =>
-        field ??= new TextureCache(Context, SceneGeometry.CheckerBoard());
+        field ??= new TextureCache(GeometryDevice, SceneGeometry.CheckerBoard());
 
     /// <summary>Whether a ray-traced pipeline was built.</summary>
     public bool SupportsRayTracing => _rayTracedPipeline is not null;
@@ -543,7 +551,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
         if (scene?.RayTracing is not null)
         {
-            _rayTracedFrames?.SetScene(scene.RayTracing);
+            _rayTracedFrames?.SetScene(VulkanGeometry.Scene(scene.RayTracing));
         }
 
         _scene = scene;
@@ -2230,7 +2238,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 frames.Settings = RayTracingSettings.For(Quality);
             }
 
-            SceneDraw.Record(
+            VulkanSceneDraw.Record(
                 _vk, buffer, pipeline, frames, _scene, _frame, width, height, _camera);
         }
         else if (_triangle is not null)
@@ -2764,7 +2772,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 _depthView,
                 _extraViews[GBuffer.Normal - 1],
                 _extraViews[GBuffer.Motion - 1],
-                _scene.RayTracing.Handle,
+                VulkanGeometry.Scene(_scene.RayTracing).Handle,
                 _rayTracedFrames.Rig.Handle,
                 _rayTracedFrames.Rig.Size);
 
@@ -2785,7 +2793,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
             _composed = true;
         }
 
-        _denoiser.Point(_scene.RayTracing.Handle);
+        _denoiser.Point(VulkanGeometry.Scene(_scene.RayTracing).Handle);
     }
 
     /// <summary>Traces the occlusion, filters it, and puts the picture together.</summary>

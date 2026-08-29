@@ -1,8 +1,6 @@
 ﻿using GK3Reborn.Formats.Bitmaps;
-using GK3Reborn.Rendering;
-using Silk.NET.Vulkan;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Geometry;
 
 /// <summary>
 /// The textures the device holds, kept across rooms.
@@ -25,22 +23,29 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// the 6,657, which is tens of megabytes. If that ever stops being true this is where a
 /// bound goes, and it will need to know which textures a frame in flight is still reading.
 /// </para>
+/// <para>
+/// None of the above is about a graphics API, which is why this is here rather than in a
+/// backend. What a texture <em>is</em> differs between the two; which textures a session has
+/// already paid for, which ones carry a colour key, and which height maps are kept as
+/// numbers as well as as pictures, do not. The only thing it asks a device for is to turn a
+/// picture into a texture.
+/// </para>
 /// </remarks>
 public sealed class TextureCache : IDisposable
 {
-    private readonly VulkanContext _context;
-    private readonly Dictionary<string, VulkanTexture> _textures =
+    private readonly IGeometryDevice _device;
+    private readonly Dictionary<string, IGeometryTexture> _textures =
         new(StringComparer.OrdinalIgnoreCase);
 
     private readonly HashSet<string> _keyed = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, VulkanTexture> _normals =
+    private readonly Dictionary<string, IGeometryTexture> _normals =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, VulkanTexture> _orms =
+    private readonly Dictionary<string, IGeometryTexture> _orms =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, VulkanTexture> _heights =
+    private readonly Dictionary<string, IGeometryTexture> _heights =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Height maps kept as numbers as well as as pictures.</summary>
@@ -55,24 +60,22 @@ public sealed class TextureCache : IDisposable
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Creates a cache over a device.</summary>
-    /// <param name="context">Device context.</param>
+    /// <param name="device">Where the textures go.</param>
     /// <param name="fallback">Drawn wherever a texture is asked for and missing.</param>
-    public TextureCache(VulkanContext context, DecodedImage fallback)
+    public TextureCache(IGeometryDevice device, DecodedImage fallback)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(device);
 
-        _context = context;
-        Fallback = VulkanTexture.Create(context, fallback);
+        _device = device;
+        Fallback = device.CreateTexture(fallback);
 
         // A normal pointing straight out of the surface, for everything with no map. It is
         // (0.5, 0.5, 1) rather than white, because the shader decodes a normal from the
         // range 0..1 back to -1..1 and white would tilt every surface into a corner.
-        Flat = VulkanTexture.Create(
-            context,
+        Flat = device.CreateTexture(
             new DecodedImage(1, 1, [128, 128, 255, 255], HasAlpha: false, "flat-normal"),
-            mipmaps: false,
-            SamplerAddressMode.Repeat,
-            linear: true);
+            GeometryTextureKind.Data,
+            mipmaps: false);
 
         // Occlusion, roughness and metalness, in that order, for everything with no map:
         // unoccluded, fully rough, not a metal. Which is exactly the surface the renderer
@@ -80,34 +83,42 @@ public sealed class TextureCache : IDisposable
         //
         // Linear, like the normal map and for the same reason. These three channels are
         // numbers rather than a colour, and an sRGB upload would bend every one of them.
-        Neutral = VulkanTexture.Create(
-            context,
+        Neutral = device.CreateTexture(
             new DecodedImage(1, 1, [255, 255, 0, 255], HasAlpha: false, "neutral-orm"),
-            mipmaps: false,
-            SamplerAddressMode.Repeat,
-            linear: true);
+            GeometryTextureKind.Data,
+            mipmaps: false);
 
         // A height map at the middle of its range, which is the surface as modelled: half
         // is the plane the geometry is actually on, and displacement is measured either
         // side of it. It costs nothing on its own, because the shader's height scale is
         // zero for any surface with no map, so this is never sampled into an offset.
-        Level = VulkanTexture.Create(
-            context,
+        Level = device.CreateTexture(
             new DecodedImage(1, 1, [128, 128, 128, 255], HasAlpha: false, "level-height"),
-            mipmaps: false,
-            SamplerAddressMode.Repeat,
-            linear: true);
+            GeometryTextureKind.Data,
+            mipmaps: false);
+
+        // Bound in the lightmap slot wherever a batch has none. Both APIs require every
+        // declared binding to point at something valid even when the shader ignores what it
+        // reads, and white is the value that makes ignoring it harmless: the shader
+        // multiplies by it.
+        White = device.CreateTexture(
+            new DecodedImage(1, 1, [255, 255, 255, 255], HasAlpha: false, "white"),
+            GeometryTextureKind.Colour,
+            mipmaps: false);
     }
 
     /// <summary>Drawn wherever a texture is asked for and missing.</summary>
-    public VulkanTexture Fallback { get; }
+    public IGeometryTexture Fallback { get; }
+
+    /// <summary>Solid white, bound in the lightmap slot wherever a batch has no lightmap.</summary>
+    public IGeometryTexture White { get; }
 
     /// <summary>A normal pointing straight out, bound wherever a surface has no map.</summary>
     /// <remarks>
     /// Which is how a partial set stays a perfectly good set: 250 of the game's 6,657
     /// textures have a normal map so far, and the other 6,407 look exactly as they did.
     /// </remarks>
-    public VulkanTexture Flat { get; }
+    public IGeometryTexture Flat { get; }
 
     /// <summary>Neutral occlusion, roughness and metalness, bound where a surface has none.</summary>
     /// <remarks>
@@ -115,10 +126,10 @@ public sealed class TextureCache : IDisposable
     /// before there were maps to say otherwise. A batch that binds this looks exactly as it
     /// did, which is what lets the specular lobe be switched on before the maps exist.
     /// </remarks>
-    public VulkanTexture Neutral { get; }
+    public IGeometryTexture Neutral { get; }
 
     /// <summary>A height map at mid grey, bound where a surface has none.</summary>
-    public VulkanTexture Level { get; }
+    public IGeometryTexture Level { get; }
 
     /// <summary>How large a height field is kept for the CPU, in texels.</summary>
     /// <remarks>
@@ -185,7 +196,7 @@ public sealed class TextureCache : IDisposable
             _keyed.Add(name);
         }
 
-        _textures[name] = VulkanTexture.Create(_context, keyed);
+        _textures[name] = _device.CreateTexture(keyed);
         DeviceBytes += WithMips(keyed.Width, keyed.Height);
     }
 
@@ -207,7 +218,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _textures[name] = VulkanTexture.Create(_context, image);
+        _textures[name] = _device.CreateTexture(image);
         DeviceBytes += image.Blocks.Length;
     }
 
@@ -228,7 +239,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _normals[name] = VulkanTexture.Create(_context, image);
+        _normals[name] = _device.CreateTexture(image);
         DeviceBytes += image.Blocks.Length;
     }
 
@@ -260,8 +271,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _normals[name] = VulkanTexture.Create(
-            _context, image, mipmaps: true, SamplerAddressMode.Repeat, linear: true);
+        _normals[name] = _device.CreateTexture(image, GeometryTextureKind.Data);
 
         DeviceBytes += WithMips(image.Width, image.Height);
     }
@@ -278,8 +288,8 @@ public sealed class TextureCache : IDisposable
     /// <summary>Finds a surface's normal map, or a flat one.</summary>
     /// <param name="name">The colour texture's name.</param>
     /// <returns>The map, or <see cref="Flat"/>.</returns>
-    public VulkanTexture GetNormal(string name) =>
-        name.Length > 0 && _normals.TryGetValue(name, out VulkanTexture? normal)
+    public IGeometryTexture GetNormal(string name) =>
+        name.Length > 0 && _normals.TryGetValue(name, out IGeometryTexture? normal)
             ? normal
             : Flat;
 
@@ -309,7 +319,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _orms[name] = VulkanTexture.Create(_context, image);
+        _orms[name] = _device.CreateTexture(image);
         DeviceBytes += image.Blocks.Length;
     }
 
@@ -332,8 +342,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _orms[name] = VulkanTexture.Create(
-            _context, image, mipmaps: true, SamplerAddressMode.Repeat, linear: true);
+        _orms[name] = _device.CreateTexture(image, GeometryTextureKind.Data);
 
         DeviceBytes += WithMips(image.Width, image.Height);
     }
@@ -341,8 +350,8 @@ public sealed class TextureCache : IDisposable
     /// <summary>Finds a surface's ORM map, or a neutral one.</summary>
     /// <param name="name">The colour texture's name.</param>
     /// <returns>The map, or <see cref="Neutral"/>.</returns>
-    public VulkanTexture GetOrm(string name) =>
-        name.Length > 0 && _orms.TryGetValue(name, out VulkanTexture? orm)
+    public IGeometryTexture GetOrm(string name) =>
+        name.Length > 0 && _orms.TryGetValue(name, out IGeometryTexture? orm)
             ? orm
             : Neutral;
 
@@ -398,7 +407,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _heights[name] = VulkanTexture.Create(_context, image);
+        _heights[name] = _device.CreateTexture(image);
         DeviceBytes += image.Blocks.Length;
     }
 
@@ -424,8 +433,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _heights[name] = VulkanTexture.Create(
-            _context, image, mipmaps: true, SamplerAddressMode.Repeat, linear: true);
+        _heights[name] = _device.CreateTexture(image, GeometryTextureKind.Data);
 
         DeviceBytes += WithMips(image.Width, image.Height);
     }
@@ -433,40 +441,40 @@ public sealed class TextureCache : IDisposable
     /// <summary>Finds a surface's height map, or a level one.</summary>
     /// <param name="name">The colour texture's name.</param>
     /// <returns>The map, or <see cref="Level"/>.</returns>
-    public VulkanTexture GetHeight(string name) =>
-        name.Length > 0 && _heights.TryGetValue(name, out VulkanTexture? height)
+    public IGeometryTexture GetHeight(string name) =>
+        name.Length > 0 && _heights.TryGetValue(name, out IGeometryTexture? height)
             ? height
             : Level;
 
     /// <summary>Finds a texture, or the fallback.</summary>
     /// <param name="name">Its name.</param>
     /// <returns>The texture.</returns>
-    public VulkanTexture Get(string name) =>
-        name.Length > 0 && _textures.TryGetValue(name, out VulkanTexture? texture)
+    public IGeometryTexture Get(string name) =>
+        name.Length > 0 && _textures.TryGetValue(name, out IGeometryTexture? texture)
             ? texture
             : Fallback;
 
     /// <inheritdoc/>
     public void Dispose()
     {
-        _context.Api.DeviceWaitIdle(_context.Device);
+        _device.Wait();
 
-        foreach (VulkanTexture texture in _textures.Values)
+        foreach (IGeometryTexture texture in _textures.Values)
         {
             texture.Dispose();
         }
 
-        foreach (VulkanTexture normal in _normals.Values)
+        foreach (IGeometryTexture normal in _normals.Values)
         {
             normal.Dispose();
         }
 
-        foreach (VulkanTexture orm in _orms.Values)
+        foreach (IGeometryTexture orm in _orms.Values)
         {
             orm.Dispose();
         }
 
-        foreach (VulkanTexture height in _heights.Values)
+        foreach (IGeometryTexture height in _heights.Values)
         {
             height.Dispose();
         }
@@ -478,6 +486,7 @@ public sealed class TextureCache : IDisposable
         _keyed.Clear();
 
         Fallback.Dispose();
+        White.Dispose();
         Flat.Dispose();
         Neutral.Dispose();
         Level.Dispose();

@@ -47,7 +47,14 @@ public readonly record struct TraceablePart(
 public sealed unsafe class D3D12AccelerationStructure : IDisposable
 {
     private readonly List<ComPtr<ID3D12Resource>> _owned = [];
+    private D3D12Context _context = null!;
     private ComPtr<ID3D12Resource> _topLevel;
+    private ComPtr<ID3D12Resource> _instanceBuffer;
+    private ComPtr<ID3D12Resource> _topScratch;
+    private RaytracingInstanceDesc[] _instances = [];
+    private Matrix4x4[] _transforms = [];
+    private bool[] _traced = [];
+    private bool _moved;
     private bool _disposed;
 
     private D3D12AccelerationStructure(ComPtr<ID3D12Resource> topLevel, int parts, int triangles)
@@ -55,6 +62,126 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
         _topLevel = topLevel;
         PartCount = parts;
         TriangleCount = triangles;
+    }
+
+    /// <summary>Says where a piece now stands.</summary>
+    /// <param name="part">Which piece. Zero is the room, which never moves.</param>
+    /// <param name="transform">Where it stands.</param>
+    /// <remarks>
+    /// Recorded, not done. The top level is rebuilt in <see cref="Settle"/>, once, however
+    /// many things moved — rebuilding it per movement would be a queue stall per character
+    /// per frame.
+    /// </remarks>
+    public void Move(int part, Matrix4x4 transform)
+    {
+        if (part < 0 || part >= _transforms.Length || _transforms[part] == transform)
+        {
+            return;
+        }
+
+        _transforms[part] = transform;
+        _moved = true;
+    }
+
+    /// <summary>Says whether a piece is in the picture at all.</summary>
+    /// <param name="part">Which piece.</param>
+    /// <param name="traced">Whether rays should see it.</param>
+    /// <remarks>
+    /// A hidden piece keeps its place in the list and is given an instance mask of zero, so
+    /// that the indices every caller holds stay the indices they were.
+    /// </remarks>
+    public void SetTraced(int part, bool traced)
+    {
+        if (part < 0 || part >= _traced.Length || _traced[part] == traced)
+        {
+            return;
+        }
+
+        _traced[part] = traced;
+        _moved = true;
+    }
+
+    /// <summary>Makes everything recorded since the last one true.</summary>
+    /// <exception cref="D3D12Exception">The rebuild failed.</exception>
+    /// <remarks>
+    /// Must be called after the frame fence and before anything traces — rebuilding a
+    /// structure the device is still reading is the same hazard as rewriting a vertex buffer
+    /// it has not finished with.
+    /// </remarks>
+    public void Settle()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!_moved || _instances.Length == 0)
+        {
+            return;
+        }
+
+        _moved = false;
+
+        for (int i = 0; i < _instances.Length; i++)
+        {
+            RaytracingInstanceDesc instance = _instances[i];
+            instance.InstanceMask = _traced[i] ? 0xFFu : 0u;
+            WriteTransform(_transforms[i], instance.Transform);
+            _instances[i] = instance;
+        }
+
+        void* mapped;
+        var nothing = new Silk.NET.Direct3D12.Range { Begin = 0, End = 0 };
+        D3D12Exception.ThrowIfFailed(
+            _instanceBuffer.Map(0, &nothing, &mapped), "map the instance buffer");
+
+        try
+        {
+            _instances.AsSpan().CopyTo(new Span<RaytracingInstanceDesc>(mapped, _instances.Length));
+        }
+        finally
+        {
+            _instanceBuffer.Unmap(0, (Silk.NET.Direct3D12.Range*)null);
+        }
+
+        var inputs = new BuildRaytracingAccelerationStructureInputs
+        {
+            Type = RaytracingAccelerationStructureType.TopLevel,
+            Flags = RaytracingAccelerationStructureBuildFlags.PreferFastTrace,
+            NumDescs = (uint)_instances.Length,
+            DescsLayout = ElementsLayout.Array,
+        };
+
+        inputs.Anonymous.InstanceDescs = _instanceBuffer.GetGPUVirtualAddress();
+
+        var description = new BuildRaytracingAccelerationStructureDesc
+        {
+            DestAccelerationStructureData = _topLevel.GetGPUVirtualAddress(),
+            Inputs = inputs,
+            SourceAccelerationStructureData = 0,
+            ScratchAccelerationStructureData = _topScratch.GetGPUVirtualAddress(),
+        };
+
+        ID3D12GraphicsCommandList4* list = _context.BeginOneShot();
+        list->BuildRaytracingAccelerationStructure(
+            &description, 0, (RaytracingAccelerationStructurePostbuildInfoDesc*)null);
+
+        _context.EndOneShot();
+    }
+
+    /// <summary>Says that a deforming piece has a new shape.</summary>
+    /// <param name="key">Which animated batch.</param>
+    /// <param name="positions">Its vertices now.</param>
+    /// <remarks>
+    /// Not yet implemented on this backend. A character has no skeleton — an <c>.ACT</c>
+    /// clip rewrites its vertices outright — so a structure that ignores this holds the pose
+    /// the model was authored in, and rays leaving an animated shoulder start inside a
+    /// rest-pose body. Doing it needs the bottom level rebuilt from a rewritten vertex
+    /// buffer rather than the top level rebuilt from a transform, which is the one thing
+    /// here that is genuinely more than bookkeeping.
+    /// </remarks>
+    public void Reshape(int key, ReadOnlySpan<Vector3> positions)
+    {
+        _ = key;
+        _ = positions;
+        _ = _instances;
     }
 
     /// <summary>How many pieces of geometry are in it.</summary>
@@ -108,13 +235,27 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
             D3D12Context.Barrier(list, null);
 
             ComPtr<ID3D12Resource> topLevel =
-                BuildTopLevel(context, list, parts, bottomLevels, owned, scratch);
+                BuildTopLevel(context, list, parts, bottomLevels, owned, scratch, out var made);
 
             context.EndOneShot();
 
-            var structure = new D3D12AccelerationStructure(topLevel, parts.Count, triangles);
+            var structure = new D3D12AccelerationStructure(topLevel, parts.Count, triangles)
+            {
+                _context = context,
+                _instances = made.Instances,
+                _instanceBuffer = made.Buffer,
+                _topScratch = made.Scratch,
+                _transforms = [.. parts.Select(part => part.Transform)],
+                _traced = [.. parts.Select(_ => true)],
+            };
+
             structure._owned.AddRange(owned);
             owned.Clear();
+
+            // The top level's scratch is kept rather than freed with the rest: Settle
+            // rebuilds it whenever anything moves, and allocating a scratch buffer per
+            // movement would be an allocation per character per frame.
+            scratch.Remove(made.Scratch);
 
             return structure;
         }
@@ -187,6 +328,7 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
         }
 
         _owned.Clear();
+        _topScratch.Dispose();
         _topLevel.Dispose();
     }
 
@@ -248,7 +390,9 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
         IReadOnlyList<TraceablePart> parts,
         ulong[] bottomLevels,
         List<ComPtr<ID3D12Resource>> owned,
-        List<ComPtr<ID3D12Resource>> scratch)
+        List<ComPtr<ID3D12Resource>> scratch,
+        out (RaytracingInstanceDesc[] Instances, ComPtr<ID3D12Resource> Buffer,
+             ComPtr<ID3D12Resource> Scratch) made)
     {
         var instances = new RaytracingInstanceDesc[Math.Max(1, parts.Count)];
 
@@ -290,6 +434,7 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
         result.RemoveAt(0);
         owned.AddRange(result);
 
+        made = (instances[..parts.Count], buffer, scratch[^1]);
         return topLevel;
     }
 
