@@ -1,3 +1,4 @@
+using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Rendering.Materials;
 

@@ -169,6 +169,7 @@ public static class Program
                 options.Improved,
                 options.Wind,
                 options.Packs,
+                options.Backend,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height,
@@ -817,6 +818,15 @@ public static class Program
 
         public string? RayTracing { get; init; }
 
+        /// <summary>Which graphics API to render through, or null for whichever suits.</summary>
+        /// <remarks>
+        /// The reason the reference renders are worth having twice. The same room, the same
+        /// camera and the same shaders on either backend, with two pictures that can be put
+        /// side by side — which is the only way to tell a backend that draws the game from
+        /// one that merely draws.
+        /// </remarks>
+        public string? Backend { get; init; }
+
         public string? Output { get; init; }
 
         public string? Input { get; init; }
@@ -889,7 +899,7 @@ public static class Program
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
             string? packs = null;
             string? input = null;
-            string? timeblock = null, camera = null, rayTracing = null;
+            string? timeblock = null, camera = null, rayTracing = null, backend = null;
             int width = 1024, height = 768;
             bool deep = false;
             bool walkOverlay = false;
@@ -958,6 +968,9 @@ public static class Program
                         break;
                     case "--rt" when i + 1 < args.Length:
                         rayTracing = args[++i];
+                        break;
+                    case "--backend" when i + 1 < args.Length:
+                        backend = args[++i];
                         break;
                     case "--camera" when i + 1 < args.Length:
                         camera = args[++i];
@@ -1045,6 +1058,7 @@ public static class Program
                 Timeblock = timeblock,
                 Camera = camera,
                 RayTracing = rayTracing,
+                Backend = backend,
                 Output = output,
                 Input = input,
                 Width = width,

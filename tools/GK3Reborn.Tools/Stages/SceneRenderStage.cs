@@ -1,4 +1,6 @@
 ﻿using System.Globalization;
+using GK3Reborn.Rendering.Direct3D12;
+using GK3Reborn.Rendering.Geometry;
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats;
@@ -77,6 +79,7 @@ public sealed class SceneRenderStage
     /// keeps two renders of one room the same picture; any other value is for looking at
     /// the movement itself, by rendering the same shot twice and comparing them.
     /// </param>
+    /// <param name="backend">Which graphics API to render through, or null for whichever suits.</param>
     /// <param name="packs">Where the ReBarn volumes are, or null to use loose content only.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
@@ -104,6 +107,7 @@ public sealed class SceneRenderStage
         bool improved,
         float wind,
         string? packs,
+        string? backend,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -113,10 +117,18 @@ public sealed class SceneRenderStage
 
         using GameArchives archives = GameArchives.Open(sourceDirectory);
 
-        using VulkanContext context = VulkanContext.CreateHeadless();
-        _log($"device: {context.DeviceName}");
+        if (!RenderBackends.TryParse(backend, out RenderBackend wanted))
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE011",
+                DiagnosticSeverity.Error,
+                $"Unknown backend '{backend}'; expected vulkan or d3d12."));
 
-        using var renderer = SceneRenderer.Create(context);
+            return false;
+        }
+
+        using IOffscreenRenderer renderer = OpenRenderer(wanted, rayTracing, diagnostics);
+        _log($"device: {renderer.DeviceName} ({renderer.Backend})");
 
         if (RayTracingSettings.Parse(rayTracing) is { } quality)
         {
@@ -125,7 +137,7 @@ public sealed class SceneRenderStage
                 diagnostics.Add(new Diagnostic(
                     "SCENE009",
                     DiagnosticSeverity.Warning,
-                    $"{context.DeviceName} offers no ray tracing; rendering without it."));
+                    $"{renderer.DeviceName} offers no ray tracing; rendering without it."));
             }
 
             renderer.Quality = quality;
@@ -374,6 +386,18 @@ public sealed class SceneRenderStage
 
         DecodedImage image = renderer.Render(geometry, width, height, camera);
 
+        // Anything the Direct3D debug layer said, which is otherwise written into a queue
+        // nobody reads. A silent frame prints nothing.
+        if (renderer is D3D12SceneRenderer direct)
+        {
+            _log("d3d: " + direct.LastFrame);
+
+            foreach (string message in direct.Messages)
+            {
+                _log("d3d: " + message);
+            }
+        }
+
         string? directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
         if (directory is not null)
         {
@@ -446,6 +470,39 @@ public sealed class SceneRenderStage
             Path.GetDirectoryName(enhanced.TrimEnd(Path.DirectorySeparatorChar, '/')) ?? ".",
             what);
 
+    /// <summary>Opens the renderer the caller asked for.</summary>
+    /// <param name="backend">Which API, already resolved from what was typed.</param>
+    /// <param name="rayTracing">What quality was asked for, so the traced variant is built.</param>
+    /// <param name="diagnostics">Where a fallback is reported.</param>
+    /// <returns>The renderer.</returns>
+    /// <remarks>
+    /// Direct3D where it was asked for and can be had, Vulkan otherwise. A machine that
+    /// cannot open a Direct3D device gets told so and gets a picture anyway, because a
+    /// reference render that refuses to run is worth less than one from the other backend.
+    /// </remarks>
+    private static IOffscreenRenderer OpenRenderer(
+        RenderBackend backend, string? rayTracing, DiagnosticBag diagnostics)
+    {
+        bool traced =
+            RayTracingSettings.Parse(rayTracing) is { } quality && quality != RayTracingQuality.None;
+
+        if (RenderBackends.Resolve(backend) == RenderBackend.Direct3D12)
+        {
+            try
+            {
+                return D3D12SceneRenderer.Create(traced);
+            }
+            catch (D3D12Exception exception)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE012",
+                    DiagnosticSeverity.Warning,
+                    $"Direct3D would not start ({exception.Message}); rendering with Vulkan."));
+            }
+        }
+
+        return SceneRenderer.Create(VulkanContext.CreateHeadless());
+    }
     /// <summary>
     /// The material library, from the workspace the enhanced textures live in.
     /// </summary>

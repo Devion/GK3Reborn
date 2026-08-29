@@ -1,3 +1,4 @@
+using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Formats.Bitmaps;
 
 namespace GK3Reborn.Rendering;

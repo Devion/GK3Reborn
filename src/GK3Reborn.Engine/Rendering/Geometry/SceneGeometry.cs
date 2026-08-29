@@ -5,11 +5,9 @@ using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
-using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Materials;
-using Silk.NET.Vulkan;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Geometry;
 
 /// <summary>
 /// Everything a scene needs on the GPU: its meshes, its textures and its baked lighting.
@@ -104,22 +102,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private IGeometryTexture? _lightmap;
     private IReadOnlyList<Vector4>? _lightmapRegions;
     private LightmapAtlas? _lightmapAtlas;
-
-    /// <summary>
-    /// Pools opened after the room was built, for material sets nothing knew it needed.
-    /// </summary>
-    /// <remarks>
-    /// The pool <see cref="Finish"/> creates is sized for exactly the batches the room
-    /// loaded, which is right for everything the loader knows about and wrong the moment a
-    /// face starts moving: repainting a texture is a new combination of images and
-    /// therefore a new set. Each of these holds a block of them, and another is opened when
-    /// one fills, which keeps the common case — a room where nothing repaints — costing
-    /// nothing at all.
-    /// </remarks>
-    private readonly List<DescriptorPool> _extraPools = [];
-
-    /// <summary>How many sets each pool opened after loading holds.</summary>
-    private const int ExtraPoolSets = 64;
 
     /// <summary>Material sets for repainted surfaces, by what they draw.</summary>
     /// <remarks>
@@ -2607,7 +2589,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// <remarks>
         /// Carried through to the shader so a shadow ray leaving this pixel knows to skip
         /// the models: GK3's people are a stack of overlapping shells and a ray leaving a
-        /// shirt hits the arm inside it. See <see cref="RayTracingScene.MaskFor"/>.
+        /// shirt hits the arm inside it. See <c>RayTracingScene.MaskFor</c>.
         /// </remarks>
         public bool IsModel { get; init; }
 

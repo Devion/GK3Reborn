@@ -35,7 +35,15 @@ namespace GK3Reborn.Rendering.Direct3D12;
 public sealed unsafe class D3D12MeshPass : IDisposable
 {
     /// <summary>How many bytes one vertex takes in either stream.</summary>
-    private const uint VertexStride = 32;
+    /// <remarks>
+    /// Position, normal, texture coordinate, lightmap coordinate: twelve, twelve, eight and
+    /// eight. Taken from the struct rather than written down, because a stride that disagrees
+    /// with it does not fail — the second stream is the previous pose, so the vertex shader
+    /// reads it from part-way through a vertex and reports movement nothing made, and the
+    /// first stream simply draws nothing anybody can recognise.
+    /// </remarks>
+    private static readonly uint VertexStride =
+        (uint)System.Runtime.InteropServices.Marshal.SizeOf<MeshVertex>();
 
     private readonly D3D12Pipeline _pipeline;
     private bool _disposed;
@@ -45,6 +53,12 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         _pipeline = pipeline;
         RayTracing = rayTracing;
     }
+
+    /// <summary>How many draws the last Record issued.</summary>
+    public int Drawn { get; private set; }
+
+    /// <summary>How many indices those draws covered.</summary>
+    public uint Indices { get; private set; }
 
     /// <summary>Whether the ray-tracing paths are compiled into these shaders.</summary>
     public bool RayTracing { get; }
@@ -79,12 +93,11 @@ public sealed unsafe class D3D12MeshPass : IDisposable
             new(0, Format.FormatR32G32B32Float, 0, 0),
             new(1, Format.FormatR32G32B32Float, 12, 0),
             new(2, Format.FormatR32G32Float, 24, 0),
-            new(3, Format.FormatR32G32Float, 32 - 8, 0),
+            new(3, Format.FormatR32G32Float, 32, 0),
 
+            // The previous pose, and only its position: that is all the vertex shader
+            // declares of it, and an element the shader has no input for is ignored.
             new(4, Format.FormatR32G32B32Float, 0, 1),
-            new(5, Format.FormatR32G32B32Float, 12, 1),
-            new(6, Format.FormatR32G32Float, 24, 1),
-            new(7, Format.FormatR32G32Float, 32 - 8, 1),
         ];
 
         D3D12Pipeline pipeline = D3D12Pipeline.CreateGraphics(
@@ -102,9 +115,13 @@ public sealed unsafe class D3D12MeshPass : IDisposable
             depthWrite: true,
             depthTest: true,
 
-            // GK3's world is left-handed and its scenes were authored for Direct3D, so a
-            // front face is clockwise and the back of one is what is thrown away.
-            cull: CullMode.Back);
+            // Nothing is culled, which is what the Vulkan pipeline does and not an oversight
+            // on either. GK3’s geometry is not consistently wound - a room is a BSP whose
+            // surfaces face whichever way the level editor left them, and several of the
+            // placed models are single-sided sheets meant to be seen from both sides. Culling
+            // back faces throws away about half of a room, which looks less like a culling
+            // mistake than like a renderer that draws nothing.
+            cull: CullMode.None);
 
         return new D3D12MeshPass(pipeline, rayTracing);
     }
@@ -188,6 +205,8 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         uint constants = (uint)_pipeline.Signature.PushConstantParameter;
 
         VertexBufferView* streams = stackalloc VertexBufferView[2];
+        Drawn = 0;
+        Indices = 0;
 
         foreach (SceneDraw draw in draws)
         {
@@ -207,6 +226,8 @@ public sealed unsafe class D3D12MeshPass : IDisposable
             list->IASetVertexBuffers(0, 2, streams);
             list->IASetIndexBuffer(&indices);
             list->DrawIndexedInstanced(draw.IndexCount, 1, 0, 0, 0);
+            Drawn++;
+            Indices += draw.IndexCount;
 
             // Everything else about the draw is already bound, so a shell is one push and one
             // draw. That is what makes twelve of them affordable on a model.

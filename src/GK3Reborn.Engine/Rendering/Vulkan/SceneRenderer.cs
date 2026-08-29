@@ -34,7 +34,7 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// time, because no stage here carries anything over from a frame before.
 /// </para>
 /// </remarks>
-public sealed unsafe class SceneRenderer : IDisposable
+public sealed unsafe class SceneRenderer : IOffscreenRenderer
 {
     /// <summary>
     /// sRGB, not UNORM.
@@ -79,6 +79,12 @@ public sealed unsafe class SceneRenderer : IDisposable
     public MeshPipeline Pipeline => _pipeline;
 
     /// <summary>Whether a ray-traced pipeline was built.</summary>
+    /// <inheritdoc/>
+    public RenderBackend Backend => RenderBackend.Vulkan;
+
+    /// <inheritdoc/>
+    public string DeviceName => _context.DeviceName;
+
     public bool SupportsRayTracing => _rayTraced is not null;
 
     /// <summary>How much ray tracing to do.</summary>

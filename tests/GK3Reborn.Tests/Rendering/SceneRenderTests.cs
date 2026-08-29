@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;

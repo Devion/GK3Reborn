@@ -29,6 +29,13 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// single set would be rewritten while the device was still reading it for the frame before
 /// — a room lit by two frames at once, which reads as a flicker rather than as a bug.
 /// </para>
+/// <para>
+/// <b>The descriptors live in the geometry device's heap rather than one of their own.</b> A
+/// command list may bind one shader-visible heap of each kind at a time, so a frame table and
+/// a material table that came from different heaps could not both be bound — the second is
+/// refused. This was written with its own heap first; the picture came out black and the
+/// debug layer said exactly why in one line.
+/// </para>
 /// </remarks>
 public sealed unsafe class D3D12FrameSet : IDisposable
 {
@@ -41,7 +48,8 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     private const uint DescriptorsPerFrame = 5;
 
     private readonly D3D12Context _context;
-    private readonly D3D12DescriptorHeap _views;
+    private readonly D3D12GeometryDevice _geometry;
+    private readonly uint _first;
     private readonly D3D12Buffer[] _uniforms;
     private readonly D3D12Buffer[] _rig;
     private readonly D3D12Buffer[] _cells;
@@ -52,7 +60,8 @@ public sealed unsafe class D3D12FrameSet : IDisposable
 
     private D3D12FrameSet(
         D3D12Context context,
-        D3D12DescriptorHeap views,
+        D3D12GeometryDevice geometry,
+        uint first,
         D3D12Buffer[] uniforms,
         D3D12Buffer[] rig,
         D3D12Buffer[] cells,
@@ -60,7 +69,8 @@ public sealed unsafe class D3D12FrameSet : IDisposable
         bool rayTracing)
     {
         _context = context;
-        _views = views;
+        _geometry = geometry;
+        _first = first;
         _uniforms = uniforms;
         _rig = rig;
         _cells = cells;
@@ -91,24 +101,20 @@ public sealed unsafe class D3D12FrameSet : IDisposable
 
     /// <summary>Creates the sets.</summary>
     /// <param name="context">The device.</param>
+    /// <param name="geometry">Whose heap the descriptors are taken from.</param>
     /// <param name="frames">How many frames are kept in flight.</param>
     /// <param name="rayTracing">Whether the acceleration structure slot is filled.</param>
     /// <returns>The sets.</returns>
     /// <exception cref="D3D12Exception">Something on the device refused.</exception>
-    public static D3D12FrameSet Create(D3D12Context context, int frames, bool rayTracing)
+    public static D3D12FrameSet Create(
+        D3D12Context context, D3D12GeometryDevice geometry, int frames, bool rayTracing)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(geometry);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frames);
 
-        D3D12DescriptorHeap? views = null;
-
-        try
         {
-            views = D3D12DescriptorHeap.Create(
-                context.Device,
-                DescriptorHeapType.CbvSrvUav,
-                (uint)frames * DescriptorsPerFrame,
-                shaderVisible: true);
+            uint first = geometry.AllocateViews((uint)frames * DescriptorsPerFrame);
 
             var uniforms = new D3D12Buffer[frames];
             var rig = new D3D12Buffer[frames];
@@ -131,19 +137,15 @@ public sealed unsafe class D3D12FrameSet : IDisposable
                 reaching[i] = D3D12Buffer.CreateHostVisible(
                     context, (ulong)(SceneLightGrid.MostIndices * sizeof(int)));
 
-                uint first = views.Allocate(DescriptorsPerFrame);
-                uniforms[i].DescribeConstants(context, views.Cpu(first));
-                rig[i].DescribeRead(context, views.Cpu(first + 1));
-                cells[i].DescribeRead(context, views.Cpu(first + 2));
-                reaching[i].DescribeRead(context, views.Cpu(first + 3));
+                uint at = first + ((uint)i * DescriptorsPerFrame);
+                uniforms[i].DescribeConstants(context, geometry.ViewCpu(at));
+                rig[i].DescribeRead(context, geometry.ViewCpu(at + 1));
+                cells[i].DescribeRead(context, geometry.ViewCpu(at + 2));
+                reaching[i].DescribeRead(context, geometry.ViewCpu(at + 3));
             }
 
-            return new D3D12FrameSet(context, views, uniforms, rig, cells, reaching, rayTracing);
-        }
-        catch
-        {
-            views?.Dispose();
-            throw;
+            return new D3D12FrameSet(
+                context, geometry, first, uniforms, rig, cells, reaching, rayTracing);
         }
     }
 
@@ -151,7 +153,7 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// <param name="frame">Which frame in flight.</param>
     /// <returns>The handle.</returns>
     public GpuDescriptorHandle Table(int frame) =>
-        _views.Gpu((uint)(frame % Count) * DescriptorsPerFrame);
+        _geometry.ViewGpu(_first + ((uint)(frame % Count) * DescriptorsPerFrame));
 
     /// <summary>Points the ray-tracing paths at the scene they trace against.</summary>
     /// <param name="scene">The acceleration structure.</param>
@@ -174,7 +176,7 @@ public sealed unsafe class D3D12FrameSet : IDisposable
         for (int i = 0; i < Count; i++)
         {
             direct.Structure.Describe(
-                _context, _views.Cpu(((uint)i * DescriptorsPerFrame) + 4));
+                _context, _geometry.ViewCpu(_first + ((uint)i * DescriptorsPerFrame) + 4));
         }
     }
 
@@ -325,7 +327,6 @@ public sealed unsafe class D3D12FrameSet : IDisposable
             }
         }
 
-        _views.Dispose();
     }
 
     private Matrix4x4? _previousViewProjection;

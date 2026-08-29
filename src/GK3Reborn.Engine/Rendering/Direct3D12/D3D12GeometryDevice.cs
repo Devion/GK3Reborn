@@ -184,6 +184,15 @@ internal sealed class D3D12GeometryUploads : IGeometryUploads
 /// reason <see cref="D3D12DescriptorHeap"/> is one.
 /// </para>
 /// <para>
+/// <b>One heap, and everything a draw binds has to be in it.</b> A command list may have one
+/// shader-visible heap of each kind bound at a time, so a frame's own descriptors cannot live
+/// in a heap of their own beside the materials' — the second table bound would come from the
+/// wrong heap and Direct3D refuses it. That is why <see cref="Reserve"/> and the allocation
+/// below are public to the backend: the frame set takes its slots from here rather than
+/// opening a heap of its own. It was written the other way first, and the debug layer said so
+/// in one line while the picture said only that it was black.
+/// </para>
+/// <para>
 /// <b>The samplers are one run, shared by every material.</b> They cannot be per material:
 /// Direct3D keeps samplers in a heap of their own and a shader-visible one holds two thousand
 /// and forty-eight descriptors, so five apiece would run out at four hundred and nine batches
@@ -241,6 +250,25 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
 
     /// <summary>Where the one shared run of samplers starts, for a draw to bind.</summary>
     internal GpuDescriptorHandle SamplerTable => _samplers.Gpu(0);
+
+    /// <summary>Takes a run of slots in the one shader-visible view heap.</summary>
+    /// <param name="count">How many, which must be contiguous.</param>
+    /// <returns>The index of the first.</returns>
+    /// <remarks>
+    /// For whatever else a frame binds beside its materials. There is one heap and everything
+    /// bound together has to come from it; see the note on the class.
+    /// </remarks>
+    internal uint AllocateViews(uint count) => _views.Allocate(count);
+
+    /// <summary>Where a view slot is, for the host to write.</summary>
+    /// <param name="index">Which slot.</param>
+    /// <returns>The handle.</returns>
+    internal CpuDescriptorHandle ViewCpu(uint index) => _views.Cpu(index);
+
+    /// <summary>Where a view slot is, for a shader to read.</summary>
+    /// <param name="index">Which slot.</param>
+    /// <returns>The handle.</returns>
+    internal GpuDescriptorHandle ViewGpu(uint index) => _views.Gpu(index);
 
     /// <summary>How many view descriptors the materials have taken.</summary>
     public uint ViewDescriptorsUsed => _views.Used;
