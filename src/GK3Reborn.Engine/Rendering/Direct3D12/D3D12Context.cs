@@ -157,7 +157,14 @@ public sealed unsafe class D3D12Context : IDisposable
         {
             HeapType.Upload => ResourceStates.GenericRead,
             HeapType.Readback => ResourceStates.CopyDest,
-            _ => state,
+
+            // A buffer in device memory is created in Common whatever is asked for. The
+            // runtime does not refuse another state, it ignores it and says so in the debug
+            // layer, which means the caller's idea of the state and the runtime's have
+            // silently diverged before the first barrier. An acceleration structure is the
+            // one exception and must be created in its own state.
+            _ when state == ResourceStates.RaytracingAccelerationStructure => state,
+            _ => ResourceStates.Common,
         };
 
         var properties = new HeapProperties
