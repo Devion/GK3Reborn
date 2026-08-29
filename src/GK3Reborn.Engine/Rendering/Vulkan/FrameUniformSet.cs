@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using GK3Reborn.Rendering.Geometry;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Scenes;
 using Silk.NET.Vulkan;

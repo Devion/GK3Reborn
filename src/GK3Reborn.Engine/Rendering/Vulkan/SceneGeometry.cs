@@ -5,6 +5,7 @@ using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Foundation.Diagnostics;
+using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Materials;
 using Silk.NET.Vulkan;
 

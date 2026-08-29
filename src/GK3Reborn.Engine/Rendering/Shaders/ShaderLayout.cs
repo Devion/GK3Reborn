@@ -121,13 +121,33 @@ public sealed record ShaderLayout(
     IReadOnlyList<ShaderBinding> Bindings,
     uint PushConstantBytes = 0)
 {
-    /// <summary>The most push constant bytes both backends certainly allow.</summary>
+    /// <summary>The most push constant bytes a pipeline may declare.</summary>
     /// <remarks>
-    /// Vulkan's guaranteed minimum for <c>maxPushConstantsSize</c>. Direct3D's limit is
-    /// larger in bytes but shared with everything else in the root signature, so this is
-    /// the number that keeps a pipeline portable.
+    /// <para>
+    /// Two hundred and fifty-six, which is what every desktop driver this renderer has run
+    /// on offers and what a Direct3D root signature holds in total. It is <em>not</em>
+    /// Vulkan's guarantee: <c>maxPushConstantsSize</c> is only promised to be a hundred and
+    /// twenty-eight, and the mesh pipeline's draw constants are a hundred and ninety-two —
+    /// two matrices alone are past the floor. See <see cref="Geometry.DrawConstants"/>.
+    /// </para>
+    /// <para>
+    /// So this is the practical ceiling rather than the portable one, and the check exists
+    /// to catch a block that could not work anywhere rather than to promise one that works
+    /// everywhere. Direct3D counts its root signature in thirty-two-bit words and allows
+    /// sixty-four; two hundred and fifty-six bytes is all of them, leaving no room for a
+    /// descriptor table, so a pipeline that actually asked for this much would fail there
+    /// first and say so.
+    /// </para>
     /// </remarks>
-    public const uint MaximumPushConstantBytes = 128;
+    public const uint MaximumPushConstantBytes = 256;
+
+    /// <summary>The most push constant bytes Vulkan promises every device will take.</summary>
+    /// <remarks>
+    /// Worth having as a number even though nothing enforces it, because the day a device
+    /// refuses a pipeline layout this is the first thing to compare against — and the fix
+    /// is a uniform buffer rather than a smaller struct.
+    /// </remarks>
+    public const uint GuaranteedPushConstantBytes = 128;
 
     /// <summary>A layout that binds nothing.</summary>
     public static ShaderLayout Empty { get; } = new([]);
