@@ -87,6 +87,14 @@ public sealed unsafe class D3D12Context : IDisposable
     /// </remarks>
     public bool SupportsRayTracing => Adapter1.Tiers.HasFlag(RenderCapabilityTier.RayTracing);
 
+    /// <summary>The adapter's locally unique identifier, eight bytes.</summary>
+    /// <remarks>
+    /// How Streamline names an adapter on this backend — Vulkan hands it a physical device
+    /// handle instead, which is the one place the two disagree about identity. DXGI has it in
+    /// the adapter description, so there is nothing to derive.
+    /// </remarks>
+    public byte[] AdapterLuid { get; private set; } = new byte[8];
+
     /// <summary>Whether the debug layer is on for this device.</summary>
     public bool Validating { get; private set; }
 
@@ -638,6 +646,10 @@ public sealed unsafe class D3D12Context : IDisposable
                     && software == chosen.Kind.Equals("software", StringComparison.Ordinal))
                 {
                     _adapter = candidate;
+
+                    BitConverter.TryWriteBytes(AdapterLuid.AsSpan(0), description.AdapterLuid.Low);
+                    BitConverter.TryWriteBytes(AdapterLuid.AsSpan(4), description.AdapterLuid.High);
+
                     return;
                 }
             }

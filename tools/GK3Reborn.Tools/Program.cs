@@ -170,6 +170,8 @@ public static class Program
                 options.Wind,
                 options.Packs,
                 options.Backend,
+                options.Dlss,
+                options.Runtimes,
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height,
@@ -827,6 +829,22 @@ public static class Program
         /// </remarks>
         public string? Backend { get; init; }
 
+        /// <summary>Which upscaler to run, and how hard, or null for none.</summary>
+        /// <remarks>
+        /// A reference render with an upscaler in it is worth having for one reason above
+        /// all: an upscaler that is running and doing nothing looks exactly like one that is
+        /// not running, and the only way to tell is a picture drawn small and shown large.
+        /// </remarks>
+        public string? Dlss { get; init; }
+
+        /// <summary>Where the upscaler runtimes are, or null to look beside the tool.</summary>
+        /// <remarks>
+        /// A game ships them in its own libs directory and finds them there. A tool run out
+        /// of a build tree has no such directory, so a reference render with DLSS in it has
+        /// to be pointed at them.
+        /// </remarks>
+        public string? Runtimes { get; init; }
+
         public string? Output { get; init; }
 
         public string? Input { get; init; }
@@ -899,7 +917,7 @@ public static class Program
             string? source = null, workspace = null, ffmpeg = null, model = null, output = null;
             string? packs = null;
             string? input = null;
-            string? timeblock = null, camera = null, rayTracing = null, backend = null;
+            string? timeblock = null, camera = null, rayTracing = null, backend = null, dlss = null, runtimes = null;
             int width = 1024, height = 768;
             bool deep = false;
             bool walkOverlay = false;
@@ -971,6 +989,15 @@ public static class Program
                         break;
                     case "--backend" when i + 1 < args.Length:
                         backend = args[++i];
+                        break;
+                    case "--dlss" when i + 1 < args.Length:
+                        dlss = args[++i];
+                        break;
+                    case "--dlss":
+                        dlss = "quality";
+                        break;
+                    case "--runtimes" when i + 1 < args.Length:
+                        runtimes = args[++i];
                         break;
                     case "--camera" when i + 1 < args.Length:
                         camera = args[++i];
@@ -1059,6 +1086,8 @@ public static class Program
                 Camera = camera,
                 RayTracing = rayTracing,
                 Backend = backend,
+                Dlss = dlss,
+                Runtimes = runtimes,
                 Output = output,
                 Input = input,
                 Width = width,

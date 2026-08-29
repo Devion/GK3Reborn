@@ -11,9 +11,8 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Rendering.Upscaling;
-using Silk.NET.Vulkan;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Upscaling;
 
 /// <summary>
 /// NVIDIA Streamline: the loader every NGX feature is reached through.
@@ -171,6 +170,7 @@ public sealed unsafe class Streamline : IDisposable
     private readonly delegate* unmanaged[Cdecl]<void*, ulong, uint> _init;
     private readonly delegate* unmanaged[Cdecl]<uint> _shutdown;
     private readonly delegate* unmanaged[Cdecl]<void*, uint> _setVulkanInfo;
+    private readonly delegate* unmanaged[Cdecl]<void*, uint> _setD3DDevice;
     private readonly delegate* unmanaged[Cdecl]<uint, void*, uint> _isFeatureSupported;
     private readonly delegate* unmanaged[Cdecl]<uint, void*, uint> _getFeatureRequirements;
     private readonly delegate* unmanaged[Cdecl]<uint, byte*, void**, uint> _getFeatureFunction;
@@ -201,6 +201,7 @@ public sealed unsafe class Streamline : IDisposable
         _init = (delegate* unmanaged[Cdecl]<void*, ulong, uint>)Entry("slInit");
         _shutdown = (delegate* unmanaged[Cdecl]<uint>)Entry("slShutdown");
         _setVulkanInfo = (delegate* unmanaged[Cdecl]<void*, uint>)Entry("slSetVulkanInfo");
+        _setD3DDevice = (delegate* unmanaged[Cdecl]<void*, uint>)Entry("slSetD3DDevice");
         _isFeatureSupported =
             (delegate* unmanaged[Cdecl]<uint, void*, uint>)Entry("slIsFeatureSupported");
         _getFeatureRequirements =
@@ -453,7 +454,79 @@ public sealed unsafe class Streamline : IDisposable
             VkPhysicalDevice = physicalDevice,
         };
 
-        uint answer = _isFeatureSupported(FeatureSuperResolution, &adapter);
+        return Examine(&adapter);
+    }
+
+    /// <summary>
+    /// Tells Streamline about the Direct3D device the renderer made, and asks whether it can
+    /// run DLSS.
+    /// </summary>
+    /// <param name="device">The <c>ID3D12Device</c>.</param>
+    /// <param name="luid">The adapter's locally unique identifier, eight bytes.</param>
+    /// <returns>True when DLSS is usable on this device.</returns>
+    /// <remarks>
+    /// <para>
+    /// Markedly simpler than the Vulkan side, and the difference is much of why that backend
+    /// is the default on Windows. Vulkan's manual-hooking mode needs
+    /// <c>sl.interposer.dll</c> loaded in place of <c>vulkan-1.dll</c>, the surface created
+    /// through it, and <c>slSetVulkanInfo</c> then <em>not</em> called at all; getting one of
+    /// those three wrong costs frame generation silently, and getting them wrong together
+    /// costs the swapchain. Direct3D wants the device pointer and nothing else.
+    /// </para>
+    /// <para>
+    /// The adapter is named by its LUID rather than by a device handle, which is the one
+    /// place the two APIs disagree about identity. DXGI hands the same eight bytes out of
+    /// <c>DXGI_ADAPTER_DESC</c>, so there is nothing to derive.
+    /// </para>
+    /// </remarks>
+    public bool AttachDirect3D(nint device, ReadOnlySpan<byte> luid)
+    {
+        if (_setD3DDevice is null)
+        {
+            Log.Warning("WARNING GK3R3438: this Streamline has no slSetD3DDevice.");
+            return false;
+        }
+
+        _device = device;
+
+        uint result = _setD3DDevice((void*)device);
+
+        if (result != 0)
+        {
+            Log.Warning($"WARNING GK3R3437: Streamline would not take the device (code {result}).");
+            return false;
+        }
+
+        _attached = true;
+
+        byte* bytes = stackalloc byte[8];
+
+        for (int i = 0; i < luid.Length && i < 8; i++)
+        {
+            bytes[i] = luid[i];
+        }
+
+        var adapter = new SlAdapterInfo
+        {
+            Header = SlHeader.Of(
+                0x0677315f, 0xa746, 0x4492, 0x9f, 0x42, 0xcb, 0x61, 0x42, 0xc9, 0xc3, 0xd4, 1),
+            DeviceLuid = bytes,
+            DeviceLuidSizeInBytes = 8,
+        };
+
+        return Examine(&adapter);
+    }
+
+    /// <summary>Asks the adapter what of DLSS it can actually do.</summary>
+    /// <param name="adapter">Which adapter, named the way the attached API names one.</param>
+    /// <returns>True when super resolution is usable.</returns>
+    /// <remarks>
+    /// The same questions whichever API was attached, which is why it is one method: what a
+    /// GeForce supports has nothing to do with how the renderer talks to it.
+    /// </remarks>
+    private bool Examine(SlAdapterInfo* adapter)
+    {
+        uint answer = _isFeatureSupported(FeatureSuperResolution, adapter);
 
         Supported = answer == 0;
 
@@ -474,7 +547,7 @@ public sealed unsafe class Streamline : IDisposable
 
         if (_denoiser != 0)
         {
-            uint denoiser = _isFeatureSupported(_denoiser, &adapter);
+            uint denoiser = _isFeatureSupported(_denoiser, adapter);
 
             if (denoiser != 0)
             {
@@ -485,13 +558,14 @@ public sealed unsafe class Streamline : IDisposable
         }
 
         if (HasFrameGeneration &&
-            _isFeatureSupported(FeatureFrameGeneration, &adapter) != 0)
+            _isFeatureSupported(FeatureFrameGeneration, adapter) != 0)
         {
             HasFrameGeneration = false;
         }
 
         return true;
     }
+
 
     /// <summary>Sets what the feature should do, for the sizes now in use.</summary>
     /// <param name="quality">Which rung of the ladder.</param>
@@ -503,7 +577,7 @@ public sealed unsafe class Streamline : IDisposable
     public bool SetDlssOptions(
         UpscalerQuality quality,
         int preset,
-        Extent2D display,
+        (uint Width, uint Height) display,
         bool highDynamicRange,
         bool rayReconstruction)
     {
@@ -638,11 +712,11 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>Runs the feature over one frame.</summary>
-    /// <param name="command">The frame's command buffer.</param>
+    /// <param name="commandList">The frame&#8217;s command buffer or command list.</param>
     /// <param name="frame">What to upscale.</param>
     /// <param name="rayReconstruction">Whether the denoising variant is the one running.</param>
     /// <returns>True when the runtime did the work.</returns>
-    public bool Evaluate(CommandBuffer command, in UpscaleFrame frame, bool rayReconstruction)
+    public bool Evaluate(nint commandList, in StreamlineFrame frame, bool rayReconstruction)
     {
         if (!Ready)
         {
@@ -659,10 +733,10 @@ public sealed unsafe class Streamline : IDisposable
 
         SlViewport viewport = Viewport();
 
-        SlResource colour = Describe(frame.Colour, ImageLayout.ShaderReadOnlyOptimal);
-        SlResource depth = Describe(frame.Depth, ImageLayout.ShaderReadOnlyOptimal);
-        SlResource motion = Describe(frame.Motion, ImageLayout.ShaderReadOnlyOptimal);
-        SlResource output = Describe(frame.Output, ImageLayout.General);
+        SlResource colour = Describe(frame.Colour);
+        SlResource depth = Describe(frame.Depth);
+        SlResource motion = Describe(frame.Motion);
+        SlResource output = Describe(frame.Output);
 
         bool neural = rayReconstruction && _denoiser == FeatureNeuralRendering;
 
@@ -675,12 +749,12 @@ public sealed unsafe class Streamline : IDisposable
 
         SlResourceTag* tags = stackalloc SlResourceTag[4];
 
-        tags[0] = Tag(&colour, inputTag, frame.Colour.Extent);
-        tags[1] = Tag(&output, outputTag, frame.Output.Extent);
-        tags[2] = Tag(&depth, TagDepth, frame.Depth.Extent);
-        tags[3] = Tag(&motion, TagMotionVectors, frame.Motion.Extent);
+        tags[0] = Tag(&colour, inputTag, frame.Colour);
+        tags[1] = Tag(&output, outputTag, frame.Output);
+        tags[2] = Tag(&depth, TagDepth, frame.Depth);
+        tags[3] = Tag(&motion, TagMotionVectors, frame.Motion);
 
-        if (_setTagForFrame(token, &viewport, tags, 4, (void*)command.Handle) != 0)
+        if (_setTagForFrame(token, &viewport, tags, 4, (void*)commandList) != 0)
         {
             return false;
         }
@@ -694,7 +768,7 @@ public sealed unsafe class Streamline : IDisposable
         inputs[0] = &viewport;
 
         uint feature = rayReconstruction ? _denoiser : FeatureSuperResolution;
-        uint result = _evaluateFeature(feature, token, inputs, 1, (void*)command.Handle);
+        uint result = _evaluateFeature(feature, token, inputs, 1, (void*)commandList);
 
         if (result == 0)
         {
@@ -746,7 +820,7 @@ public sealed unsafe class Streamline : IDisposable
     /// twice. The offset is given separately, and the previous frame's matrix is kept here
     /// rather than asked of the renderer so that the pair is always consistent.
     /// </remarks>
-    private bool Constants(void* token, SlViewport* viewport, in UpscaleFrame frame)
+    private bool Constants(void* token, SlViewport* viewport, in StreamlineFrame frame)
     {
         Camera camera = frame.Camera ?? new Camera();
         float aspect = frame.Aspect > 0 ? frame.Aspect : 1f;
@@ -777,11 +851,11 @@ public sealed unsafe class Streamline : IDisposable
 
             // The vectors are in render-resolution pixels; this is what turns them into
             // the normalised space Streamline reasons in.
-            MotionVectorScaleX = frame.Motion.Extent.Width > 0
-                ? 1f / frame.Motion.Extent.Width
+            MotionVectorScaleX = frame.Motion.Width > 0
+                ? 1f / frame.Motion.Width
                 : 1f,
-            MotionVectorScaleY = frame.Motion.Extent.Height > 0
-                ? 1f / frame.Motion.Extent.Height
+            MotionVectorScaleY = frame.Motion.Height > 0
+                ? 1f / frame.Motion.Height
                 : 1f,
 
             CameraPosX = camera.Position.X,
@@ -856,25 +930,28 @@ public sealed unsafe class Streamline : IDisposable
         Value = 0,
     };
 
-    private static SlResource Describe(UpscaleImage image, ImageLayout layout) => new()
+    private static SlResource Describe(UpscaleSurface surface) => new()
     {
         Header = SlHeader.Of(
             0x3a9d70cf, 0x2418, 0x4b72, 0x83, 0x91, 0x13, 0xf8, 0x72, 0x1c, 0x72, 0x61, 1),
 
         // Two-dimensional texture.
         Type = 0,
-        Native = (nint)image.Image.Handle,
-        View = (nint)image.View.Handle,
-        State = (uint)layout,
-        Width = image.Extent.Width,
-        Height = image.Extent.Height,
-        NativeFormat = (uint)image.Format,
+        Native = surface.Native,
+        View = surface.View,
+
+        // A Vulkan image layout or a Direct3D resource state. The runtime keeps the number
+        // and never interprets it, because it knows which API it was given a device for.
+        State = surface.State,
+        Width = surface.Width,
+        Height = surface.Height,
+        NativeFormat = surface.NativeFormat,
         MipLevels = 1,
         ArrayLayers = 1,
-        Usage = (uint)image.Usage,
+        Usage = surface.Usage,
     };
 
-    private static SlResourceTag Tag(SlResource* resource, uint type, Extent2D extent) => new()
+    private static SlResourceTag Tag(SlResource* resource, uint type, UpscaleSurface extent) => new()
     {
         Header = SlHeader.Of(
             0x4c6a5aad, 0xb445, 0x496c, 0x87, 0xff, 0x1a, 0xf3, 0x84, 0x5b, 0xe6, 0x53, 1),

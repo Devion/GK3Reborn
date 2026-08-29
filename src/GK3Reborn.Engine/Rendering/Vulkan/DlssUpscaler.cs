@@ -115,7 +115,7 @@ internal sealed class DlssUpscaler : IUpscaler
                               (tracing || !streamline.RayReconstructionNeedsTracedInputs);
 
         if (!streamline.SetDlssOptions(
-                plan.Quality, plan.DlssPreset, display, plan.HighDynamicRange, reconstruction))
+                plan.Quality, plan.DlssPreset, (display.Width, display.Height), plan.HighDynamicRange, reconstruction))
         {
             Log.Warning("WARNING GK3R3436: DLSS refused the options it was given.");
             return null;
@@ -142,7 +142,39 @@ internal sealed class DlssUpscaler : IUpscaler
 
     /// <inheritdoc/>
     public bool Record(CommandBuffer command, in UpscaleFrame frame) =>
-        _streamline.Evaluate(command, in frame, _rayReconstruction);
+        _streamline.Evaluate(command.Handle, Describe(in frame), _rayReconstruction);
+
+    /// <summary>Says what this frame is in the terms Streamline asks for.</summary>
+    /// <param name="frame">The frame.</param>
+    /// <returns>The same frame, described without naming Vulkan.</returns>
+    /// <remarks>
+    /// Streamline takes a handle, a size, a format and a layout, and keeps the last two as
+    /// numbers it never interprets — it knows which API it was given a device for. So the
+    /// runtime is neutral and this is the one place that knows an image layout is a Vulkan
+    /// image layout.
+    /// </remarks>
+    private static StreamlineFrame Describe(in UpscaleFrame frame) => new(
+        Surface(frame.Colour, ImageLayout.ShaderReadOnlyOptimal),
+        Surface(frame.Depth, ImageLayout.ShaderReadOnlyOptimal),
+        Surface(frame.Motion, ImageLayout.ShaderReadOnlyOptimal),
+        Surface(frame.Output, ImageLayout.General),
+        frame.JitterPixels,
+        frame.DeltaSeconds,
+        frame.Reset,
+        frame.Camera,
+        frame.Aspect,
+        frame.Sharpen,
+        frame.Sharpness,
+        frame.HighDynamicRange);
+
+    private static UpscaleSurface Surface(UpscaleImage image, ImageLayout layout) => new(
+        (nint)image.Image.Handle,
+        (nint)image.View.Handle,
+        (uint)layout,
+        image.Extent.Width,
+        image.Extent.Height,
+        (uint)image.Format,
+        (uint)image.Usage);
 
     /// <inheritdoc/>
     public void Dispose() => _streamline.ReleaseDlss();

@@ -7,7 +7,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Upscaling;
 
 /// <summary>
 /// The header every Streamline structure begins with: a link, a GUID and a version.

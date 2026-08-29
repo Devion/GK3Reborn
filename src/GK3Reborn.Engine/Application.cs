@@ -393,8 +393,8 @@ public static class Application
         var runtimes = Rendering.Upscaling.UpscalerRuntimes.Find(Option(args, "--libs-dir"));
         Log.Info(runtimes.ToString());
 
-        using Rendering.Vulkan.Streamline? streamline =
-            Rendering.Vulkan.Streamline.TryStart(runtimes);
+        using Rendering.Upscaling.Streamline? streamline =
+            Rendering.Upscaling.Streamline.TryStart(runtimes);
 
         using var renderer = VulkanRenderer.Create(
             window, window, streamline: streamline);

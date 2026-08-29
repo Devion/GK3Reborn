@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using GK3Reborn.Rendering.Upscaling;
 using GK3Reborn.Rendering.Direct3D12;
 using GK3Reborn.Rendering.Geometry;
 using System.Numerics;
@@ -80,6 +81,8 @@ public sealed class SceneRenderStage
     /// the movement itself, by rendering the same shot twice and comparing them.
     /// </param>
     /// <param name="backend">Which graphics API to render through, or null for whichever suits.</param>
+    /// <param name="dlss">Which DLSS quality to run, or null for none.</param>
+    /// <param name="runtimes">Where the upscaler runtimes are, or null to look beside the tool.</param>
     /// <param name="packs">Where the ReBarn volumes are, or null to use loose content only.</param>
     /// <param name="diagnostics">Receives stage-level diagnostics.</param>
     /// <returns>True if something was rendered.</returns>
@@ -108,6 +111,8 @@ public sealed class SceneRenderStage
         float wind,
         string? packs,
         string? backend,
+        string? dlss,
+        string? runtimes,
         DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(sourceDirectory);
@@ -127,8 +132,13 @@ public sealed class SceneRenderStage
             return false;
         }
 
-        using IOffscreenRenderer renderer = OpenRenderer(wanted, rayTracing, diagnostics);
+        using IOffscreenRenderer renderer = OpenRenderer(wanted, rayTracing, runtimes, diagnostics);
         _log($"device: {renderer.DeviceName} ({renderer.Backend})");
+
+        if (dlss is not null && !SetUpscaling(renderer, dlss, diagnostics))
+        {
+            return false;
+        }
 
         if (RayTracingSettings.Parse(rayTracing) is { } quality)
         {
@@ -392,6 +402,11 @@ public sealed class SceneRenderStage
         {
             _log("d3d: " + direct.LastFrame);
 
+            if (direct.UpscalerNote is { } note)
+            {
+                _log("upscaler: " + note);
+            }
+
             foreach (string message in direct.Messages)
             {
                 _log("d3d: " + message);
@@ -470,9 +485,57 @@ public sealed class SceneRenderStage
             Path.GetDirectoryName(enhanced.TrimEnd(Path.DirectorySeparatorChar, '/')) ?? ".",
             what);
 
+    /// <summary>Turns DLSS on, at the quality the caller named.</summary>
+    /// <param name="renderer">The renderer, which must be one that has an upscaler.</param>
+    /// <param name="dlss">What was typed.</param>
+    /// <param name="diagnostics">Where a refusal is reported.</param>
+    /// <returns>False when what was typed names no quality.</returns>
+    /// <remarks>
+    /// A machine with no DLSS is told so and renders without it, because a reference render
+    /// that refuses to run is worth less than one that says what it did instead. A quality
+    /// nobody can spell is an error, because it is a typo rather than a machine.
+    /// </remarks>
+    private static bool SetUpscaling(IOffscreenRenderer renderer, string dlss, DiagnosticBag diagnostics)
+    {
+        if (!Enum.TryParse(dlss, ignoreCase: true, out UpscalerQuality quality))
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE013",
+                DiagnosticSeverity.Error,
+                $"Unknown DLSS quality '{dlss}'; expected one of "
+                + string.Join(", ", Enum.GetNames<UpscalerQuality>()).ToLowerInvariant() + "."));
+
+            return false;
+        }
+
+        if (renderer is not D3D12SceneRenderer direct)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE014",
+                DiagnosticSeverity.Warning,
+                "DLSS in a reference render is only wired on the Direct3D backend; rendering without it."));
+
+            return true;
+        }
+
+        if (!direct.HasDlss)
+        {
+            diagnostics.Add(new Diagnostic(
+                "SCENE015",
+                DiagnosticSeverity.Warning,
+                $"{direct.DeviceName} offers no DLSS; rendering without it."));
+
+            return true;
+        }
+
+        direct.Upscaling = UpscalePlan.None with { Kind = UpscalerKind.Dlss, Quality = quality };
+        return true;
+    }
+
     /// <summary>Opens the renderer the caller asked for.</summary>
     /// <param name="backend">Which API, already resolved from what was typed.</param>
     /// <param name="rayTracing">What quality was asked for, so the traced variant is built.</param>
+    /// <param name="runtimes">Where the upscaler runtimes are, or null to look beside the tool.</param>
     /// <param name="diagnostics">Where a fallback is reported.</param>
     /// <returns>The renderer.</returns>
     /// <remarks>
@@ -481,16 +544,21 @@ public sealed class SceneRenderStage
     /// reference render that refuses to run is worth less than one from the other backend.
     /// </remarks>
     private static IOffscreenRenderer OpenRenderer(
-        RenderBackend backend, string? rayTracing, DiagnosticBag diagnostics)
+        RenderBackend backend, string? rayTracing, string? runtimes, DiagnosticBag diagnostics)
     {
         bool traced =
             RayTracingSettings.Parse(rayTracing) is { } quality && quality != RayTracingQuality.None;
 
-        if (RenderBackends.Resolve(backend) == RenderBackend.Direct3D12)
+        // Vulkan unless Direct3D was asked for by name, which is the other way round from
+        // the game. A reference render is the thing every other picture is compared against
+        // and check-scenes sweeps the whole corpus through it, so the backend it uses must
+        // not change because the default did - and the Direct3D path has no ray tracing yet,
+        // which would quietly turn every --rt render into a raster one.
+        if (backend == RenderBackend.Direct3D12)
         {
             try
             {
-                return D3D12SceneRenderer.Create(traced);
+                return D3D12SceneRenderer.Create(traced, runtimes);
             }
             catch (D3D12Exception exception)
             {
