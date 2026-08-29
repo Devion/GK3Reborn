@@ -19,39 +19,46 @@ namespace GK3Reborn.Tests.Rendering;
 /// <para>
 /// That is a bad afternoon, and it is entirely avoidable: a varying nobody reads is a defect
 /// on both backends, because the vertex stage is computing and interpolating it anyway. The
-/// mesh shader had exactly one — a clip position written and never read — and this is what
-/// would have found it in a second.
+/// mesh shader had one — a clip position written and never read — and the composite had
+/// another: a texture coordinate the fragment stage ignores, because it reads its targets by
+/// pixel instead. Both had been interpolated for nothing on Vulkan for as long as they had
+/// existed, and this is what would have found either in a second.
 /// </para>
 /// </remarks>
 public sealed class ShaderInterfaceTests
 {
     /// <summary>Every pair of stages that are linked into one pipeline.</summary>
-    public static TheoryData<string, bool> Pairs() => new()
+    public static TheoryData<string> Pairs() => new()
     {
-        { "mesh", false },
-        { "mesh", true },
+        "mesh",
+        "mesh.rt",
+        "composite",
+        "output",
+    };
+
+    private static (string Vertex, string Fragment) SourcesOf(string name) => name switch
+    {
+        "mesh" => (MeshShaders.Compose(false, false), MeshShaders.Compose(true, false)),
+        "mesh.rt" => (MeshShaders.Compose(false, true), MeshShaders.Compose(true, true)),
+        "composite" => (CompositeShaders.Vertex, CompositeShaders.Fragment),
+        "output" => (OutputShaders.Vertex, OutputShaders.Fragment),
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such pair"),
     };
 
     [Theory]
     [MemberData(nameof(Pairs))]
-    public void What_a_vertex_stage_writes_is_what_its_fragment_stage_reads(string name, bool rayTracing)
+    public void What_a_vertex_stage_writes_is_what_its_fragment_stage_reads(string name)
     {
         using var spirv = new SpirvCompiler();
         using var transpiler = new HlslTranspiler();
 
+        (string vertexSource, string fragmentSource) = SourcesOf(name);
+
         byte[] vertex = spirv.Compile(
-            MeshShaders.Compose(fragment: false, rayTracing),
-            ShaderStage.Vertex,
-            name + ".vert",
-            "main",
-            ShaderLanguage.Glsl);
+            vertexSource, ShaderStage.Vertex, name + ".vert", "main", ShaderLanguage.Glsl);
 
         byte[] fragment = spirv.Compile(
-            MeshShaders.Compose(fragment: true, rayTracing),
-            ShaderStage.Fragment,
-            name + ".frag",
-            "main",
-            ShaderLanguage.Glsl);
+            fragmentSource, ShaderStage.Fragment, name + ".frag", "main", ShaderLanguage.Glsl);
 
         IReadOnlySet<uint> written = transpiler.StageOutputLocations(vertex, name + ".vert");
         IReadOnlySet<uint> read = transpiler.StageInputLocations(fragment, name + ".frag");
