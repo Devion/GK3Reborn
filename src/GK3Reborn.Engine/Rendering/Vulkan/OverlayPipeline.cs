@@ -5,6 +5,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
+using GK3Reborn.Rendering.Shaders;
+
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>One corner of an overlay rectangle.</summary>

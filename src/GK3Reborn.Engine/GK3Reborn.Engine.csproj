@@ -7,8 +7,9 @@
     <RootNamespace>GK3Reborn</RootNamespace>
     <AssemblyName>GK3Reborn.Engine</AssemblyName>
 
-    <!-- Vulkan is a pointer-based API and Silk.NET surfaces it as one. Unsafe code is
-         confined to Rendering/Vulkan, which the layering tests enforce. -->
+    <!-- Vulkan and Direct3D 12 are pointer-based APIs and Silk.NET surfaces them as ones.
+         Unsafe code is confined to Rendering/Vulkan, Rendering/Direct3D12 and
+         Rendering/Shaders, which the layering tests enforce. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -42,10 +43,58 @@
     <PackageReference Include="Silk.NET.OpenAL.Extensions.Creative" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
     <PackageReference Include="Silk.NET.Shaderc" />
+    <PackageReference Include="Silk.NET.SPIRV.Cross" />
     <PackageReference Include="Silk.NET.Vulkan" />
     <PackageReference Include="Silk.NET.Vulkan.Extensions.EXT" />
     <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" />
     <PackageReference Include="Silk.NET.Windowing" />
+  </ItemGroup>
+
+  <!-- ==================================================================================
+       Direct3D 12, and the back half of the shader chain that feeds it.
+
+       Referenced on every platform, not only Windows. The bindings are managed assemblies
+       that bind nothing until something calls them, and the engine is built once and
+       published for three operating systems from whichever machine is doing the building
+       - a reference that came and went with the host would make the assembly depend on
+       where it was compiled. Nothing here loads a native library until the Direct3D
+       backend is asked for, and it is only ever asked for on Windows.
+       ================================================================================== -->
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.Direct3D12" />
+    <PackageReference Include="Silk.NET.DXGI" />
+    <PackageReference Include="Silk.NET.Direct3D.Compilers" />
+    <PackageReference Include="Microsoft.Direct3D.DXC" GeneratePathProperty="true" ExcludeAssets="all" />
+  </ItemGroup>
+
+  <!-- DXC ships as a C++ package: its natives are under build/native/bin/<arch> and its
+       targets file is the kind MSBuild imports for a vcxproj, not for this. So the two
+       libraries are placed by hand, in the shape the rest of the build already expects.
+
+       Both are needed. dxcompiler is the compiler; dxil is the signing library, and a
+       module compiled without it is refused when a pipeline is made from it - see
+       DxilCompiler.IsSigned, which turns that into a sentence rather than a mystery.
+
+       A RID-less build keeps the runtimes/<rid>/native shape the Silk packages use, which
+       is where Silk's own path resolver looks and what the publish targets in
+       GK3Reborn.Host relocate into libs/<rid>. A RID-specific build has already flattened
+       every native to the output root, so these go there too and are marked as natives so
+       that the same targets find them. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <Content Include="$(PkgMicrosoft_Direct3D_DXC)\build\native\bin\x64\dxcompiler.dll" Link="runtimes\win-x64\native\dxcompiler.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="$(PkgMicrosoft_Direct3D_DXC)\build\native\bin\x64\dxil.dll" Link="runtimes\win-x64\native\dxil.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="$(PkgMicrosoft_Direct3D_DXC)\build\native\bin\arm64\dxcompiler.dll" Link="runtimes\win-arm64\native\dxcompiler.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="$(PkgMicrosoft_Direct3D_DXC)\build\native\bin\arm64\dxil.dll" Link="runtimes\win-arm64\native\dxil.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <_RebornDxcArchitecture Condition="'$(RuntimeIdentifier)' == 'win-arm64'">arm64</_RebornDxcArchitecture>
+    <_RebornDxcArchitecture Condition="'$(_RebornDxcArchitecture)' == ''">x64</_RebornDxcArchitecture>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))">
+    <Content Include="$(PkgMicrosoft_Direct3D_DXC)\build\native\bin\$(_RebornDxcArchitecture)\dxcompiler.dll" Link="dxcompiler.dll" CopyToOutputDirectory="PreserveNewest" AssetType="native" Visible="false" />
+    <Content Include="$(PkgMicrosoft_Direct3D_DXC)\build\native\bin\$(_RebornDxcArchitecture)\dxil.dll" Link="dxil.dll" CopyToOutputDirectory="PreserveNewest" AssetType="native" Visible="false" />
   </ItemGroup>
 
 </Project>

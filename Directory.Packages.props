@@ -26,6 +26,19 @@
     <PackageVersion Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
     <PackageVersion Include="Silk.NET.Shaderc" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan" Version="2.23.0" />
+    <!-- The Direct3D 12 backend. Silk surfaces D3D12 and DXGI as separate packages, and
+         its D3D12 binding carries the whole of DXR - acceleration structures, state
+         objects and the ray-query device flags - so ray tracing needs nothing further. -->
+    <PackageVersion Include="Silk.NET.Direct3D12" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.DXGI" Version="2.23.0" />
+    <!-- The back half of the shader chain. SPIRV-Cross turns SPIR-V into HLSL and DXC
+         compiles that to DXIL; see Rendering/Shaders. Silk.NET.Direct3D.Compilers is the
+         binding only, so Microsoft.Direct3D.DXC supplies the two native libraries: the
+         compiler, and the dxil signing library without which every module is refused at
+         pipeline creation. Its version is Microsoft's own scheme, not Silk's. -->
+    <PackageVersion Include="Silk.NET.Direct3D.Compilers" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.SPIRV.Cross" Version="2.23.0" />
+    <PackageVersion Include="Microsoft.Direct3D.DXC" Version="1.9.2607.13" />
     <PackageVersion Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Windowing" Version="2.23.0" />

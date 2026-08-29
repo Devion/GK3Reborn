@@ -370,7 +370,7 @@ public static class Application
 
         StartupReport.Writable("Settings", Path.GetDirectoryName(Settings.DefaultPath) ?? InstallPaths.UserData);
         StartupReport.Writable("Saves", Game.SaveStore.DefaultDirectory);
-        StartupReport.Writable("Shader cache", Rendering.Vulkan.ShaderCompiler.DefaultCacheDirectory);
+        StartupReport.Writable("Shader cache", Rendering.Shaders.ShaderCompiler.DefaultCacheDirectory);
 
         // --width and --height, for photographing the interface at a display size this
         // machine has not got. Everything about the interface's size is decided from the

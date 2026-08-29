@@ -11,6 +11,8 @@ using System.Runtime.InteropServices;
 using GK3Reborn.Rendering.Upscaling;
 using Silk.NET.Vulkan;
 
+using GK3Reborn.Rendering.Shaders;
+
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>

@@ -7,6 +7,8 @@
 using System;
 using Silk.NET.Vulkan;
 
+using GK3Reborn.Rendering.Shaders;
+
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>One compute stage: its module, its layout and the pipeline itself.</summary>

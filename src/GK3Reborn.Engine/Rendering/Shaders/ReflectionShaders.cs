@@ -4,7 +4,7 @@
 // of the GNU General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Shaders;
 
 /// <summary>The compute stages that reflect the frame in its own smooth surfaces.</summary>
 /// <remarks>
@@ -32,7 +32,7 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// something anybody has ever seen.
 /// </para>
 /// </remarks>
-internal static class ReflectionShaders
+public static class ReflectionShaders
 {
     /// <summary>What every stage shares.</summary>
     private const string Common = """

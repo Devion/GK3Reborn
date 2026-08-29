@@ -33,11 +33,30 @@ public sealed partial class LayeringTests
         ("Sheep", ["Rendering", "UI", "Audio", "Video", "Platform"]),
 
         // Game state reaches presentation only through interfaces in those namespaces,
-        // never through the Vulkan backend directly.
-        ("Game", ["Rendering.Vulkan"]),
+        // never through a graphics backend directly.
+        ("Game", ["Rendering.Vulkan", "Rendering.Direct3D12"]),
 
-        // Rendering is backend-neutral; only Rendering/Vulkan may use Silk.NET.Vulkan.
+        // Rendering is backend-neutral; only Rendering/Vulkan may use Silk.NET.Vulkan and
+        // only Rendering/Direct3D12 may use Silk.NET.Direct3D12.
         ("Rendering", []),
+
+        // The shader front end is the one thing both backends share, so it must know
+        // neither. It compiles source to SPIR-V and on to DXIL through SPIRV-Cross and
+        // DXC; none of those three is a graphics API and none of them needs a device.
+        ("Rendering.Shaders", ["Rendering.Vulkan", "Rendering.Direct3D12"]),
+    ];
+
+    /// <summary>The graphics APIs, and the one directory each is allowed to appear in.</summary>
+    /// <remarks>
+    /// Two backends make this a rule rather than an observation. A Vulkan type reached from
+    /// the shared rendering code compiles perfectly well and quietly makes the Direct3D
+    /// path unbuildable on the day it is written, which is not the day anyone finds out.
+    /// </remarks>
+    private static readonly (string Namespace, string Directory)[] Backends =
+    [
+        ("Silk.NET.Vulkan", Path.Combine("Rendering", "Vulkan")),
+        ("Silk.NET.Direct3D12", Path.Combine("Rendering", "Direct3D12")),
+        ("Silk.NET.DXGI", Path.Combine("Rendering", "Direct3D12")),
     ];
 
     private static string EngineRoot
@@ -89,22 +108,25 @@ public sealed partial class LayeringTests
     }
 
     [Fact]
-    public void Only_the_vulkan_backend_uses_vulkan()
+    public void Only_a_backend_uses_its_own_graphics_api()
     {
-        string vulkanBackend = Path.Combine("Rendering", "Vulkan");
         List<string> violations = [];
 
         foreach (string file in Directory.EnumerateFiles(EngineRoot, "*.cs", SearchOption.AllDirectories))
         {
             string relative = Path.GetRelativePath(EngineRoot, file);
-            if (relative.StartsWith(vulkanBackend, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
 
-            if (UsingsIn(file).Any(u => u.StartsWith("Silk.NET.Vulkan", StringComparison.Ordinal)))
+            foreach ((string api, string directory) in Backends)
             {
-                violations.Add(relative);
+                if (relative.StartsWith(directory, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (UsingsIn(file).Any(u => u.StartsWith(api, StringComparison.Ordinal)))
+                {
+                    violations.Add($"{relative} uses {api}");
+                }
             }
         }
 

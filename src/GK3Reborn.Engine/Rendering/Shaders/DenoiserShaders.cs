@@ -4,7 +4,7 @@
 // of the GNU General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Shaders;
 
 /// <summary>The compute stages that trace occlusion and then denoise it.</summary>
 /// <remarks>
@@ -47,7 +47,7 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// and a second copy of the filter chain.
 /// </para>
 /// </remarks>
-internal static class DenoiserShaders
+public static class DenoiserShaders
 {
     /// <summary>Bindings and helpers every stage shares.</summary>
     private const string Common = """

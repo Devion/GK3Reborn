@@ -12,6 +12,8 @@ using Silk.NET.Vulkan.Extensions.KHR;
 // Vulkan and the BCL both define Semaphore; the graphics one is meant throughout.
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 
+using GK3Reborn.Rendering.Shaders;
+
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>

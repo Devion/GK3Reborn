@@ -1,3 +1,4 @@
+using GK3Reborn.Rendering.Shaders;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering.Vulkan;
 using Xunit;
@@ -100,11 +101,12 @@ public sealed class OffscreenRenderTests
     [Fact]
     public void Compiling_a_broken_shader_reports_the_compiler_error()
     {
-        Assert.SkipUnless(HasDevice(), "no Vulkan device");
-
+        // No device needed, and none asked for. Compiling is the shader front end's job
+        // and it is backend-neutral now: the same call serves Vulkan and Direct3D, and the
+        // failure it reports is a fact about the source rather than about either device.
         using var compiler = new ShaderCompiler();
 
-        var ex = Assert.Throws<VulkanException>(() =>
+        var ex = Assert.Throws<ShaderCompilationException>(() =>
             compiler.Compile("this is not HLSL", ShaderStage.Vertex, "broken.vert", "main"));
 
         Assert.Contains("broken.vert", ex.Message, StringComparison.Ordinal);

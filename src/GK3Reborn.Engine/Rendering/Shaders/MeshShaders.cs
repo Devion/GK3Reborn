@@ -1,4 +1,4 @@
-﻿namespace GK3Reborn.Rendering.Vulkan;
+﻿namespace GK3Reborn.Rendering.Shaders;
 
 /// <summary>
 /// The mesh shaders, in GLSL.
@@ -19,7 +19,7 @@
 /// branch runs or not.
 /// </para>
 /// </remarks>
-internal static class MeshShaders
+public static class MeshShaders
 {
     /// <summary>Declarations both stages share.</summary>
     private const string Common = """

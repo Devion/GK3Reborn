@@ -3,6 +3,8 @@ using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Foundation.Diagnostics;
 using Silk.NET.Vulkan;
 
+using GK3Reborn.Rendering.Shaders;
+
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>
