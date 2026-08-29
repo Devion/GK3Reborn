@@ -47,14 +47,28 @@ public sealed class SpirvCompiler : IDisposable
     /// <param name="name">Name used in error messages.</param>
     /// <param name="entryPoint">Entry point function.</param>
     /// <param name="language">Which language the source is written in.</param>
+    /// <param name="optimise">
+    /// Whether to let glslang optimise the module.
+    /// </param>
     /// <returns>SPIR-V words as bytes.</returns>
     /// <exception cref="ShaderCompilationException">The shader did not compile.</exception>
+    /// <remarks>
+    /// <b>The Direct3D path asks for no optimisation, and it is not about speed.</b> The
+    /// optimiser prunes a stage input nothing reads, which is harmless under Vulkan - it
+    /// links stages by location and does not mind a hole - and fatal under Direct3D, which
+    /// links by the register each stage packed its varyings into. The mesh fragment shader
+    /// declares six inputs and reads five in the raster variant, so an optimised module
+    /// leaves the two stages packing differently and the pipeline is refused with a message
+    /// about a semantic. Nothing is lost by turning it off: DXC optimises the HLSL
+    /// afterwards, which is where the optimisation that matters happens.
+    /// </remarks>
     public unsafe byte[] Compile(
         string source,
         ShaderStage stage,
         string name = "shader",
         string entryPoint = "main",
-        ShaderLanguage language = ShaderLanguage.Hlsl)
+        ShaderLanguage language = ShaderLanguage.Hlsl,
+        bool optimise = true)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(name);
@@ -69,7 +83,8 @@ public sealed class SpirvCompiler : IDisposable
                 options,
                 language == ShaderLanguage.Glsl ? SourceLanguage.Glsl : SourceLanguage.Hlsl);
             _shaderc.CompileOptionsSetTargetEnv(options, TargetEnv.Vulkan, (uint)EnvVersion.Vulkan13);
-            _shaderc.CompileOptionsSetOptimizationLevel(options, OptimizationLevel.Performance);
+            _shaderc.CompileOptionsSetOptimizationLevel(
+                options, optimise ? OptimizationLevel.Performance : OptimizationLevel.Zero);
 
             byte[] sourceBytes = Encoding.UTF8.GetBytes(source);
             byte[] nameBytes = Encoding.UTF8.GetBytes(name + "\0");

@@ -106,11 +106,18 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         attributes ??= [];
         buffers ??= [];
 
-        byte[] vertex = compiler.CompileTo(
-            ShaderTarget.Dxil, vertexSource, ShaderStage.Vertex, $"{name}.vert", vertexEntryPoint, language);
-
-        byte[] fragment = compiler.CompileTo(
-            ShaderTarget.Dxil, fragmentSource, ShaderStage.Fragment, $"{name}.frag", fragmentEntryPoint, language);
+        // Compiled as a pair rather than one at a time, because the vertex half is masked
+        // down to what the fragment half reads. See ShaderCompiler.CompileGraphics: the two
+        // stages otherwise pack their varyings into different registers and Direct3D refuses
+        // to link them.
+        (byte[] vertex, byte[] fragment) = compiler.CompileGraphics(
+            ShaderTarget.Dxil,
+            vertexSource,
+            fragmentSource,
+            name,
+            vertexEntryPoint,
+            fragmentEntryPoint,
+            language);
 
         D3D12RootSignature signature =
             D3D12RootSignature.Create(device, layout, allowInputLayout: attributes.Count > 0);

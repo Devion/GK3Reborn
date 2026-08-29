@@ -100,6 +100,12 @@ public sealed class DxilCompiler : IDisposable
         // silent change of language version between package updates would change what the
         // generated source means. -Zpr matches the row-major matrices SPIRV-Cross emits:
         // without it the declarations say row_major and the packing does not.
+        //
+        // Nothing is stripped from the container. -Qstrip_reflect was here and had to go: it
+        // leaves the feature-flag part describing a module that is no longer there, and the
+        // signer then refuses its own output with "Flags must match usage", naming two bit
+        // masks and no shader. The reflection part is a few hundred bytes and the cache
+        // holds one copy of it.
         string[] arguments =
         [
             "-T", profile,
@@ -107,8 +113,6 @@ public sealed class DxilCompiler : IDisposable
             "-HV", "2021",
             "-O3",
             "-Zpr",
-            "-Qstrip_reflect",
-            "-Qstrip_debug",
         ];
 
         byte[] source = Encoding.UTF8.GetBytes(hlsl);

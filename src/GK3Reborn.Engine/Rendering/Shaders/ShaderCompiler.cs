@@ -39,6 +39,24 @@ public sealed class ShaderCompiler : IDisposable
     private DxilCompiler? _dxil;
     private bool _disposed;
 
+    /// <summary>How this compiler is set up, as part of every cache key.</summary>
+    /// <remarks>
+    /// <para>
+    /// A cache key has to cover everything that changes the output, and the source is not all
+    /// of it: the flags the compilers are driven with change it too. That was found the hard
+    /// way. Turning off glslang optimisation for the Direct3D path changed every module it
+    /// produces and changed no source, so the cache went on handing back the modules from
+    /// before — and the pipeline went on being refused for a reason that had already been
+    /// fixed.
+    /// </para>
+    /// <para>
+    /// <b>Raise this whenever the toolchain is driven differently.</b> A new optimisation
+    /// level, a new shader model, a different set of DXC arguments, a SPIRV-Cross option:
+    /// all of them belong here, because none of them appears in the text of a shader.
+    /// </para>
+    /// </remarks>
+    private const string Recipe = "4";
+
     /// <summary>
     /// Where compiled shaders are cached when nobody has said otherwise.
     /// </summary>
@@ -138,6 +156,109 @@ public sealed class ShaderCompiler : IDisposable
         byte[] compiled = Build(target, source, stage, name, entryPoint, language);
         Store(cachePath, compiled);
         return compiled;
+    }
+
+    /// <summary>Compiles a vertex and fragment shader that will be linked together.</summary>
+    /// <param name="target">Which intermediate language to produce.</param>
+    /// <param name="vertexSource">Vertex shader source.</param>
+    /// <param name="fragmentSource">Fragment shader source.</param>
+    /// <param name="name">Name used in error messages.</param>
+    /// <param name="vertexEntryPoint">Entry point of the vertex shader.</param>
+    /// <param name="fragmentEntryPoint">Entry point of the fragment shader.</param>
+    /// <param name="language">Which language the sources are written in.</param>
+    /// <returns>The two compiled stages.</returns>
+    /// <exception cref="ShaderCompilationException">Either stage did not survive a step.</exception>
+    /// <remarks>
+    /// <para>
+    /// The two stages have to be compiled together for Direct3D, and it is not a convenience.
+    /// Each is translated to HLSL on its own and DXC packs each stage’s varyings into
+    /// consecutive hardware registers by itself, so a varying the fragment shader does not
+    /// read leaves a hole in one stage and not the other. The mesh shader has exactly that:
+    /// six outputs, five of them read. Direct3D refuses the pipeline outright, and the message
+    /// it gives names a semantic rather than a location.
+    /// </para>
+    /// <para>
+    /// So the fragment shader is reflected first, and the vertex shader is translated with
+    /// every output the fragment shader does not read masked off. Vulkan needs none of this -
+    /// it links by location and does not care about holes - which is why the SPIR-V path
+    /// simply compiles the two.
+    /// </para>
+    /// </remarks>
+    public (byte[] Vertex, byte[] Fragment) CompileGraphics(
+        ShaderTarget target,
+        string vertexSource,
+        string fragmentSource,
+        string name = "shader",
+        string vertexEntryPoint = "main",
+        string fragmentEntryPoint = "main",
+        ShaderLanguage language = ShaderLanguage.Glsl)
+    {
+        ArgumentNullException.ThrowIfNull(vertexSource);
+        ArgumentNullException.ThrowIfNull(fragmentSource);
+        ArgumentNullException.ThrowIfNull(name);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (target == ShaderTarget.SpirV)
+        {
+            return (
+                CompileTo(target, vertexSource, ShaderStage.Vertex, name + ".vert", vertexEntryPoint, language),
+                CompileTo(target, fragmentSource, ShaderStage.Fragment, name + ".frag", fragmentEntryPoint, language));
+        }
+
+        // The pair is cached together, because the vertex half depends on the fragment half
+        // and caching them apart would let a stale one be paired with a fresh one.
+        string? cachePath = PairCachePathFor(
+            vertexSource, fragmentSource, vertexEntryPoint, fragmentEntryPoint, language);
+
+        if (cachePath is not null && ReadPair(cachePath) is { } cached)
+        {
+            return cached;
+        }
+
+        lock (_gate)
+        {
+            _spirv ??= new SpirvCompiler();
+
+            byte[] vertexSpirv = _spirv.Compile(
+                vertexSource, ShaderStage.Vertex, name + ".vert", vertexEntryPoint, language);
+
+            byte[] fragmentSpirv = _spirv.Compile(
+                fragmentSource, ShaderStage.Fragment, name + ".frag", fragmentEntryPoint, language);
+
+            _hlsl ??= new HlslTranspiler();
+
+            // The two stages have to agree about their varyings or Direct3D will not link
+            // them, and the message it gives names a semantic rather than a location. This
+            // is the same check ShaderInterfaceTests makes of every pair in the tree; it is
+            // repeated here because a shader edited later would otherwise fail at pipeline
+            // creation with nothing to say which varying was at fault.
+            IReadOnlySet<uint> written = _hlsl.StageOutputLocations(vertexSpirv, name + ".vert");
+            IReadOnlySet<uint> read = _hlsl.StageInputLocations(fragmentSpirv, name + ".frag");
+
+            if (!written.SetEquals(read))
+            {
+                throw new ShaderCompilationException(
+                    $"The two stages of {name} disagree about their varyings: the vertex stage "
+                    + $"writes [{string.Join(", ", written.Order())}] and the fragment stage reads "
+                    + $"[{string.Join(", ", read.Order())}]. Direct3D packs each stage into "
+                    + "consecutive registers by itself, so a varying one of them does not use "
+                    + "makes the two disagree about every varying after it.");
+            }
+
+            string fragmentHlsl = _hlsl.Translate(fragmentSpirv, name + ".frag");
+            string vertexHlsl = _hlsl.Translate(vertexSpirv, name + ".vert");
+
+            _dxil ??= new DxilCompiler();
+
+            // SPIRV-Cross names the entry point of what it emits "main" whatever the source
+            // called it, so the entry point DXC is given is not the one the source used.
+            var pair = (
+                _dxil.Compile(vertexHlsl, ShaderStage.Vertex, name + ".vert", "main"),
+                _dxil.Compile(fragmentHlsl, ShaderStage.Fragment, name + ".frag", "main"));
+
+            WritePair(cachePath, pair);
+            return pair;
+        }
     }
 
     /// <summary>Turns a shader into the HLSL the Direct3D backend will be given.</summary>
@@ -257,6 +378,72 @@ public sealed class ShaderCompiler : IDisposable
         }
     }
 
+    private string? PairCachePathFor(
+        string vertexSource,
+        string fragmentSource,
+        string vertexEntryPoint,
+        string fragmentEntryPoint,
+        ShaderLanguage language)
+    {
+        if (_cacheDirectory is null)
+        {
+            return null;
+        }
+
+        byte[] key = SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"pair|{Recipe}|{language}|{vertexEntryPoint}|{fragmentEntryPoint}|{vertexSource}|{fragmentSource}"));
+
+        return Path.Combine(_cacheDirectory, Convert.ToHexStringLower(key)[..32] + ".dxilpair");
+    }
+
+    /// <summary>Reads a cached pair, which is the two modules with their lengths in front.</summary>
+    private static (byte[] Vertex, byte[] Fragment)? ReadPair(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            byte[] bytes = File.ReadAllBytes(path);
+            if (bytes.Length < 8)
+            {
+                return null;
+            }
+
+            int vertex = BitConverter.ToInt32(bytes, 0);
+            int fragment = BitConverter.ToInt32(bytes, 4);
+
+            if (vertex < 0 || fragment < 0 || 8 + vertex + fragment != bytes.Length)
+            {
+                return null;
+            }
+
+            return (bytes[8..(8 + vertex)], bytes[(8 + vertex)..]);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static void WritePair(string? path, (byte[] Vertex, byte[] Fragment) pair)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
+        byte[] bytes = new byte[8 + pair.Vertex.Length + pair.Fragment.Length];
+        BitConverter.TryWriteBytes(bytes.AsSpan(0), pair.Vertex.Length);
+        BitConverter.TryWriteBytes(bytes.AsSpan(4), pair.Fragment.Length);
+        pair.Vertex.CopyTo(bytes.AsSpan(8));
+        pair.Fragment.CopyTo(bytes.AsSpan(8 + pair.Vertex.Length));
+
+        Store(path, bytes);
+    }
+
     private string? CachePathFor(
         ShaderTarget target,
         string source,
@@ -273,7 +460,7 @@ public sealed class ShaderCompiler : IDisposable
         // its own entry and nothing else. The target is part of it because the same source
         // has two answers and they are not interchangeable.
         byte[] key = SHA256.HashData(
-            Encoding.UTF8.GetBytes($"{target}|{language}|{stage}|{entryPoint}|{source}"));
+            Encoding.UTF8.GetBytes($"{Recipe}|{target}|{language}|{stage}|{entryPoint}|{source}"));
 
         string extension = target == ShaderTarget.SpirV ? ".spv" : ".dxil";
         return Path.Combine(_cacheDirectory, Convert.ToHexStringLower(key)[..32] + extension);

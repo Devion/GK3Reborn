@@ -124,8 +124,7 @@ public static class MeshShaders
         // stage divides them and takes the difference, which it cannot do from an
         // interpolated screen position: perspective division does not survive
         // interpolation, so the two clip positions have to travel and be divided there.
-        layout(location = 4) out vec4 outClip;
-        layout(location = 5) out vec4 outPreviousClip;
+        layout(location = 4) out vec4 outPreviousClip;
 
         // Where a leaf has drifted to, in the model's own space.
         //
@@ -187,7 +186,6 @@ public static class MeshShaders
             outTexCoord = inTexCoord;
             outLightmapCoord = inLightmapCoord;
             outWorld = world.xyz;
-            outClip = clip;
 
             outPreviousClip =
                 frame.previousViewProjection *
@@ -201,8 +199,7 @@ public static class MeshShaders
         layout(location = 1) in vec2 inTexCoord;
         layout(location = 2) in vec2 inLightmapCoord;
         layout(location = 3) in vec3 inWorld;
-        layout(location = 4) in vec4 inClip;
-        layout(location = 5) in vec4 inPreviousClip;
+        layout(location = 4) in vec4 inPreviousClip;
 
         layout(location = 0) out vec4 outColor;
 
@@ -949,12 +946,16 @@ public static class MeshShaders
             // flow that is not uniform across the quad. The entered coordinate's
             // derivatives are the right ones in any case: the footprint being filtered is
             // the surface's, not the march's.
-            vec2 ddx = dFdx(inTexCoord);
-            vec2 ddy = dFdy(inTexCoord);
+            // Not named ddx and ddy, which is what they are. SPIRV-Cross translates dFdx
+            // into the HLSL intrinsic of that name, and a local called ddx then shadows the
+            // intrinsic that the next line needs - "type float2 does not provide a call
+            // operator", from a shader nobody wrote. Vulkan never sees the collision.
+            vec2 alongX = dFdx(inTexCoord);
+            vec2 alongY = dFdy(inTexCoord);
 
             float s = 1.0;
             vec2 uv = inTexCoord - (span * 0.5);
-            float sampled = textureGrad(heightTexture, uv, ddx, ddy).r;
+            float sampled = textureGrad(heightTexture, uv, alongX, alongY).r;
 
             float previous = sampled;
             vec2 wasAt = uv;
@@ -966,7 +967,7 @@ public static class MeshShaders
 
                 s -= stride;
                 uv += span * stride;
-                sampled = textureGrad(heightTexture, uv, ddx, ddy).r;
+                sampled = textureGrad(heightTexture, uv, alongX, alongY).r;
             }
 
             // Refine between the last two steps. The field is above the ray at one and

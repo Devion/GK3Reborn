@@ -23,11 +23,22 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <see cref="ShaderBindings"/> describes without being asked to.
 /// </para>
 /// <para>
-/// It is asked for two things all the same. Push constants are placed deliberately, because
-/// left alone they land on top of whatever is at <c>b0</c>; and the vertex Y flip is undone,
-/// because the projection carries one for Vulkan's clip space and Direct3D's is the other
-/// way up. Doing the flip here rather than in the projection keeps one matrix for both
-/// backends and puts the correction next to the reason for it.
+/// It is asked for three things all the same. Push constants are placed deliberately,
+/// because left alone they land on top of whatever is at <c>b0</c>; the vertex Y flip is
+/// undone, because the projection carries one for Vulkan's clip space and Direct3D's is the
+/// other way up; and a vertex shader's outputs are masked down to what its fragment shader
+/// actually reads.
+/// </para>
+/// <para>
+/// <b>That last one is not an optimisation.</b> The two stages are translated
+/// independently, and DXC packs each one's varyings into consecutive hardware registers by
+/// itself. The mesh shader's vertex stage writes six varyings and its fragment stage reads
+/// five — location 4 goes unread — so the vertex stage packs its sixth into register five
+/// and the fragment stage packs the same varying into register four. Direct3D refuses the
+/// pipeline: <c>Semantic 'TEXCOORD' is defined for mismatched hardware registers between
+/// the output stage and input stage</c>. Masking the unread output makes both stages pack
+/// the same way, which is why <see cref="StageInputLocations"/> exists and why the fragment
+/// shader has to be translated first.
 /// </para>
 /// </remarks>
 public sealed class HlslTranspiler : IDisposable
@@ -38,12 +49,107 @@ public sealed class HlslTranspiler : IDisposable
     /// <summary>Creates a transpiler.</summary>
     public HlslTranspiler() => _cross = Cross.GetApi();
 
+    /// <summary>Which locations a module reads as stage inputs.</summary>
+    /// <param name="spirv">SPIR-V words as bytes.</param>
+    /// <param name="name">Name used in error messages.</param>
+    /// <returns>The locations, which for a fragment shader are the varyings it consumes.</returns>
+    /// <exception cref="ShaderCompilationException">The module could not be read.</exception>
+    /// <remarks>
+    /// Asked of a fragment shader so that its vertex shader can be translated with everything
+    /// else masked off. See the note on stage linkage above: without it the two stages pack
+    /// their varyings into different registers and Direct3D refuses the pipeline.
+    /// </remarks>
+    public IReadOnlySet<uint> StageInputLocations(
+        ReadOnlySpan<byte> spirv, string name = "shader") =>
+        Locations(spirv, name, ResourceType.StageInput);
+
+    private unsafe HashSet<uint> Locations(
+        ReadOnlySpan<byte> spirv, string name, ResourceType kind)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        Context* context = null;
+
+        try
+        {
+            if (_cross.ContextCreate(&context) != Result.Success)
+            {
+                throw new ShaderCompilationException(
+                    $"Could not read '{name}': SPIRV-Cross would not start.");
+            }
+
+            ParsedIr* ir;
+            fixed (byte* words = spirv)
+            {
+                if (_cross.ContextParseSpirv(context, (uint*)words, (nuint)(spirv.Length / 4), &ir)
+                    != Result.Success)
+                {
+                    throw Failure(context, name, "parse");
+                }
+            }
+
+            CrossCompiler* compiler;
+            if (_cross.ContextCreateCompiler(
+                    context, Backend.None, ir, CaptureMode.TakeOwnership, &compiler) != Result.Success)
+            {
+                throw Failure(context, name, "reflect");
+            }
+
+            Resources* resources;
+            if (_cross.CompilerCreateShaderResources(compiler, &resources) != Result.Success)
+            {
+                throw Failure(context, name, "reflect");
+            }
+
+            ReflectedResource* list;
+            nuint count;
+
+            if (_cross.ResourcesGetResourceListForType(
+                    resources, kind, &list, &count) != Result.Success)
+            {
+                throw Failure(context, name, "reflect the inputs of");
+            }
+
+            HashSet<uint> locations = [];
+
+            for (nuint i = 0; i < count; i++)
+            {
+                locations.Add(
+                    _cross.CompilerGetDecoration(compiler, list[i].Id, Silk.NET.SPIRV.Decoration.Location));
+            }
+
+            return locations;
+        }
+        finally
+        {
+            if (context is not null)
+            {
+                _cross.ContextDestroy(context);
+            }
+        }
+    }
+
+    /// <summary>Which locations a module writes as stage outputs.</summary>
+    /// <param name="spirv">SPIR-V words as bytes.</param>
+    /// <param name="name">Name used in error messages.</param>
+    /// <returns>The locations, which for a vertex shader are the varyings it hands on.</returns>
+    /// <exception cref="ShaderCompilationException">The module could not be read.</exception>
+    public IReadOnlySet<uint> StageOutputLocations(
+        ReadOnlySpan<byte> spirv, string name = "shader") =>
+        Locations(spirv, name, ResourceType.StageOutput);
+
     /// <summary>Turns a SPIR-V module into HLSL.</summary>
     /// <param name="spirv">SPIR-V words as bytes.</param>
     /// <param name="name">Name used in error messages.</param>
+    /// <param name="readBy">
+    /// The locations the next stage reads, or null to keep every output. Given for a vertex
+    /// shader whose fragment shader has already been reflected; see the note on stage
+    /// linkage above.
+    /// </param>
     /// <returns>HLSL source, with <c>main</c> as its entry point.</returns>
     /// <exception cref="ShaderCompilationException">The module could not be translated.</exception>
-    public unsafe string Translate(ReadOnlySpan<byte> spirv, string name = "shader")
+    public unsafe string Translate(
+        ReadOnlySpan<byte> spirv, string name = "shader", IReadOnlySet<uint>? readBy = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -120,6 +226,19 @@ public sealed class HlslTranspiler : IDisposable
                 throw Failure(context, name, "bind the push constants of");
             }
 
+            // Everything the next stage does not read. Both stages then pack their varyings
+            // into the same registers, which is the only way Direct3D will link them.
+            if (readBy is not null)
+            {
+                foreach (uint location in StageOutputLocations(compiler))
+                {
+                    if (!readBy.Contains(location))
+                    {
+                        _cross.CompilerMaskStageOutputByLocation(compiler, location, 0);
+                    }
+                }
+            }
+
             byte* source;
             if (_cross.CompilerCompile(compiler, &source) != Result.Success)
             {
@@ -149,6 +268,35 @@ public sealed class HlslTranspiler : IDisposable
 
         _disposed = true;
         _cross.Dispose();
+    }
+
+    /// <summary>Which locations a compiler's module writes as stage outputs.</summary>
+    private unsafe List<uint> StageOutputLocations(CrossCompiler* compiler)
+    {
+        Resources* resources;
+        if (_cross.CompilerCreateShaderResources(compiler, &resources) != Result.Success)
+        {
+            return [];
+        }
+
+        ReflectedResource* list;
+        nuint count;
+
+        if (_cross.ResourcesGetResourceListForType(
+                resources, ResourceType.StageOutput, &list, &count) != Result.Success)
+        {
+            return [];
+        }
+
+        var locations = new List<uint>((int)count);
+
+        for (nuint i = 0; i < count; i++)
+        {
+            locations.Add(
+                _cross.CompilerGetDecoration(compiler, list[i].Id, Silk.NET.SPIRV.Decoration.Location));
+        }
+
+        return locations;
     }
 
     private unsafe ShaderCompilationException Failure(Context* context, string name, string verb)
