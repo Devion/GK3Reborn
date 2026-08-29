@@ -204,8 +204,8 @@ inside it, which is the part that stops being visible first.
 
 | | near | far |
 | --- | ---: | ---: |
-| spruce | 10,150 | 920 |
-| cypress | 11,190 | 1,110 |
+| spruce | 10,150 | 2,160 |
+| cypress | 11,190 | 2,450 |
 | broadleaf | 19,280 | 3,890 |
 | maple | 18,230 | 2,960 |
 | darkbroadleaf | 21,320 | 3,890 |
@@ -213,6 +213,40 @@ inside it, which is the part that stops being visible first.
 The near figures roughly doubled when the leaves became bowed patches rather than quads,
 and the far figures did not move: a far tree is grown flat, because four times the
 triangles for a curve across a clump is four times nothing at a hundred metres.
+
+### What is thinned is the count; what is held is the area
+
+A card taken out of a crown is only free if the ones left grow enough to cover the hole.
+So the figure the thinning is tuned against is not the leaf **count** but the leaf
+**area** — the count times the square of the scale — measured against the near tree's.
+
+The two kinds do not survive the same factors, and for a long time they were given them
+anyway. A broadleaf's crown is a cloud of clumps scattered through a volume: take a third
+of them at 2.3 times the size and the cloud is as full as it was (116% of the near tree's
+area, in fact). A conifer's is a *shell* of sprays hung along whorled branches, and there
+the count is the shape. The same factors left the spruce an eighth of its sprays carrying
+four times the area apiece — 56% of the near area — and none of the missing half where the
+eye looks for it: sky between the whorls, bare branch tips, and a cone that had become a
+ragged column of ferns.
+
+A spray is also sized against the **crown radius**, not against the branch it hangs on, so
+`fanScale` is the one factor that cannot be spent freely. At 2.10 a single spray was over
+half the crown wide and the outline it drew was a star.
+
+`FAR_CONIFER` and `FAR_BROADLEAF` therefore thin separately. The conifers now keep 0.85 of
+their whorls and branches and 0.72 of their sprays at 1.40 times the size, which puts both
+back at parity — spruce 513 sprays against the near tree's 964, cypress 535 against 1,059 —
+and still costs a fifth of the near tree. That is what doubled the two far figures above.
+
+Nothing else moved: every near tree and every far broadleaf comes out byte for byte what it
+was, because the growth is seeded by name and detail.
+
+The far conifers are what a **free camera** in a backdrop wood sees almost exclusively —
+only the nearest forty-eight trees within seventy metres are grown in full, and beyond that
+it is the far model out to four hundred and sixty. Note that `render-scene` cannot show
+this: `SceneRenderer` draws the room, not the reconstructed horizon, so a tool render of an
+outdoor scene has no backdrop forest in it at all and is identical either way. `render-model`
+on `spruce_00_far.glb` is the comparison that works.
 
 A room grows every stand it can afford at the far detail — all of an object or none of it,
 since a room is hidden by name — and spends what is left raising the **tallest** trees to

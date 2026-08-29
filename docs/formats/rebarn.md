@@ -383,8 +383,13 @@ visits four rooms pays for four rooms.
 
 `RebarnContent` opens every `*.rebarn` in a directory in file-name order and **the last one
 wins**, so a pack dropped in later overrides one shipped earlier: `Reborn.rebarn`, then
-`RebornMaterials.rebarn`, then a `RebornPatch.rebarn` somebody adds. That is the whole mod
-story, and it needs no support beyond a name that sorts last.
+`RebornMaterials.rebarn`, then a `RebornPatch.rebarn` somebody adds. That needs no support
+beyond a name that sorts last, and it is the right tool for a large replacement set.
+
+For a handful of loose files — and for anything in the original archives, which no pack can
+reach — there is `overrides/` beside the executable, which stands in front of the packs
+*and* the barns. See [overrides.md](../overrides.md). `GK3Reborn --extract` writes the pack
+into the layout that directory reads back.
 
 A pack that will not open costs that pack and nothing else (`GK3R1176`). One damaged volume
 out of two leaves the game running on what the other holds, the same way one unreadable

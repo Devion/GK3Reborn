@@ -24,6 +24,18 @@ public sealed class GameArchives : IDisposable
     /// <summary>How many archives were opened.</summary>
     public int Count => _archives.Count;
 
+    /// <summary>
+    /// Files a player has dropped into <c>overrides/</c>, which outrank every archive.
+    /// </summary>
+    /// <remarks>
+    /// Set here rather than consulted by each caller because this is the one door every
+    /// 1999 asset comes through — scripts, room definitions, sounds, models, bitmaps, the
+    /// text files that configure the game. A caller that had to remember to ask the
+    /// override layer first is a caller that will one day forget, and the asset it forgot
+    /// about would be the one nobody could work out why they could not replace.
+    /// </remarks>
+    public ContentOverrides? Overrides { get; set; }
+
     /// <summary>Opens every archive in a directory.</summary>
     /// <param name="directory">The game's <c>Data</c> directory.</param>
     /// <returns>The set.</returns>
@@ -75,6 +87,22 @@ public sealed class GameArchives : IDisposable
         List<string> names = [];
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
 
+        // First, because they are what would be read. A name that only an override has is
+        // a name the game can now open, and leaving it out would make a listing disagree
+        // with a read.
+        foreach (string name in Overrides?.ArchiveNames ?? [])
+        {
+            if (suffix is not null && !name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (seen.Add(name))
+            {
+                names.Add(name);
+            }
+        }
+
         foreach (BarnArchive archive in _archives)
         {
             foreach (BarnEntry entry in archive.Entries)
@@ -107,6 +135,11 @@ public sealed class GameArchives : IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
+        if (Overrides?.ReadArchive(name) is { } replaced)
+        {
+            return replaced;
+        }
+
         foreach (BarnArchive archive in _archives)
         {
             BarnEntry? entry = archive.Find(name);
@@ -129,6 +162,11 @@ public sealed class GameArchives : IDisposable
     public bool Exists(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
+
+        if (Overrides?.HasArchive(name) == true)
+        {
+            return true;
+        }
 
         foreach (BarnArchive archive in _archives)
         {

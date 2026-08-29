@@ -1,5 +1,6 @@
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Rebarn;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Content;
@@ -42,6 +43,9 @@ public sealed class EnhancedTextures
     public IReadOnlyList<string> Names =>
         [.. _files.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase)];
 
+    /// <summary>How many of the textures came from <c>overrides/</c>.</summary>
+    public int OverriddenCount { get; private set; }
+
     /// <summary>Indexes a directory of enhanced textures.</summary>
     /// <param name="directory">Where they are.</param>
     /// <returns>The set, empty when the directory does not exist.</returns>
@@ -49,26 +53,48 @@ public sealed class EnhancedTextures
     /// A missing directory is not an error. Enhanced content is optional by design — the
     /// game runs from a legally obtained installation and these are an addition to it.
     /// </remarks>
-    public static EnhancedTextures Open(string directory)
+    public static EnhancedTextures Open(string directory) => Open(directory, null);
+
+    /// <summary>Indexes a directory of enhanced textures, with overrides in front.</summary>
+    /// <param name="directory">Where they are. May be empty for the overrides alone.</param>
+    /// <param name="overrides">Files dropped into <c>overrides/</c>, or null for none.</param>
+    /// <param name="kind">Which of the overrides' sets to take, colour by default.</param>
+    /// <returns>The set, empty when neither has anything.</returns>
+    /// <remarks>
+    /// The overrides are laid over the directory rather than searched after it, because
+    /// there is only ever one answer per name and the override is it. This layer is the one
+    /// every caller in the loader asks <em>before</em> the compressed set, so putting a
+    /// player's PNG here is what makes it beat a packed BC7 of the same name — which is the
+    /// thing an override has to do to be worth having.
+    /// </remarks>
+    public static EnhancedTextures Open(
+        string directory, ContentOverrides? overrides, RebarnKind kind = RebarnKind.Texture)
     {
         ArgumentNullException.ThrowIfNull(directory);
 
         var set = new EnhancedTextures(directory);
 
-        if (!System.IO.Directory.Exists(directory))
-        {
-            return set;
-        }
-
         // Matched here rather than by a "*.png" search pattern, which is case-sensitive on
         // Linux and would make R25WALLS.PNG invisible there while finding it on Windows and
         // macOS. The game's own names are upper case throughout, so generated content
         // carries that extension as often as not.
-        foreach (string file in System.IO.Directory.EnumerateFiles(directory))
+        if (directory.Length > 0 && System.IO.Directory.Exists(directory))
         {
-            if (Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
+            foreach (string file in System.IO.Directory.EnumerateFiles(directory))
             {
-                set._files[Path.GetFileNameWithoutExtension(file)] = file;
+                if (Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
+                {
+                    set._files[Path.GetFileNameWithoutExtension(file)] = file;
+                }
+            }
+        }
+
+        if (overrides is not null)
+        {
+            foreach ((string name, string file) in overrides.Images(kind))
+            {
+                set._files[name] = file;
+                set.OverriddenCount++;
             }
         }
 
@@ -104,7 +130,15 @@ public sealed class EnhancedTextures
 
         try
         {
-            return PngReader.Decode(File.ReadAllBytes(file), file);
+            byte[] bytes = File.ReadAllBytes(file);
+
+            // A PNG unless it is one of the other things a player may drop in. Decided from
+            // the bytes rather than from the extension, because an override named .png that
+            // is really a bitmap is a mistake worth surviving, and the two decoders each
+            // recognise their own header anyway.
+            return BitmapDecoder.CanDecode(bytes)
+                ? BitmapDecoder.Decode(bytes, file)
+                : PngReader.Decode(bytes, file);
         }
         catch (Exception ex) when (ex is FormatParseException or IOException)
         {

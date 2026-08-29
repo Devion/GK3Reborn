@@ -112,7 +112,14 @@ public sealed class CompressedTextures
     /// A missing directory is not an error, the same as the enhanced set: the game runs
     /// from a legally obtained installation and this is an addition to it.
     /// </remarks>
-    public static CompressedTextures Open(string directory) => Open(directory, null);
+    public static CompressedTextures Open(string directory) => Open(directory, null, null);
+
+    /// <summary>Indexes a build directory and a set of ReBarn packs.</summary>
+    /// <param name="directory">The workspace's <c>build</c> directory. May be empty.</param>
+    /// <param name="packs">Packs beside the executable, or null for none.</param>
+    /// <returns>The set.</returns>
+    public static CompressedTextures Open(string directory, RebarnContent? packs) =>
+        Open(directory, packs, null);
 
     /// <summary>Indexes a build directory, a set of ReBarn packs, or both.</summary>
     /// <param name="directory">
@@ -122,14 +129,19 @@ public sealed class CompressedTextures
     /// <param name="packs">
     /// Packs beside the executable, or null for none.
     /// </param>
-    /// <returns>The set, empty when neither has anything.</returns>
+    /// <param name="overrides">
+    /// What the player has dropped into <c>overrides/</c>, or null for none.
+    /// </param>
+    /// <returns>The set, empty when none of them has anything.</returns>
     /// <remarks>
     /// Packs are indexed first and loose files overwrite them, so a texture recompressed
     /// into <c>build/</c> during a session is what gets drawn without the pack having to be
     /// rebuilt. That is the same way round as PNG beating DDS, and for the same reason: the
-    /// looser and more recent thing wins while a set is still moving.
+    /// looser and more recent thing wins while a set is still moving. The overrides go last
+    /// and beat both, because they are the player saying which file they want.
     /// </remarks>
-    public static CompressedTextures Open(string directory, RebarnContent? packs)
+    public static CompressedTextures Open(
+        string directory, RebarnContent? packs, ContentOverrides? overrides)
     {
         ArgumentNullException.ThrowIfNull(directory);
 
@@ -154,7 +166,28 @@ public sealed class CompressedTextures
             Index(Path.Combine(directory, "height"), set._height);
         }
 
+        // Last, because an override outranks both. It is indexed here as well as in the
+        // packs so that it still wins on a development machine, where a loose build/ DDS
+        // sits in front of the pack and would otherwise shadow it — an override that works
+        // in a shipped game and quietly does nothing in a checkout is the worst of both.
+        if (overrides is not null)
+        {
+            Adopt(overrides.Blocks(RebarnKind.Texture), set._colour);
+            Adopt(overrides.Blocks(RebarnKind.Normal), set._normal);
+            Adopt(overrides.Blocks(RebarnKind.Orm), set._orm);
+            Adopt(overrides.Blocks(RebarnKind.Height), set._height);
+        }
+
         return set;
+    }
+
+    private static void Adopt(
+        IReadOnlyDictionary<string, string> from, Dictionary<string, string> into)
+    {
+        foreach ((string name, string file) in from)
+        {
+            into[name] = file;
+        }
     }
 
     /// <summary>Registers a pack's names, with no path, so a read falls through to the pack.</summary>

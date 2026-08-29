@@ -132,9 +132,7 @@ public sealed class VideoLibrary
             return file;
         }
 
-        return _packs?.Find(RebarnKind.Video, name) is { } found
-            ? $"{Path.GetFileName(found.Pack.Path)}:{found.Entry.Name}"
-            : null;
+        return _packs?.SourceOf(RebarnKind.Video, name);
     }
 
     /// <summary>Opens a movie for reading.</summary>
@@ -158,10 +156,9 @@ public sealed class VideoLibrary
         }
 
         // A window onto the pack's mapping rather than a copy of it. The pack outlives the
-        // playback — it is opened once for the session — so the window stays valid.
-        return _packs?.Find(RebarnKind.Video, name) is { } found
-            ? new MappedStream(found.Pack.ReadMapped(found.Entry))
-            : null;
+        // playback — it is opened once for the session — so the window stays valid. An
+        // override in front of it comes back as an ordinary file handle instead.
+        return _packs?.OpenStream(RebarnKind.Video, name);
     }
 
     /// <summary>The name a movie is known by: no directory, no extension.</summary>

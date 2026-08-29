@@ -71,6 +71,14 @@ public static class Application
             ? RayTracingSettings.Parse(level)
             : null;
 
+        // Content out rather than a game in. Before the window, the device and the
+        // archives check, because it needs none of them and somebody unpacking fifteen
+        // gigabytes should not first wait for a Vulkan instance to be built.
+        if (args.Contains("--extract", StringComparer.OrdinalIgnoreCase))
+        {
+            return Extract(args);
+        }
+
         if (Option(args, "--scene") is { } scene)
         {
             // A named scene is somebody looking at a room, so it opens in the room. The
@@ -206,6 +214,43 @@ public static class Application
 
         ReportArchives(dataDirectory, archives.Count);
 
+        // Whatever the player has dropped into overrides/, which outranks everything: the
+        // packs below, and these archives. Opened before the room is looked for, because a
+        // replaced R25.SIF is a room the archives do not have and the check below would
+        // refuse to start over it.
+        //
+        // One index of a directory that is usually not there, so it costs nothing in a game
+        // nobody has modified.
+        var overrideDiagnostics = new DiagnosticBag();
+        string overrideDirectory = OverrideDirectory(args);
+
+        ContentOverrides found = args.Contains("--no-overrides", StringComparer.OrdinalIgnoreCase)
+            ? ContentOverrides.Open(string.Empty)
+            : ContentOverrides.Open(overrideDirectory, overrideDiagnostics);
+
+        foreach (Diagnostic diagnostic in overrideDiagnostics.Items)
+        {
+            Log.Report(diagnostic);
+        }
+
+        // Null when there is nothing, and null all the way down: every layer below tests
+        // this to decide whether the override door exists at all, so an empty set handed
+        // out instead would have each of them consulting a dictionary that can never
+        // answer, on the critical path of every texture in every room.
+        ContentOverrides? overrides = found.IsEmpty ? null : found;
+
+        archives.Overrides = overrides;
+
+        // Said out loud, because an override is invisible once it is on screen — that is
+        // what it is for — and a run in which a forgotten file is standing in for the
+        // shipped one looks exactly like a run without it.
+        Log.Info(found.Describe() is { } overridden
+            ? $"Overrides: {overridden}"
+            : $"Overrides: none in {overrideDirectory}");
+
+        StartupReport.Optional("Overrides", overrides is null ? null : overrideDirectory,
+            "The game uses the content it shipped with.");
+
         // Before the window, the device and the menu. A room that is not in the archives
         // fails the same way whenever it is noticed, and noticing it here means the player
         // is told what is wrong instead of watching the game quit the moment they press
@@ -232,6 +277,11 @@ public static class Application
         var packDiagnostics = new DiagnosticBag();
         string packDirectory = PackDirectory(args);
         using RebarnContent packs = RebarnContent.Open(packDirectory, packDiagnostics);
+
+        // The same layer as the archives got, in front of the packs. Both doors, because a
+        // name can be either: R25WALLS is a bitmap in an archive and a BC7 texture in a
+        // pack, and somebody replacing it has no reason to care which.
+        packs.Overrides = archives.Overrides;
 
         foreach (Diagnostic diagnostic in packDiagnostics.Items)
         {
@@ -675,9 +725,7 @@ public static class Application
                 archives,
                 renderer,
                 screens,
-                settings.EnhancedTextures && !packsOnly && enhancedDirectory is { Length: > 0 }
-                    ? EnhancedTextures.Open(enhancedDirectory)
-                    : null);
+                Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides));
 
             Log.Info(
                 $"Interface: {atlas.Name}, {atlas.Count} glyphs at {atlas.Height}px" +
@@ -896,16 +944,17 @@ public static class Application
             // there.
             TitleScreen title = TitleArt(
                 archives,
-                settings.EnhancedTextures && !packsOnly && enhancedDirectory is { Length: > 0 }
-                    ? EnhancedTextures.Open(enhancedDirectory)
-                    : null,
+                Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides),
                 settings.EnhancedTextures
                     ? CompressedTextures.Open(
                         packsOnly
                             ? string.Empty
                             : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
-                        packs)
-                    : null,
+                        packs,
+                        overrides)
+                    : overrides is null
+                        ? null
+                        : CompressedTextures.Open(string.Empty, null, overrides),
                 diagnostics);
 
             front.Illustrated = title.Exists;
@@ -1139,16 +1188,24 @@ public static class Application
                 Characters = characters,
             };
 
-            if (!packsOnly && settings.EnhancedTextures && enhancedDirectory is { Length: > 0 })
             {
-                EnhancedTextures enhanced = EnhancedTextures.Open(enhancedDirectory);
+                // The loose picture layer: the workspace's enhanced set with whatever the
+                // player has put in overrides/ laid over it. Built even when there is no
+                // workspace and even under --rebarn, because an override is the player's
+                // own file and is not the enhanced content those turn off. Pictures
+                // returns null when neither source has anything for a channel, so a game
+                // with no overrides behaves exactly as it did.
+                EnhancedTextures? enhanced =
+                    Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides);
+
                 loader.Enhanced = enhanced;
 
                 // Normal maps sit beside the colour textures rather than among them: a
                 // surface may have a better colour and no normal map, or the other way
                 // round, and they are judged separately.
-                EnhancedTextures normals =
-                    EnhancedTextures.Open(Beside(enhancedDirectory, "normals"));
+                EnhancedTextures? normals = Pictures(
+                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                    Formats.Rebarn.RebarnKind.Normal, "normals");
 
                 // --flat leaves the colour textures enhanced and the surfaces smooth,
                 // which is the only way to see what the normal pass alone is doing.
@@ -1159,21 +1216,23 @@ public static class Application
                 // The other two generated sets, beside the normals for the same reason:
                 // each is a separate pass and a separate judgement, and a surface may have
                 // any combination of the three.
-                EnhancedTextures orms = EnhancedTextures.Open(Beside(enhancedDirectory, "orm"));
-                EnhancedTextures heights =
-                    EnhancedTextures.Open(Beside(enhancedDirectory, "height"));
+                loader.Orms = flat ? null : Pictures(
+                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                    Formats.Rebarn.RebarnKind.Orm, "orm");
 
-                loader.Orms = flat ? null : orms;
-                loader.Heights = flat ? null : heights;
+                loader.Heights = flat ? null : Pictures(
+                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                    Formats.Rebarn.RebarnKind.Height, "height");
 
-                if (first && normals.Count > 0)
+                if (first && normals is { Count: > 0 })
                 {
                     Log.Info($"Normal maps: {normals.Count} available");
                 }
 
-                if (first)
+                if (first && !packsOnly && settings.EnhancedTextures &&
+                    enhancedDirectory is { Length: > 0 })
                 {
-                    Log.Info(enhanced.Count > 0
+                    Log.Info(enhanced is { Count: > 0 }
                         ? $"Enhanced textures: {enhanced.Count} available in {enhancedDirectory}"
                         : $"Enhanced textures: none found in {enhancedDirectory}");
                 }
@@ -1270,15 +1329,20 @@ public static class Application
                 packsOnly
                     ? string.Empty
                     : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
-                packs);
+                packs,
+                overrides);
 
             // The setting takes the compressed set out of the way as well as the loose one.
             // It is the same art in a smaller form, so leaving it in would answer "no" with
             // the enhanced textures still on screen.
+            //
+            // What survives it is the overrides on their own. A .dds a player put there is
+            // not the remake's enhanced art and is not what either of these switches off,
+            // for the same reason the picture layer above is built regardless.
             loader.Compressed =
                 args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase) ||
                 !settings.EnhancedTextures
-                    ? null
+                    ? overrides is null ? null : CompressedTextures.Open(string.Empty, null, overrides)
                     : compressed;
 
             // --flat means flat wherever the maps would have come from. It used to null
@@ -1851,16 +1915,17 @@ public static class Application
                     api.State.Timeblock,
                     Art(
                         archives,
-                        settings.EnhancedTextures && !packsOnly && enhancedDirectory is { Length: > 0 }
-                            ? EnhancedTextures.Open(enhancedDirectory)
-                            : null,
+                        Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides),
                         settings.EnhancedTextures
                             ? CompressedTextures.Open(
                                 packsOnly
                                     ? string.Empty
                                     : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
-                                packs)
-                            : null,
+                                packs,
+                                overrides)
+                            : overrides is null
+                                ? null
+                                : CompressedTextures.Open(string.Empty, null, overrides),
                         diagnostics,
                         $"TBT{api.State.Timeblock}.BMP"));
 
@@ -5128,6 +5193,260 @@ public static class Application
         }
 
         return asked ? Path.Combine(DefaultWorkspaceDirectory(), "enhanced", "textures") : null;
+    }
+
+    /// <summary>
+    /// Writes the game's content out as files, laid out for <c>overrides/</c>.
+    /// </summary>
+    /// <param name="args">The command line.</param>
+    /// <returns>Process exit code.</returns>
+    /// <remarks>
+    /// <para>
+    /// The half of the override story that has to exist for the other half to be usable.
+    /// Replacing a texture means first knowing what is there and what it looks like, and
+    /// neither a ReBarn volume nor a 1999 barn is something a paint program can open.
+    /// </para>
+    /// <para>
+    /// It writes into <c>overrides/</c> by default and in the layout the override layer
+    /// reads back, so extract, edit in place, run. Which is also the trap it is arranged
+    /// to avoid: extracting into the directory the game reads means <em>everything</em>
+    /// extracted is now an override of itself, so a whole-pack extract with no filter is
+    /// refused unless <c>--extract-to</c> says somewhere else. Ask for the kind or the name
+    /// you actually want.
+    /// </para>
+    /// </remarks>
+    private static int Extract(string[] args)
+    {
+        string? name = Option(args, "--name");
+        string? kindList = Option(args, "--kinds");
+        string from = Option(args, "--from") ?? "packs";
+
+        bool asPng = string.Equals(Option(args, "--as"), "png", StringComparison.OrdinalIgnoreCase);
+
+        if (Option(args, "--as") is { Length: > 0 } form &&
+            !form.Equals("png", StringComparison.OrdinalIgnoreCase) &&
+            !form.Equals("dds", StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Error($"--as {form}: the forms are png and dds.");
+            return 2;
+        }
+
+        bool wantsPacks = from is "packs" or "all";
+        bool wantsGame = from is "game" or "all";
+
+        if (!wantsPacks && !wantsGame)
+        {
+            Log.Error($"--from {from}: the sources are packs, game and all.");
+            return 2;
+        }
+
+        string named = Option(args, "--extract-to") ?? string.Empty;
+        bool intoOverrides = named.Length == 0;
+        string output = intoOverrides ? OverrideDirectory(args) : Path.GetFullPath(named);
+
+        // Kinds, parsed before anything is opened so a typo costs nothing.
+        List<Formats.Rebarn.RebarnKind>? kinds = null;
+
+        if (kindList is { Length: > 0 })
+        {
+            kinds = [];
+
+            foreach (string one in kindList.Split(
+                         ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (Formats.Rebarn.RebarnFormat.KindOf(one) is not { } kind)
+                {
+                    Log.Error($"--kinds: {one} names no kind of content.");
+                    Log.Error(
+                        "The kinds are textures, normals, orm, height, emissive, models, "
+                        + "scene-geometry, video, manifests and raw.");
+
+                    return 2;
+                }
+
+                kinds.Add(kind);
+            }
+        }
+
+        // Everything, into the directory the game reads. That is not an extract, it is a
+        // fifteen-gigabyte copy of the game into its own override layer, where every file
+        // then stands in front of the one it was copied from — and the first thing anybody
+        // would notice is that rebuilding the packs stopped changing anything.
+        if (intoOverrides && kinds is null && name is null && wantsPacks)
+        {
+            Log.Error(
+                "--extract with no --kinds and no --name would copy every packed file into "
+                + $"{output}, where each one would then override itself.");
+            Log.Error(
+                "Say which content you want — --kinds textures, --name R25WALLS — or "
+                + "--extract-to <dir> to unpack the lot somewhere it is only a copy.");
+
+            return 2;
+        }
+
+        Log.Info($"Extracting to {output}");
+
+        var total = new ContentExtract.Result();
+
+        if (wantsPacks)
+        {
+            string packDirectory = PackDirectory(args);
+            var packDiagnostics = new DiagnosticBag();
+            using RebarnContent packs = RebarnContent.Open(packDirectory, packDiagnostics);
+
+            foreach (Diagnostic diagnostic in packDiagnostics.Items)
+            {
+                Log.Report(diagnostic);
+            }
+
+            if (packs.VolumeCount == 0)
+            {
+                // Refused rather than reported as an empty success. "Wrote 0 files" from a
+                // directory with no packs in it reads as "there was nothing in them".
+                Log.Error($"No .rebarn pack in {packDirectory}.");
+                Log.Error("Pass --packs <dir> to say where they are, or --from game.");
+
+                return 2;
+            }
+
+            Log.Info($"Packs: {packs.Describe()}");
+
+            total += ContentExtract.FromPacks(packs, output, kinds, name, asPng, Log.Info);
+        }
+
+        if (wantsGame)
+        {
+            string dataDirectory = Option(args, "--data") ?? DefaultDataDirectory();
+
+            if (!Directory.Exists(dataDirectory))
+            {
+                Log.Error($"No game archives at {dataDirectory}.");
+                ExplainMissingArchives(dataDirectory);
+
+                return 2;
+            }
+
+            using GameArchives archives = GameArchives.Open(dataDirectory);
+
+            if (archives.Count == 0)
+            {
+                Log.Error($"No game archives in {dataDirectory}.");
+                ExplainMissingArchives(dataDirectory);
+
+                return 2;
+            }
+
+            // The 1999 assets go in a directory of their own. They are matched by their
+            // whole file name rather than by a kind, so no kind directory would mean
+            // anything, and forty thousand files beside a dozen texture directories would
+            // bury the ones somebody came for.
+            string game = Path.Combine(output, "game");
+
+            // The extension list, which for these is what --kinds means: a barn holds SIF,
+            // NVC, BMP, MOD and WAV, and none of those is a ReBarn kind.
+            string[]? extensions = kindList is { Length: > 0 }
+                ? kindList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : null;
+
+            if (intoOverrides && extensions is null && name is null)
+            {
+                Log.Error(
+                    $"--from game with no --kinds and no --name would copy every asset the "
+                    + $"archives hold into {game}, where each one would then override itself.");
+                Log.Error(
+                    "Say which — --kinds SIF,NVC, --name R25 — or --extract-to <dir>.");
+
+                return 2;
+            }
+
+            ContentExtract.Result written =
+                ContentExtract.FromGame(archives, game, extensions, name, Log.Info);
+
+            Log.Info($"  {"game",-15} {written.Written,6} file(s), "
+                + $"{written.Bytes / (1024.0 * 1024):F1} MB");
+
+            total += written;
+        }
+
+        Log.Info(total.Written == 0
+            ? "Nothing matched, so nothing was written."
+            : $"Wrote {total.Written} file(s), {total.Bytes / (1024.0 * 1024):F1} MB, to {output}"
+                + (total.Failed > 0 ? $"; {total.Failed} could not be written." : "."));
+
+        if (total.Written > 0 && intoOverrides)
+        {
+            Log.Info(
+                "Every file there now stands in front of the one it came from. Delete the "
+                + "ones you are not changing, or the game reads its own content back "
+                + "through a slower door.");
+        }
+
+        return total.Written > 0 ? 0 : 1;
+    }
+
+    /// <summary>Where the player's own overriding files sit.</summary>
+    /// <param name="args">Command line, for <c>--overrides</c>.</param>
+    /// <returns>The directory, whether or not it exists.</returns>
+    /// <remarks>
+    /// Beside the executable, which is where a player would put one and where
+    /// <c>--extract</c> writes. A read-only install — a signed macOS bundle — cannot have
+    /// one there, so the per-user directory is the fallback, the same way saves and the
+    /// shader cache fall back.
+    /// </remarks>
+    private static string OverrideDirectory(string[] args)
+    {
+        if (Option(args, "--overrides") is { Length: > 0 } named && !named.StartsWith('-'))
+        {
+            return named;
+        }
+
+        string beside = Path.Combine(AppContext.BaseDirectory, ContentOverrides.DirectoryName);
+
+        return Directory.Exists(beside) || InstallPaths.CanWrite(AppContext.BaseDirectory)
+            ? beside
+            : Path.Combine(InstallPaths.UserData, ContentOverrides.DirectoryName);
+    }
+
+    /// <summary>
+    /// One channel's loose picture layer: the workspace's set with the overrides over it.
+    /// </summary>
+    /// <param name="enabled">Whether the enhanced set itself is wanted.</param>
+    /// <param name="packsOnly">Whether every other loose source is being ignored.</param>
+    /// <param name="enhancedDirectory">The enhanced colour set, or null.</param>
+    /// <param name="overrides">What the player has dropped in, or null.</param>
+    /// <param name="kind">Which channel.</param>
+    /// <param name="subdirectory">Where that channel sits beside the colour set.</param>
+    /// <returns>The layer, or null when neither source has anything for this channel.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>An override is not enhanced content and is not gated with it.</strong>
+    /// <c>--rebarn</c> ignores every loose enhanced set so that a measurement measures the
+    /// shipped form, and turning higher-resolution textures off in the menu asks for the
+    /// 1999 picture; neither is a statement about a file the player put in
+    /// <c>overrides/</c> themselves. Only <c>--no-overrides</c> says that.
+    /// </para>
+    /// <para>
+    /// Null rather than an empty set when there is nothing, because null is what the loader
+    /// tests to decide whether to ask this layer at all.
+    /// </para>
+    /// </remarks>
+    private static EnhancedTextures? Pictures(
+        bool enabled,
+        bool packsOnly,
+        string? enhancedDirectory,
+        ContentOverrides? overrides,
+        Formats.Rebarn.RebarnKind kind = Formats.Rebarn.RebarnKind.Texture,
+        string? subdirectory = null)
+    {
+        string directory = enabled && !packsOnly && enhancedDirectory is { Length: > 0 }
+            ? subdirectory is null ? enhancedDirectory : Beside(enhancedDirectory, subdirectory)
+            : string.Empty;
+
+        ContentOverrides? layer = overrides?.Images(kind).Count > 0 ? overrides : null;
+
+        return directory.Length == 0 && layer is null
+            ? null
+            : EnhancedTextures.Open(directory, layer, kind);
     }
 
     /// <summary>Where the block-compressed build of the enhanced textures sits.</summary>

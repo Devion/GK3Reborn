@@ -248,18 +248,51 @@ SPECIES = {
 # grown twice: once in full, and once with fewer and larger pieces. The far tree keeps the
 # silhouette that says which species it is - the count of whorls, the taper of the crown -
 # and gives up the detail inside it, which is the part that stops being visible first.
+#
+# What has to be held while it is thinned is the **leaf area**, not the leaf count: a card
+# taken away is only free if the ones left grow enough to cover the hole it leaves. The
+# figure to watch is the count times the square of the scale, against the near tree's.
 FAR = {
-    "whorls": 0.55,
-    "branchesPerWhorl": 0.70,
-    "fansPerBranch": 0.34,
-    "fanScale": 2.10,
     "trunkSegments": 0.55,
     "branchSegments": 0.70,
+}
+
+# A broadleaf's crown is a cloud of clumps scattered through a volume, so it survives being
+# thinned hard: a third of the clumps at two and a bit times the size covers the same
+# volume, and what is lost is the grain inside a mass that reads as one mass anyway.
+FAR_BROADLEAF = {
     "limbSplits": 0.70,
     "clumpsPerTwig": 0.34,
     "clumpScale": 2.30,
     "crownFill": 0.10,
 }
+
+# A conifer's is not a cloud but a shell of sprays hung along whorled branches, and there
+# the *count is the shape*. These factors used to be the broadleaf's - whorls 0.55,
+# branches 0.70, fans 0.34 at 2.10 times the size - which left an eighth of the sprays
+# carrying four times the area apiece: 56% of the near tree's leaf area, and none of the
+# missing half where the eye looks for it. A spruce came out as a ragged column of ferns
+# with sky between the whorls rather than as a cone, and a free camera in a backdrop wood
+# sees nothing else, because only the nearest forty-eight trees are grown in full.
+#
+# A spray is sized against the **crown radius**, not against the branch it hangs on, so
+# `fanScale` is the one factor that cannot be spent freely: at 2.10 a single spray was over
+# half the crown wide and the outline it drew was a star. 1.40 is as far as it goes without
+# the silhouette coarsening, and the rest of the area is bought back in count. That puts
+# both conifers back at parity - spruce 513 sprays at 1.96 times the area against the near
+# tree's 964, cypress 535 against 1,059 - which is where the broadleaf already stood, and
+# it still costs a fifth of the near tree: spruce 2,130 triangles against 9,956.
+FAR_CONIFER = {
+    "whorls": 0.85,
+    "branchesPerWhorl": 0.85,
+    "fansPerBranch": 0.72,
+    "fanScale": 1.40,
+}
+
+
+def far(spec):
+    """The far build of one species, thinned by the rules its kind is built from."""
+    return thin(spec, FAR | (FAR_CONIFER if spec["kind"] == "conifer" else FAR_BROADLEAF))
 
 
 def thin(spec, factors):
@@ -878,7 +911,7 @@ def main(argv):
     for species in wanted:
         full = SPECIES[species]
         near = [("near", full, variant) for variant in range(options.variants)]
-        distant = [("far", thin(full, FAR), variant) for variant in range(options.far)]
+        distant = [("far", far(full), variant) for variant in range(options.far)]
 
         for detail, spec, variant in near + distant:
             bpy.ops.wm.read_factory_settings(use_empty=True)

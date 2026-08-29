@@ -122,6 +122,16 @@ re-running `pack-content` catches the pack up. Only what changed is re-encoded. 
 [docs/formats/rebarn.md](docs/formats/rebarn.md) for the container, the format
 chosen for each channel and why there are no texture atlases.
 
+### Overriding what shipped
+
+A directory called `overrides/` beside the executable stands in front of everything:
+the packs, and the game's own `.brn` archives, which no pack can reach. Drop a file
+under the name the game already uses and it is what gets read — `textures/R25WALLS.png`
+for a wallpaper, `R25.NVC` for a room's script — with no repack and nothing enabled.
+`GK3Reborn --extract --name R25WALLS --as png` writes the content out in the layout
+that directory reads back, decoding block-compressed textures to editable PNG on the
+way. See [docs/overrides.md](docs/overrides.md).
+
 ## Layout
 
 ```text

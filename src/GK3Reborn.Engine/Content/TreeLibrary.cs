@@ -126,7 +126,11 @@ public sealed class TreeLibrary
         // Loose PNGs only. A packed card has been encoded to a block format and is found by
         // the ordinary compressed-texture path under its own name, so the loader needs no
         // help with it; a loose one is a PNG in this directory and does.
-        Textures = EnhancedTextures.Open(directory);
+        //
+        // The overrides come with it, because this set is asked before the enhanced one for
+        // every texture a tree names: a foliage card replaced in overrides/ that only
+        // reached the layer underneath would never be looked at.
+        Textures = EnhancedTextures.Open(directory, packs?.Overrides);
     }
 
     /// <summary>Where the trees were read from.</summary>
