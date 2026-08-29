@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering.Vulkan;
 using Xunit;

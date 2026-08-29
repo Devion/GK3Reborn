@@ -359,25 +359,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// </remarks>
     private void BuildGrid(GpuLight[] lights, SceneExtent scene)
     {
-        var described = new GridLight[lights.Length];
-
-        for (int i = 0; i < lights.Length; i++)
-        {
-            GpuLight light = lights[i];
-
-            // The shader's own reading of the packing: w of the direction is where falloff
-            // reaches zero, and the third component of the cone at 1.5 or more marks a
-            // light with no falloff at all. Both must agree with EvaluateRig or a light
-            // will be culled from a cell it lights.
-            bool everywhere = light.Cone.Z >= 1.5f;
-            float reach = light.DirectionAndEnd.W;
-
-            described[i] = new GridLight(
-                new Vector3(light.PositionAndStart.X, light.PositionAndStart.Y, light.PositionAndStart.Z),
-                reach,
-                everywhere,
-                light.ColorAndIntensity.W * MathF.Max(1f, reach));
-        }
+        GridLight[] described = GpuLight.Describe(lights);
 
         // A room with no extent — nothing loaded, or a synthetic scene — gets one cell
         // holding everything, which is exactly the behaviour there was before the grid.

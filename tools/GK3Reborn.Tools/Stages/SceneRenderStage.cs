@@ -302,7 +302,7 @@ public sealed class SceneRenderStage
         // grid is divided — and a grid over no bounds is one cell holding the whole rig,
         // which is the behaviour it exists to replace.
         renderer.SetLights(
-            scene.Lights, new GK3Reborn.Rendering.Vulkan.SceneExtent(geometry.Minimum, geometry.Maximum));
+            scene.Lights, new GK3Reborn.Rendering.Geometry.SceneExtent(geometry.Minimum, geometry.Maximum));
 
         if (renderer.LightGrid is { } grid)
         {

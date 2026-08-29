@@ -7,7 +7,7 @@
 using System;
 using System.Numerics;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Geometry;
 
 /// <summary>What a scene occupies, in world space.</summary>
 /// <remarks>

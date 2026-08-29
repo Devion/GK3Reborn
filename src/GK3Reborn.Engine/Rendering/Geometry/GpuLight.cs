@@ -2,7 +2,7 @@
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Scenes;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Geometry;
 
 /// <summary>
 /// One of the artists' lights, in the form the shader reads.
@@ -239,5 +239,38 @@ public readonly record struct GpuLight(
         }
 
         return scene.DistanceTo(light.Position) > RangeOf(light);
+    }
+
+    /// <summary>Describes packed lights to the grid builder.</summary>
+    /// <param name="lights">The rig, as the shader will read it.</param>
+    /// <returns>What the grid needs of each: where it is and how far it reaches.</returns>
+    /// <remarks>
+    /// <b>This is the shader's own reading of the packing, and it has to stay that.</b> The
+    /// fourth component of the direction is where falloff reaches zero, and a third component
+    /// of the cone at 1.5 or more marks a light with no falloff at all. Both must agree with
+    /// what the shader does or a light is culled from a cell it lights — which shows up as a
+    /// lamp that stops lighting the floor under it from some angles and not from others.
+    /// </remarks>
+    public static GridLight[] Describe(IReadOnlyList<GpuLight> lights)
+    {
+        ArgumentNullException.ThrowIfNull(lights);
+
+        var described = new GridLight[lights.Count];
+
+        for (int i = 0; i < lights.Count; i++)
+        {
+            GpuLight light = lights[i];
+
+            bool everywhere = light.Cone.Z >= 1.5f;
+            float reach = light.DirectionAndEnd.W;
+
+            described[i] = new GridLight(
+                new Vector3(light.PositionAndStart.X, light.PositionAndStart.Y, light.PositionAndStart.Z),
+                reach,
+                everywhere,
+                light.ColorAndIntensity.W * MathF.Max(1f, reach));
+        }
+
+        return described;
     }
 }
