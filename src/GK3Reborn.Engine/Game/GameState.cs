@@ -42,6 +42,19 @@ public sealed class GameState
     /// invertible for ever, which is a promise not worth making for one set of strings.
     /// </remarks>
     private readonly HashSet<string> _sidneyScans = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// People the player is to be treated as having met, whatever the story can show.
+    /// </summary>
+    /// <remarks>
+    /// Only ever filled from a save, and only where the save cannot answer the question
+    /// itself: the labels normally read the game's own conditions, and a game played
+    /// through leaves the topic counts those conditions ask about. A save the 1999 game
+    /// wrote leaves none of them, so what it does say — the point in the story it stands at
+    /// — is turned into names here. See <see cref="Story.Introductions.MetBy"/>.
+    /// </remarks>
+    private readonly HashSet<string> _introduced = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly DeterministicRandom _random = new(DefaultRandomSeed);
 
     /// <summary>
@@ -781,6 +794,32 @@ public sealed class GameState
     /// <param name="item">The item's noun.</param>
     public void RecordSidneyScan(string item) => _sidneyScans.Add(Key(item));
 
+    /// <summary>Everybody the player is taken to have met, in a stable order.</summary>
+    public IReadOnlyList<string> Introduced =>
+        [.. _introduced.OrderBy(noun => noun, StringComparer.Ordinal)];
+
+    /// <summary>Takes somebody as met, whatever the story can still show.</summary>
+    /// <param name="noun">The noun a scene gives them.</param>
+    /// <remarks>
+    /// For a save that cannot answer the question the labels normally ask; see
+    /// <see cref="_introduced"/>. Nothing in the game's own data calls this, and nothing
+    /// should: an introduction that happens in front of the player is recorded by the topic
+    /// or the verb the game itself counts, and inventing a second record of it would give
+    /// the two ways to be wrong.
+    /// </remarks>
+    public void Introduce(string noun)
+    {
+        ArgumentNullException.ThrowIfNull(noun);
+
+        _introduced.Add(Key(noun));
+    }
+
+    /// <summary>Whether a save has said the player already knows somebody.</summary>
+    /// <param name="noun">The noun a scene gives them.</param>
+    /// <returns>True when they are to be treated as met without asking the story.</returns>
+    public bool WasIntroduced(string? noun) =>
+        noun is { Length: > 0 } && _introduced.Contains(Key(noun));
+
     /// <summary>
     /// Writes everything observable down, so that it can be put back.
     /// </summary>
@@ -831,6 +870,7 @@ public sealed class GameState
             Hints = new Dictionary<string, int>(_hints),
             SidneyFiles = [.. _sidneyFiles.OrderBy(f => f, StringComparer.Ordinal)],
             SidneyScans = [.. _sidneyScans.OrderBy(s => s, StringComparer.Ordinal)],
+            Introduced = Introduced,
             BlockedHitTests = [.. BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)],
             Inventories =
             [
@@ -876,6 +916,7 @@ public sealed class GameState
         _chatCounts.Clear();
         _sidneyFiles.Clear();
         _sidneyScans.Clear();
+        _introduced.Clear();
         _scored.Clear();
         _hints.Clear();
         BlockedHitTests.Clear();
@@ -947,6 +988,15 @@ public sealed class GameState
         foreach (string scan in save.SidneyScans)
         {
             _sidneyScans.Add(Key(scan));
+        }
+
+        // Who this save says the player already knows. Empty for a game played through in
+        // this engine, which answers the question out of its own topic counts, and filled
+        // for one brought across from the original, which cannot: see
+        // Story.Introductions.MetBy.
+        foreach (string noun in save.Introduced)
+        {
+            _introduced.Add(Key(noun));
         }
 
         // Which score events have been earned. A save written before the journal existed has

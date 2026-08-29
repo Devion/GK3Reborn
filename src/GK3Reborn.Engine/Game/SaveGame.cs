@@ -43,20 +43,27 @@ public sealed record SavedTimer(string Noun, string Verb, double Seconds);
 /// <b>Schema version is checked, not assumed.</b> A save from a future build is refused by
 /// name rather than half-read; a save from a past one goes through
 /// <see cref="SaveStore"/>'s migration, which is a real place to put work rather than a
-/// promise. The one migration that exists today is from nothing.
+/// promise. Two steps exist, and both recover what a point in the story implies rather than
+/// inventing anything: see <see cref="Scored"/> and <see cref="Introduced"/>.
 /// </para>
 /// </remarks>
 public sealed record SaveGame
 {
     /// <summary>The schema this build writes.</summary>
     /// <remarks>
+    /// <para>
     /// Two adds the score events earned and the journal's hints. The first of those was
     /// always missing rather than newly needed: a save has always carried the player's total
     /// and never which events made it up, so loading one and doing the same thing again
     /// scored it twice. The journal made that visible, because it reads those events to know
     /// what has been done.
+    /// </para>
+    /// <para>
+    /// Three adds who the player has been introduced to, for the saves that cannot say it
+    /// any other way. See <see cref="Introduced"/>.
+    /// </para>
     /// </remarks>
-    public const int CurrentSchema = 2;
+    public const int CurrentSchema = 3;
 
     /// <summary>Which schema this save was written with.</summary>
     public required int SchemaVersion { get; init; }
@@ -67,6 +74,19 @@ public sealed record SaveGame
     /// what can honestly be put back and invents nothing.
     /// </remarks>
     public IReadOnlyList<string> Scored { get; init; } = [];
+
+    /// <summary>
+    /// Who the player is to be treated as having met, whatever else the save says.
+    /// </summary>
+    /// <remarks>
+    /// Empty in a game played through in this engine, and correctly so: the labels ask the
+    /// game's own conditions — <c>MET_BUTHANE</c>, <c>INTRODUCED_EMILIO</c> — and a save
+    /// carries the topic counts those conditions are about. It is filled for a game brought
+    /// across from the original, whose file has a timeblock and a score in it and not one
+    /// topic count, so the question has to be answered from the point in the story instead.
+    /// See <see cref="Story.Introductions.MetBy"/>.
+    /// </remarks>
+    public IReadOnlyList<string> Introduced { get; init; } = [];
 
     /// <summary>How many hints the player has asked for, per objective.</summary>
     public IReadOnlyDictionary<string, int> Hints { get; init; } =

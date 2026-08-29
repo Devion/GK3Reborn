@@ -7,6 +7,7 @@
 using System;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Rendering.Upscaling;
@@ -27,12 +28,30 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// support it.
 /// </para>
 /// <para>
-/// <b>Manual hooking.</b> Streamline's usual arrangement is to stand in front of the
-/// Vulkan loader and proxy every call. This engine does not do that — it creates its own
-/// instance, device and swapchain, and tells Streamline about them afterwards through
-/// <c>slSetVulkanInfo</c>. That is the mode NVIDIA calls manual hooking and it is the right
-/// one here: replacing the loader would mean the game's own Vulkan calls went through a
-/// third-party DLL whether or not the player ever turned DLSS on.
+/// <b>Manual hooking.</b> This engine creates its own instance, device and swapchain and
+/// tells Streamline about them afterwards through <c>slSetVulkanInfo</c>. That is the mode
+/// NVIDIA calls manual hooking, and it buys super resolution, which needs nothing but a
+/// command buffer.
+/// </para>
+/// <para>
+/// <b>What it does not buy, and why.</b> Streamline's own housekeeping runs inside the
+/// calls it intercepts — <c>vkQueuePresentKHR</c> above all — so an engine that presents
+/// through the loader is one Streamline never sees a frame end in. It says so
+/// (<c>presentCommon() was not observed</c>) and warns that what it hands out is never
+/// collected again. Frame generation is worse than incomplete: its hooks <i>are</i> the
+/// swapchain calls, so it cannot run at all.
+/// </para>
+/// <para>
+/// The documented cure is to load <c>sl.interposer.dll</c> in place of <c>vulkan-1.dll</c>
+/// and take <c>vkGetInstanceProcAddr</c> from it. <b>Redirecting the loader alone is not
+/// enough and must not be done on its own.</b> Once the interposer proxies device creation
+/// Streamline configures itself from what it saw, and the <c>slSetVulkanInfo</c> call below
+/// then arrives too late — it fails, and Streamline reports its plugins as already
+/// initialised against a device it may not have wanted. The window is a second, separate
+/// problem: frame generation learns the HWND from <c>vkCreateWin32SurfaceKHR</c>, and this
+/// engine's surface is made by GLFW through a loader of its own, so that hook is never
+/// seen and the swapchain is refused outright. Both have to be dealt with in the same
+/// change, and that change wants a machine to test on.
 /// </para>
 /// <para>
 /// <b>Nothing is linked.</b> Every entry point is resolved by name from a file the player
@@ -46,20 +65,40 @@ public sealed unsafe class Streamline : IDisposable
     private const uint FeatureSuperResolution = 0;
     private const uint FeatureFrameGeneration = 1000;
 
+    /// <summary>Latency reporting, which frame generation cannot run without.</summary>
+    /// <remarks>
+    /// <c>sl.dlss_g</c>'s manifest names <c>sl.reflex</c> among its required plugins, and a
+    /// required plugin is not loaded on the feature's behalf: a plugin is loaded because the
+    /// application asked for its feature, so frame generation without these two in the same
+    /// list is frame generation refused for a missing dependency. Reflex in turn reports
+    /// through the presented-frame counter, so both go in together.
+    /// </remarks>
+    private const uint FeatureReflex = 3;
+    private const uint FeaturePresentCounter = 4;
+
     /// <summary>Ray reconstruction, as the public headers number it.</summary>
     /// <remarks>The plugin is <c>sl.dlss_d.dll</c> and its entry point is
     /// <c>slDLSSDSetOptions</c>.</remarks>
     private const uint FeatureRayReconstruction = 1001;
 
     /// <summary>
-    /// Ray reconstruction as the newer <c>sl.dlss_nr.dll</c> numbers itself.
+    /// Neural rendering: ray reconstruction as the newer <c>sl.dlss_nr.dll</c> numbers
+    /// itself.
     /// </summary>
     /// <remarks>
-    /// Found by reading the plugin's own manifest, which declares <c>"id": 1004</c> and an
-    /// entry point called <c>slDLSSNRSetOptions</c> — neither of which appears in any
-    /// public Streamline header. It is recognised here so that the settings page can say
-    /// what is installed and why it is not being used, rather than reporting nothing and
-    /// leaving somebody who has plainly installed ray reconstruction to wonder.
+    /// <para>
+    /// The plugin's own manifest declares <c>"id": 1004</c>, <c>"rhi": ["d3d12", "vk"]</c>
+    /// and an entry point called <c>slDLSSNRSetOptions</c>, none of which appears in any
+    /// published Streamline header. Its options structure was read out of the plugin
+    /// instead; see <see cref="SlDlssnrOptions"/>, which records what the reading rests on.
+    /// </para>
+    /// <para>
+    /// It is a different feature from <see cref="FeatureRayReconstruction"/> rather than a
+    /// renaming of it. It wants far less: colour, depth and motion, tagged as buffers
+    /// seventy and seventy-one and the ordinary two, and none of the normals, roughness or
+    /// albedo that the documented feature needs. That is why it can run over a picture this
+    /// engine already draws.
+    /// </para>
     /// </remarks>
     private const uint FeatureNeuralRendering = 1004;
 
@@ -85,8 +124,45 @@ public sealed unsafe class Streamline : IDisposable
     private const uint TagSpecularAlbedo = 8;
     private const uint TagNormalRoughness = 14;
 
+    /// <summary>The three buffers <c>sl.dlss_nr.dll</c> reads, which the headers reserve.</summary>
+    /// <remarks>
+    /// <c>sl_core_types.h</c> names seventy, seventy-one and seventy-two only as
+    /// <c>kBufferTypeReserved70</c> through <c>72</c>. The plugin asks for exactly those
+    /// three: the first two are required and it refuses the frame without them, and the
+    /// third is fetched as optional and left null when nothing tagged it. It takes depth and
+    /// motion under their ordinary names.
+    /// </remarks>
+    private const uint TagNeuralInputColor = 70;
+    private const uint TagNeuralOutputColor = 71;
+    private const uint TagNeuralControlMask = 72;
+
     /// <summary>A tagged resource does not change until the frame is presented.</summary>
     private const uint ValidUntilPresent = 1;
+
+    /// <summary>
+    /// How hard the neural-rendering network is asked to work, from nothing to one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One knob standing in for the five the network exposes, because nothing yet knows
+    /// what a GK3 room wants from them and five sliders over an unknown scale is worse than
+    /// one number in one place. Turn it down here to see what the network is contributing;
+    /// the difference between this and the picture DLSS alone produces is all of it.
+    /// </para>
+    /// <para>
+    /// The scale's top is the only end that is known. The plugin defaults the one control
+    /// it added later — skin structure — to one and leaves the four original ones to the
+    /// caller, so one is where a caller who set nothing would have landed.
+    /// </para>
+    /// </remarks>
+    private const float NeuralStrength = 1f;
+
+    /// <summary>Whether the network picks its own control mask. One for yes.</summary>
+    /// <remarks>
+    /// The mask says which pixels it may rework. Nought with no mask tagged is the other
+    /// half of the experiment <see cref="NeuralStrength"/> starts.
+    /// </remarks>
+    private const byte NeuralAutoMask = 1;
 
     private readonly nint _library;
     private readonly List<string> _instanceExtensions = [];
@@ -106,6 +182,10 @@ public sealed unsafe class Streamline : IDisposable
 
     private delegate* unmanaged[Cdecl]<void*, void*, uint> _setDlssOptions;
     private delegate* unmanaged[Cdecl]<void*, void*, uint> _setDlssdOptions;
+    private delegate* unmanaged[Cdecl]<void*, void*, uint> _setDlssnrOptions;
+
+    /// <summary>Which denoising feature loaded, or nought when neither did.</summary>
+    private uint _denoiser;
 
     private nint _instance;
     private nint _physicalDevice;
@@ -145,7 +225,49 @@ public sealed unsafe class Streamline : IDisposable
     public bool Supported { get; private set; }
 
     /// <summary>Whether ray reconstruction is loaded, supported and driveable.</summary>
-    public bool HasRayReconstruction { get; private set; }
+    public bool HasRayReconstruction => _denoiser != 0;
+
+    /// <summary>Which of the two denoising plugins is the one that loaded.</summary>
+    /// <remarks>
+    /// For the settings page and the log. The two are not interchangeable — they want
+    /// different inputs — so a player looking at a picture wants to know which one drew it.
+    /// </remarks>
+    public string RayReconstructionVariant => _denoiser switch
+    {
+        FeatureNeuralRendering => "DLSS neural rendering",
+        FeatureRayReconstruction => "DLSS ray reconstruction",
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// Whether the loaded denoiser needs the inputs only a traced picture has.
+    /// </summary>
+    /// <remarks>
+    /// True for the documented feature, which wants normals, roughness and albedo. False
+    /// for neural rendering, which asks for colour, depth and motion and nothing else, and
+    /// so has something to work with whether or not anything was traced.
+    /// </remarks>
+    public bool RayReconstructionNeedsTracedInputs => _denoiser == FeatureRayReconstruction;
+
+    /// <summary>Whether the loaded denoiser has the rung the plan is asking for.</summary>
+    /// <remarks>
+    /// <para>
+    /// Neural rendering has no ultra-quality rung: it refuses that mode by number. Falling
+    /// back to the neighbouring rung inside the options would be worse than not running,
+    /// because the rung is not only a mode — it is the ratio the room was drawn at. The
+    /// plugin asks NGX to work the scaling ratio out from the mode it was given, so a mode
+    /// that disagrees with <see cref="UpscalePlan.Ratio"/> hands the network an input
+    /// smaller or larger than the one it computed for, and every pixel it reads is off.
+    /// </para>
+    /// <para>
+    /// So that rung gets plain super resolution instead, which does have it.
+    /// </para>
+    /// </remarks>
+    /// <param name="quality">The rung the plan asks for.</param>
+    /// <returns>True when the denoising feature can be used at that rung.</returns>
+    public bool CanReconstruct(UpscalerQuality quality) =>
+        HasRayReconstruction &&
+        (_denoiser != FeatureNeuralRendering || quality != UpscalerQuality.UltraQuality);
 
     /// <summary>
     /// Why ray reconstruction is not available, when it looked as though it should be.
@@ -236,7 +358,6 @@ public sealed unsafe class Streamline : IDisposable
         }
 
         started.HasFrameGeneration = frameGeneration;
-        started.HasRayReconstruction = rayReconstruction;
         started.SuperResolutionVersion =
             runtimes.Dlss.Version is { Length: > 0 } version ? "DLSS " + version : "DLSS";
 
@@ -244,12 +365,20 @@ public sealed unsafe class Streamline : IDisposable
 
         if (rayReconstruction)
         {
-            started.Gather(FeatureRayReconstruction);
-
-            // The documented feature did not load. Ask after the newer plugin before
-            // concluding anything: this is the one case where the files being present and
-            // the feature being absent have an explanation worth printing.
-            if (!started.HasRayReconstruction)
+            // Whichever of the two plugins is beside the interposer. Neural rendering is
+            // asked after first because it is the one current bundles ship: the network file
+            // this build looks for is nvngx_dlssnr.dll, which is its network and not the
+            // documented feature's. A feature whose plugin is absent simply states no
+            // requirements, so asking after both costs a call.
+            if (started.Gather(FeatureNeuralRendering))
+            {
+                started._denoiser = FeatureNeuralRendering;
+            }
+            else if (started.Gather(FeatureRayReconstruction))
+            {
+                started._denoiser = FeatureRayReconstruction;
+            }
+            else
             {
                 started.Note();
             }
@@ -257,6 +386,10 @@ public sealed unsafe class Streamline : IDisposable
 
         if (frameGeneration)
         {
+            // Reflex first: frame generation depends on it, and what it wants of the device
+            // has to be in the extension list either way.
+            started.Gather(FeatureReflex);
+            started.Gather(FeaturePresentCounter);
             started.Gather(FeatureFrameGeneration);
         }
 
@@ -336,13 +469,19 @@ public sealed unsafe class Streamline : IDisposable
 
         Log.Info(
             $"DLSS: available, {SuperResolutionVersion}" +
-            (HasRayReconstruction ? ", ray reconstruction" : string.Empty) +
+            (HasRayReconstruction ? ", " + RayReconstructionVariant : string.Empty) +
             (HasFrameGeneration ? ", frame generation" : string.Empty));
 
-        if (HasRayReconstruction &&
-            _isFeatureSupported(FeatureRayReconstruction, &adapter) != 0)
+        if (_denoiser != 0)
         {
-            HasRayReconstruction = false;
+            uint denoiser = _isFeatureSupported(_denoiser, &adapter);
+
+            if (denoiser != 0)
+            {
+                RayReconstructionNote =
+                    "this device does not support it (" + Reason(denoiser) + ")";
+                _denoiser = 0;
+            }
         }
 
         if (HasFrameGeneration &&
@@ -375,6 +514,62 @@ public sealed unsafe class Streamline : IDisposable
 
         uint mode = Mode(quality);
         uint chosen = preset > 0 ? (uint)preset : 0;
+
+        if (rayReconstruction && _denoiser == FeatureNeuralRendering)
+        {
+            if (!Resolve(
+                    FeatureNeuralRendering, "slDLSSNRSetOptions", ref _setDlssnrOptions))
+            {
+                return false;
+            }
+
+            var neural = new SlDlssnrOptions
+            {
+                Header = SlHeader.Of(
+                    0x29dfdfe0, 0x273a, 0x4e72, 0xb4, 0x92, 0x2d, 0xc8, 0x23, 0xd5, 0xb1, 0xad, 3),
+
+                // One is the only value that runs it; there is no ladder here.
+                Mode = 1,
+
+                // The network's own appearance controls. Full strength, not nought: the
+                // plugin supplies no default for these four — they are original fields and
+                // it reads them from the caller unconditionally — but it does default the
+                // fifth, added later, to one. One is therefore the scale's full end and the
+                // value a caller who set nothing would have been given had these been
+                // defaulted with it. Nought asks the network to do none of what it does,
+                // and it does not answer that by passing the picture through.
+                Intensity = NeuralStrength,
+                LocalToneStrength = NeuralStrength,
+                LocalStructureStrength = NeuralStrength,
+                GlobalToneStrength = NeuralStrength,
+                SkinStructureStrength = NeuralStrength,
+
+                // Nothing is tagged as a control mask, so the network is left to find its
+                // own. What it decides from is unknown, and it decides which pixels it is
+                // allowed to rework — so this is the second switch to try when the picture
+                // is wrong in a way that follows the camera rather than the geometry.
+                UseAutoMask = NeuralAutoMask,
+
+                // Not the super-resolution preset. That number is a rung on a ladder of
+                // trained upscaling models named by letter; this one indexes a table of
+                // network weights inside nvngx_dlssnr.dll, and the two have nothing to do
+                // with each other. The network resolves nought to whichever weights it
+                // ships as default, and reports anything it does not have as unavailable
+                // and falls back — so a wrong number here is quiet rather than fatal, which
+                // is exactly why it should not be a number from the other ladder.
+                Preset = 0,
+
+                // The one rung this feature does not have. It takes max performance,
+                // balanced, max quality, ultra performance and DLAA and refuses ultra
+                // quality by number, so asking for that rung here is asking the plugin to
+                // decline every frame. Max quality is the neighbour to fall back to.
+                PerformanceMode = mode == 5 ? 3 : mode,
+            };
+
+            SlViewport target = Viewport();
+
+            return _setDlssnrOptions(&target, &neural) == 0;
+        }
 
         if (rayReconstruction)
         {
@@ -469,10 +664,19 @@ public sealed unsafe class Streamline : IDisposable
         SlResource motion = Describe(frame.Motion, ImageLayout.ShaderReadOnlyOptimal);
         SlResource output = Describe(frame.Output, ImageLayout.General);
 
+        bool neural = rayReconstruction && _denoiser == FeatureNeuralRendering;
+
+        // Neural rendering reads its colour and writes its result under the two buffer
+        // names the headers leave reserved, and takes depth and motion under the ordinary
+        // ones. Tagging the scaling pair instead leaves it with no input at all, which it
+        // reports as a missing input parameter and refuses the frame over.
+        uint inputTag = neural ? TagNeuralInputColor : TagScalingInputColor;
+        uint outputTag = neural ? TagNeuralOutputColor : TagScalingOutputColor;
+
         SlResourceTag* tags = stackalloc SlResourceTag[4];
 
-        tags[0] = Tag(&colour, TagScalingInputColor, frame.Colour.Extent);
-        tags[1] = Tag(&output, TagScalingOutputColor, frame.Output.Extent);
+        tags[0] = Tag(&colour, inputTag, frame.Colour.Extent);
+        tags[1] = Tag(&output, outputTag, frame.Output.Extent);
         tags[2] = Tag(&depth, TagDepth, frame.Depth.Extent);
         tags[3] = Tag(&motion, TagMotionVectors, frame.Motion.Extent);
 
@@ -489,7 +693,7 @@ public sealed unsafe class Streamline : IDisposable
         void** inputs = stackalloc void*[1];
         inputs[0] = &viewport;
 
-        uint feature = rayReconstruction ? FeatureRayReconstruction : FeatureSuperResolution;
+        uint feature = rayReconstruction ? _denoiser : FeatureSuperResolution;
         uint result = _evaluateFeature(feature, token, inputs, 1, (void*)command.Handle);
 
         if (result == 0)
@@ -513,9 +717,9 @@ public sealed unsafe class Streamline : IDisposable
 
         _freeResources(FeatureSuperResolution, &viewport);
 
-        if (HasRayReconstruction)
+        if (_denoiser != 0)
         {
-            _freeResources(FeatureRayReconstruction, &viewport);
+            _freeResources(_denoiser, &viewport);
         }
 
         _previousViewProjection = null;
@@ -728,12 +932,19 @@ public sealed unsafe class Streamline : IDisposable
 
         if (rayReconstruction)
         {
+            // Both, because which one the player installed is not known until Streamline has
+            // been asked, and what to load cannot be changed afterwards. Naming a feature
+            // whose plugin is not there is not an error: it fails to load and says so when
+            // its requirements are asked for.
+            features.Add(FeatureNeuralRendering);
             features.Add(FeatureRayReconstruction);
         }
 
         if (frameGeneration)
         {
             features.Add(FeatureFrameGeneration);
+            features.Add(FeatureReflex);
+            features.Add(FeaturePresentCounter);
         }
 
         uint[] wanted = [.. features];
@@ -764,6 +975,14 @@ public sealed unsafe class Streamline : IDisposable
                     // appearing beside somebody's game because they turned an upscaler on
                     // is not a thing this project should do without being asked.
                     LogLevel = 1,
+
+                    // The warnings and errors do come through, into this engine's own log,
+                    // because they are the only account of what the plugins made of what
+                    // they were handed. "Failed to create DLSS-NR NGX feature" and
+                    // "performance mode 5 is not supported" are sentences that answer a
+                    // question nothing on this side of the boundary can otherwise answer.
+                    LogMessageCallback = (void*)(delegate* unmanaged[Cdecl]<uint, byte*, void>)&Said,
+
                     PathsToPlugins = (void*)paths,
                     NumPathsToPlugins = 1,
 
@@ -803,45 +1022,55 @@ public sealed unsafe class Streamline : IDisposable
         }
     }
 
-    /// <summary>
-    /// Works out why ray reconstruction is absent, and says so once.
-    /// </summary>
+    /// <summary>What Streamline and its plugins have to say, in this engine's log.</summary>
     /// <remarks>
-    /// <para>
-    /// Two quite different absences. Either no ray-reconstruction plugin loaded at all —
-    /// the ordinary case, and the player's answer is to install one — or the newer
-    /// <c>sl.dlss_nr</c> loaded under an identifier and an entry point that no published
-    /// Streamline header describes, in which case there is nothing the player can do and
-    /// the honest thing is to say that rather than to guess at its interface.
-    /// </para>
-    /// <para>
-    /// Guessing is specifically what is being refused here. An options structure whose
-    /// layout was inferred rather than read is a pointer handed to somebody else's runtime
-    /// with the fields in the wrong places, and the failure mode is a crash in a signed
-    /// binary nobody can debug.
-    /// </para>
+    /// Called from Streamline's own threads, so it does nothing but copy a string and hand
+    /// it on. Information is dropped: at the log level set above it is the per-frame
+    /// commentary, and a line a frame is not a log, it is a leak.
     /// </remarks>
-    private void Note()
+    /// <param name="type">Nought for information, one for a warning, two for an error.</param>
+    /// <param name="message">A null-terminated string owned by the caller.</param>
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void Said(uint type, byte* message)
     {
-        var requirements = new SlFeatureRequirements
+        if (type == 0 || message is null)
         {
-            Header = SlHeader.Of(
-                0x66714097, 0xac6d, 0x4bc6, 0x89, 0x15, 0x1e, 0x0f, 0x55, 0xa6, 0xb6, 0x1f, 2),
-        };
-
-        if (_getFeatureRequirements(FeatureNeuralRendering, &requirements) != 0)
-        {
-            RayReconstructionNote =
-                "the ray-reconstruction plugin did not load; check that sl.dlss_d.dll and " +
-                "nvngx_dlssnr.dll are both beside the other Streamline files";
-
-            Log.Info("DLSS: ray reconstruction is not available (" + RayReconstructionNote + ").");
             return;
         }
 
+        string? text = Marshal.PtrToStringAnsi((nint)message)?.TrimEnd('\r', '\n');
+
+        if (text is not { Length: > 0 })
+        {
+            return;
+        }
+
+        if (type >= 2)
+        {
+            Log.Warning("WARNING GK3R3440: Streamline: " + text);
+        }
+        else
+        {
+            Log.Info("Streamline: " + text);
+        }
+    }
+
+    /// <summary>
+    /// Says that neither denoising plugin loaded, and what to do about it.
+    /// </summary>
+    /// <remarks>
+    /// Reached when the files were found on disk and neither feature would state its
+    /// requirements, which is the one state a player cannot diagnose for themselves: the
+    /// files are plainly there and the setting is plainly off. The usual cause is a network
+    /// file that does not match its plugin, or a driver older than the plugin wants — the
+    /// neural-rendering plugin asks for 570.
+    /// </remarks>
+    private void Note()
+    {
         RayReconstructionNote =
-            "the installed sl.dlss_nr plugin is a newer variant whose interface NVIDIA has " +
-            "not published; sl.dlss_d.dll is the one this build can drive";
+            "neither denoising plugin would load; check that sl.dlss_nr.dll and " +
+            "nvngx_dlssnr.dll are both beside the other Streamline files, and that the " +
+            "graphics driver is 570 or newer";
 
         Log.Info("DLSS: ray reconstruction is not available (" + RayReconstructionNote + ").");
     }
@@ -852,7 +1081,13 @@ public sealed unsafe class Streamline : IDisposable
     /// pointing into the runtime's own memory and are copied here, because nothing promises
     /// they outlive the call.
     /// </remarks>
-    private void Gather(uint feature)
+    /// <param name="feature">Which feature to ask.</param>
+    /// <returns>
+    /// True when it answered. A feature that cannot state its requirements did not load,
+    /// whatever its files on disk say — which is also how the caller tells the two denoising
+    /// plugins apart, since only the one that is actually there answers.
+    /// </returns>
+    private bool Gather(uint feature)
     {
         var requirements = new SlFeatureRequirements
         {
@@ -866,19 +1101,14 @@ public sealed unsafe class Streamline : IDisposable
         {
             Log.Info($"Streamline: feature {feature} states no requirements ({Reason(result)}).");
 
-            // A feature that cannot state its requirements did not load, whatever its files
-            // on disk say. Believing the files instead is how ray reconstruction came to be
-            // reported as available and then refused every time it was asked for.
-            if (feature == FeatureRayReconstruction)
-            {
-                HasRayReconstruction = false;
-            }
-            else if (feature == FeatureFrameGeneration)
+            // Believing the files instead is how ray reconstruction came to be reported as
+            // available and then refused every time it was asked for.
+            if (feature == FeatureFrameGeneration)
             {
                 HasFrameGeneration = false;
             }
 
-            return;
+            return false;
         }
 
         Collect(_instanceExtensions, requirements.InstanceExtensions, requirements.NumInstanceExtensions);
@@ -899,6 +1129,8 @@ public sealed unsafe class Streamline : IDisposable
             $"{requirements.ComputeQueuesRequired} compute queue(s); driver " +
             $"{requirements.DriverVersionDetected[0]}.{requirements.DriverVersionDetected[1]} " +
             $"against {requirements.DriverVersionRequired[0]}.{requirements.DriverVersionRequired[1]}");
+
+        return true;
     }
 
     private static void Collect(List<string> into, byte** names, uint count)

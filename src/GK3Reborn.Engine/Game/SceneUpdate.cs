@@ -826,8 +826,6 @@ public sealed class SceneUpdate
                 {
                     Vector3 settled = pose.Settled(_geometry.TransformOf(target.Placement));
 
-                    Follow(target.Name, settled);
-
                     // What the clip says the character is facing, beside what the scene
                     // file said. The two disagree wherever a scene records where somebody
                     // ends up and states the beginning as an animation, which is most of
@@ -837,6 +835,49 @@ public sealed class SceneUpdate
                             ? Actors.AnimationStart.Of(
                                 animation, clips, target.Name, who, target.BuiltFacing)?.Heading
                             : null;
+
+                    // And where it leaves them has to become their <b>placement</b>, not
+                    // only a note of where they are. A placement is the whole of what a
+                    // later <em>relative</em> clip is played through — the idle fidgets
+                    // first of all, on the frame after this one — so an actor the scene
+                    // stood nowhere was posed correctly and then drawn at the world origin
+                    // for the rest of the room's life. RC3's cat is the case reported: sat
+                    // on its ledge for a single frame, and thereafter drawn, walked to and
+                    // clicked on out past the courtyard wall.
+                    //
+                    // Only for an actor the scene named no spot for. One the room did place
+                    // is standing where the room says; moving them would let a clip
+                    // authored somewhere else overrule the mark an artist gave them, which
+                    // is exactly the disagreement <see cref="Posed"/> exists to record.
+                    if (!target.Spotted)
+                    {
+                        Reseat(
+                            target,
+                            settled,
+                            wanted ?? Navigation.Walker.HeadingOf(
+                                _geometry.TransformOf(target.Placement)));
+
+                        // Sampled again, against the placement they now have. An absolute
+                        // clip is put where it was authored by a correction worked out from
+                        // the placement at the time — see Correction — so moving the
+                        // placement out from under a finished pose would carry the drawing
+                        // with it. Recomputing lands the same pixels on a model that also
+                        // knows where it is standing.
+                        pose = new Playing(
+                            clip,
+                            target,
+                            action with { Frame = 0 },
+                            repeat: false,
+                            moves: true,
+                            Where(target.Name),
+                            _geometry.TransformOf(target.Placement),
+                            character: Characters?.Of(target.Name));
+
+                        pose.Open(_geometry);
+                        settled = pose.Settled(_geometry.TransformOf(target.Placement));
+                    }
+
+                    Follow(target.Name, settled);
 
                     _posed.Add((
                         target.Noun ?? target.Name,
@@ -2715,6 +2756,36 @@ public sealed class SceneUpdate
         return true;
     }
 
+    /// <summary>Moves an actor's placement to where their opening pose left them.</summary>
+    /// <param name="actor">The actor, as the room placed them.</param>
+    /// <param name="position">Where the pose has them standing, in world space.</param>
+    /// <param name="heading">Which way it has them facing.</param>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Place"/>'s move without anything else <see cref="Place"/> does. It does
+    /// not drop them onto the floor — a pose has already decided the height, and the cat on
+    /// RC3's ledge is above the floor on purpose — and it does not stop what is animating
+    /// them, because the only caller is in the middle of posing them.
+    /// </para>
+    /// <para>
+    /// It is a sync rather than a move: the actor is drawn in exactly the same place
+    /// afterwards, once the pose is sampled again against the placement this writes.
+    /// </para>
+    /// </remarks>
+    private void Reseat(PlacedModel actor, Vector3 position, float heading)
+    {
+        // The placement is scale, then a turn, then a move, and the scale has to survive.
+        float scale = new Vector3(
+            actor.Transform.M11, actor.Transform.M12, actor.Transform.M13).Length();
+
+        _geometry.MoveModel(
+            actor.Placement,
+            Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) *
+            Matrix4x4.CreateRotationY(
+                Actors.FacingArrow.Rotation(heading, actor.BuiltFacing)) *
+            Matrix4x4.CreateTranslation(position));
+    }
+
     /// <summary>
     /// Turns an actor on the spot to face something.
     /// </summary>
@@ -3443,6 +3514,106 @@ public sealed class SceneUpdate
     /// </remarks>
     public bool Directing =>
         _api.State.ForcedCameraCuts || (Occupied && _api.State.CinematicsEnabled);
+
+    /// <summary>Gives the room back to the player when something has wedged it.</summary>
+    /// <returns>What was let go of, one line each, or empty when nothing was holding it.</returns>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Occupied"/> is assembled out of four things and <see cref="Directing"/>
+    /// turns any of them into a camera the player does not have and clicks that do not reach
+    /// the floor. That is right while the story is telling something and wrong the moment
+    /// one of the four is stuck — a walk of ninety seconds, a script that parked and never
+    /// came back, a clip on the player that never ends — and a player with no camera and no
+    /// clicks has no way to say so.
+    /// </para>
+    /// <para>
+    /// So this releases all four, plus the two pieces of camera state a script sets and
+    /// clears a moment later, and stands the player back on ground they can walk on. It is
+    /// deliberately not a reload: the story's flags, counts and inventory are untouched, so
+    /// what the player had done is still done and only what was <em>happening</em> is
+    /// dropped. A script left parked stays parked; it simply stops counting as the story
+    /// being busy, which is the difference between abandoning a moment and abandoning a
+    /// save.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> Unstick()
+    {
+        List<string> let = [];
+
+        if (_later.Count > 0)
+        {
+            let.Add($"{_later.Count} action(s) held back for a walk");
+            _later.Clear();
+        }
+
+        if (_api.ActionSeconds > 0)
+        {
+            let.Add(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"{_api.ActionSeconds:F0}s an action said it still needed"));
+
+            _api.ActionSeconds = 0;
+        }
+
+        if (_walking.Count > 0)
+        {
+            let.Add($"{_walking.Count} walk(s) under way");
+            StopWalking();
+        }
+
+        if (Performing(_api.State.Ego))
+        {
+            let.Add("a clip the story was playing on the player");
+            StopAnimating(ModelNamed(_api.State.Ego)?.Name ?? _api.State.Ego);
+        }
+
+        if (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet)
+        {
+            let.Add($"{(_scripts?.Count ?? 0) - _quiet} script(s) the room never finished");
+
+            // Reset rather than cleared. The room's own background scripts sit in the
+            // scheduler for as long as the room stands, and dropping those would stop the
+            // room living rather than unstick it; what this forgets is only that the story
+            // was counting them as something happening.
+            _quiet = _scripts?.Count ?? 0;
+        }
+
+        if (_api.State.ForcedCameraCuts)
+        {
+            let.Add("the camera a script was holding");
+            _api.State.ForcedCameraCuts = false;
+        }
+
+        if (_api.State.Inspecting is { Length: > 0 })
+        {
+            let.Add("a close-up the view was pinned to");
+            _api.State.Inspecting = string.Empty;
+        }
+
+        _api.State.Talking = false;
+        WarpNextWalk = false;
+
+        // And onto ground they can walk on. Standing off the boundary is the other way a
+        // room ends, and it has the same symptom from the player's chair: every click on
+        // the floor finds no route and nothing moves.
+        if (_scene.Walkable is { } boundary &&
+            Where(_api.State.Ego) is { } standing &&
+            !boundary.IsWalkable(standing) &&
+            boundary.NearestWalkable(standing) is { } open &&
+            ModelNamed(_api.State.Ego) is { } player)
+        {
+            let.Add(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"the player {Vector3.Distance(standing, open):F0} units off the floor"));
+
+            Place(
+                _api.State.Ego,
+                open,
+                Walker.HeadingOf(_geometry.TransformOf(player.Placement)));
+        }
+
+        return let;
+    }
 
     /// <summary>Takes the view wherever the story has put it.</summary>
     /// <remarks>

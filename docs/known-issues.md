@@ -221,6 +221,143 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### The black cat at RC3 stood outside the wall, and petting it froze the game — fixed 2026-08-29
+
+**Reported** as the cat in Rennes-le-Château spawning outside the wall, and as the camera
+freezing and the player being unable to navigate after interacting with it. Two faults, and
+the second one is not about the cat at all — it is about how far away the player was when
+they clicked on it.
+
+**The cat is placed by its opening pose and nothing kept the placement.** `RC3102P.SIF`
+declares `model=cat, noun=cat, initanim=gabPetsCat, idle=catIdle.gas` — an opening pose and
+**no `pos=` anywhere**. `SceneUpdate.Open` sampled the pose, which is absolute and puts the
+cat on its ledge at (-201, -105, -1139), and wrote that to the actor's *logical* position
+only. The model's own placement stayed at the identity the loader gave it, and a placement
+is the whole of what a **relative** clip is played through: on the next frame `catIdle.gas`
+started `CatStandFidg1`, which carries no placement, and the cat was drawn at the world
+origin — which at RC3 is on top of the courtyard wall, a thousand units from where it
+belongs. Measured with `DumpActor("cat")`: (-201.3, -111.6, -1139.4) on frame zero and
+(-0.7, 4.4, -2.7) on frame one, for the rest of the room's life.
+
+The reference syncs the actor to the model after sampling an init anim, and that is what was
+missing. An actor the scene gave no mark to is now **reseated** onto where the pose leaves
+them, at the heading the clip implies, and the pose is sampled again against the placement
+they now have — an absolute clip is put where it was authored by a correction worked out
+from the placement at the time, so moving one without the other would carry the drawing with
+it. The picture is identical; what changes is that every relative clip afterwards plays
+where the character is.
+
+**It is not one actor.** 105 actor declarations across the corpus carry an `initanim` and no
+`pos=` — the hotel's diners, the Abbé seated in the church, Prince James at the bar — and
+every one of them was posed correctly and then animated at the origin by its own idle.
+Verified unchanged where the scene *does* place somebody: an actor with a mark keeps it,
+because a clip authored elsewhere must not overrule the artist.
+
+**The freeze is the approach walk, and it was real but bounded.** `CAT, PET, 1ST_TIME` is
+`approach=ANIM, target=gabPetsCat`, which means walk to where that animation begins. From
+RC3's door that is a route of 3,208 units, and `SceneUpdate.Directing` hands the camera to
+the story and swallows clicks for the whole of an action — so the player sat with a frozen
+view and a dead mouse for **91.4 seconds**, which is indistinguishable from a hang.
+
+Two things were wrong with the number. The cat being drawn at the origin is what made the
+player click on it from across the room in the first place; and `ToAnimationStart` was the
+only approach in the game that never passed `mayRun`, by omission alone, so the third most
+common approach in the corpus was always taken at a stroll however far it went. It runs now,
+like `WalkTo` and `WalkToSee` do, and the same walk reports 30.6 seconds. `--do CAT:PET`
+from `FR_RC1` now completes: the walk ends at 31.7s, `gabpetscat` plays out by 39.2s and
+`CatRunsAway` runs.
+
+**And there is a way out when it happens somewhere else.** `Get Unstuck`, on the pause menu
+under Restore, calls `SceneUpdate.Unstick`: it drops the actions held back for a walk, zeroes
+the seconds an action said it needed, stops the walks under way, stops a clip the story was
+playing on the player, forgets that the room's outstanding scripts were being counted as
+something happening, lets go of `ForcedCameraCuts` and any close-up the view was pinned to,
+and stands the player on the nearest walkable texel if they are off the floor. It is
+deliberately not a reload: flags, counts, score and inventory are untouched, so what the
+player had done is still done and only what was *happening* is abandoned. It is a row rather
+than a setting because the menu is the only thing a player with no camera and no clicks can
+still reach. Reachable from the console as `Unstick()`, which is how a wedged room is
+reproduced and undone headlessly.
+
+### Shadows ended at a straight line whenever anything upscaled — fixed 2026-08-29
+
+**Reported:** the ray-traced lighting is cut off partway across the frame, and the room is
+too dark behind the cut. Present at every upscaler setting except native, and absent there.
+
+That last part is the whole diagnosis. The denoiser and the reflections were built to
+`_extent`, the size the picture is *shown* at, while every target they read — depth,
+normals, motion — and everything that reads what they write are built to `_renderExtent`,
+the size the room is *drawn* at. `UpscalePlan.Ratio` is one only at native, which is the
+single setting where the two agree and the only one that looked right.
+
+Sized to the window, the denoiser traced and filtered over an area larger than the picture
+it had been handed. Past the drawn region it fetched texels nothing had written, so the
+shadow, the occlusion and the reflections all stopped dead at the boundary between the two
+resolutions — a horizontal edge across the ceiling at Performance, where the render height
+is half the window's.
+
+Both are built to `_renderExtent` now. `RecreateSwapchain` already discards them, and
+`CreateSwapchain` recomputes the render extent from the plan, so a change of upscaler or of
+quality rebuilds them at the right size without further help.
+
+**Verified** by running the host headlessly over the same scene and camera at 640x360 into
+1280x720 — `GK3Reborn.exe --scene R25 --timeblock 110A --frames 240 --screenshot out.png
+--settings <upscaler>.json` — before and after, with both the spatial upscaler and DLSS.
+The built-in spatial upscaler reproduces it with no NVIDIA runtime installed, which is the
+cheapest way to catch this class of fault again: **anything in the deferred chain that takes
+a size wants `_renderExtent`, and only the swapchain, the upscale target, the interface and
+the fade want `_extent`.**
+
+### A game brought across from the original knew nobody — fixed 2026-08-29
+
+**Reported:** the twelve people who are strangers until met stay strangers for ever in a
+restored save.
+
+Correct for the saves this engine writes and wrong for the ones it imports, which is the
+case that matters. The labels ask the game's own conditions — `MET_BUTHANE`,
+`INTRODUCED_EMILIO` — and every one of them is a count of a topic raised or a verb done.
+A `.gk3` records none of that. It is a name, a room, a timeblock, a score and a picture,
+and the rest of the file is the 1999 engine serialising itself through RTTI, which nothing
+reads. So an import two days into the story pointed at Madeleine Buthane and read "Woman",
+which is the bug the labels exist to avoid rather than the spoiler they exist to prevent.
+
+**What the file does state is the point in the story**, and that is enough. The same
+reasoning already recovers the score events: a save cannot be standing at four in the
+afternoon without having been through the morning, because the story does not leave a
+timeblock until its own rules are met. `Assets/Story/Introductions.txt` gained a second
+kind of line for it — a timeblock and the people the story puts in front of the player
+during it — and an import is credited with its own block and every block before it:
+
+    110A | BUTHANE, EMILIO, JEAN, GIRARD, LADY_H_ESTELLE, LADY_HOWARD, ESTELLE
+    112P | WILKES, BUCHELLI, ABBE
+    102P | MARCIE, LARRY
+
+Each line is checked against three things that agree: the `.SIF` that stands the character
+in a room that block, the timeblock in the name of the action file the condition above it
+was copied from — `RC1110A`, `DIN112P` — and the walkthrough the engine already ships.
+Every introduction in the game is on day one, so **a save from day two or three is credited
+with the whole list**, and that is answered from the day rather than from the roster
+happening to add up to it.
+
+The two kinds of line share a file and a separator and are told apart by the shape of the
+left side, because a condition may contain `||` and counting bars would split one in half.
+
+**It is deliberately generous**, in the direction the rest of the list already argues for:
+a name shown a little early is a small spoiler, a name withheld from somebody the player
+spent two days with is not something they can work around. A player who imports at ten in
+the morning is credited with the tour, the lobby and the museum whether or not they had
+walked that far.
+
+**Saves already in the store are caught by a migration**, because importing is idempotent
+and nobody is going to be offered the import again. What identifies one is that it holds no
+topic counts at all and stands past ten in the morning — a position no game played in this
+engine can be in, since the first timeblock cannot be left until four separate topics have
+been raised. A save still standing in the first block is left alone whichever it is: there
+the two cannot be told apart, and the list would be most of the cast.
+
+Unit tests only; the store, the migration and the roster are all reachable without the game
+running.
+
 ### A character whose model is not drawn around its own origin stood in the wrong place — fixed 2026-08-28
 
 **Reported:** Lady Howard is mispositioned, at Poussin's tomb and at Blanchefort both.

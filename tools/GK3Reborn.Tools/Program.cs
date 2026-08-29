@@ -39,6 +39,13 @@ public static class Program
             return Stages.PackCommands.Run(args);
         }
 
+        // The same arrangement, for the same reason: a room list and a crease angle are
+        // these two commands' business and nobody else's.
+        if (Stages.SceneCommands.Commands.Contains(args[0], StringComparer.Ordinal))
+        {
+            return Stages.SceneCommands.Run(args);
+        }
+
         Options options = Options.Parse(args);
         if (options.Error is not null)
         {
@@ -159,6 +166,7 @@ public static class Program
                 options.Heads,
                 options.Relief,
                 options.Trees,
+                options.Improved,
                 options.Wind,
                 options.Packs,
                 diagnostics)
@@ -669,6 +677,12 @@ public static class Program
               lighting-analysis Measure the baked lighting, as evidence for light rigs.
               derive-lighting   Propose a light rig per scene and time of day.
               import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
+              extract-scenes    Cut every room into one glTF file per named object, and
+                                classify what each object is, so its geometry can be
+                                improved outside the engine.
+              compose-scenes    Gather a room's improved objects back into the one file
+                                the game reads, checking each against the geometry it
+                                replaces. See docs/scene-geometry.md.
               pack-content      Encode the enhanced content to DDS and pack it into the
                                 one or two ReBarn volumes that ship beside the game.
               pack-list         Say what a ReBarn pack holds.
@@ -729,6 +743,10 @@ public static class Program
               --no-relief          render-scene leaves the floor flat, drawing its
                                    height map with the shader alone. What the room
                                    looked like before displacement, for comparison.
+              --no-improved-geometry
+                                   render-scene draws every room as it shipped, with
+                                   1999's infinitely sharp edges, rather than from
+                                   whatever compose-scenes has built. For comparison.
               --no-trees           render-scene leaves the foliage cards flat rather
                                    than growing modelled trees in their place. What
                                    the wood looked like in 1999, for comparison.
@@ -836,6 +854,16 @@ public static class Program
         /// <summary>Whether render-scene cuts the floor's height map into its geometry.</summary>
         public bool Relief { get; init; } = true;
 
+        /// <summary>
+        /// Whether render-scene draws a room's objects from improved geometry.
+        /// </summary>
+        /// <remarks>
+        /// What the room looked like with 1999's infinitely sharp edges, for comparison —
+        /// the same purpose --no-relief and --no-trees serve for the other two pieces of
+        /// geometry work.
+        /// </remarks>
+        public bool Improved { get; init; } = true;
+
         /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
         public bool Trees { get; init; } = true;
 
@@ -877,6 +905,7 @@ public static class Program
             int heads = 0;
             bool relief = true;
             bool trees = true;
+            bool improved = true;
             bool expandBlocks = false;
             string? tool = null;
             string? enhanced = null;
@@ -904,6 +933,9 @@ public static class Program
                         break;
                     case "--no-relief":
                         relief = false;
+                        break;
+                    case "--no-improved-geometry":
+                        improved = false;
                         break;
                     case "--no-trees":
                         trees = false;
@@ -1031,6 +1063,7 @@ public static class Program
                 Heads = heads,
                 Relief = relief,
                 Trees = trees,
+                Improved = improved,
                 ExpandBlocks = expandBlocks,
                 Tool = tool,
                 Enhanced = enhanced,

@@ -172,7 +172,8 @@ public sealed class ClipPlaybackTests
             MulFile? lightmaps = null,
             IReadOnlySet<string>? hiddenObjects = null,
             string? floorObject = null,
-            IReadOnlySet<int>? hiddenSurfaces = null) =>
+            IReadOnlySet<int>? hiddenSurfaces = null,
+            SceneOverlay? enhanced = null) =>
             _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject, hiddenSurfaces);
     }
 
@@ -803,5 +804,157 @@ public sealed class ClipPlaybackTests
         // Posed the same in the model's own space, so the model's placement carries it.
         Assert.Equal(
             first.Poses[(0, 0)].Translation.X, second.Poses[(0, 0)].Translation.X, 2);
+    }
+
+    /// <summary>
+    /// An actor the scene stood nowhere, opened by an absolute pose and idling afterwards.
+    /// </summary>
+    /// <remarks>
+    /// RC3's cat, in miniature: <c>model=cat, noun=cat, initanim=gabPetsCat,
+    /// idle=catIdle.gas</c> — no <c>pos=</c> anywhere, an opening pose that carries its own
+    /// coordinates, and a fidget script that does not.
+    /// </remarks>
+    private static (SceneUpdate Update, Sink Sink) Unplaced()
+    {
+        var sink = new Sink();
+        sink.Add(Model());
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse(
+                "[ROOM_CAMERAS]\nA, angle={0,0}, pos={0,0,0}, Default", "T.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Placed:
+            [
+                new PlacedModel(
+                    "door", "DOOR", null, Model(), Matrix4x4.Identity,
+                    PlacedModelKind.Actor, new ModelPlacement(0))
+                {
+                    // The whole of the case: an opening pose and no mark to stand on.
+                    InitialAnimation = "Ledge",
+                    Spotted = false,
+                    Idle = GK3Reborn.Formats.Animation.GasFile.Parse(
+                        Encoding.Latin1.GetBytes("ANIM Fidget\nloop\n")),
+                },
+            ]);
+
+        var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
+        {
+            Animations = new AnimationLibrary(n => n.ToUpperInvariant() switch
+            {
+                // Eight numbers, so the pose says where in the room it happens.
+                "LEDGE.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_Ledge,0,0,0,0,0,0,0,0\n",
+
+                // Four, so the fidget plays wherever the model is standing.
+                "FIDGET.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_Fidget,0,0,0,0\n",
+                _ => null,
+            }),
+
+            Clips = new ClipLibrary(n => n.ToUpperInvariant() switch
+            {
+                "DOOR_LEDGE.ACT" => Clip("door", 31),
+                "DOOR_FIDGET.ACT" => Clip("door", 31, from: Elsewhere),
+                _ => null,
+            })
+            { KeepVertices = true },
+        };
+
+        return (update, sink);
+    }
+
+    /// <summary>Where the model's one mesh has ended up in the room's own coordinates.</summary>
+    private static float Drawn(Sink sink) => Vector3.Transform(
+        sink.Poses[(0, 0)].Translation, sink.TransformOf(new ModelPlacement(0))).X;
+
+    [Fact]
+    public void An_actor_the_scene_stood_nowhere_is_stood_where_their_opening_pose_leaves_them()
+    {
+        (SceneUpdate update, Sink sink) = Unplaced();
+
+        Assert.Equal(1, update.Open());
+
+        // The placement, and not only the note of where they are. Both are checked because
+        // only the second of the two was ever written, and everything downstream of a pose
+        // reads whichever of them suits it.
+        Assert.Equal(Away, sink.TransformOf(new ModelPlacement(0)).Translation.X, 2);
+        Assert.Equal(Away, update.Where("door")!.Value.X, 2);
+
+        // And the drawing is untouched by the move. An absolute clip is put where it was
+        // authored through a correction worked out from the placement, so moving the
+        // placement without sampling the pose again would carry the picture with it.
+        Assert.Equal(Away, Drawn(sink), 2);
+    }
+
+    [Fact]
+    public void And_the_idle_that_follows_plays_where_they_are_rather_than_at_the_origin()
+    {
+        // The reported fault. RC3's cat was posed onto its ledge and then, on the very next
+        // frame, catIdle.gas started a fidget — a relative clip, played through the
+        // placement and nothing else — which took the cat to the world origin, out past the
+        // courtyard wall, for the rest of the room's life.
+        (SceneUpdate update, Sink sink) = Unplaced();
+
+        update.Open();
+        update.StartScenery();
+        update.Advance(0.1);
+
+        // Not exactly Away: the fidget's own root motion is a unit a frame and a tenth of a
+        // second is a frame and a half of it. What the number has to say is that the model
+        // is where the pose left it, not the five hundred units back at the origin.
+        float drawn = Drawn(sink);
+
+        Assert.True(
+            MathF.Abs(drawn - Away) < 5f,
+            $"the fidget put the model at {drawn}, not at the {Away} the pose left it at.");
+    }
+
+    [Fact]
+    public void An_actor_the_scene_did_place_keeps_the_mark_the_scene_gave_them()
+    {
+        // The other half of the rule. A pose is a pose wherever the room has already said
+        // where somebody stands, and letting a clip authored elsewhere move them would undo
+        // the artist's mark — Madeline by the van at RC1 is placed and posed both.
+        var sink = new Sink();
+        Matrix4x4 mark = Matrix4x4.CreateTranslation(120, 0, -40);
+        sink.Add(Model(), mark);
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse(
+                "[ROOM_CAMERAS]\nA, angle={0,0}, pos={0,0,0}, Default", "T.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Placed:
+            [
+                new PlacedModel(
+                    "door", "DOOR", null, Model(), mark,
+                    PlacedModelKind.Actor, new ModelPlacement(0))
+                {
+                    InitialAnimation = "Ledge",
+                    Spotted = true,
+                },
+            ]);
+
+        var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
+        {
+            Animations = new AnimationLibrary(n =>
+                n.Equals("Ledge.ANM", StringComparison.OrdinalIgnoreCase)
+                    ? "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_Ledge,0,0,0,0,0,0,0,0\n"
+                    : null),
+
+            Clips = new ClipLibrary(n =>
+                n.Equals("door_Ledge.ACT", StringComparison.OrdinalIgnoreCase)
+                    ? Clip("door", 31)
+                    : null)
+            { KeepVertices = true },
+        };
+
+        update.Open();
+
+        Assert.Equal(
+            mark.Translation.X, sink.TransformOf(new ModelPlacement(0)).Translation.X, 2);
     }
 }

@@ -386,6 +386,19 @@ public sealed class SceneLoader
     public TreeLibrary? Trees { get; set; }
 
     /// <summary>
+    /// Improved geometry for the rooms themselves, where any has been built.
+    /// </summary>
+    /// <remarks>
+    /// The other enhancement that changes geometry rather than what is painted on it, and
+    /// the one that reaches the rooms: a chair whose edges have a width, a fountain whose
+    /// bowl is a curve. Null, empty, or missing an entry for the room being loaded draws
+    /// that room exactly as it shipped — and so does an entry built against a different
+    /// build of the room, which is refused rather than trusted. See
+    /// <see cref="Content.EnhancedScenes"/>.
+    /// </remarks>
+    public EnhancedScenes? Scenes { get; set; }
+
+    /// <summary>
     /// Where the reconstructed terrain sets live loose, or null for none.
     /// </summary>
     /// <remarks>
@@ -638,7 +651,20 @@ public sealed class SceneLoader
         // the hillside away with the trees.
         HashSet<int> replaced = [.. woods.SelectMany(w => w.Surfaces)];
 
-        geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject, replaced);
+        // Improved geometry for this room, where somebody has built any. Read before the
+        // room is added because it is part of adding it, and refused quietly: a room with
+        // no overlay and a room whose overlay did not match its geometry both draw the
+        // 1999 picture, which is the whole point of the thing being optional.
+        SceneOverlay? overlay = Scenes?.Read(bsp, bspBytes, diagnostics);
+
+        if (overlay is not null)
+        {
+            _log?.Invoke(
+                $"geometry: {overlay.Objects.Count} object(s) drawn from improved geometry, " +
+                $"{overlay.TriangleCount} triangles");
+        }
+
+        geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject, replaced, overlay);
         Timeline?.Stamp("room: the rest of AddScene");
 
         // The four long stretches with nothing in them to offer a frame of their own: the

@@ -1,6 +1,7 @@
 ﻿using System.Buffers.Binary;
 using System.Text;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Story;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -134,7 +135,7 @@ public sealed class OriginalSaveTests
 
             var store = new SaveStore(saves);
 
-            Assert.Equal(1, OriginalSaves.Import(store.Directory, store, ScoreEvents.Open()));
+            Assert.Equal(1, OriginalSaves.Import(store.Directory, store, ScoreEvents.Open(), Introductions.Open()));
 
             SaveGame? save = store.Read("gk3-save0009", out SaveFault fault);
 
@@ -151,7 +152,7 @@ public sealed class OriginalSaveTests
 
             // Idempotent against its own output: a second launch imports nothing and does
             // not trip over the .json it wrote beside the .gk3 last time.
-            Assert.Equal(0, OriginalSaves.Import(store.Directory, store, ScoreEvents.Open()));
+            Assert.Equal(0, OriginalSaves.Import(store.Directory, store, ScoreEvents.Open(), Introductions.Open()));
         }
         finally
         {
@@ -176,10 +177,10 @@ public sealed class OriginalSaveTests
             var store = new SaveStore(saves);
             ScoreEvents scores = ScoreEvents.Open();
 
-            Assert.Equal(1, OriginalSaves.Import(directory, store, scores));
+            Assert.Equal(1, OriginalSaves.Import(directory, store, scores, Introductions.Open()));
 
             // Idempotent: the same file is not brought across twice.
-            Assert.Equal(0, OriginalSaves.Import(directory, store, scores));
+            Assert.Equal(0, OriginalSaves.Import(directory, store, scores, Introductions.Open()));
 
             SaveGame? save = store.Read("gk3-save0002", out _);
 
@@ -199,6 +200,61 @@ public sealed class OriginalSaveTests
                 save.Inventories,
                 pockets =>
                     pockets.Owner == "GABRIEL" && pockets.Items.Contains("PRINCE_JAMES_CARD"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>An import knows the people the story has already introduced.</summary>
+    /// <remarks>
+    /// The labels this engine draws ask whether somebody has been met, and every question
+    /// they ask is about a topic count — which is the one thing a <c>.gk3</c> has none of.
+    /// Without this an imported game two days into the story drew "Woman" under Madeleine
+    /// Buthane and "Man" under everybody else, which is the bug the labels exist to avoid
+    /// rather than the spoiler they exist to prevent.
+    /// </remarks>
+    [Theory]
+    [InlineData("112p", "BUTHANE", "LARRY")]
+    [InlineData("102p", "LARRY", null)]
+    [InlineData("210a", "WILKES", null)]
+    [InlineData("306p", "ABBE", null)]
+    public void An_import_knows_who_the_story_has_already_introduced(
+        string timeblock, string known, string? stranger)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(directory);
+
+        File.WriteAllBytes(
+            Path.Combine(directory, "save0003.gk3"),
+            Retail("Mid-story", "lby", timeblock, 100));
+
+        try
+        {
+            var store = new SaveStore(Path.Combine(directory, "imported"));
+
+            Assert.Equal(
+                1,
+                OriginalSaves.Import(
+                    directory, store, ScoreEvents.Open(), Introductions.Open()));
+
+            SaveGame? save = store.Read("gk3-save0003", out _);
+
+            Assert.NotNull(save);
+            Assert.Contains(known, save.Introduced);
+
+            if (stranger is not null)
+            {
+                Assert.DoesNotContain(stranger, save.Introduced);
+            }
+
+            // And a save standing in day two knows everybody, because every introduction in
+            // the game is made on day one.
+            if (save.Day > 1)
+            {
+                Assert.Equal(Introductions.Open().Count, save.Introduced.Count);
+            }
         }
         finally
         {

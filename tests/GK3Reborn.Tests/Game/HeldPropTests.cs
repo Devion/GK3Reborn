@@ -143,7 +143,8 @@ public sealed class HeldPropTests
             MulFile? lightmaps = null,
             IReadOnlySet<string>? hiddenObjects = null,
             string? floorObject = null,
-            IReadOnlySet<int>? hiddenSurfaces = null) =>
+            IReadOnlySet<int>? hiddenSurfaces = null,
+            SceneOverlay? enhanced = null) =>
             _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject, hiddenSurfaces);
 
         /// <summary>Where a model's one mesh has ended up, in the room.</summary>

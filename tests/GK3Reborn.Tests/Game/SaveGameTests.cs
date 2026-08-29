@@ -1,4 +1,4 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -317,5 +317,60 @@ public sealed class SaveStoreTests : IDisposable
 
         Assert.True(Store.Delete("slot-01"));
         Assert.Null(Store.Read("slot-01", out _));
+    }
+
+    /// <summary>An import an older build brought across is given its introductions.</summary>
+    /// <remarks>
+    /// Imports learned who the player had met when schema three did; the ones already
+    /// sitting in a store were brought across before that, and re-importing is not offered
+    /// because a slot that exists is a save already carried over. What identifies one is
+    /// that it has no history at all and is past ten in the morning: no game played in this
+    /// engine can be in that position, because the first timeblock cannot be left until
+    /// four separate topics have been raised.
+    /// </remarks>
+    [Fact]
+    public void A_save_with_no_history_past_the_first_block_is_given_its_introductions()
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(
+            Path.Combine(_directory, "gk3-save0001.json"),
+            """{"schemaVersion":2,"written":"2026-01-01T00:00:00+00:00","day":2,"hour":10,"afternoon":false,"location":"LBY","ego":"GABRIEL"}""");
+
+        SaveGame? save = Store.Read("gk3-save0001", out SaveFault fault);
+
+        Assert.Equal(SaveFault.None, fault);
+        Assert.NotNull(save);
+        Assert.Equal(SaveGame.CurrentSchema, save.SchemaVersion);
+        Assert.Contains("BUTHANE", save.Introduced);
+    }
+
+    [Fact]
+    public void A_game_played_here_is_told_nothing_it_did_not_earn()
+    {
+        // It can answer the question itself, out of the topics it recorded, and a migration
+        // that handed it the list anyway would name everybody the player had walked past.
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(
+            Path.Combine(_directory, "slot-04.json"),
+            """{"schemaVersion":2,"written":"2026-01-01T00:00:00+00:00","day":2,"hour":10,"afternoon":false,"location":"LBY","ego":"GABRIEL","topicCounts":{"MOSELY|T_CASE":1}}""");
+
+        SaveGame? save = Store.Read("slot-04", out _);
+
+        Assert.NotNull(save);
+        Assert.Equal(SaveGame.CurrentSchema, save.SchemaVersion);
+        Assert.Empty(save.Introduced);
+    }
+
+    [Fact]
+    public void A_save_still_standing_in_the_first_block_is_left_alone()
+    {
+        // Where an import and a game thirty seconds old look the same, and the list would
+        // be most of the cast: the safe answer there is the one the labels already give.
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(
+            Path.Combine(_directory, "slot-05.json"),
+            """{"schemaVersion":2,"written":"2026-01-01T00:00:00+00:00","day":1,"hour":10,"afternoon":false,"location":"LBY","ego":"GABRIEL"}""");
+
+        Assert.Empty(Store.Read("slot-05", out _)!.Introduced);
     }
 }

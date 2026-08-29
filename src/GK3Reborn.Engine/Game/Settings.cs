@@ -216,6 +216,20 @@ public sealed record Settings
     public bool TerrainBackdrop { get; init; } = true;
 
     /// <summary>
+    /// Whether a room's own objects are drawn from improved geometry where any has been
+    /// built for them.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="ModelledTrees"/> and <see cref="TerrainBackdrop"/> for the
+    /// third time and the same reason: its own judgement and its own cost. What it changes
+    /// is the edges of the things in a room — a table whose top has a width, a lantern
+    /// whose sides are a curve — and somebody who wants 1999's infinitely sharp edges
+    /// should be able to keep them with the rest of the enhancement on. Off, or with
+    /// nothing built, every room is drawn exactly as it shipped.
+    /// </remarks>
+    public bool ImprovedSceneGeometry { get; init; } = true;
+
+    /// <summary>
     /// How many times a character's head is subdivided, or zero to draw it as authored.
     /// </summary>
     /// <remarks>

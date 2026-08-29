@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using GK3Reborn.Foundation.Diagnostics;
@@ -43,6 +43,17 @@ public enum RebarnKind : byte
 
     /// <summary>Sound.</summary>
     Audio = 9,
+
+    /// <summary>
+    /// Improved geometry for one of the game's rooms, as glTF binary.
+    /// </summary>
+    /// <remarks>
+    /// A kind of its own rather than a <see cref="Model"/>, because it is not one. A model
+    /// stands somewhere in a room; this <em>is</em> part of a room, addressed by the room's
+    /// name, and every triangle in it names a surface of that room's original geometry. It
+    /// is also the one kind a game may be missing entirely and be complete without.
+    /// </remarks>
+    SceneGeometry = 10,
 
     /// <summary>Anything else, addressed by name alone.</summary>
     Raw = 255,
@@ -275,6 +286,7 @@ public static class RebarnFormat
         RebarnKind.Height => "height",
         RebarnKind.Emissive => "emissive",
         RebarnKind.Model => "models",
+        RebarnKind.SceneGeometry => "scene-geometry",
         RebarnKind.Video => "video",
         RebarnKind.Manifest => "manifests",
         RebarnKind.Audio => "audio",
@@ -296,6 +308,7 @@ public static class RebarnFormat
             "HEIGHT" or "HEIGHTS" => RebarnKind.Height,
             "EMISSIVE" => RebarnKind.Emissive,
             "MODELS" or "MODEL" => RebarnKind.Model,
+            "SCENE-GEOMETRY" or "SCENES" => RebarnKind.SceneGeometry,
             "VIDEO" or "VIDEOS" => RebarnKind.Video,
             "MANIFESTS" or "MANIFEST" => RebarnKind.Manifest,
             "AUDIO" => RebarnKind.Audio,

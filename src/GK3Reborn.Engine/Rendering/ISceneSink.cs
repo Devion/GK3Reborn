@@ -426,6 +426,10 @@ public interface ISceneSink
     /// <param name="hiddenSurfaces">
     /// Individual surfaces that must not be drawn, by their index in the geometry.
     /// </param>
+    /// <param name="enhanced">
+    /// Improved geometry for some of the room's objects, or null to draw every object from
+    /// the room itself.
+    /// </param>
     /// <remarks>
     /// <para>
     /// Hiding by surface exists because hiding by name is too coarse for the thing that
@@ -438,11 +442,19 @@ public interface ISceneSink
     /// Indices rather than names because a surface has no name — the name belongs to the
     /// object it is part of, which is exactly the granularity this is escaping.
     /// </para>
+    /// <para>
+    /// <b>An overlay replaces the picture and nothing else.</b> Its triangles are drawn in
+    /// place of the objects they name, and every other thing the room decides is decided by
+    /// the room: which texture a surface carries, where its lightmap sits, whether it is
+    /// self-lit, whether it casts a shadow, whether it is drawn at all. A room given an
+    /// overlay it cannot use draws itself, which is the same thing as being given none.
+    /// </para>
     /// </remarks>
     void AddScene(
         BspFile scene,
         MulFile? lightmaps = null,
         IReadOnlySet<string>? hiddenObjects = null,
         string? floorObject = null,
-        IReadOnlySet<int>? hiddenSurfaces = null);
+        IReadOnlySet<int>? hiddenSurfaces = null,
+        SceneOverlay? enhanced = null);
 }

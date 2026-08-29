@@ -292,8 +292,20 @@ public sealed class SaveStore
     /// goes through both. The alternative — discovering at the first schema change that
     /// every save in the wild is unreadable — is much harder to fix then than now.
     /// </remarks>
-    private static SaveGame Migrate(SaveGame save) =>
-        save.SchemaVersion < 2 ? ToSchema2(save) : save;
+    private static SaveGame Migrate(SaveGame save)
+    {
+        if (save.SchemaVersion < 2)
+        {
+            save = ToSchema2(save);
+        }
+
+        if (save.SchemaVersion < 3)
+        {
+            save = ToSchema3(save);
+        }
+
+        return save;
+    }
 
     /// <summary>
     /// Works out what an older save can honestly be said to have achieved.
@@ -335,6 +347,44 @@ public sealed class SaveStore
         {
             SchemaVersion = 2,
             Scored = earned,
+        };
+    }
+
+    /// <summary>
+    /// Works out who an older save's player cannot still be a stranger to.
+    /// </summary>
+    /// <param name="save">A save written before introductions were recorded.</param>
+    /// <returns>The same save, with what is recoverable recovered.</returns>
+    /// <remarks>
+    /// <para>
+    /// A game played through in this engine needs nothing done to it: the labels ask the
+    /// game's own conditions and a save has always carried the topic counts those conditions
+    /// are about. What this step is for is the one kind of save that cannot answer them —
+    /// a game brought across from the original by a build that did not yet do this on
+    /// import, which sits in the store with a timeblock, a score, and no history at all.
+    /// </para>
+    /// <para>
+    /// <b>Which is what identifies it</b>, and identifies it exactly. Not one topic has been
+    /// raised, and the story is past ten in the morning: no game played here can be in that
+    /// position, because the first timeblock cannot be left until four separate topics have
+    /// been. A save still standing in ten in the morning is left alone whichever it is — at
+    /// that point the list would be most of the cast and the least earned.
+    /// </para>
+    /// </remarks>
+    private static SaveGame ToSchema3(SaveGame save)
+    {
+        var reached = new Timeblock(save.Day, save.Hour, save.Afternoon);
+
+        bool imported = save.TopicCounts.Count == 0 &&
+                        save.Introduced.Count == 0 &&
+                        reached > new Timeblock(1, 10, IsAfternoon: false);
+
+        return save with
+        {
+            SchemaVersion = 3,
+            Introduced = imported
+                ? [.. Story.Introductions.Open().MetBy(reached)]
+                : save.Introduced,
         };
     }
 

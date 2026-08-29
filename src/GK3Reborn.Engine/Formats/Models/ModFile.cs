@@ -9,6 +9,18 @@ public sealed record ModSubmesh
     /// <summary>Texture this group is drawn with, without an extension.</summary>
     public required string TextureName { get; init; }
 
+    /// <summary>
+    /// What to call this group's material, when that is not simply its texture.
+    /// </summary>
+    /// <remarks>
+    /// Null for a model, where a material <em>is</em> its picture and one per texture is
+    /// the right number. Scene geometry needs the two separated: a room draws the same
+    /// panelling on forty surfaces, each with its own lightmap and its own flags, and the
+    /// material name is the only channel that survives a round trip through a modelling
+    /// tool. See <c>SceneObjectGlb</c>, which puts the surface index there.
+    /// </remarks>
+    public string? MaterialName { get; init; }
+
     /// <summary>Tint colour. The stored alpha is always zero and is ignored.</summary>
     public required (byte R, byte G, byte B) Color { get; init; }
 
@@ -42,6 +54,17 @@ public sealed record ModMesh
 
     /// <summary>The drawable groups.</summary>
     public required IReadOnlyList<ModSubmesh> Submeshes { get; init; }
+
+    /// <summary>
+    /// What the mesh is called, where anything named it.
+    /// </summary>
+    /// <remarks>
+    /// Empty for a MOD file, which names nothing below the model. Written to the glTF
+    /// node so a room opens in a modelling tool as a named outliner tree rather than as
+    /// forty copies of "Mesh"; nothing at runtime depends on it, and a tool that renames
+    /// an object breaks nothing.
+    /// </remarks>
+    public string Name { get; init; } = string.Empty;
 }
 
 /// <summary>

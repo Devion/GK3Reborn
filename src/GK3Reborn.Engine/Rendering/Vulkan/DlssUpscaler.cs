@@ -106,7 +106,13 @@ internal sealed class DlssUpscaler : IUpscaler
             return null;
         }
 
-        bool reconstruction = plan.RayReconstruction && tracing && streamline.HasRayReconstruction;
+        // Whether a traced picture is needed depends on which denoising plugin loaded. The
+        // documented feature wants normals, roughness and albedo and has nothing to do
+        // without them; neural rendering asks for colour, depth and motion, which this
+        // engine draws whether or not it traced anything.
+        bool reconstruction = plan.RayReconstruction &&
+                              streamline.CanReconstruct(plan.Quality) &&
+                              (tracing || !streamline.RayReconstructionNeedsTracedInputs);
 
         if (!streamline.SetDlssOptions(
                 plan.Quality, plan.DlssPreset, display, plan.HighDynamicRange, reconstruction))

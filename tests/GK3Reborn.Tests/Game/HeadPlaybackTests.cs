@@ -162,7 +162,8 @@ public sealed class HeadPlaybackTests
             MulFile? lightmaps = null,
             IReadOnlySet<string>? hiddenObjects = null,
             string? floorObject = null,
-            IReadOnlySet<int>? hiddenSurfaces = null) =>
+            IReadOnlySet<int>? hiddenSurfaces = null,
+            SceneOverlay? enhanced = null) =>
             _inner.AddScene(scene, lightmaps, hiddenObjects, floorObject, hiddenSurfaces);
     }
 

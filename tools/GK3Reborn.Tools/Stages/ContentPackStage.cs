@@ -89,6 +89,13 @@ public sealed class ContentPackStage
         new(RebarnKind.Model, "enhanced/models", null, false, 0, "Reborn"),
         new(RebarnKind.Video, "enhanced/video", null, false, 0, "Reborn"),
 
+        // The improved room geometry, and the manifest that says which rooms have any and
+        // which build of each room it was cut from. A kind of its own rather than a model:
+        // an entry here is addressed by a room's name, and a game missing every one of
+        // them is complete. See docs/scene-geometry.md.
+        new(RebarnKind.SceneGeometry, "enhanced/scene-geometry", null, false, 0, "Reborn", "*.glb"),
+        new(RebarnKind.Manifest, "enhanced/scene-geometry", null, false, 0, "Reborn", "*.json"),
+
         // The modelled trees, all three parts of them, out of the one directory they are
         // grown into. The foliage cards go through the encoder like any other colour
         // texture, which is what lets the scene loader find them by name without knowing

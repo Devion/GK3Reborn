@@ -65,3 +65,39 @@ WILKES         | GetTopicCount("WILKES","T_INTRODUCE") > 0 || GetFlag("IntroWilk
 
 # CD1_ALL.NVC: MET_TAXI_DRIVER. His noun is what he is rather than who he is, so it gives
 # nothing away and he is not listed. Kept here as a note so nobody adds him.
+
+# ---------------------------------------------------------------------------------------
+# Who a save from later in the story cannot still be a stranger to.
+#
+# Every condition above is a question about what the player has said and done, and a save
+# the original game wrote answers none of them: a .gk3 carries the timeblock, the room and
+# the score, and not one topic count. So an imported game two days into the story drew
+# "Woman" under Madeleine Buthane — the bug this file exists to prevent, arrived at through
+# the machinery that exists to prevent the spoiler.
+#
+# What such a save does state is the point in the story it stands at, and that is enough.
+# Each line below names a timeblock and everybody the story has put in front of the player
+# by the time it starts; a save is credited with every line up to and including its own
+# block. It is the same reasoning the score events are recovered by — a save standing at
+# four in the afternoon has been through the morning — and it is generous in the direction
+# the header above already argues for: a name shown a little early is a small spoiler, a
+# name withheld from somebody the player has spent two days with is not.
+#
+# Everybody is met on day one, so a save from day two or three knows the whole list. The
+# reader takes a later day as everyone rather than resting on that staying true.
+#
+# One line per timeblock: the block, a bar, and the nouns it introduces.
+
+# Day 1, 10 AM. The tour in the hotel yard (RC1110A.SIF), the lobby, where Emilio is
+# reading his paper and Jean is behind the desk (LBY110A.SIF), and the museum, where
+# Girard stands in the office (MS2.SIF) and the two women in the hall (MS3110A.SIF).
+110A | BUTHANE, EMILIO, JEAN, GIRARD, LADY_H_ESTELLE, LADY_HOWARD, ESTELLE
+
+# Day 1, 12 PM. Wilkes in the dining room — DIN112P.NVC is the file MET_WILKES was copied
+# from — and the church, where Buchelli and the Abbe are arguing (CHU112P.SIF).
+112P | WILKES, BUCHELLI, ABBE
+
+# Day 1, 2 PM. The moped opens the map, and the map opens the train station and Larry
+# Chester's house: the game's own rule for leaving this block is satisfied by either of
+# them, so the story counts both as reachable within it.
+102P | MARCIE, LARRY

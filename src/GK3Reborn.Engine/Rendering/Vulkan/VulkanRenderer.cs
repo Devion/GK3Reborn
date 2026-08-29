@@ -2703,8 +2703,19 @@ public sealed unsafe class VulkanRenderer : IDisposable
         {
             try
             {
+                // The size the room is drawn at, not the size it is shown at. Everything
+                // this reads — depth, normals, motion — is built to the render extent, and
+                // everything that reads what it writes runs before the upscale. Built to
+                // the window instead, it traces and filters over an area larger than the
+                // picture it was given: past the drawn region it fetches texels that were
+                // never written, and the shadow ends at a straight line down the frame
+                // wherever the two sizes part company. They only agree at native, which is
+                // the one setting the fault does not show at.
                 _denoiser = ShadowDenoiser.Create(
-                    _context, _shaderCompiler, (int)_extent.Width, (int)_extent.Height);
+                    _context,
+                    _shaderCompiler,
+                    (int)_renderExtent.Width,
+                    (int)_renderExtent.Height);
 
                 _composite ??= CompositePipeline.Create(_context, _shaderCompiler, _format);
             }
@@ -2731,8 +2742,13 @@ public sealed unsafe class VulkanRenderer : IDisposable
             }
 
             _reflections?.Dispose();
+            // The render extent, for the same reason the denoiser above takes it: it reads
+            // the same depth, normals and motion and is composited before the upscale.
             _reflections = Reflections.Create(
-                _context, _shaderCompiler, (int)_extent.Width, (int)_extent.Height);
+                _context,
+                _shaderCompiler,
+                (int)_renderExtent.Width,
+                (int)_renderExtent.Height);
 
             _denoiser.Settle(buffer);
             _reflections.Settle(buffer);

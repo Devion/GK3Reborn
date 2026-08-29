@@ -71,6 +71,7 @@ public sealed class SceneRenderStage
     /// <param name="heads">How far to subdivide a character's head; zero draws it as authored.</param>
     /// <param name="relief">Whether the floor's height map is cut into the geometry.</param>
     /// <param name="trees">Whether foliage cards are grown into modelled trees.</param>
+    /// <param name="improved">Whether a room's objects are drawn from improved geometry.</param>
     /// <param name="wind">
     /// Where to stop the wind's clock, in seconds. Zero is a still afternoon, which is what
     /// keeps two renders of one room the same picture; any other value is for looking at
@@ -100,6 +101,7 @@ public sealed class SceneRenderStage
         int heads,
         bool relief,
         bool trees,
+        bool improved,
         float wind,
         string? packs,
         DiagnosticBag diagnostics)
@@ -214,6 +216,22 @@ public sealed class SceneRenderStage
             ? "trees: none grown; every foliage card stays flat"
             : $"trees: {grown.Count} grown across {grown.SpeciesCount} species, " +
               (grown.Packed ? "read from the packs" : "read loose"));
+
+        // The improved room geometry, from the same two supplies as the trees and for the
+        // same reason. Reported either way, because a render of a room nobody has improved
+        // and a render whose overlay was refused are the same picture.
+        EnhancedScenes rooms = improved
+            ? EnhancedScenes.Open(
+                enhanced is { Length: > 0 } ? Beside(enhanced, "scene-geometry") : string.Empty,
+                volumes,
+                diagnostics)
+            : EnhancedScenes.Empty;
+
+        loader.Scenes = rooms;
+        _log(rooms.IsEmpty
+            ? "scene geometry: none improved; every room is drawn as it shipped"
+            : $"scene geometry: {rooms.Count} room(s) improved, " +
+              (rooms.Packed ? "read from the packs" : "read loose"));
 
         // The reconstructed horizon, from the same two supplies as the trees and for the
         // same reason. Without it a tool render of an outdoor scene shows the painted 1999

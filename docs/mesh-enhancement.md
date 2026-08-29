@@ -1,5 +1,10 @@
 # Mesh enhancement
 
+The `.MOD` models — props and characters — run through Blender. **The rooms themselves are
+a different set of files and a different pass: see `scene-geometry.md`.** Nothing here
+touches them, and the note further down that room geometry "is not in `.MOD` at all" is
+where that pass came from.
+
 `tools/blender/enhance_models.py` runs the converted models through Blender:
 
 ```bash
@@ -42,7 +47,10 @@ names in `[ACTORS]` are the cast, and that is what the classifier uses. The anim
 flag is still recorded, since the pipeline needs it to choose skinned or static
 handling later.
 
-Room geometry itself is not in `.MOD` at all: rooms are BSP files, 110 of them.
+Room geometry itself is not in `.MOD` at all: rooms are BSP files, 110 of them. Those are
+cut into their objects and improved by a pass of their own — `extract-scenes`,
+`enhance_scenes.py`, `compose-scenes` — which is the one piece of mesh work whose output the
+game actually draws. See `scene-geometry.md`.
 
 ## What each category gets
 
@@ -88,10 +96,12 @@ the engine drew `.MOD` geometry and had no glTF reader, so `enhanced/models` was
 and could never be an input. `Formats/Models/GlbReader` has since closed that — see
 `trees.md`, which is its first consumer — and what remains is that nothing loads the output
 of *this* stage in particular: an enhanced `.MOD` has to be matched to the original it
-replaces, and no scene does that yet. The two pieces of mesh work that are live in the game
+replaces, and no scene does that yet. The three pieces of mesh work that are live in the game
 are the head refinement, which subdivides inside the engine on the original geometry rather
-than importing anything (`head-refinement.md`), and the modelled trees, which are grown
-rather than converted.
+than importing anything (`head-refinement.md`); the modelled trees, which are grown rather
+than converted; and the room objects, which do exactly the matching this stage still lacks
+— every triangle carries the index of the surface it replaces, which is what lets an
+improved chair keep the room's own lightmap (`scene-geometry.md`).
 
 **Texture work is not here.** Upscaling and PBR channel generation are an image
 pipeline, not a mesh one; coupling them would join two stages that fail for unrelated

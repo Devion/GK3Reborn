@@ -1357,13 +1357,24 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// pieces carry a normal smoothed across the floor instead. See
     /// <see cref="ReliefPlan"/>.
     /// </para>
+    /// <para>
+    /// And improved geometry is the other exception, because it has normals of its own: an
+    /// object somebody bevelled outside the engine arrives with the shading its new edges
+    /// need, and putting the plane's normal back on it would throw away the whole reason
+    /// for the bevel. See <see cref="Replace"/>.
+    /// </para>
     /// </remarks>
+    /// <param name="enhanced">
+    /// Improved geometry for some of the room's objects, or null to draw every object from
+    /// the room itself.
+    /// </param>
     public void AddScene(
         BspFile scene,
         MulFile? lightmaps = null,
         IReadOnlySet<string>? hiddenObjects = null,
         string? floorObject = null,
-        IReadOnlySet<int>? hiddenSurfaces = null)
+        IReadOnlySet<int>? hiddenSurfaces = null,
+        SceneOverlay? enhanced = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
@@ -1440,12 +1451,29 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         List<Vector3> occluders = [];
         List<uint> occluderIndices = [];
 
-        // Which surfaces have already been rounded off and emitted whole, so the polygon
-        // loop below does not emit them a second time triangle by triangle — and which
-        // objects have been considered at all, so one too big to round is decided once
-        // rather than re-gathered for every polygon it owns.
-        HashSet<int> roundedOff = [];
+        // Which surfaces have already been emitted whole — by an overlay, or by rounding
+        // one of the room's own objects off — so the polygon loop below does not emit them
+        // a second time triangle by triangle. And which objects have been considered for
+        // rounding at all, so one too big to round is decided once rather than re-gathered
+        // for every polygon it owns.
+        HashSet<int> emitted = [];
         HashSet<int> consideredRound = [];
+
+        EnhancedObjects = 0;
+        EnhancedTriangles = 0;
+
+        // Improved geometry, if any was built for this room and it matched. First, and
+        // ahead of the rounding: an object somebody has modelled properly is a better
+        // answer than an object the loader curves at load, and the two must not both
+        // happen to the same surfaces. See Replace.
+        if (enhanced is { IsEmpty: false })
+        {
+            Replace(
+                scene, enhanced, hiddenObjects, hiddenSurfaces, relief, apart,
+                emitted, groups, occluders, occluderIndices);
+
+            Timeline?.Stamp("room: improved geometry");
+        }
 
         // How often the caller is offered a frame. Once every few hundred polygons: this
         // loop is where an outdoor room spends most of a cold load — RC1's floor comes out
@@ -1507,16 +1535,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // only move if both are in the same mesh — the first time any of its polygons
             // comes past. The loop then skips what has been emitted.
             if (!displace &&
-                !roundedOff.Contains(polygon.SurfaceIndex) &&
+                !emitted.Contains(polygon.SurfaceIndex) &&
                 IsRound(owner) &&
                 consideredRound.Add(surface.ObjectIndex))
             {
                 RoundOff(
-                    scene, surface.ObjectIndex, hidden, roundedOff,
+                    scene, surface.ObjectIndex, hidden, emitted,
                     groups, occluders, occluderIndices);
             }
 
-            if (roundedOff.Contains(polygon.SurfaceIndex))
+            if (emitted.Contains(polygon.SurfaceIndex))
             {
                 continue;
             }
@@ -1747,6 +1775,158 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     private static readonly string[] RoundNames =
         ["bell", "lamp", "lantern", "candle", "chandel", "vase", "urn"];
+
+    /// <summary>How many of the room's objects were drawn from improved geometry.</summary>
+    /// <remarks>
+    /// Reported rather than folded into the triangle count, because the failure worth
+    /// seeing is silent: a room with no overlay built for it and a room whose overlay was
+    /// refused draw exactly the same picture, and only a number tells them apart.
+    /// </remarks>
+    public int EnhancedObjects { get; private set; }
+
+    /// <summary>What those objects came to, once refined.</summary>
+    public int EnhancedTriangles { get; private set; }
+
+    /// <summary>
+    /// Draws some of the room's objects from geometry somebody improved outside the engine.
+    /// </summary>
+    /// <param name="scene">The room.</param>
+    /// <param name="enhanced">The improved geometry, already matched to this room.</param>
+    /// <param name="hiddenObjects">Objects that must not be drawn.</param>
+    /// <param name="hiddenSurfaces">Individual surfaces that must not be drawn.</param>
+    /// <param name="relief">What the floor is having cut into it, or null.</param>
+    /// <param name="apart">How far each surface is moved off one it coincides with.</param>
+    /// <param name="emitted">Receives every surface index this handled.</param>
+    /// <param name="groups">The batches being built.</param>
+    /// <param name="occluders">What a ray can hit.</param>
+    /// <param name="occluderIndices">Its indices.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The overlay supplies positions, normals and texture coordinates. It supplies
+    /// nothing else, and it is not asked to.</b> Every triangle names one of the room's own
+    /// surfaces, and that surface decides the picture on it, where its lightmap sits, and
+    /// whether it lights itself, casts a shadow or is drawn at all — through exactly the
+    /// same arithmetic an unmodified surface goes through, three lines below. That is what
+    /// makes replacing a chair a change to the chair rather than to the room's lighting.
+    /// </para>
+    /// <para>
+    /// Two things are refused rather than replaced. A hidden surface stays in its batch as
+    /// hidden, because there is no showing something that was never read. And a surface
+    /// the relief plan is cutting into keeps its own geometry, because the cut and the
+    /// replacement are two sets of triangles for one patch of floor and drawing both puts
+    /// the floor through itself.
+    /// </para>
+    /// </remarks>
+    private void Replace(
+        BspFile scene,
+        SceneOverlay enhanced,
+        IReadOnlySet<string>? hiddenObjects,
+        IReadOnlySet<int>? hiddenSurfaces,
+        ReliefPlan? relief,
+        Vector3[] apart,
+        HashSet<int> emitted,
+        Dictionary<(string Texture, bool SelfLit, bool Displaced, string Object, bool Hidden),
+                   (List<MeshVertex> Vertices, List<uint> Indices)> groups,
+        List<Vector3> occluders,
+        List<uint> occluderIndices)
+    {
+        foreach (SceneObjectGeometry piece in enhanced.Objects)
+        {
+            string owner = piece.ObjectIndex >= 0 && piece.ObjectIndex < scene.ObjectNames.Count
+                ? scene.ObjectNames[piece.ObjectIndex]
+                : string.Empty;
+
+            if (relief is not null &&
+                piece.Surfaces.Any(i =>
+                    i >= 0 && i < scene.Surfaces.Count &&
+                    relief.Covers(scene.Surfaces[i], Deep(scene.Surfaces[i].TextureName))))
+            {
+                continue;
+            }
+
+            bool hidden = hiddenObjects is { Count: > 0 } &&
+                          owner.Length > 0 &&
+                          hiddenObjects.Contains(owner);
+
+            foreach (int index in piece.Surfaces)
+            {
+                emitted.Add(index);
+            }
+
+            EnhancedObjects++;
+            EnhancedTriangles += piece.Triangles.Count;
+
+            foreach (SceneTriangle triangle in piece.Triangles)
+            {
+                if (triangle.Surface < 0 || triangle.Surface >= scene.Surfaces.Count)
+                {
+                    continue;
+                }
+
+                BspSurface surface = scene.Surfaces[triangle.Surface];
+
+                bool away = hidden ||
+                            (hiddenSurfaces is { Count: > 0 } &&
+                             hiddenSurfaces.Contains(triangle.Surface));
+
+                Vector4 region = _lightmapRegions is not null &&
+                                 triangle.Surface < _lightmapRegions.Count
+                    ? _lightmapRegions[triangle.Surface]
+                    : Vector4.Zero;
+
+                (string, bool, bool, string, bool) key =
+                    (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, false, owner, away);
+
+                if (!groups.TryGetValue(key, out (List<MeshVertex> Vertices, List<uint> Indices) group))
+                {
+                    group = ([], []);
+                    groups[key] = group;
+                }
+
+                // The same hair of separation an unreplaced surface gets, and for the same
+                // reason. A tablecloth and the table under it are one card each at exactly
+                // the same depth, and the depth test cannot choose between them: the two
+                // interleave as speckles across the cloth. Improving the geometry does not
+                // make them any less coincident, so the shift has to travel with it.
+                Vector3 shift = triangle.Surface < apart.Length
+                    ? apart[triangle.Surface]
+                    : Vector3.Zero;
+
+                foreach (SceneVertex corner in
+                         (ReadOnlySpan<SceneVertex>)[triangle.A, triangle.B, triangle.C])
+                {
+                    group.Indices.Add((uint)group.Vertices.Count);
+                    group.Vertices.Add(new MeshVertex(
+                        corner.Position + shift,
+                        corner.Normal,
+                        corner.TexCoord,
+                        Lightmap(corner.TexCoord, surface, region)));
+
+                    if (!away)
+                    {
+                        Grow(corner.Position + shift);
+                    }
+                }
+
+                bool occludes = !away &&
+                                surface.CastsShadows &&
+                                !_textures.Keyed.Contains(surface.TextureName) &&
+                                Materials.Of(surface.TextureName).Occludes;
+
+                if (occludes)
+                {
+                    // The improved triangles, so a shadow has the silhouette the object
+                    // now has rather than the one it used to have.
+                    Occlude(
+                        occluders,
+                        occluderIndices,
+                        triangle.A.Position + shift,
+                        triangle.B.Position + shift,
+                        triangle.C.Position + shift);
+                }
+            }
+        }
+    }
 
     /// <summary>Whether an object is one whose silhouette should be a curve.</summary>
     private static bool IsRound(string owner) =>

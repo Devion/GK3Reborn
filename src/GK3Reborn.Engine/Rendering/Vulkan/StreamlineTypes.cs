@@ -316,6 +316,85 @@ internal unsafe struct SlDlssdOptions
     public uint UltraQualityPreset;
 }
 
+/// <summary>What the neural-rendering feature is asked to do.</summary>
+/// <remarks>
+/// <para>
+/// <c>sl::DLSSNROptions</c>, as <c>sl.dlss_nr.dll</c> reads it. NVIDIA publishes no header
+/// for this one — the Streamline SDK carries <c>sl_dlss.h</c>, <c>sl_dlss_d.h</c> and
+/// <c>sl_dlss_g.h</c> and no <c>sl_dlss_nr.h</c> — so every field below was read out of the
+/// plugin rather than copied from a declaration. Where each came from is written down
+/// because a structure that cannot be checked against a header is worth only as much as the
+/// note saying where it came from.
+/// </para>
+/// <para>
+/// <b>How the layout was fixed.</b> The plugin's <c>slDLSSNRSetOptions</c> copies the
+/// caller's viewport, hangs these options off its <c>next</c> pointer and calls its own
+/// <c>slSetData</c>. That walks the chain for this GUID and normalises what it finds into a
+/// seventy-two byte, version-three copy. The offsets it copies from, and the defaults it
+/// substitutes for a caller declaring an older version — nought at <c>0x34</c> and
+/// <c>0x38</c>, nought at <c>0x3C</c>, <c>1.0f</c> at <c>0x40</c> and three at <c>0x44</c> —
+/// are what pin every field down. Each then reaches the network as the NGX parameter named
+/// in its summary.
+/// </para>
+/// <para>
+/// <b>Declare version three.</b> Anything lower and the plugin substitutes those defaults
+/// instead of reading the later fields, which is a quiet way to lose the quality setting:
+/// <see cref="PerformanceMode"/> lives in the version-three tail.
+/// </para>
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct SlDlssnrOptions
+{
+    public SlHeader Header;
+
+    /// <summary>Nought leaves it off and one runs it; nothing else is read.</summary>
+    /// <remarks>
+    /// The plugin's evaluation reads this before anything else and returns having done
+    /// nothing unless it is exactly one, so it is a switch rather than a ladder. The ladder
+    /// is <see cref="PerformanceMode"/>.
+    /// </remarks>
+    public uint Mode;
+
+    /// <summary>NGX <c>DLSSNR.Intensity</c>.</summary>
+    public float Intensity;
+
+    /// <summary>NGX <c>DLSSNR.LocalToneStrength</c>.</summary>
+    public float LocalToneStrength;
+
+    /// <summary>NGX <c>DLSSNR.LocalStructureStrength</c>.</summary>
+    public float LocalStructureStrength;
+
+    /// <summary>NGX <c>DLSSNR.GlobalToneStrength</c>.</summary>
+    public float GlobalToneStrength;
+
+    /// <summary>NGX <c>DLSSNR.Style</c>. Nought is the network's own.</summary>
+    public uint Style;
+
+    /// <summary>NGX <c>DLSSNR.Hint.Render.Preset</c>. Nought is the runtime's choice.</summary>
+    public uint Preset;
+
+    /// <summary>NGX <c>DLSSNR.UseAutoMask</c>: let the network find its own control mask.</summary>
+    /// <remarks>
+    /// Worth leaving on here. The alternative is tagging a control mask as buffer seventy-two,
+    /// and this engine has nothing to put in one.
+    /// </remarks>
+    public byte UseAutoMask;
+    private readonly byte _pad0;
+    private readonly byte _pad1;
+    private readonly byte _pad2;
+
+    /// <summary>NGX <c>DLSSNR.SkinStructureStrength</c>. The plugin's default is one.</summary>
+    public float SkinStructureStrength;
+
+    /// <summary>Which rung of the ladder, numbered as <c>sl::DLSSMode</c> numbers it.</summary>
+    /// <remarks>
+    /// Reaches NGX as <c>PerfQualityValue</c>, one less than this. The plugin accepts one,
+    /// two, three, four and six — max performance, balanced, max quality, ultra performance
+    /// and DLAA — and refuses five, ultra quality, with "performance mode is not supported".
+    /// </remarks>
+    public uint PerformanceMode;
+}
+
 /// <summary>What a feature needs before a device is made.</summary>
 /// <remarks>
 /// Asked before <c>vkCreateDevice</c>, because the answer is a list of device extensions

@@ -42,6 +42,17 @@ public sealed class HeadlessSceneSink : ISceneSink
     /// <inheritdoc/>
     public int TriangleCount { get; private set; }
 
+    /// <summary>How many of the room's objects were drawn from improved geometry.</summary>
+    /// <remarks>
+    /// Reported rather than counted into the triangles, because the thing a corpus sweep
+    /// has to be able to see is the difference between "no overlay was built for this room"
+    /// and "one was built and refused". Both leave the picture identical.
+    /// </remarks>
+    public int EnhancedObjects { get; private set; }
+
+    /// <summary>What those objects came to.</summary>
+    public int EnhancedTriangles { get; private set; }
+
     /// <summary>How many models were placed in it.</summary>
     public int ModelCount { get; private set; }
 
@@ -314,9 +325,13 @@ public sealed class HeadlessSceneSink : ISceneSink
         MulFile? lightmaps = null,
         IReadOnlySet<string>? hiddenObjects = null,
         string? floorObject = null,
-        IReadOnlySet<int>? hiddenSurfaces = null)
+        IReadOnlySet<int>? hiddenSurfaces = null,
+        SceneOverlay? enhanced = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
+
+        EnhancedObjects = enhanced?.Objects.Count ?? 0;
+        EnhancedTriangles = enhanced?.TriangleCount ?? 0;
 
         foreach (string name in scene.ObjectNames)
         {

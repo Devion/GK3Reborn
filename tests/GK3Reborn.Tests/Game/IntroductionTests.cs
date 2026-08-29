@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
@@ -223,6 +223,105 @@ public sealed class IntroductionTests
         };
 
         Assert.Equal("Room 27", Assert.Single(interaction.Nouns()).Noun);
+    }
+
+    [Fact]
+    public void The_roster_says_who_the_story_has_introduced_by_each_point_in_day_one()
+    {
+        // For the saves that cannot answer the conditions above — the ones the 1999 game
+        // wrote, which carry a timeblock and no topic counts at all. Each block is credited
+        // with its own line and every line before it.
+        Introductions table = Introductions.Open();
+
+        Assert.Equal(
+            ["BUTHANE", "EMILIO", "ESTELLE", "GIRARD", "JEAN", "LADY_HOWARD", "LADY_H_ESTELLE"],
+            table.MetBy(new Timeblock(1, 10, IsAfternoon: false)));
+
+        // Noon adds the church and the dining room.
+        Assert.Contains("BUCHELLI", table.MetBy(new Timeblock(1, 12, IsAfternoon: true)));
+        Assert.Contains("ABBE", table.MetBy(new Timeblock(1, 12, IsAfternoon: true)));
+        Assert.Contains("WILKES", table.MetBy(new Timeblock(1, 12, IsAfternoon: true)));
+        Assert.DoesNotContain("LARRY", table.MetBy(new Timeblock(1, 12, IsAfternoon: true)));
+
+        // And two in the afternoon adds what the moped reaches. From there on the list is
+        // everybody, which is why nothing new is added by four or six.
+        Assert.Equal(table.Count, table.MetBy(new Timeblock(1, 2, IsAfternoon: true)).Count);
+        Assert.Equal(table.Count, table.MetBy(new Timeblock(1, 6, IsAfternoon: true)).Count);
+    }
+
+    [Fact]
+    public void A_save_from_a_later_day_knows_the_whole_cast()
+    {
+        // Every introduction in the game is on day one, so a save standing in day two or
+        // three has made all of them. Answered from the day rather than from the roster
+        // adding up to the same thing, which it would stop doing the moment a line is added.
+        Introductions table = Introductions.Open();
+
+        Assert.Equal(table.Count, table.MetBy(new Timeblock(2, 7, IsAfternoon: false)).Count);
+        Assert.Equal(table.Count, table.MetBy(new Timeblock(3, 12, IsAfternoon: true)).Count);
+        Assert.Equal(
+            table.Nouns.OrderBy(noun => noun, StringComparer.Ordinal),
+            table.MetBy(new Timeblock(3, 6, IsAfternoon: true)));
+    }
+
+    [Fact]
+    public void A_roster_line_is_told_from_a_person_by_its_timeblock()
+    {
+        // The two kinds of line share a file and a separator, and only the shape of the
+        // left side separates them. A condition with an "||" in it is why they cannot be
+        // told apart by counting bars.
+        Introductions table = Introductions.Parse(
+            """
+            SOMEBODY | GetFlag("A") || GetFlag("B")
+            110A     | SOMEBODY
+            """);
+
+        Assert.Equal(1, table.Count);
+        Assert.Equal(["SOMEBODY"], table.MetBy(new Timeblock(1, 10, IsAfternoon: false)));
+
+        var state = new GameState();
+
+        Assert.False(table.Knows("SOMEBODY", new Gk3SheepApi(state)));
+
+        state.SetFlag("B");
+
+        Assert.True(table.Knows("SOMEBODY", new Gk3SheepApi(state)));
+    }
+
+    [Fact]
+    public void A_restored_game_knows_who_its_save_says_it_knows()
+    {
+        // The whole point of the roster: no topic has been raised in this state and none
+        // ever will be, because the game it came from was played somewhere else.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+
+        Introductions table = Introductions.Open();
+
+        Assert.False(table.Knows("BUTHANE", api));
+
+        state.Restore(state.Capture() with { Introduced = ["BUTHANE"] });
+
+        Assert.True(table.Knows("BUTHANE", api));
+        Assert.False(table.Knows("WILKES", api));
+
+        // And it goes on being known after the player saves again: a restored game that
+        // wrote itself back down without this would forget at the second load.
+        Assert.Equal(["BUTHANE"], state.Capture().Introduced);
+    }
+
+    [Fact]
+    public void A_restored_game_forgets_the_introductions_of_the_one_before_it()
+    {
+        // Loading into a state that still holds the last game's answers is the classic save
+        // bug, and this is a set like any other: see GameState.Restore.
+        var state = new GameState();
+
+        state.Restore(state.Capture() with { Introduced = ["BUTHANE"] });
+        state.Restore(state.Capture() with { Introduced = [] });
+
+        Assert.Empty(state.Introduced);
+        Assert.False(Introductions.Open().Knows("BUTHANE", new Gk3SheepApi(state)));
     }
 
     /// <summary>Something for the noun to answer to, so the picker offers it at all.</summary>

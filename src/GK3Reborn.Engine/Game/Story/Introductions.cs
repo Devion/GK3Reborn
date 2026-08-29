@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -33,11 +33,17 @@ namespace GK3Reborn.Game.Story;
 /// is a small spoiler, and a name withheld from somebody the player has been talking to
 /// for two days is a bug they cannot work around.
 /// </para>
+/// <para>
+/// <b>The table also says when each of them enters the story</b>, which is what a save the
+/// original game wrote needs. See <see cref="MetBy"/>.
+/// </para>
 /// </remarks>
 public sealed class Introductions
 {
     private readonly Dictionary<string, string> _conditions =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly List<(Timeblock When, string Noun)> _roster = [];
 
     private Introductions()
     {
@@ -48,6 +54,9 @@ public sealed class Introductions
 
     /// <summary>How many people the table has a rule for.</summary>
     public int Count => _conditions.Count;
+
+    /// <summary>Everybody the table has a rule for.</summary>
+    public IReadOnlyCollection<string> Nouns => _conditions.Keys;
 
     /// <summary>Reads the table the engine ships.</summary>
     /// <returns>The rules, empty when the resource is missing.</returns>
@@ -91,16 +100,74 @@ public sealed class Introductions
                 continue;
             }
 
-            string noun = line[..bar].Trim();
-            string condition = line[(bar + 1)..].Trim();
+            string left = line[..bar].Trim();
+            string right = line[(bar + 1)..].Trim();
 
-            if (noun.Length > 0 && condition.Length > 0)
+            if (left.Length == 0 || right.Length == 0)
             {
-                table._conditions[noun] = condition;
+                continue;
+            }
+
+            // A line whose left side is a timeblock is a roster line — who the story has
+            // put in front of the player by then — and everything else is a person and the
+            // condition they are known by. Nobody's noun can be read as a block: a block is
+            // a day, an hour and an A or a P, and the parse refuses everything else.
+            if (Timeblock.TryParse(left, out Timeblock when))
+            {
+                foreach (string noun in right.Split(
+                    ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    table._roster.Add((when, noun));
+                }
+            }
+            else
+            {
+                table._conditions[left] = right;
             }
         }
 
         return table;
+    }
+
+    /// <summary>
+    /// Who a save standing at a point in the story cannot still be a stranger to.
+    /// </summary>
+    /// <param name="when">The timeblock the save stands in.</param>
+    /// <returns>The nouns to treat as introduced, whatever the story can show.</returns>
+    /// <remarks>
+    /// <para>
+    /// For the saves the 1999 game wrote, which answer none of the conditions above: a
+    /// <c>.gk3</c> carries the timeblock, the room and the score, and not one topic count,
+    /// so an import two days into the story would draw <c>Woman</c> under Madeleine
+    /// Buthane. The reasoning is the one the score events are recovered by — a point in the
+    /// story implies everything behind it — and it errs the way the table errs, towards
+    /// showing a name rather than withholding one.
+    /// </para>
+    /// <para>
+    /// A day beyond the first is everybody, rather than everybody the roster happens to
+    /// name. Every introduction in the game is on day one, so the two answers are the same
+    /// today; they would stop being the same the moment somebody adds a line, and the wrong
+    /// one to be left holding then is the shorter.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> MetBy(Timeblock when)
+    {
+        if (when.Day > 1)
+        {
+            return [.. _conditions.Keys.OrderBy(noun => noun, StringComparer.Ordinal)];
+        }
+
+        // A roster line naming somebody the table has no condition for is left out rather
+        // than carried: taking them as met is only ever an answer to a question about them,
+        // and there is no question.
+        return
+        [
+            .. _roster
+                .Where(entry => entry.When <= when && _conditions.ContainsKey(entry.Noun))
+                .Select(entry => entry.Noun)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(noun => noun, StringComparer.Ordinal),
+        ];
     }
 
     /// <summary>Whether the player already knows what to call somebody.</summary>
@@ -120,6 +187,13 @@ public sealed class Introductions
         if (noun is not { Length: > 0 } ||
             api is null ||
             !_conditions.TryGetValue(noun, out string? condition))
+        {
+            return true;
+        }
+
+        // A restored game may know somebody the state can no longer show it knows: see
+        // MetBy, and GameState.Introduce.
+        if (api.State.WasIntroduced(noun))
         {
             return true;
         }

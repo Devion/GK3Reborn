@@ -1188,7 +1188,13 @@ public static class SceneScripting
             return 0;
         }
 
-        return world.Walk(actor, start.Position, start.Heading, null, hurry);
+        // And it may be run, exactly as the other approaches may. Every one of them passes
+        // mayRun; this one did not, by omission alone, so the third most common approach in
+        // the game was the only one taken at a stroll however far it went. RC3's cat is a
+        // walk of 3,208 units from the door — ninety seconds of a camera the story is
+        // holding and a player who cannot click.
+        return world.Walk(
+            actor, start.Position, start.Heading, null, hurry, mayRun: true);
     }
 
     /// <summary>Stops an actor short of the thing they were sent to.</summary>
@@ -1643,6 +1649,19 @@ public static class SceneScripting
             }
 
             return SheepValue.FromString("no such actor here");
+        });
+
+        // The menu's Get Unstuck row, reachable from the console as well. Not a game
+        // function either — no shipped script calls it — but a wedged room is exactly the
+        // thing a headless run has to be able to reproduce and then undo, and the console
+        // is the only way in. See SceneUpdate.Unstick.
+        api.Register("Unstick", _ =>
+        {
+            IReadOnlyList<string> let = world.Unstick();
+
+            return SheepValue.FromString(let.Count == 0
+                ? "nothing was holding the room"
+                : "let go of " + string.Join(", ", let));
         });
     }
 

@@ -378,6 +378,15 @@ public static class Application
         // through the same door the interface does.
         api.Saves = new Game.SaveStore();
 
+        // Who the player has been introduced to, which decides whether a label may use
+        // somebody's name. The conditions are the action files' own; see
+        // Assets/Story/Introductions.txt. Read before the imports below, which need it:
+        // an original save records none of what those conditions ask about.
+        Game.Story.Introductions introductions = Game.Story.Introductions.Open();
+
+        Log.Info(
+            $"Introductions: {introductions.Count} people are strangers until met");
+
         // The saves the 1999 game wrote, brought across once each. A save file this engine
         // has already imported is left alone, so deleting an import is how somebody asks
         // for it again, and the original .gk3 is never touched or moved.
@@ -410,7 +419,7 @@ public static class Application
         }
 
         int broughtAcross = searched.Sum(
-            where => Game.OriginalSaves.Import(where, api.Saves, api.Scores));
+            where => Game.OriginalSaves.Import(where, api.Saves, api.Scores, introductions));
 
         if (broughtAcross > 0)
         {
@@ -526,14 +535,6 @@ public static class Application
         {
             Log.Info($"Names: {strings.Count} from ESTRINGS.TXT");
         }
-
-        // Who the player has been introduced to, which decides whether a label may use
-        // somebody's name. The conditions are the action files' own; see
-        // Assets/Story/Introductions.txt.
-        Game.Story.Introductions introductions = Game.Story.Introductions.Open();
-
-        Log.Info(
-            $"Introductions: {introductions.Count} people are strangers until met");
 
                 var host = new ScriptHost(api);
 
@@ -1184,6 +1185,28 @@ public static class Application
                     Log.Info(
                         $"Modelled trees: {trees.Count} grown across {trees.SpeciesCount} " +
                         $"species, {(trees.Packed ? "packed" : "loose")}");
+                }
+            }
+
+            // The improved room geometry, beside the trees and gated on its own setting for
+            // the same reasons: it is geometry rather than a bitmap, it is optional at
+            // every layer, and it comes from the packs as well as from a workspace because
+            // a shipped game has packs and no content workspace at all.
+            if (settings.ImprovedSceneGeometry)
+            {
+                EnhancedScenes rooms = EnhancedScenes.Open(
+                    packsOnly || enhancedDirectory is not { Length: > 0 }
+                        ? string.Empty
+                        : Beside(enhancedDirectory, "scene-geometry"),
+                    packs);
+
+                loader.Scenes = rooms;
+
+                if (first && !rooms.IsEmpty)
+                {
+                    Log.Info(
+                        $"Improved scene geometry: {rooms.Count} room(s), " +
+                        $"{(rooms.Packed ? "packed" : "loose")}");
                 }
             }
 
@@ -2983,6 +3006,24 @@ public static class Application
                 // Without this the first frame back advances everything by however long the
                 // player spent in the settings.
                 previous = stopwatch.Elapsed.TotalSeconds;
+
+                // Whatever the story was holding, it is not holding it any more. Said out
+                // loud and in full, because a player who reached for this has already spent
+                // a while wondering whether the game was broken and deserves to be told
+                // what was wrong with it.
+                if (chose is FrontEndOutcome.Unstick)
+                {
+                    IReadOnlyList<string> let = update.Unstick();
+
+                    if (let.Count == 0)
+                    {
+                        Log.Info("Unstuck: nothing was holding the room.");
+                    }
+                    else
+                    {
+                        Log.Info("Unstuck: let go of " + string.Join(", ", let) + ".");
+                    }
+                }
 
                 if (chose is FrontEndOutcome.Quit)
                 {

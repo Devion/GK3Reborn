@@ -118,7 +118,8 @@ public sealed class SceneUpdateTests
             MulFile? lightmaps = null,
             IReadOnlySet<string>? hiddenObjects = null,
             string? floorObject = null,
-            IReadOnlySet<int>? hiddenSurfaces = null)
+            IReadOnlySet<int>? hiddenSurfaces = null,
+            SceneOverlay? enhanced = null)
         {
         }
 
@@ -718,5 +719,48 @@ public sealed class SceneUpdateTests
 
         Assert.True(gab.Visible);
         Assert.True(sink.Visible[0]);
+    }
+
+    [Fact]
+    public void Getting_unstuck_lets_go_of_everything_that_was_holding_the_room()
+    {
+        // The menu's Get Unstuck row. Occupied is made of four things and Directing turns
+        // any of them into a camera the player does not have and clicks that do not reach
+        // the floor — so a room that wedges leaves the player with no way to say so, every
+        // way of saying so being a click.
+        var state = new GameState { ForcedCameraCuts = true, Inspecting = "CAT" };
+        var api = new Gk3SheepApi(state) { ActionSeconds = 90 };
+        var update = new SceneUpdate(Scene(), api, new Glances(), new Watcher());
+
+        int held = 0;
+        update.After(90, () => held++);
+
+        Assert.True(update.Occupied);
+        Assert.True(update.Directing);
+
+        Assert.NotEmpty(update.Unstick());
+
+        Assert.False(update.Occupied);
+        Assert.False(update.Directing);
+        Assert.Equal(0, update.Later);
+        Assert.Equal(0, api.ActionSeconds);
+        Assert.False(state.ForcedCameraCuts);
+        Assert.Equal(string.Empty, state.Inspecting);
+
+        // And what was waiting on the walk is abandoned rather than hurried along. Running
+        // it would perform the action the player has just said they are stuck in.
+        update.Advance(120);
+        Assert.Equal(0, held);
+    }
+
+    [Fact]
+    public void And_says_so_plainly_when_nothing_was_holding_it()
+    {
+        // Nothing to report is a real answer, and the caller says as much to the player:
+        // somebody who reached for this and was told nothing was wrong has learned
+        // something about where to look next.
+        (SceneUpdate update, _, _, _) = World();
+
+        Assert.Empty(update.Unstick());
     }
 }

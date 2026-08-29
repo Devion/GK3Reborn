@@ -23,10 +23,10 @@ namespace GK3Reborn.Game;
 /// <para>
 /// So the import takes what the summary states and recovers what follows from it: the
 /// timeblock, the location, the score, and the save's own name. Everything a point in the
-/// story implies — every score event belonging to a timeblock already behind the player —
-/// is marked earned by the same reasoning the schema-1 migration uses: the story cannot
-/// leave a timeblock until its rules are met, and marking those events is also what stops
-/// them paying out twice. What the player was carrying beyond their starting items, and the
+/// story implies — every score event belonging to a timeblock already behind the player,
+/// and everybody the story has introduced them to by then — is recovered by the same
+/// reasoning the schema-1 migration uses: the story cannot leave a timeblock until its
+/// rules are met, and marking those events is also what stops them paying out twice. What the player was carrying beyond their starting items, and the
 /// flags of the current block, are not in the summary and are not invented.
 /// </para>
 /// </remarks>
@@ -38,17 +38,25 @@ public static class OriginalSaves
     /// <param name="directory">Where the original game kept them, usually its install root.</param>
     /// <param name="store">Where the imports go.</param>
     /// <param name="scores">The score table, for what a past timeblock is worth.</param>
+    /// <param name="introductions">
+    /// The introductions table, for who a past timeblock has already been met in.
+    /// </param>
     /// <returns>How many were imported this time.</returns>
     /// <remarks>
     /// Each import is filed under the original file's own name — <c>gk3-save0004</c> — so
     /// importing is idempotent: a slot that exists is a save already brought across, and
     /// deleting the import is how somebody asks for it to be brought across again.
     /// </remarks>
-    public static int Import(string directory, SaveStore store, ScoreEvents scores)
+    public static int Import(
+        string directory,
+        SaveStore store,
+        ScoreEvents scores,
+        Story.Introductions introductions)
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(scores);
+        ArgumentNullException.ThrowIfNull(introductions);
 
         if (!Directory.Exists(directory))
         {
@@ -71,7 +79,7 @@ public static class OriginalSaves
                 continue;
             }
 
-            store.Write(slot, Recovered(summary, scores));
+            store.Write(slot, Recovered(summary, scores, introductions));
 
             // And the picture the original took when it saved, decoded and kept beside the
             // import like any other slot's. A picture that does not decode costs the slot
@@ -162,7 +170,8 @@ public static class OriginalSaves
     /// <summary>A save this engine can load, built from what the summary states.</summary>
     private static SaveGame Recovered(
         (string Title, string Location, Timeblock When, int Score, byte[]? Picture) summary,
-        ScoreEvents scores)
+        ScoreEvents scores,
+        Story.Introductions introductions)
     {
         // Everything a point in the story implies. The same reasoning as the schema-1
         // migration: a save standing in day two has been through the whole of day one, and
@@ -185,6 +194,13 @@ public static class OriginalSaves
             Ego = GraceLeads.Contains(summary.When) ? "GRACE" : "GABRIEL",
             Score = summary.Score,
             Scored = earned,
+
+            // And everybody the story has put in front of the player by this point in it.
+            // The same reasoning again, for the same reason: the labels this engine draws
+            // ask whether somebody has been introduced, the questions they ask are about
+            // topics an original save does not record, and an import two days in would have
+            // named Madeleine Buthane "Woman". See Story.Introductions.MetBy.
+            Introduced = [.. introductions.MetBy(summary.When)],
 
             // At least what a new game starts with. The summary says nothing about the
             // pockets, and restoring an import with them empty would lose Prince James's

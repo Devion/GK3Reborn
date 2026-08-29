@@ -289,6 +289,23 @@ nothing to resume, it does nothing at all.
 Three ways to work it, all live at once: the arrow keys and Enter, the pointer, and
 dragging a slider. A menu that can only be used one way is a menu somebody cannot use.
 
+**Get Unstuck** is the one row on the pause page that does something to the room rather
+than to a setting. `SceneUpdate.Occupied` is four things — an action held back for its
+approach walk, the seconds an action said it needed, a clip the story is playing on the
+player, and scripts the room started and never finished — and `Directing` turns any of them
+into a camera the player does not have and clicks that do not reach the floor. That is right
+while the story is telling something and wrong the moment one of the four wedges, and a
+player with no camera and no clicks has no way to say so, every way of saying so being a
+click. So the escape hatch lives where they can still reach it.
+
+It lets go of all four, of `ForcedCameraCuts` and of any close-up the view was pinned to,
+and stands the player on the nearest walkable texel if they are off the floor. It is
+deliberately **not** a reload: flags, counts, score and inventory are untouched, so what the
+player had done is still done and only what was *happening* is abandoned — the difference
+between giving up on a moment and giving up on a save. What it let go of is written to the
+console in full, because somebody who reached for this has already spent a while wondering
+whether the game was broken.
+
 ## Flags
 
 | flag | |

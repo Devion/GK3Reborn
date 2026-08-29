@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -60,6 +60,10 @@ public static class GlbWriter
         // One material per distinct texture, so a model that reuses a texture across
         // submeshes does not produce duplicates.
         Dictionary<string, int> materialIndices = new(StringComparer.OrdinalIgnoreCase);
+
+        // Images are shared across materials rather than written per material: a room's
+        // surfaces name the same few dozen pictures thousands of times over.
+        Dictionary<string, int> pictureIndices = new(StringComparer.OrdinalIgnoreCase);
         var materials = new JsonArray();
         var textures = new JsonArray();
         var images = new JsonArray();
@@ -91,7 +95,9 @@ public static class GlbWriter
                         ["TEXCOORD_0"] = texCoord,
                     },
                     ["indices"] = index,
-                    ["material"] = MaterialFor(submesh, texturePathPrefix, materialIndices, materials, textures, images),
+                    ["material"] = MaterialFor(
+                        submesh, texturePathPrefix, materialIndices, pictureIndices,
+                        materials, textures, images),
                     ["mode"] = 4, // triangles
                 });
             }
@@ -103,12 +109,22 @@ public static class GlbWriter
 
             meshes.Add(new JsonObject { ["primitives"] = primitives });
 
-            rootNodes.Add(nodes.Count);
-            nodes.Add(new JsonObject
+            var node = new JsonObject
             {
                 ["mesh"] = meshes.Count - 1,
                 ["matrix"] = ToJsonArray(mesh.MeshToLocal),
-            });
+            };
+
+            // Named where the caller named it, so a room opens as an outliner tree a
+            // person can navigate. Nothing reads it back: see ModMesh.Name.
+            if (mesh.Name.Length > 0)
+            {
+                node["name"] = mesh.Name;
+                ((JsonObject)meshes[^1]!)["name"] = mesh.Name;
+            }
+
+            rootNodes.Add(nodes.Count);
+            nodes.Add(node);
         }
 
         var root = new JsonObject
@@ -165,11 +181,19 @@ public static class GlbWriter
         ModSubmesh submesh,
         string texturePathPrefix,
         Dictionary<string, int> indices,
+        Dictionary<string, int> pictures,
         JsonArray materials,
         JsonArray textures,
         JsonArray images)
     {
-        string key = submesh.TextureName.Length == 0 ? "(none)" : submesh.TextureName;
+        // The material's identity and the picture on it are two different things. For a
+        // model they are the same string and this collapses to one material per texture;
+        // for a room they do not, and forty surfaces sharing one panelling texture must
+        // still be forty materials with one image between them. See ModSubmesh.MaterialName.
+        string key = submesh.MaterialName is { Length: > 0 } named
+            ? named
+            : submesh.TextureName.Length == 0 ? "(none)" : submesh.TextureName;
+
         if (indices.TryGetValue(key, out int existing))
         {
             return existing;
@@ -193,18 +217,24 @@ public static class GlbWriter
 
         if (submesh.TextureName.Length > 0 && texturePathPrefix.Length > 0)
         {
-            images.Add(new JsonObject
+            if (!pictures.TryGetValue(submesh.TextureName, out int picture))
             {
-                ["uri"] = texturePathPrefix + Path.ChangeExtension(submesh.TextureName, ".png").ToUpperInvariant(),
-            });
+                images.Add(new JsonObject
+                {
+                    ["uri"] = texturePathPrefix + Path.ChangeExtension(submesh.TextureName, ".png").ToUpperInvariant(),
+                });
 
-            textures.Add(new JsonObject
-            {
-                ["source"] = images.Count - 1,
-                ["sampler"] = 0,
-            });
+                textures.Add(new JsonObject
+                {
+                    ["source"] = images.Count - 1,
+                    ["sampler"] = 0,
+                });
 
-            pbr["baseColorTexture"] = new JsonObject { ["index"] = textures.Count - 1 };
+                picture = textures.Count - 1;
+                pictures[submesh.TextureName] = picture;
+            }
+
+            pbr["baseColorTexture"] = new JsonObject { ["index"] = picture };
         }
 
         materials.Add(new JsonObject

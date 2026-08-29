@@ -64,6 +64,11 @@ public enum FrontEndOutcome
 
     /// <summary>Read the game back from the slot the player chose.</summary>
     Load,
+
+    /// <summary>
+    /// Let go of whatever the story is holding and give the room back to the player.
+    /// </summary>
+    Unstick,
 }
 
 /// <summary>
@@ -233,6 +238,9 @@ public sealed class FrontEnd
             case "resume":
                 return FrontEndOutcome.Resume;
 
+            case "unstick":
+                return FrontEndOutcome.Unstick;
+
             case "quit":
                 return FrontEndOutcome.Quit;
 
@@ -394,6 +402,18 @@ public sealed class FrontEnd
             MenuItem.Button("resume", "Resume"),
             MenuItem.Button("save", "Save"),
             MenuItem.Button("load", "Restore"),
+
+            // A room can wedge: an approach walk far longer than anybody will sit through,
+            // a script that parked and never came back, a clip on the player that never
+            // ends. Every one of those reads the same way from the player's chair — the
+            // camera stops answering and clicks stop reaching the floor — and the player
+            // has no way to say so from inside the room, because saying so is a click.
+            //
+            // So it is a row here rather than a setting: it is a thing done once, to the
+            // room the player is stuck in, and the menu is the only place they can still
+            // reach. It costs nothing of the story; see SceneUpdate.Unstick.
+            MenuItem.Button("unstick", "Get Unstuck"),
+
             MenuItem.Button("options", "Settings"),
             MenuItem.Button("quit", "Leave the Game"),
         ]
@@ -617,11 +637,12 @@ public sealed class FrontEnd
         MenuItem.Toggle("enhanced", "Higher-resolution textures", Settings.EnhancedTextures),
         MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
         MenuItem.Toggle("terrain", "Reconstructed horizon", Settings.TerrainBackdrop),
+        MenuItem.Toggle("rooms", "Rounded room objects", Settings.ImprovedSceneGeometry),
 
         // The one thing on this page a player cannot see for themselves: the room standing
         // round them was built from whichever set was chosen when it loaded, and rebuilding
         // it here would mean reloading the scene underneath them.
-        MenuItem.Label("The last three take effect at the next door."),
+        MenuItem.Label("The last four take effect at the next door."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -967,6 +988,7 @@ public sealed class FrontEnd
             "enhanced" => Settings with { EnhancedTextures = !Settings.EnhancedTextures },
             "trees" => Settings with { ModelledTrees = !Settings.ModelledTrees },
             "terrain" => Settings with { TerrainBackdrop = !Settings.TerrainBackdrop },
+            "rooms" => Settings with { ImprovedSceneGeometry = !Settings.ImprovedSceneGeometry },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "captions" => Settings with { Captions = !Settings.Captions },

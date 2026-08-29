@@ -46,7 +46,7 @@ That encodes every PNG under `enhanced/` to DDS and writes two volumes into
 | Flag | What it does |
 | --- | --- |
 | `--output <dir>` | Where the volumes go. `<workspace>/build/pack` by default. |
-| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models video manifests` |
+| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models scene-geometry video manifests` |
 | `--only <dir>` | Only the kinds packed from a source directory, such as `enhanced/trees`. |
 | `--cap normals=512` | Longest edge a kind is encoded at, overriding the default. |
 | `--single-volume` | One file rather than two. |
@@ -186,11 +186,27 @@ so a later full run does not generate maps for it either.
 | orm | `BC7_UNORM` | 1024 | Three genuinely different channels, and linear. |
 | height | `BC4_UNORM` | 512 | One channel. Half the size of every other block format. |
 | models | `.glb`, stored | — | Already compact. |
+| scene-geometry | `.glb`, stored | — | Improved room objects. Same, and a kind of its own. |
 | video | `.mp4`, stored | — | Already a compressed video stream. |
 | manifests | `.json`, deflated | — | Text, and text deflates. |
 | raw: `*.splat.png` | `BC7_UNORM` | source | Four blend weights. Data, so **not** colour. |
 | raw: `*.tint.png` | `BC7_UNORM_SRGB` | source | The vista's colour. |
 | raw: everything else | stored or deflated by payload | — | Heightfields and forests. |
+
+### Why improved room geometry is a kind and not a model
+
+A model stands somewhere in a room. An entry in `scene-geometry` **is** part of a room:
+addressed by the hash of its own geometry, drawn by whichever rooms name it in
+`scene-geometry.json`, and carrying materials called `slot#000` rather than a texture,
+because the texture is decided by the room's surface and not by the shape. Sharing the
+model kind would have meant a prefix on every key to keep the two apart, and a prefix is a
+kind wearing a disguise. It is also the one kind a game may be missing entirely and still
+be complete — see [scene-geometry.md](../scene-geometry.md).
+
+Two entries out of one directory, like the trees: `*.glb` are the shapes and `*.json` is
+the manifest. **Both halves or neither.** Either alone is inert, and there is no error to
+see: a pack with shapes and no manifest draws every room as it shipped, which is exactly
+what a pack with neither does.
 
 ### One directory, three kinds
 

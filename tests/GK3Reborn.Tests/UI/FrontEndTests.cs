@@ -48,11 +48,19 @@ public sealed class FrontEndTests
         FrontEnd paused = Front(inGame: true);
 
         Assert.Equal(
-            ["resume", "save", "load", "options", "quit"],
+            ["resume", "save", "load", "unstick", "options", "quit"],
             paused.Items.Select(i => i.Id));
 
         Assert.Equal("Resume", Row(paused, "resume").Text);
         Assert.Equal("Leave the Game", Row(paused, "quit").Text);
+
+        // The way out of a wedged room, and only offered where there is a room to be
+        // wedged in: on the title screen it would be a row about nothing.
+        Assert.Equal("Get Unstuck", Row(paused, "unstick").Text);
+        Assert.DoesNotContain(Front().Items, i => i.Id == "unstick");
+
+        Assert.Equal(
+            FrontEndOutcome.Unstick, paused.Choose(new MenuAction("unstick")));
     }
 
     [Fact]
