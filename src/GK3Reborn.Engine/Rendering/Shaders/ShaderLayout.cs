@@ -111,11 +111,9 @@ public readonly record struct ShaderBinding(
 /// </param>
 /// <remarks>
 /// Push constants become root constants, at the register <see cref="ShaderBindings"/>
-/// reserves for them. Direct3D counts a root signature's size in thirty-two-bit words and
-/// allows sixty-four of them, with a descriptor table costing one; a hundred and twenty-eight
-/// bytes of push constants is therefore half the budget, and Vulkan's own floor is a hundred
-/// and twenty-eight. Both limits are checked, because exceeding either is a pipeline that
-/// fails to create on one backend and not the other.
+/// reserves for them. What the two backends will actually take differs, and by enough to
+/// matter: see <see cref="MaximumPushConstantBytes"/> and
+/// <see cref="GuaranteedPushConstantBytes"/>.
 /// </remarks>
 public sealed record ShaderLayout(
     IReadOnlyList<ShaderBinding> Bindings,
