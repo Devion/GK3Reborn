@@ -139,6 +139,148 @@ public sealed unsafe class D3D12Texture : IDisposable
             null);
     }
 
+    /// <summary>How many mip levels it has.</summary>
+    public uint Mips { get; private init; } = 1;
+
+    /// <summary>Makes a texture a shader can sample.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="format">What it holds.</param>
+    /// <param name="width">Width in pixels.</param>
+    /// <param name="height">Height in pixels.</param>
+    /// <param name="mips">How many levels.</param>
+    /// <param name="writable">Whether the mip builder will write into it.</param>
+    /// <returns>The texture.</returns>
+    /// <exception cref="D3D12Exception">It could not be created.</exception>
+    /// <remarks>
+    /// It starts in <c>Common</c> rather than in a shader-read state, because the next
+    /// thing that happens to it is a copy and a copy destination must be reached from a
+    /// state a copy can begin from. Whoever fills it puts it where it belongs afterwards.
+    /// </remarks>
+    public static D3D12Texture CreateSampled(
+        D3D12Context context,
+        Format format,
+        int width,
+        int height,
+        uint mips = 1,
+        bool writable = false)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return Create(
+            context,
+            format,
+            width,
+            height,
+            writable ? ResourceFlags.AllowUnorderedAccess : ResourceFlags.None,
+            ResourceStates.Common,
+            null,
+            mips);
+    }
+
+    /// <summary>Writes a shader resource view of this texture into a descriptor slot.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="where">Where to write it.</param>
+    public void Describe(D3D12Context context, CpuDescriptorHandle where)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var description = new ShaderResourceViewDesc
+        {
+            Format = Format,
+            ViewDimension = SrvDimension.Texture2D,
+
+            // Without this every channel reads as red. It is a macro in the header rather
+            // than a constant, so nothing generated carries it and nothing warns.
+            Shader4ComponentMapping = D3D12AccelerationStructure.DefaultComponentMapping,
+        };
+
+        description.Anonymous.Texture2D = new Tex2DSrv
+        {
+            MostDetailedMip = 0,
+            MipLevels = Mips,
+            PlaneSlice = 0,
+            ResourceMinLODClamp = 0f,
+        };
+
+        context.Device->CreateShaderResourceView(_resource.Handle, &description, where);
+    }
+
+    /// <summary>Writes a shader resource view of one level into a descriptor slot.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="where">Where to write it.</param>
+    /// <param name="level">Which mip level.</param>
+    /// <remarks>
+    /// One level and no others, which is what the mip builder samples through: a view of
+    /// the whole chain would let the filter pick a level of its own and the result would
+    /// depend on what the sampler decided rather than on what was asked for.
+    /// </remarks>
+    public void DescribeLevel(D3D12Context context, CpuDescriptorHandle where, uint level)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var description = new ShaderResourceViewDesc
+        {
+            Format = Linearise(Format),
+            ViewDimension = SrvDimension.Texture2D,
+            Shader4ComponentMapping = D3D12AccelerationStructure.DefaultComponentMapping,
+        };
+
+        description.Anonymous.Texture2D = new Tex2DSrv
+        {
+            MostDetailedMip = level,
+            MipLevels = 1,
+            PlaneSlice = 0,
+            ResourceMinLODClamp = 0f,
+        };
+
+        context.Device->CreateShaderResourceView(_resource.Handle, &description, where);
+    }
+
+    /// <summary>Writes an unordered access view of one level into a descriptor slot.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="where">Where to write it.</param>
+    /// <param name="level">Which mip level.</param>
+    public void DescribeWrite(D3D12Context context, CpuDescriptorHandle where, uint level = 0)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var description = new UnorderedAccessViewDesc
+        {
+            // An unordered access view of an sRGB texture is refused: a shader writes
+            // linear values and the hardware would have to encode them, which unordered
+            // access has no path for. The view is declared as the plain format instead, so
+            // the mip builder writes the bytes it means to.
+            Format = Linearise(Format),
+            ViewDimension = UavDimension.Texture2D,
+        };
+
+        description.Anonymous.Texture2D = new Tex2DUav { MipSlice = level, PlaneSlice = 0 };
+
+        context.Device->CreateUnorderedAccessView(
+            _resource.Handle, (ID3D12Resource*)null, &description, where);
+    }
+
+    /// <summary>The plain form of a format that carries an sRGB encode.</summary>
+    /// <param name="format">The format.</param>
+    /// <returns>The same format without the encode.</returns>
+    public static Format Linearise(Format format) => format switch
+    {
+        Format.FormatR8G8B8A8UnormSrgb => Format.FormatR8G8B8A8Unorm,
+        Format.FormatB8G8R8A8UnormSrgb => Format.FormatB8G8R8A8Unorm,
+        Format.FormatBC7UnormSrgb => Format.FormatBC7Unorm,
+        _ => format,
+    };
+
+    /// <summary>Says what state the texture is in, without recording anything.</summary>
+    /// <param name="state">The state it is in.</param>
+    /// <remarks>
+    /// For the one caller that moves the subresources individually. Building a mip chain
+    /// reads one level while it writes the next, which a whole-resource transition cannot
+    /// express, so it does its own and then says where it left things. Anything else that
+    /// reaches for this is almost certainly about to lie to the tracker.
+    /// </remarks>
+    public void Claim(ResourceStates state) => State = state;
+
     /// <summary>Moves the texture into a state, if it is not in it already.</summary>
     /// <param name="list">The list to record into.</param>
     /// <param name="to">The state it should be in.</param>
@@ -167,7 +309,8 @@ public sealed unsafe class D3D12Texture : IDisposable
         int height,
         ResourceFlags flags,
         ResourceStates state,
-        ClearValue* clear)
+        ClearValue* clear,
+        uint mips = 1)
     {
         var properties = new HeapProperties
         {
@@ -185,7 +328,7 @@ public sealed unsafe class D3D12Texture : IDisposable
             Width = (ulong)Math.Max(1, width),
             Height = (uint)Math.Max(1, height),
             DepthOrArraySize = 1,
-            MipLevels = 1,
+            MipLevels = (ushort)Math.Max(1, mips),
             Format = format,
             SampleDesc = new SampleDesc(1, 0),
 
@@ -210,6 +353,6 @@ public sealed unsafe class D3D12Texture : IDisposable
                 (void**)resource.GetAddressOf()),
             $"create a {width} by {height} {format} texture");
 
-        return new D3D12Texture(resource, format, width, height, state);
+        return new D3D12Texture(resource, format, width, height, state) { Mips = Math.Max(1, mips) };
     }
 }

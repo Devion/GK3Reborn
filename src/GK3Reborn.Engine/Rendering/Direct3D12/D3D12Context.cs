@@ -411,6 +411,50 @@ public sealed unsafe class D3D12Context : IDisposable
         list->ResourceBarrier(1, &barrier);
     }
 
+    /// <summary>Moves one subresource of a resource from one state to another.</summary>
+    /// <param name="list">The list to record into.</param>
+    /// <param name="resource">What to move.</param>
+    /// <param name="from">The state that subresource is in.</param>
+    /// <param name="to">The state it should be in.</param>
+    /// <param name="subresource">Which one.</param>
+    /// <remarks>
+    /// Direct3D tracks state per subresource, which Vulkan does too and which almost
+    /// nothing needs — except building a mip chain, where level <c>n</c> is read while
+    /// level <c>n + 1</c> is written and the two are subresources of one texture. Moving
+    /// the whole resource would mean it was being read and written in the same state,
+    /// which is not a thing that can be said.
+    /// </remarks>
+    public static void TransitionSubresource(
+        ID3D12GraphicsCommandList4* list,
+        ID3D12Resource* resource,
+        ResourceStates from,
+        ResourceStates to,
+        uint subresource)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+
+        if (from == to)
+        {
+            return;
+        }
+
+        var barrier = new ResourceBarrier
+        {
+            Type = ResourceBarrierType.Transition,
+            Flags = ResourceBarrierFlags.None,
+        };
+
+        barrier.Anonymous.Transition = new ResourceTransitionBarrier
+        {
+            PResource = resource,
+            Subresource = subresource,
+            StateBefore = from,
+            StateAfter = to,
+        };
+
+        list->ResourceBarrier(1, &barrier);
+    }
+
     /// <summary>Waits for every shader write to a resource before the next read.</summary>
     /// <param name="list">The list to record into.</param>
     /// <param name="resource">What was written, or null for all of them.</param>
