@@ -6,7 +6,7 @@ namespace GK3Reborn.Tests.Rendering;
 
 public sealed class VulkanDeviceSelectorTests
 {
-    private static VulkanDeviceInfo Device(
+    private static AdapterInfo Device(
         string name,
         RenderCapabilityTier tiers,
         string kind = "Discrete",
@@ -21,8 +21,8 @@ public sealed class VulkanDeviceSelectorTests
             VendorId = 0,
             DeviceLocalMemory = memory,
             Tiers = tiers,
-            NotableExtensions = [],
-            TierNotes = [],
+            Backend = RenderBackend.Vulkan,
+            Notes = [],
         };
 
     private const RenderCapabilityTier Basic = RenderCapabilityTier.Compatibility;
@@ -36,7 +36,7 @@ public sealed class VulkanDeviceSelectorTests
     {
         // However capable it is otherwise, a device with no swapchain support cannot be
         // the render device.
-        VulkanDeviceInfo[] devices =
+        AdapterInfo[] devices =
         [
             Device("compute only", RenderCapabilityTier.Enhanced | RenderCapabilityTier.RayTracing),
             Device("modest but usable", Basic, kind: "Integrated", memory: 1024),
@@ -48,7 +48,7 @@ public sealed class VulkanDeviceSelectorTests
     [Fact]
     public void More_capability_wins_over_more_memory()
     {
-        VulkanDeviceInfo[] devices =
+        AdapterInfo[] devices =
         [
             Device("big but basic", Basic, memory: 32UL * 1024 * 1024 * 1024),
             Device("smaller but complete", Everything, memory: 8UL * 1024 * 1024 * 1024),
@@ -60,7 +60,7 @@ public sealed class VulkanDeviceSelectorTests
     [Fact]
     public void Discrete_hardware_wins_a_tie_on_capability()
     {
-        VulkanDeviceInfo[] devices =
+        AdapterInfo[] devices =
         [
             Device("integrated", Everything, kind: "Integrated"),
             Device("discrete", Everything, kind: "Discrete"),
@@ -72,7 +72,7 @@ public sealed class VulkanDeviceSelectorTests
     [Fact]
     public void Memory_breaks_a_tie_only_after_capability_and_kind()
     {
-        VulkanDeviceInfo[] devices =
+        AdapterInfo[] devices =
         [
             Device("small", Everything, memory: 4UL * 1024 * 1024 * 1024),
             Device("large", Everything, memory: 24UL * 1024 * 1024 * 1024),
@@ -92,7 +92,7 @@ public sealed class VulkanDeviceSelectorTests
     public void Ray_tracing_absence_does_not_disqualify_a_device()
     {
         // The plan requires that ray tracing and HDR never prevent raster play.
-        VulkanDeviceInfo[] devices =
+        AdapterInfo[] devices =
         [
             Device("raster only", RenderCapabilityTier.Compatibility | RenderCapabilityTier.Enhanced),
         ];
@@ -105,16 +105,16 @@ public sealed class VulkanDeviceSelectorTests
     {
         // On a build agent with no GPU or no loader this must report the fact rather than
         // fail, which is the difference between a diagnostic and a crash.
-        VulkanDeviceReport report = VulkanDeviceSelector.Survey();
+        DeviceReport report = VulkanDeviceSelector.Survey();
 
-        if (report.VulkanAvailable)
+        if (report.Available)
         {
-            Assert.NotNull(report.Devices);
+            Assert.NotNull(report.Adapters);
         }
         else
         {
             Assert.NotNull(report.Unavailable);
-            Assert.Empty(report.Devices);
+            Assert.Empty(report.Adapters);
         }
     }
 }

@@ -976,31 +976,7 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
         }
     }
 
-    /// <summary>What the tracing stage is told, in eighty bytes.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct TraceConstants(
-        Matrix4x4 ViewProjectionInverse,
-        int Width,
-        int Height,
-        float Radius,
-        float Seed,
-        int Samples,
-        int Padding);
-
-    /// <summary>Which of the three blurs this is, and how far apart its taps are.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct StageConstants(int StepSize, int Index);
-
-    /// <summary>What the filtering stages read, once a frame.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct DenoiseUniforms(
-        Matrix4x4 ProjectionInverse,
-        Matrix4x4 ReprojectionMatrix,
-        Matrix4x4 ViewProjectionInverse,
-        Vector4 EyeAndFirst,
-        int Width,
-        int Height,
-        float InverseWidth,
-        float InverseHeight,
-        Vector4 Sigma);
+    // The three constant blocks these stages take live in DenoiseConstants, beside the
+    // layout, because they are the shaders own structs and the shaders are one source
+    // compiled for both backends.
 }

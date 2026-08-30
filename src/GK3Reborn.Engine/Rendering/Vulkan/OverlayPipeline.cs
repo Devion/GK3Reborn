@@ -9,38 +9,6 @@ using GK3Reborn.Rendering.Shaders;
 
 namespace GK3Reborn.Rendering.Vulkan;
 
-/// <summary>One corner of an overlay rectangle.</summary>
-/// <param name="Position">Where it is, in clip space.</param>
-/// <param name="TexCoord">Where it reads from the atlas.</param>
-/// <param name="Color">Its tint, straight alpha.</param>
-public readonly record struct OverlayVertex(Vector2 Position, Vector2 TexCoord, Vector4 Color);
-
-/// <summary>What the interface's fragment stage is told, per run of quads.</summary>
-/// <param name="Picture">Nought for a glyph, one for one of the screens' own pictures.</param>
-/// <param name="Pad0">Padding to the vector's alignment.</param>
-/// <param name="Pad1">Padding.</param>
-/// <param name="Pad2">Padding.</param>
-/// <param name="Transfer">Which encoding the swapchain wants.</param>
-/// <param name="PaperWhite">Where diffuse white sits.</param>
-/// <param name="Headroom">How far above it the display goes.</param>
-/// <param name="Unused">Padding, so the vector is a whole float4.</param>
-/// <remarks>
-/// Twelve bytes of padding between the flag and the vector, because a vector in a push
-/// constant block is aligned to sixteen bytes whatever precedes it. Writing this as an
-/// <c>int</c> and three floats put the shader's idea of paper white twelve bytes past the
-/// end of what was pushed, and the interface came out almost black on an HDR display.
-/// </remarks>
-[StructLayout(LayoutKind.Sequential)]
-internal readonly record struct OverlayConstants(
-    int Picture,
-    int Pad0,
-    int Pad1,
-    int Pad2,
-    float Transfer,
-    float PaperWhite,
-    float Headroom,
-    float Unused);
-
 /// <summary>
 /// Draws the interface on top of the room.
 /// </summary>
@@ -71,97 +39,6 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// which is the worst way for a bring-up to fail. In GLSL they are one declaration each
     /// and mean exactly one thing.
     /// </remarks>
-    private const string VertexSource = """
-        #version 450
-
-        layout(location = 0) in vec2 inPosition;
-        layout(location = 1) in vec2 inTexCoord;
-        layout(location = 2) in vec4 inColor;
-
-        layout(location = 0) out vec2 fragTexCoord;
-        layout(location = 1) out vec4 fragColor;
-
-        void main()
-        {
-            // Already in clip space. The display list knows the size of the surface it was
-            // laid out for, so converting there costs one multiply per corner on the CPU
-            // and removes a push constant from the pipeline.
-            gl_Position = vec4(inPosition, 0.0, 1.0);
-            fragTexCoord = inTexCoord;
-            fragColor = inColor;
-        }
-        """;
-
-    /// <summary>
-    /// The fragment stage, with the shared display encode spliced into the middle of it.
-    /// </summary>
-    /// <remarks>
-    /// Two halves and a shared function between them, rather than one string, because the
-    /// encode is the same arithmetic in four passes and four copies of ST.2084 is four
-    /// places for it to be wrong differently. See <see cref="DisplayEncoding"/>.
-    /// </remarks>
-    private static readonly string FragmentSource =
-        FragmentPrelude + "\n" + DisplayEncoding.Glsl + "\n" + FragmentBody;
-
-    private const string FragmentPrelude = """
-        #version 450
-
-        layout(binding = 0) uniform sampler2D atlas;
-
-        // Zero for the sheet of letters, one for one of the screens' own pictures. A
-        // picture is content rather than a stencil, so it is drawn as it is; a glyph is a
-        // shape cut out of a colour.
-        // The offsets are stated rather than left to the compiler. A vector is aligned to
-        // sixteen bytes in this layout whatever precedes it, so an int followed by a vec3
-        // does *not* put the vector at offset four — it puts it at sixteen, and a push of
-        // sixteen bytes then leaves the shader reading past the end of the range. Which it
-        // did: the interface came out almost black, because what it read as "paper white"
-        // was whatever the driver had left there.
-        layout(push_constant) uniform Draw
-        {
-            layout(offset = 0) int picture;
-
-            // Which encoding the swapchain wants, where paper white sits, and how far
-            // above it the display goes. All nought on an ordinary sRGB surface, where
-            // the hardware does the encode and this shader writes linear light.
-            layout(offset = 16) vec4 display;
-        } draw;
-
-        layout(location = 0) in vec2 fragTexCoord;
-        layout(location = 1) in vec4 fragColor;
-
-        layout(location = 0) out vec4 outColor;
-        """;
-
-    private const string FragmentBody = """
-        void main()
-        {
-            vec4 texel = texture(atlas, fragTexCoord);
-
-            if (draw.picture != 0)
-            {
-                // The game's own art: its colour, tinted, and nothing inferred from its
-                // brightness. Running a photograph of the Rennes-le-Château countryside
-                // through the glyph rule below turns it into a silhouette.
-                outColor = vec4(
-                    EncodeForDisplay(texel.rgb * fragColor.rgb, draw.display.xyz),
-                    fragColor.a * texel.a);
-
-                return;
-            }
-
-            // Two font conventions, one rule. White-on-magenta sheets arrive with the
-            // magenta already transparent, so brightness leaves them alone but erases the
-            // black glyph markers along the top of the sheet. Grey-on-black sheets have no
-            // transparency at all, and brightness is exactly their antialiasing.
-            float brightness = max(texel.r, max(texel.g, texel.b));
-
-            outColor = vec4(
-                EncodeForDisplay(fragColor.rgb, draw.display.xyz),
-                fragColor.a * texel.a * brightness);
-        }
-        """;
-
     private readonly Vk _vk;
     private readonly VulkanContext _context;
     private readonly int _capacity;
@@ -187,7 +64,7 @@ public sealed unsafe class OverlayPipeline : IDisposable
     private readonly List<(VulkanTexture Texture, DescriptorSet Set)> _pictures = [];
 
     /// <summary>Which picture each run of six vertices belongs to.</summary>
-    private readonly List<(int Picture, int First, int Count)> _runs = [];
+    private readonly List<OverlayRun> _runs = [];
 
     private OverlayPipeline(VulkanContext context, int capacity)
     {
@@ -358,10 +235,10 @@ public sealed unsafe class OverlayPipeline : IDisposable
         try
         {
             pipeline._vertexModule = pipeline.CreateModule(compiler.Compile(
-                VertexSource, ShaderStage.Vertex, "overlay.vert", "main", ShaderLanguage.Glsl));
+                OverlayShaders.Vertex, ShaderStage.Vertex, "overlay.vert", "main", ShaderLanguage.Glsl));
 
             pipeline._fragmentModule = pipeline.CreateModule(compiler.Compile(
-                FragmentSource, ShaderStage.Fragment, "overlay.frag", "main", ShaderLanguage.Glsl));
+                OverlayShaders.Fragment, ShaderStage.Fragment, "overlay.frag", "main", ShaderLanguage.Glsl));
 
             // No mipmaps and clamped addressing: this is a packed sheet, so a coarser level
             // would average one letter into the next, and repeating would wrap the edge of
@@ -404,80 +281,12 @@ public sealed unsafe class OverlayPipeline : IDisposable
             return;
         }
 
-        int rectangles = Math.Min(overlay.Quads.Count, _capacity);
-        OverlayVertex[] vertices = new OverlayVertex[rectangles * 6];
-
-        _runs.Clear();
-
-        float sx = 2f / Math.Max(1, overlay.Width);
-        float sy = 2f / Math.Max(1, overlay.Height);
-
-        for (int i = 0; i < rectangles; i++)
-        {
-            OverlayQuad quad = overlay.Quads[i];
-
-            // Pixels from the top-left to clip space. Vulkan's y already runs downwards, so
-            // the top of the screen is -1 and no flip is wanted.
-            float x0 = (quad.Destination.X * sx) - 1f;
-            float y0 = (quad.Destination.Y * sy) - 1f;
-            float x1 = ((quad.Destination.X + quad.Destination.Z) * sx) - 1f;
-            float y1 = ((quad.Destination.Y + quad.Destination.W) * sy) - 1f;
-
-            float u0 = quad.Source.X;
-            float v0 = quad.Source.Y;
-            float u1 = u0 + quad.Source.Z;
-            float v1 = v0 + quad.Source.W;
-
-            Vector4 color = Linear(quad.Color);
-
-            var topLeft = new OverlayVertex(new Vector2(x0, y0), new Vector2(u0, v0), color);
-            var topRight = new OverlayVertex(new Vector2(x1, y0), new Vector2(u1, v0), color);
-            var bottomLeft = new OverlayVertex(new Vector2(x0, y1), new Vector2(u0, v1), color);
-            var bottomRight = new OverlayVertex(new Vector2(x1, y1), new Vector2(u1, v1), color);
-
-            int at = i * 6;
-            vertices[at] = topLeft;
-            vertices[at + 1] = bottomLeft;
-            vertices[at + 2] = topRight;
-            vertices[at + 3] = topRight;
-            vertices[at + 4] = bottomLeft;
-            vertices[at + 5] = bottomRight;
-
-            // A run is a stretch of quads drawn from the same picture. The interface is
-            // nearly all letters, so a screen showing a map costs three runs rather than
-            // one and everything else still costs exactly one.
-            int picture = quad.Picture >= 0 && quad.Picture <= _pictures.Count ? quad.Picture : 0;
-
-            if (_runs.Count > 0 && _runs[^1].Picture == picture)
-            {
-                _runs[^1] = (picture, _runs[^1].First, _runs[^1].Count + 6);
-            }
-            else
-            {
-                _runs.Add((picture, at, 6));
-            }
-        }
+        // The same triangles either backend wants, built once in OverlayMesh.
+        OverlayVertex[] vertices = OverlayMesh.Build(overlay, _capacity, _pictures.Count, _runs);
 
         _vertices.Write<OverlayVertex>(vertices);
         _count = vertices.Length;
     }
-
-    /// <summary>
-    /// Converts an authored colour into the space the target is written in.
-    /// </summary>
-    /// <remarks>
-    /// The swapchain is sRGB, so the hardware encodes whatever the shader writes. An
-    /// interface is authored in the numbers a colour picker gives — a dark panel is 0.06,
-    /// not 0.005 — and handing those straight to an sRGB target turns 0.06 into a light
-    /// grey. Converting here means the interface is written in the units it was designed
-    /// in and comes out looking like it.
-    /// </remarks>
-    private static Vector4 Linear(Vector4 color) => new(
-        Component(color.X), Component(color.Y), Component(color.Z), color.W);
-
-    private static float Component(float value) => value <= 0.04045f
-        ? value / 12.92f
-        : MathF.Pow((value + 0.055f) / 1.055f, 2.4f);
 
     /// <summary>Records the draw.</summary>
     /// <param name="command">Command buffer to record into.</param>

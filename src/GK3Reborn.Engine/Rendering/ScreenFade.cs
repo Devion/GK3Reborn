@@ -80,7 +80,7 @@ public sealed class ScreenFade
     private const double FrameSeconds = 1.0 / 30.0;
 
     private readonly Platform.SilkGameWindow _window;
-    private readonly VulkanRenderer _renderer;
+    private readonly IRenderer _renderer;
 
     private Stopwatch? _out;
     private double _presented;
@@ -92,7 +92,7 @@ public sealed class ScreenFade
     /// <summary>Creates a fade over a window.</summary>
     /// <param name="window">The window, which still has to be pumped while it darkens.</param>
     /// <param name="renderer">What draws it.</param>
-    public ScreenFade(Platform.SilkGameWindow window, VulkanRenderer renderer)
+    public ScreenFade(Platform.SilkGameWindow window, IRenderer renderer)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(renderer);

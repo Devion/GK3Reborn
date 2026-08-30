@@ -41,6 +41,19 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <summary>What the texture holds.</summary>
     public Format Format { get; }
 
+    /// <summary>The format a shader resource view of it declares.</summary>
+    /// <remarks>
+    /// The same as <see cref="Format"/> for everything except a depth target the denoiser
+    /// reads. A resource that is both a depth target and a texture has to be created
+    /// typeless, because the two views want different formats of the same bits — D32_FLOAT
+    /// for the one the hardware tests against, R32_FLOAT for the one a shader samples — and
+    /// a typed resource may only be viewed as the type it was created with.
+    /// </remarks>
+    public Format Sampling { get; private init; }
+
+    /// <summary>The format a depth stencil view of it declares.</summary>
+    public Format Depth { get; private init; }
+
     /// <summary>Its width in pixels.</summary>
     public int Width { get; }
 
@@ -91,6 +104,7 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="format">What it holds.</param>
     /// <param name="width">Width in pixels.</param>
     /// <param name="height">Height in pixels.</param>
+    /// <param name="sampled">Whether a shader reads it as well as the depth test.</param>
     /// <returns>The texture.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
     /// <remarks>
@@ -98,21 +112,26 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// depth test is <c>Less</c>, on both backends alike.
     /// </remarks>
     public static D3D12Texture CreateDepthTarget(
-        D3D12Context context, Format format, int width, int height)
+        D3D12Context context, Format format, int width, int height, bool sampled = false)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         var value = new ClearValue { Format = format };
         value.Anonymous.DepthStencil = new DepthStencilValue { Depth = 1f, Stencil = 0 };
 
+        // Typeless when something is going to read it. The clear value keeps the real depth
+        // format either way: a clear value is checked against what the view clears through,
+        // not against what the resource was declared as, and a typeless clear value is
+        // refused outright.
         return Create(
             context,
-            format,
+            sampled ? Typeless(format) : format,
             width,
             height,
             ResourceFlags.AllowDepthStencil,
             ResourceStates.DepthWrite,
-            &value);
+            &value,
+            views: (SampledForm(format), format));
     }
 
     /// <summary>Makes a texture a compute shader can write into.</summary>
@@ -120,10 +139,11 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="format">What it holds.</param>
     /// <param name="width">Width in pixels.</param>
     /// <param name="height">Height in pixels.</param>
+    /// <param name="mips">How many levels, for a chain a compute shader builds itself.</param>
     /// <returns>The texture.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
     public static D3D12Texture CreateStorage(
-        D3D12Context context, Format format, int width, int height)
+        D3D12Context context, Format format, int width, int height, uint mips = 1)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -136,11 +156,80 @@ public sealed unsafe class D3D12Texture : IDisposable
             height,
             ResourceFlags.AllowUnorderedAccess,
             ResourceStates.UnorderedAccess,
-            null);
+            null,
+            mips);
     }
 
     /// <summary>How many mip levels it has.</summary>
     public uint Mips { get; private init; } = 1;
+
+    /// <summary>How many array slices it has, which is six for a cube and one otherwise.</summary>
+    public ushort Slices { get; private init; } = 1;
+
+    /// <summary>Makes a cube map a shader can sample in six directions.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="format">What it holds.</param>
+    /// <param name="size">How wide and tall each face is.</param>
+    /// <returns>The texture.</returns>
+    /// <exception cref="D3D12Exception">It could not be created.</exception>
+    /// <remarks>
+    /// No mip chain. A sky is always at the far plane and never minified, and generating one
+    /// would blend across the face boundaries — which is exactly where a skybox shows its
+    /// seams.
+    /// </remarks>
+    public static D3D12Texture CreateCube(D3D12Context context, Format format, int size)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return Create(
+            context,
+            format,
+            size,
+            size,
+            ResourceFlags.None,
+            ResourceStates.Common,
+            null,
+            mips: 1,
+            views: null,
+            slices: 6);
+    }
+
+    /// <summary>Writes a cube map view of this texture into a descriptor slot.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="where">Where to write it.</param>
+    /// <exception cref="InvalidOperationException">It is not a cube.</exception>
+    /// <remarks>
+    /// A separate call rather than a flag on <see cref="Describe"/>, because the dimension is
+    /// a property of how the shader declares the binding rather than of the resource: the
+    /// same six slices can be read as an array or as a cube, and only one of them matches a
+    /// <c>samplerCube</c>.
+    /// </remarks>
+    public void DescribeCube(D3D12Context context, CpuDescriptorHandle where)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (Slices != 6)
+        {
+            throw new InvalidOperationException(
+                $"A cube map has six slices and this texture has {Slices}.");
+        }
+
+        var description = new ShaderResourceViewDesc
+        {
+            Format = Sampling,
+            ViewDimension = SrvDimension.Texturecube,
+            Shader4ComponentMapping = D3D12AccelerationStructure.DefaultComponentMapping,
+        };
+
+        description.Anonymous.TextureCube = new TexcubeSrv
+        {
+            MostDetailedMip = 0,
+            MipLevels = Mips,
+            ResourceMinLODClamp = 0f,
+        };
+
+        context.Device->CreateShaderResourceView(_resource.Handle, &description, where);
+    }
 
     /// <summary>Makes a texture a shader can sample.</summary>
     /// <param name="context">The device.</param>
@@ -186,7 +275,7 @@ public sealed unsafe class D3D12Texture : IDisposable
 
         var description = new ShaderResourceViewDesc
         {
-            Format = Format,
+            Format = Sampling,
             ViewDimension = SrvDimension.Texture2D,
 
             // Without this every channel reads as red. It is a macro in the header rather
@@ -260,6 +349,52 @@ public sealed unsafe class D3D12Texture : IDisposable
             _resource.Handle, (ID3D12Resource*)null, &description, where);
     }
 
+    /// <summary>Writes a depth stencil view of this texture into a descriptor slot.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="where">Where to write it.</param>
+    /// <remarks>
+    /// Stated rather than left null. A null description means "whatever the resource says",
+    /// which is exactly what a typeless resource cannot answer, so a depth target the
+    /// denoiser reads must be given its format here explicitly.
+    /// </remarks>
+    public void DescribeDepth(D3D12Context context, CpuDescriptorHandle where)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var description = new DepthStencilViewDesc
+        {
+            Format = Depth,
+            ViewDimension = DsvDimension.Texture2D,
+            Flags = DsvFlags.None,
+        };
+
+        description.Anonymous.Texture2D = new Tex2DDsv { MipSlice = 0 };
+
+        context.Device->CreateDepthStencilView(_resource.Handle, &description, where);
+    }
+
+    /// <summary>The typeless form of a depth format.</summary>
+    /// <param name="format">The depth format.</param>
+    /// <returns>The format the resource is created as when a shader reads it too.</returns>
+    public static Format Typeless(Format format) => format switch
+    {
+        Format.FormatD32Float => Format.FormatR32Typeless,
+        Format.FormatD16Unorm => Format.FormatR16Typeless,
+        Format.FormatD24UnormS8Uint => Format.FormatR24G8Typeless,
+        _ => format,
+    };
+
+    /// <summary>The format a shader samples a depth target through.</summary>
+    /// <param name="format">The depth format.</param>
+    /// <returns>The colour format of the same bits.</returns>
+    public static Format SampledForm(Format format) => format switch
+    {
+        Format.FormatD32Float => Format.FormatR32Float,
+        Format.FormatD16Unorm => Format.FormatR16Unorm,
+        Format.FormatD24UnormS8Uint => Format.FormatR24UnormX8Typeless,
+        _ => format,
+    };
+
     /// <summary>The plain form of a format that carries an sRGB encode.</summary>
     /// <param name="format">The format.</param>
     /// <returns>The same format without the encode.</returns>
@@ -310,7 +445,9 @@ public sealed unsafe class D3D12Texture : IDisposable
         ResourceFlags flags,
         ResourceStates state,
         ClearValue* clear,
-        uint mips = 1)
+        uint mips = 1,
+        (Format Sampling, Format Depth)? views = null,
+        ushort slices = 1)
     {
         var properties = new HeapProperties
         {
@@ -327,7 +464,7 @@ public sealed unsafe class D3D12Texture : IDisposable
             Alignment = 0,
             Width = (ulong)Math.Max(1, width),
             Height = (uint)Math.Max(1, height),
-            DepthOrArraySize = 1,
+            DepthOrArraySize = slices < 1 ? (ushort)1 : slices,
             MipLevels = (ushort)Math.Max(1, mips),
             Format = format,
             SampleDesc = new SampleDesc(1, 0),
@@ -353,6 +490,12 @@ public sealed unsafe class D3D12Texture : IDisposable
                 (void**)resource.GetAddressOf()),
             $"create a {width} by {height} {format} texture");
 
-        return new D3D12Texture(resource, format, width, height, state) { Mips = Math.Max(1, mips) };
+        return new D3D12Texture(resource, format, width, height, state)
+        {
+            Mips = Math.Max(1, mips),
+            Slices = slices < 1 ? (ushort)1 : slices,
+            Sampling = views?.Sampling ?? format,
+            Depth = views?.Depth ?? format,
+        };
     }
 }

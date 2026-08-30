@@ -31,93 +31,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// </remarks>
 public sealed unsafe class MoviePipeline : IDisposable
 {
-    private const string VertexSource = """
-        #version 450
-
-        // Declared identically in both stages, members this one never reads included. A
-        // push constant block is one block across the pipeline, and two stages describing
-        // it differently is a validation error at best and a driver disagreement at worst.
-        layout(push_constant) uniform Fit
-        {
-            // How much of the window the picture covers, and where it starts. In clip
-            // space, so the whole of the letterboxing is two numbers and an offset.
-            vec2 scale;
-            vec2 offset;
-
-            // The fragment stage's, and unread here.
-            vec4 display;
-        } fit;
-
-        layout(location = 0) out vec2 fragTexCoord;
-
-        void main()
-        {
-            // One triangle covering the whole window, from nothing but the vertex index.
-            // Two of its corners are outside the window and are clipped, which is cheaper
-            // than the two triangles of a quad and has no seam down the middle.
-            vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-
-            gl_Position = vec4((uv * 2.0) - 1.0, 0.0, 1.0);
-
-            // The picture is fitted inside the window rather than the triangle being
-            // shrunk to fit it: covering every pixel is what lets the bars be painted
-            // black here instead of leaving whatever was on screen showing through them.
-            fragTexCoord = ((uv - 0.5) / fit.scale) + 0.5;
-        }
-        """;
-
-    /// <summary>The fragment stage, with the shared display encode spliced in.</summary>
-    /// <remarks>See <see cref="DisplayEncoding"/>: one copy of ST.2084 rather than four.</remarks>
-    private static readonly string FragmentSource =
-        FragmentPrelude + "\n" + DisplayEncoding.Glsl + "\n" + FragmentBody;
-
-    private const string FragmentPrelude = """
-        #version 450
-
-        layout(binding = 0) uniform sampler2D picture;
-
-        // The same block the vertex stage declares, member for member.
-        layout(push_constant) uniform Fit
-        {
-            // The vertex stage's, and unread here.
-            vec2 scale;
-            vec2 offset;
-
-            // Which encoding the swapchain wants, where paper white sits, and how far
-            // above it the display goes. All nought on an ordinary sRGB surface.
-            vec4 display;
-        } fit;
-
-        layout(location = 0) in vec2 fragTexCoord;
-        layout(location = 0) out vec4 outColor;
-        """;
-
-    private const string FragmentBody = """
-        void main()
-        {
-            // Outside the picture is the letterbox, and the letterbox is black. Leaving it
-            // alone would show the room behind the cutscene down both sides.
-            vec2 uv = fragTexCoord;
-
-            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-            {
-                // Black is black in every encoding, so there is nothing to convert.
-                outColor = vec4(0.0, 0.0, 0.0, 1.0);
-                return;
-            }
-
-            // Opaque. A movie has nothing behind it worth showing through, and a frame
-            // whose alpha channel the decoder filled with something unhelpful should not
-            // be able to make the room appear underneath it.
-            //
-            // The film is standard-range material and stays at paper white on an HDR
-            // display: a 1999 cutscene has no highlights above white to recover, and
-            // stretching it into the headroom would only make the whites glare.
-            outColor = vec4(
-                EncodeForDisplay(texture(picture, uv).rgb, fit.display.xyz), 1.0);
-        }
-        """;
-
     private readonly Vk _vk;
     private readonly VulkanContext _context;
 
@@ -167,11 +80,11 @@ public sealed unsafe class MoviePipeline : IDisposable
         {
             pipeline._vertexModule = Module(
                 context, compiler.Compile(
-                    VertexSource, ShaderStage.Vertex, "movie.vert", "main", ShaderLanguage.Glsl));
+                    MovieShaders.Vertex, ShaderStage.Vertex, "movie.vert", "main", ShaderLanguage.Glsl));
 
             pipeline._fragmentModule = Module(
                 context, compiler.Compile(
-                    FragmentSource, ShaderStage.Fragment, "movie.frag", "main", ShaderLanguage.Glsl));
+                    MovieShaders.Fragment, ShaderStage.Fragment, "movie.frag", "main", ShaderLanguage.Glsl));
 
             pipeline.BuildLayout();
             pipeline.BuildPipeline(format);

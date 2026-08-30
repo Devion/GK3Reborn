@@ -54,13 +54,14 @@ internal readonly record struct OutputConstants(Vector4 Tuning, Vector4 Sharpen)
 internal sealed unsafe class OutputPipeline : IDisposable
 {
     /// <summary>The hardware encodes: write linear and let the sRGB target do the curve.</summary>
-    public const float TransferHardware = 0f;
+    /// <remarks>The three live on DisplayEncode, which is the block the shader reads.</remarks>
+    public const float TransferHardware = DisplayEncode.TransferHardware;
 
     /// <summary>ST.2084, in Rec.2020 primaries, with luminance in absolute nits.</summary>
-    public const float TransferPerceptualQuantiser = 1f;
+    public const float TransferPerceptualQuantiser = DisplayEncode.TransferPerceptualQuantiser;
 
     /// <summary>scRGB: linear light in sRGB primaries, where 1.0 is 80 nits.</summary>
-    public const float TransferExtendedLinear = 2f;
+    public const float TransferExtendedLinear = DisplayEncode.TransferExtendedLinear;
 
     private static string Vertex => OutputShaders.Vertex;
 

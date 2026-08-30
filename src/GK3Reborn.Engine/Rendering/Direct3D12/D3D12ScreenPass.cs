@@ -148,7 +148,7 @@ public sealed unsafe class D3D12ScreenPass : IDisposable
                 // Nothing to cull: one triangle, and which way it faces is whichever way the
                 // vertex index happened to wind it.
                 cull: CullMode.None,
-                blend);
+                blend: blend);
 
             var pass = new D3D12ScreenPass(
                 context, pipeline, views, samplers, shared, inputs, constantBytes / 4);

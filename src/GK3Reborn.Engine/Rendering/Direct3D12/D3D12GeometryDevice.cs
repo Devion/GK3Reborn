@@ -427,19 +427,55 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
             return null;
         }
 
-        // One part may be several meshes, and a part is what moves; the structure places a
-        // whole part by one transform, so the meshes of a part have to arrive together.
+        // Grouped by the thing that moves, and everything in a group concatenated into one
+        // piece placed by one transform. Not one piece per mesh: a character is a dozen
+        // meshes sharing a placement, and giving each its own instance would mean Move —
+        // which every caller indexes by part — moving whichever mesh happened to land at
+        // that index, so a walking character would leave most of themselves behind.
         var parts = new List<TraceablePart>();
+        var shapes = new Dictionary<int, (int Part, int Offset, int Count)>();
 
-        foreach (IGrouping<int, TraceableMesh> group in meshes.GroupBy(m => m.Part).OrderBy(g => g.Key))
+        foreach (IGrouping<int, TraceableMesh> group in
+            meshes.GroupBy(m => m.Part).OrderBy(g => g.Key))
         {
+            List<Vector3> positions = [];
+            List<uint> indices = [];
+
             foreach (TraceableMesh mesh in group)
             {
-                parts.Add(new TraceablePart(mesh.Positions, mesh.Indices, Matrix4x4.Identity));
+                var offset = (uint)positions.Count;
+
+                // Where a clip will rewrite this mesh's vertices inside the piece they are
+                // now part of. Only meshes something animates carry a key.
+                if (mesh.Key >= 0)
+                {
+                    shapes[mesh.Key] = (parts.Count, (int)offset, mesh.Positions.Length);
+                }
+
+                positions.AddRange(mesh.Positions);
+
+                foreach (uint index in mesh.Indices)
+                {
+                    indices.Add(index + offset);
+                }
             }
+
+            if (indices.Count < 3)
+            {
+                continue;
+            }
+
+            parts.Add(new TraceablePart(
+                positions.ToArray(), indices.ToArray(), Matrix4x4.Identity, Part: group.Key));
         }
 
-        return new D3D12GeometryStructure(D3D12AccelerationStructure.Build(_context, parts));
+        if (parts.Count == 0)
+        {
+            return null;
+        }
+
+        return new D3D12GeometryStructure(
+            D3D12AccelerationStructure.Build(_context, parts, shapes));
     }
 
     /// <inheritdoc/>

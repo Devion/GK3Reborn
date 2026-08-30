@@ -44,25 +44,26 @@ public sealed class VulkanDeviceSelector
     /// another thread to hide that cost is worse than paying it: two instances being created
     /// at once enumerated only one of this machine's two devices about one run in six.
     /// </remarks>
-    public static VulkanDeviceReport Survey(Vk vk, Instance instance)
+    public static DeviceReport Survey(Vk vk, Instance instance)
     {
         ArgumentNullException.ThrowIfNull(vk);
 
         unsafe
         {
-            List<VulkanDeviceInfo> devices = EnumerateDevices(vk, instance);
+            List<AdapterInfo> devices = EnumerateDevices(vk, instance);
 
-            return new VulkanDeviceReport
+            return new DeviceReport
             {
-                VulkanAvailable = true,
+                Backend = RenderBackend.Vulkan,
+                Available = true,
                 ValidationAvailable = HasValidationLayer(vk),
-                Devices = devices,
+                Adapters = devices,
                 Selected = Choose(devices),
             };
         }
     }
 
-    public static VulkanDeviceReport Survey()
+    public static DeviceReport Survey()
     {
         Vk vk;
         try
@@ -73,13 +74,7 @@ public sealed class VulkanDeviceSelector
         {
             // No loader means no Vulkan. That is a fact about the machine, not a failure
             // of the engine, and the caller needs to be able to say so.
-            return new VulkanDeviceReport
-            {
-                VulkanAvailable = false,
-                Unavailable = ex.Message,
-                ValidationAvailable = false,
-                Devices = [],
-            };
+            return DeviceReport.Missing(RenderBackend.Vulkan, ex.Message);
         }
 
         unsafe
@@ -91,25 +86,20 @@ public sealed class VulkanDeviceSelector
                 bool validation = HasValidationLayer(vk);
                 instance = CreateInstance(vk, validation);
 
-                List<VulkanDeviceInfo> devices = EnumerateDevices(vk, instance);
+                List<AdapterInfo> devices = EnumerateDevices(vk, instance);
 
-                return new VulkanDeviceReport
+                return new DeviceReport
                 {
-                    VulkanAvailable = true,
+                    Backend = RenderBackend.Vulkan,
+                    Available = true,
                     ValidationAvailable = validation,
-                    Devices = devices,
+                    Adapters = devices,
                     Selected = Choose(devices),
                 };
             }
             catch (VulkanException ex)
             {
-                return new VulkanDeviceReport
-                {
-                    VulkanAvailable = false,
-                    Unavailable = ex.Message,
-                    ValidationAvailable = false,
-                    Devices = [],
-                };
+                return DeviceReport.Missing(RenderBackend.Vulkan, ex.Message);
             }
             finally
             {
@@ -134,7 +124,7 @@ public sealed class VulkanDeviceSelector
     /// hardware, then more memory — deliberately not vendor or device name, which is how
     /// renderers acquire quiet hardware-specific behaviour.
     /// </remarks>
-    public static VulkanDeviceInfo? Choose(IReadOnlyList<VulkanDeviceInfo> devices)
+    public static AdapterInfo? Choose(IReadOnlyList<AdapterInfo> devices)
     {
         ArgumentNullException.ThrowIfNull(devices);
 
@@ -237,9 +227,9 @@ public sealed class VulkanDeviceSelector
     }
 
     // Not an iterator: a method cannot be both unsafe and use yield.
-    private static unsafe List<VulkanDeviceInfo> EnumerateDevices(Vk vk, Instance instance)
+    private static unsafe List<AdapterInfo> EnumerateDevices(Vk vk, Instance instance)
     {
-        List<VulkanDeviceInfo> results = [];
+        List<AdapterInfo> results = [];
 
         uint count = 0;
         if (vk.EnumeratePhysicalDevices(instance, ref count, null) != Result.Success || count == 0)
@@ -264,7 +254,7 @@ public sealed class VulkanDeviceSelector
         return results;
     }
 
-    private static unsafe VulkanDeviceInfo Describe(Vk vk, PhysicalDevice device)
+    private static unsafe AdapterInfo Describe(Vk vk, PhysicalDevice device)
     {
         vk.GetPhysicalDeviceProperties(device, out PhysicalDeviceProperties properties);
         vk.GetPhysicalDeviceMemoryProperties(device, out PhysicalDeviceMemoryProperties memory);
@@ -341,7 +331,7 @@ public sealed class VulkanDeviceSelector
             notes.Add("no BC formats: the pipeline's textures are expanded on the host, at four times the memory");
         }
 
-        return new VulkanDeviceInfo
+        return new AdapterInfo
         {
             BlockCompression = capabilities.BlockCompression,
             Name = SilkMarshal.PtrToString((nint)properties.DeviceName) ?? "unknown",
@@ -358,8 +348,8 @@ public sealed class VulkanDeviceSelector
             VendorId = properties.VendorID,
             DeviceLocalMemory = deviceLocal,
             Tiers = tiers,
-            NotableExtensions = notable,
-            TierNotes = notes,
+            Backend = RenderBackend.Vulkan,
+            Notes = [.. notes, .. notable.Select(e => "extension: " + e)],
         };
     }
 

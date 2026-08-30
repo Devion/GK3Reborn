@@ -1,5 +1,6 @@
 using GK3Reborn.Rendering.Shaders;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Vulkan;
 using Xunit;
 
@@ -20,8 +21,8 @@ public sealed class OffscreenRenderTests
     {
         try
         {
-            VulkanDeviceReport report = VulkanDeviceSelector.Survey();
-            return report.VulkanAvailable && report.Devices.Count > 0;
+            DeviceReport report = VulkanDeviceSelector.Survey();
+            return report.Available && report.Adapters.Count > 0;
         }
         catch (VulkanException)
         {

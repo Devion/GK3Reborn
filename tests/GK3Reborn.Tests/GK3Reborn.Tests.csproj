@@ -7,6 +7,11 @@
     <IsPackable>false</IsPackable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+
+    <!-- The Direct3D tests drive the backend the way the renderer does, which means command
+         lists and device pointers. Everything else here stays safe; this only lets the
+         handful of GPU tests hold the same handles the code under test holds. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

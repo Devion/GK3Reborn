@@ -244,61 +244,21 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>The room's own geometry, for a ray that wants to skip what stands in it.</summary>
-    /// <remarks>
-    /// Part zero is the room. Everything else is a model placed in it — a character, a
-    /// prop — and a model is the thing a shadow ray must be able to ignore.
-    /// </remarks>
-    public const uint WorldMask = 0x01;
+    /// <remarks>The one statement of it is <see cref="TracedWorld.WorldMask"/>.</remarks>
+    public const uint WorldMask = TracedWorld.WorldMask;
 
     /// <summary>The models standing in the room.</summary>
-    public const uint ModelMask = 0x02;
+    /// <remarks>The one statement of it is <see cref="TracedWorld.ModelMask"/>.</remarks>
+    public const uint ModelMask = TracedWorld.ModelMask;
 
-    /// <summary>
-    /// Which mask an instance carries.
-    /// </summary>
-    /// <param name="part">The part key; zero is the room.</param>
-    /// <returns>The mask.</returns>
-    /// <remarks>
-    /// <para>
-    /// Split so that a shadow ray leaving a character can trace the room and nothing else.
-    /// <b>GK3's people are not solid bodies.</b> A character is a dozen separate meshes —
-    /// a shirt shell with a torso inside it, arms passing through sleeves — so a ray
-    /// leaving the shirt towards a lamp hits the arm underneath it before it has gone
-    /// anywhere. Every character in every room came out with a hard dark patch across the
-    /// chest and the small of the back, fully shadowed and fully occluded, whatever the
-    /// lighting was doing.
-    /// </para>
-    /// <para>
-    /// No bias fixes it, because the geometry the ray hits is genuinely inside the surface
-    /// it started from. Skipping models entirely, from a model, is what does — and it costs
-    /// only the shadow one character would cast on another. A ray leaving the <em>room</em>
-    /// still traces everything, so a character standing in the lobby still lays a shadow on
-    /// the floor.
-    /// </para>
-    /// </remarks>
-    public static uint MaskFor(int part) => part == 0 ? WorldMask : ModelMask;
+    /// <inheritdoc cref="TracedWorld.MaskFor"/>
+    public static uint MaskFor(int part) => TracedWorld.MaskFor(part);
 
-    /// <summary>Whether a part's triangles may be told apart by which side they are met from.</summary>
-    /// <param name="part">The part key; zero is the room.</param>
-    /// <returns>The instance's facing flags.</returns>
-    /// <remarks>
-    /// <para>
-    /// A model keeps its winding, so a ray may cull the faces it meets from within. That is
-    /// what lets a character shadow itself: a person is a stack of overlapping shells and
-    /// the only thing separating "this shell is around me" from "this arm is in my light"
-    /// is which side of the triangle the ray arrives at. See the trace stage's kSkipShells.
-    /// </para>
-    /// <para>
-    /// The room does not, and nothing asks it to. A BSP's polygons carry no consistent
-    /// winding — each triangle is given its own plane's normal at load, which is exactly
-    /// the admission that the file does not say — so a room triangle's two sides are not
-    /// distinguishable and disabling the test is the honest reading. Every ray that traces
-    /// the room today asks for no culling anyway, so this changes nothing for it.
-    /// </para>
-    /// </remarks>
-    private static GeometryInstanceFlagsKHR FacingOf(int part) => part == 0
-        ? GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr
-        : 0;
+    /// <inheritdoc cref="TracedWorld.FacesBothWays"/>
+    private static GeometryInstanceFlagsKHR FacingOf(int part) =>
+        TracedWorld.FacesBothWays(part)
+            ? GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr
+            : 0;
 
     /// <summary>Gives a mesh the vertices it is currently drawn with.</summary>
     /// <param name="key">Which mesh, as <see cref="RayTracingMesh.Key"/> named it.</param>

@@ -1,5 +1,8 @@
-using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Rendering.Geometry;
+using GK3Reborn.Rendering.Upscaling;
+using System.Numerics;
 
 namespace GK3Reborn.Rendering;
 
@@ -9,62 +12,140 @@ namespace GK3Reborn.Rendering;
 /// <remarks>
 /// <para>
 /// The seam between the game and a graphics API. <see cref="ISceneSink"/> already separated
-/// *loading* a scene from putting it on a device; this separates *running* one from the
-/// device it runs on, which is what a second backend needs and the first one never did.
-/// Until there was a second, <c>Application</c> named the Vulkan renderer outright and
+/// <em>loading</em> a scene from putting it on a device; this separates <em>running</em> one
+/// from the device it runs on, which is what a second backend needs and the first one never
+/// did. Until there was a second, <c>Application</c> named the Vulkan renderer outright and
 /// there was nothing wrong with that.
 /// </para>
 /// <para>
-/// Deliberately a small interface over a large implementation. Everything below is
-/// something the game asks for in its own terms — draw a frame, show this film, fade to
-/// black, put this picture on the screen, tell me what the device is — and nothing below
-/// mentions a buffer, a pipeline or a command list. That is the line: a backend is free to
-/// hold a frame however it likes as long as the game never has to know, and the layering
-/// tests keep <c>Game</c> from reaching past this to find out.
+/// Everything below is something the game asks for in its own terms — draw a frame, show
+/// this film, fade to black, put this picture on the screen, tell me what the device is —
+/// and nothing below mentions a buffer, a pipeline or a command list. That is the line: a
+/// backend is free to hold a frame however it likes as long as the game never has to know,
+/// and the layering tests keep <c>Game</c> from reaching past this to find out.
+/// </para>
+/// <para>
+/// <b>Wider than it looks like it ought to be, and deliberately.</b> The settings page is
+/// part of the game: it offers the upscalers this adapter actually has, says whether the
+/// display is really running in high dynamic range, and reports what the runtime is doing.
+/// A narrower interface would mean the settings page reaching around it to a concrete
+/// renderer, which is the thing this exists to stop.
 /// </para>
 /// <para>
 /// The two sizes are separate members rather than one and a multiplier, for the reason
-/// spelled out where they are held: the room is drawn at
-/// <see cref="RenderSize"/> and everything after the upscale — the encode onto the
-/// swapchain, the film, the interface, the fade — is <see cref="OutputSize"/>. Drawing an
-/// interface at render resolution and stretching it is the single most visible way to get
-/// this wrong.
+/// spelled out where they are held: the room is drawn at <see cref="RenderSize"/> and
+/// everything after the upscale — the encode onto the swapchain, the film, the interface,
+/// the fade — is <see cref="SwapchainSize"/>. Drawing an interface at render resolution and
+/// stretching it is the single most visible way to get this wrong.
 /// </para>
 /// </remarks>
 public interface IRenderer : IDisposable
 {
+    // --- what the device is -------------------------------------------------------------
+
     /// <summary>Which API is behind this renderer.</summary>
     RenderBackend Backend { get; }
 
+    /// <summary>The adapter's name, as the driver reports it.</summary>
+    string DeviceName { get; }
+
+    /// <summary>Who made the adapter.</summary>
+    GpuVendor Vendor { get; }
+
+    /// <summary>What the device in use can do.</summary>
+    RenderCapabilityTier Tiers { get; }
+
+    /// <summary>What this backend can see, for the startup report.</summary>
+    /// <returns>What was found and what was chosen.</returns>
+    DeviceReport Survey();
+
+    // --- sizes --------------------------------------------------------------------------
+
     /// <summary>The size frames are presented at, which is the window's.</summary>
-    (int Width, int Height) OutputSize { get; }
+    (int Width, int Height) SwapchainSize { get; }
+
+    /// <summary>How many buffers the swapchain has.</summary>
+    int SwapchainImageCount { get; }
 
     /// <summary>
-    /// The size the room is actually drawn at, which is <see cref="OutputSize"/> divided by
+    /// The size the room is drawn at, which is <see cref="SwapchainSize"/> divided by
     /// whatever the upscaler was asked for.
     /// </summary>
     (int Width, int Height) RenderSize { get; }
 
-    /// <summary>What the device in use can do.</summary>
-    RenderCapabilityTier Capabilities { get; }
+    // --- what to draw -------------------------------------------------------------------
 
     /// <summary>Somewhere to put a scene, on this renderer's device.</summary>
     /// <returns>Empty geometry, ready to be loaded into.</returns>
-    ISceneGeometry CreateGeometry();
+    SceneGeometry CreateGeometry();
 
     /// <summary>Shows a scene, seen from a camera.</summary>
     /// <param name="scene">The scene, or null to show none.</param>
     /// <param name="camera">Where it is seen from, or null to leave the view alone.</param>
-    void SetScene(ISceneGeometry? scene, Camera? camera);
+    /// <remarks>
+    /// The renderer does not take ownership: the caller keeps the geometry alive for as long
+    /// as it is set, and disposes it afterwards.
+    /// </remarks>
+    void SetScene(SceneGeometry? scene, Camera? camera);
 
-    /// <summary>Sets the lights a scene is lit by.</summary>
-    /// <param name="rig">The lights.</param>
-    /// <param name="ambient">The floor under them.</param>
-    /// <param name="settings">How much tracing to do, and how.</param>
-    void SetLights(
-        Lighting.SceneLightRig? rig,
-        System.Numerics.Vector3 ambient,
-        RayTracingSettings settings);
+    /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
+    /// <param name="lights">The rig the scene was authored with.</param>
+    /// <param name="scene">What the geometry occupies; default decides nothing.</param>
+    void SetLights(IReadOnlyList<AuthoredLight> lights, SceneExtent scene = default);
+
+    /// <summary>What the scene's lights came to on a grid, or null if there is no scene.</summary>
+    SceneLightGrid? LightGrid { get; }
+
+    // --- how much of it -----------------------------------------------------------------
+
+    /// <summary>Whether this renderer can trace rays at all.</summary>
+    bool SupportsRayTracing { get; }
+
+    /// <summary>How much tracing to do.</summary>
+    /// <remarks>
+    /// Setting this on a renderer that cannot trace is not an error; it is a renderer that
+    /// goes on drawing the raster picture, which is the whole game and looks right.
+    /// </remarks>
+    RayTracingQuality Quality { get; set; }
+
+    /// <summary>Where to look for the upscaler runtimes.</summary>
+    UpscalerRuntimes? Runtimes { get; set; }
+
+    /// <summary>Which upscalers this adapter can be asked for.</summary>
+    IReadOnlyList<UpscalerKind> OfferedUpscalers { get; }
+
+    /// <summary>What the upscaler was asked to do.</summary>
+    UpscalePlan Upscaling { get; set; }
+
+    /// <summary>What the display wants and how bright to drive it.</summary>
+    OutputPlan Output { get; set; }
+
+    /// <summary>Whether to wait for the display before presenting.</summary>
+    bool VerticalSync { get; set; }
+
+    /// <summary>What the upscaler is actually doing, for the settings page.</summary>
+    string UpscalerName { get; }
+
+    /// <summary>Whether DLSS is available on this machine at all.</summary>
+    bool DlssAvailable { get; }
+
+    /// <summary>Whether the runtime offers ray reconstruction.</summary>
+    bool DlssRayReconstruction { get; }
+
+    /// <summary>Why ray reconstruction is or is not being used.</summary>
+    string DlssRayReconstructionNote { get; }
+
+    /// <summary>Whether the runtime offers frame generation.</summary>
+    bool DlssFrameGeneration { get; }
+
+    /// <summary>Whether the swapchain is really presenting high dynamic range.</summary>
+    /// <remarks>
+    /// What the surface gave back, not what was asked for. A settings page that reported the
+    /// request would tell a player their display was in HDR when it was not.
+    /// </remarks>
+    bool HighDynamicRangeActive { get; }
+
+    // --- the frame ----------------------------------------------------------------------
 
     /// <summary>Draws and presents one frame, clearing to a colour.</summary>
     /// <param name="red">Clear red, 0 to 1.</param>
@@ -77,8 +158,8 @@ public interface IRenderer : IDisposable
     /// Says that whatever a temporal pass remembers about the last frame is worthless.
     /// </summary>
     /// <remarks>
-    /// A cut, a room change or a teleport. Without it an upscaler spends a second of
-    /// smearing the old room over the new one, which reads as the game having stalled.
+    /// A cut, a room change or a teleport. Without it an upscaler spends a second smearing
+    /// the old room over the new one, which reads as the game having stalled.
     /// </remarks>
     void ResetHistory();
 
@@ -97,12 +178,19 @@ public interface IRenderer : IDisposable
     DecodedImage? Capture();
 
     /// <summary>Reads back the motion vectors of the last frame.</summary>
-    /// <returns>Two floats a pixel, or null if there are none.</returns>
-    DecodedImage? CaptureMotionImage() => null;
-
-    /// <summary>Reads back the motion vectors of the last frame.</summary>
     /// <returns>Two floats a pixel, row-major, or null if there are none.</returns>
     float[]? CaptureMotion();
+
+    // --- what goes over it --------------------------------------------------------------
+
+    /// <summary>Whether an interface is being drawn.</summary>
+    bool HasOverlay { get; }
+
+    /// <summary>How far the picture is faded out, from nought to one.</summary>
+    float Fade { get; set; }
+
+    /// <summary>What it is faded towards.</summary>
+    Vector3 FadeColour { get; set; }
 
     /// <summary>Gives the interface its sheet of glyphs and pictures.</summary>
     /// <param name="atlas">The sheet.</param>
@@ -139,8 +227,4 @@ public interface IRenderer : IDisposable
     /// <summary>Shows a still picture behind everything, without expanding its blocks.</summary>
     /// <param name="picture">The picture.</param>
     void SetBackdrop(CompressedImage picture);
-
-    /// <summary>What the device is, for the startup report.</summary>
-    /// <returns>What was found and what was chosen.</returns>
-    DeviceReport Survey();
 }

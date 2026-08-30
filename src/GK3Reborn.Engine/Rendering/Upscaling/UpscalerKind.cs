@@ -97,6 +97,27 @@ public enum UpscalerQuality
 /// how a card called "NVIDIA GeForce" in one driver and "NVidia Geforce" in the next stops
 /// being recognised.
 /// </remarks>
+public static class GpuVendors
+{
+    /// <summary>Which vendor a PCI identifier belongs to.</summary>
+    /// <param name="id">The identifier the adapter reports.</param>
+    /// <returns>The vendor.</returns>
+    /// <remarks>
+    /// From the identifier rather than from the name. Which upscalers the settings page may
+    /// offer hangs off this, and a card whose marketing string changes between driver
+    /// releases must not change what the menu shows.
+    /// </remarks>
+    public static GpuVendor Of(uint id) => id switch
+    {
+        0x10DE => GpuVendor.Nvidia,
+        0x1002 or 0x1022 => GpuVendor.Amd,
+        0x8086 => GpuVendor.Intel,
+        0x106B => GpuVendor.Apple,
+        _ => GpuVendor.Unknown,
+    };
+}
+
+/// <summary>Who made the adapter.</summary>
 public enum GpuVendor
 {
     /// <summary>Something not on the list.</summary>

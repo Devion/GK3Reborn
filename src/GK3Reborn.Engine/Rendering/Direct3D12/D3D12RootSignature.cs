@@ -174,12 +174,64 @@ public sealed unsafe class D3D12RootSignature : IDisposable
     /// <returns>The parameter index, or -1 when the set has no views.</returns>
     public int ParameterFor(uint set) => _viewParameters.GetValueOrDefault(set, -1);
 
+    /// <summary>Where in a set's view table one binding's descriptor sits.</summary>
+    /// <param name="set">The descriptor set.</param>
+    /// <param name="binding">The binding within it.</param>
+    /// <returns>How many descriptors into the table it is.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The set has no such binding.</exception>
+    /// <remarks>
+    /// Not the binding number. Bindings are packed into the table in binding order with the
+    /// samplers taken out, so a layout with a sampler in the middle of it — which the
+    /// denoising passes have, at binding seven of sixteen — has every binding after the
+    /// sampler sitting one slot earlier than its number. Counting that out at each call site
+    /// is how a descriptor ends up written one slot along from where the shader reads it,
+    /// which is not an error anywhere: it is a picture made of the wrong texture.
+    /// </remarks>
+    public uint ViewOffset(uint set, uint binding) => Offset(set, binding, samplers: false);
+
+    /// <summary>Where in a set's sampler table one binding's descriptor sits.</summary>
+    /// <param name="set">The descriptor set.</param>
+    /// <param name="binding">The binding within it.</param>
+    /// <returns>How many descriptors into the table it is.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The set has no such binding.</exception>
+    public uint SamplerOffset(uint set, uint binding) => Offset(set, binding, samplers: true);
+
     /// <summary>Which root parameter a set's samplers are bound to.</summary>
     /// <param name="set">The descriptor set.</param>
     /// <returns>The parameter index, or -1 when the set has no samplers.</returns>
     public int SamplerParameterFor(uint set) => _samplerParameters.GetValueOrDefault(set, -1);
 
     /// <inheritdoc/>
+    private uint Offset(uint set, uint binding, bool samplers)
+    {
+        uint offset = 0;
+
+        foreach (ShaderBinding candidate in Layout.Bindings
+            .Where(b => b.Set == set)
+            .OrderBy(b => b.Binding))
+        {
+            foreach (DescriptorRangeType type in TypesOf(candidate.Kind))
+            {
+                if ((type == DescriptorRangeType.Sampler) != samplers)
+                {
+                    continue;
+                }
+
+                if (candidate.Binding == binding)
+                {
+                    return offset;
+                }
+
+                offset += candidate.Count;
+            }
+        }
+
+        throw new ArgumentOutOfRangeException(
+            nameof(binding),
+            binding,
+            $"Set {set} has no {(samplers ? "sampler" : "view")} at this binding.");
+    }
+
     public void Dispose()
     {
         if (_disposed)

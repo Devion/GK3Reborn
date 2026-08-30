@@ -23,12 +23,7 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// </remarks>
 internal sealed unsafe class Reflections : IDisposable
 {
-    /// <summary>How many levels the depth pyramid has, the full-size one included.</summary>
-    /// <remarks>
-    /// Six halvings takes a 1280 by 720 frame down to 40 by 23, which is coarse enough
-    /// that a ray crossing empty space clears it in a step or two.
-    /// </remarks>
-    private const int Levels = 7;
+    private const int Levels = ReflectLayout.Levels;
 
     private readonly VulkanContext _context;
     private readonly Vk _vk;
@@ -153,7 +148,7 @@ internal sealed unsafe class Reflections : IDisposable
         vk.CreateDescriptorPool(device, in poolInfo, null, out DescriptorPool pool);
 
         var uniform = VulkanBuffer.CreateHostVisible(
-            context, (ulong)Marshal.SizeOf<Uniforms>(), BufferUsageFlags.UniformBufferBit);
+            context, (ulong)Marshal.SizeOf<ReflectUniforms>(), BufferUsageFlags.UniformBufferBit);
 
         (Image pyramid, DeviceMemory pyramidMemory, ImageView pyramidView) = CreateImage(
             context, width, height, Format.R32Sfloat, Levels);
@@ -202,7 +197,7 @@ internal sealed unsafe class Reflections : IDisposable
         var uniformInfo = new DescriptorBufferInfo
         {
             Buffer = _uniform.Handle,
-            Range = (ulong)Marshal.SizeOf<Uniforms>(),
+            Range = (ulong)Marshal.SizeOf<ReflectUniforms>(),
         };
 
         var writes = new List<WriteDescriptorSet>();
@@ -266,9 +261,9 @@ internal sealed unsafe class Reflections : IDisposable
 
         _frame++;
 
-        _uniform.Write<Uniforms>(
+        _uniform.Write<ReflectUniforms>(
         [
-            new Uniforms(
+            new ReflectUniforms(
                 projection,
                 inverseProjection,
                 camera.View,
@@ -552,21 +547,7 @@ internal sealed unsafe class Reflections : IDisposable
             0, 1, in barrier, 0, null, 0, null);
     }
 
-    /// <summary>Which level of the pyramid is being written, and how big it is.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct LevelConstants(int Width, int Height, int Level);
-
-    /// <summary>What the marching stage reads, once a frame.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct Uniforms(
-        Matrix4x4 Projection,
-        Matrix4x4 InverseProjection,
-        Matrix4x4 View,
-        Matrix4x4 InverseViewProjection,
-        Vector4 EyeAndSeed,
-        int Width,
-        int Height,
-        float InverseWidth,
-        float InverseHeight,
-        Vector4 Tuning);
+    // The two constant blocks these stages take live in ReflectLayout, beside the
+    // bindings, because they are the shaders own structs and the shaders are one source
+    // compiled for both backends.
 }

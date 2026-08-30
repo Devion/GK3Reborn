@@ -6,13 +6,6 @@ using GK3Reborn.Rendering.Shaders;
 
 namespace GK3Reborn.Rendering.Vulkan;
 
-/// <summary>What the fade is told: the colour to draw, and what the display wants.</summary>
-/// <param name="Color">The wash, straight alpha.</param>
-/// <param name="Display">Which encoding, paper white, and the headroom above it.</param>
-[System.Runtime.InteropServices.StructLayout(
-    System.Runtime.InteropServices.LayoutKind.Sequential)]
-internal readonly record struct FadeConstants(Vector4 Color, DisplayEncode Display);
-
 /// <summary>
 /// Draws a flat colour over the finished picture, at whatever opacity it is given.
 /// </summary>
@@ -38,53 +31,6 @@ internal readonly record struct FadeConstants(Vector4 Color, DisplayEncode Displ
 /// </remarks>
 public sealed unsafe class FadePipeline : IDisposable
 {
-    /// <remarks>
-    /// GLSL rather than HLSL, for the reason <see cref="OverlayPipeline"/> gives: a push
-    /// constant is one unambiguous declaration here and a coin toss through shaderc's HLSL
-    /// front end, which fails by compiling and drawing nothing.
-    /// </remarks>
-    private const string VertexSource = @"#version 450
-
-void main()
-{
-    // One oversized triangle rather than two, so there is no seam down the diagonal and
-    // no vertex buffer to bind. Vertices 0, 1 and 2 land at (-1,-1), (3,-1) and (-1,3);
-    // the part of each that falls outside the viewport is clipped away and what remains
-    // covers it exactly.
-    vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-    gl_Position = vec4((corner * 2.0) - 1.0, 0.0, 1.0);
-}
-";
-
-    /// <summary>The fragment stage, with the shared display encode spliced in.</summary>
-    /// <remarks>See <see cref="DisplayEncoding"/>: one copy of ST.2084 rather than four.</remarks>
-    private static readonly string FragmentSource =
-        FragmentPrelude + "\n" + DisplayEncoding.Glsl + "\n" + FragmentBody;
-
-    private const string FragmentPrelude = @"#version 450
-
-layout(push_constant) uniform Fade
-{
-    vec4 color;
-
-    // Which encoding the swapchain wants, where paper white sits, and how far above it
-    // the display goes. All nought on an ordinary sRGB surface.
-    vec4 display;
-} fade;
-
-layout(location = 0) out vec4 outColor;
-";
-
-    private const string FragmentBody = @"
-void main()
-{
-    // The fade covers the interface as well as the room, so it is encoded the same way
-    // both of them were. A fade written unencoded onto a PQ surface is a wash of the
-    // wrong colour that gets *lighter* as it deepens.
-    outColor = vec4(EncodeForDisplay(fade.color.rgb, fade.display.xyz), fade.color.a);
-}
-";
-
     private readonly Vk _vk;
     private readonly VulkanContext _context;
 
@@ -126,10 +72,10 @@ void main()
         try
         {
             pipeline._vertexModule = pipeline.CreateModule(compiler.Compile(
-                VertexSource, ShaderStage.Vertex, "fade.vert", "main", ShaderLanguage.Glsl));
+                FadeShaders.Vertex, ShaderStage.Vertex, "fade.vert", "main", ShaderLanguage.Glsl));
 
             pipeline._fragmentModule = pipeline.CreateModule(compiler.Compile(
-                FragmentSource, ShaderStage.Fragment, "fade.frag", "main", ShaderLanguage.Glsl));
+                FadeShaders.Fragment, ShaderStage.Fragment, "fade.frag", "main", ShaderLanguage.Glsl));
 
             pipeline.BuildPipeline(colorFormat, depthFormat);
 

@@ -12,11 +12,17 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <param name="Opaque">
 /// Whether a ray may stop at the first hit without asking the shader about it.
 /// </param>
+/// <param name="Part">
+/// What the caller calls this piece, which is what <c>Move</c> and <c>SetTraced</c> name it
+/// by. Not the same as its position in the list: a part whose geometry was too small to
+/// build is left out, and the numbers the caller holds must not shift under it.
+/// </param>
 public readonly record struct TraceablePart(
     ReadOnlyMemory<Vector3> Vertices,
     ReadOnlyMemory<uint> Indices,
     Matrix4x4 Transform,
-    bool Opaque = true);
+    bool Opaque = true,
+    int Part = 0);
 
 /// <summary>
 /// The acceleration structure the ray queries trace against.
@@ -54,6 +60,20 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     private RaytracingInstanceDesc[] _instances = [];
     private Matrix4x4[] _transforms = [];
     private bool[] _traced = [];
+
+    /// <summary>What each instance's mask is when it is traced at all. See TracedWorld.</summary>
+    private uint[] _masks = [];
+    private Piece[] _pieces = [];
+
+    /// <summary>Where each reshapeable mesh's vertices sit, by the key that names it.</summary>
+    private readonly Dictionary<int, (int Piece, int Offset, int Count)> _shapes = [];
+
+    /// <summary>Pieces whose vertices have been rewritten since they were last built.</summary>
+    private readonly HashSet<int> _reshaped = [];
+
+    /// <summary>Which instance each part number is, since the numbers may be sparse.</summary>
+    private readonly Dictionary<int, int> _instanceOf = [];
+
     private bool _moved;
     private bool _disposed;
 
@@ -74,12 +94,12 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// </remarks>
     public void Move(int part, Matrix4x4 transform)
     {
-        if (part < 0 || part >= _transforms.Length || _transforms[part] == transform)
+        if (!_instanceOf.TryGetValue(part, out int at) || _transforms[at] == transform)
         {
             return;
         }
 
-        _transforms[part] = transform;
+        _transforms[at] = transform;
         _moved = true;
     }
 
@@ -92,12 +112,12 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// </remarks>
     public void SetTraced(int part, bool traced)
     {
-        if (part < 0 || part >= _traced.Length || _traced[part] == traced)
+        if (!_instanceOf.TryGetValue(part, out int at) || _traced[at] == traced)
         {
             return;
         }
 
-        _traced[part] = traced;
+        _traced[at] = traced;
         _moved = true;
     }
 
@@ -122,7 +142,7 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
         for (int i = 0; i < _instances.Length; i++)
         {
             RaytracingInstanceDesc instance = _instances[i];
-            instance.InstanceMask = _traced[i] ? 0xFFu : 0u;
+            instance.InstanceMask = _traced[i] ? _masks[i] : 0u;
             WriteTransform(_transforms[i], instance.Transform);
             _instances[i] = instance;
         }
@@ -159,29 +179,120 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
             ScratchAccelerationStructureData = _topScratch.GetGPUVirtualAddress(),
         };
 
+        // Every rebuild this frame in one submission: a posed character is two or three
+        // bottom levels and the top level, and waiting on each in turn would cost more than
+        // all of them together.
         ID3D12GraphicsCommandList4* list = _context.BeginOneShot();
+
+        foreach (int index in _reshaped)
+        {
+            Rebuild(list, _pieces[index]);
+        }
+
+        if (_reshaped.Count > 0)
+        {
+            // The top level reads what those builds wrote, and nothing but a barrier says
+            // so: the builds are on one queue and the runtime does not order them against
+            // each other.
+            D3D12Context.Barrier(list, null);
+            _reshaped.Clear();
+        }
+
         list->BuildRaytracingAccelerationStructure(
             &description, 0, (RaytracingAccelerationStructurePostbuildInfoDesc*)null);
 
         _context.EndOneShot();
     }
 
+    /// <summary>Writes a piece's new vertices and builds its bottom level again.</summary>
+    /// <param name="list">The list the frame's rebuilds are being recorded into.</param>
+    /// <param name="piece">The piece.</param>
+    /// <exception cref="D3D12Exception">Its vertices could not be written.</exception>
+    /// <remarks>
+    /// Built rather than refitted. A refit keeps the tree the first build chose and only
+    /// moves its boxes, which is cheaper and degrades as the geometry stops resembling what
+    /// it was built from — and a GK3 character's vertices are rewritten outright by every
+    /// clip, so what it was built from is a different shape altogether. Into the same
+    /// destination buffer, which is legal because the inputs have the same size they had.
+    /// </remarks>
+    private void Rebuild(ID3D12GraphicsCommandList4* list, Piece piece)
+    {
+        void* mapped;
+        var nothing = new Silk.NET.Direct3D12.Range { Begin = 0, End = 0 };
+
+        D3D12Exception.ThrowIfFailed(
+            piece.Vertices.Map(0, &nothing, &mapped), "map a posed vertex buffer");
+
+        try
+        {
+            piece.Positions.AsSpan().CopyTo(new Span<Vector3>(mapped, piece.Positions.Length));
+        }
+        finally
+        {
+            piece.Vertices.Unmap(0, (Silk.NET.Direct3D12.Range*)null);
+        }
+
+        RaytracingGeometryDesc geometry = piece.Describe();
+
+        var inputs = new BuildRaytracingAccelerationStructureInputs
+        {
+            Type = RaytracingAccelerationStructureType.BottomLevel,
+            Flags = RaytracingAccelerationStructureBuildFlags.PreferFastTrace,
+            NumDescs = 1,
+            DescsLayout = ElementsLayout.Array,
+        };
+
+        inputs.Anonymous.PGeometryDescs = &geometry;
+
+        var description = new BuildRaytracingAccelerationStructureDesc
+        {
+            DestAccelerationStructureData = piece.Structure.GetGPUVirtualAddress(),
+            Inputs = inputs,
+            SourceAccelerationStructureData = 0,
+            ScratchAccelerationStructureData = piece.Scratch.GetGPUVirtualAddress(),
+        };
+
+        list->BuildRaytracingAccelerationStructure(
+            &description, 0, (RaytracingAccelerationStructurePostbuildInfoDesc*)null);
+    }
+
     /// <summary>Says that a deforming piece has a new shape.</summary>
     /// <param name="key">Which animated batch.</param>
     /// <param name="positions">Its vertices now.</param>
     /// <remarks>
-    /// Not yet implemented on this backend. A character has no skeleton — an <c>.ACT</c>
-    /// clip rewrites its vertices outright — so a structure that ignores this holds the pose
-    /// the model was authored in, and rays leaving an animated shoulder start inside a
-    /// rest-pose body. Doing it needs the bottom level rebuilt from a rewritten vertex
-    /// buffer rather than the top level rebuilt from a transform, which is the one thing
-    /// here that is genuinely more than bookkeeping.
+    /// <para>
+    /// Recorded, not done: <see cref="Settle"/> rewrites the vertex buffer and rebuilds that
+    /// piece's bottom level, once for however many of a character's meshes were posed.
+    /// </para>
+    /// <para>
+    /// This is the one thing here that is more than bookkeeping. A GK3 character has no
+    /// skeleton — an <c>.ACT</c> clip rewrites its vertices outright — so there is no
+    /// transform that could stand for a raised arm, and a structure that ignored this held
+    /// the pose the model was authored in: rays leaving an animated shoulder started inside
+    /// a rest-pose body, and a character's shadow was cast by their bind pose.
+    /// </para>
     /// </remarks>
     public void Reshape(int key, ReadOnlySpan<Vector3> positions)
     {
-        _ = key;
-        _ = positions;
-        _ = _instances;
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!_shapes.TryGetValue(key, out (int Piece, int Offset, int Count) at) ||
+            positions.Length != at.Count ||
+            at.Piece >= _pieces.Length)
+        {
+            return;
+        }
+
+        Piece piece = _pieces[at.Piece];
+
+        if (!piece.Rewritable)
+        {
+            return;
+        }
+
+        positions.CopyTo(piece.Positions.AsSpan(at.Offset, at.Count));
+        _reshaped.Add(at.Piece);
+        _moved = true;
     }
 
     /// <summary>How many pieces of geometry are in it.</summary>
@@ -195,15 +306,33 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
 
     /// <summary>Builds a structure over some geometry.</summary>
     /// <param name="context">The device.</param>
-    /// <param name="parts">The geometry.</param>
+    /// <param name="parts">The geometry, one entry per thing that can move.</param>
+    /// <param name="shapes">
+    /// Where each reshapeable mesh's vertices sit inside its part, by the key that names it,
+    /// or null where nothing deforms. A part named here keeps its vertices where the host
+    /// can rewrite them and keeps the scratch its rebuild needs; a part not named here — the
+    /// room, which is most of the triangles in a scene — keeps neither.
+    /// </param>
     /// <returns>The structure.</returns>
     /// <exception cref="D3D12Exception">It could not be built.</exception>
     /// <exception cref="InvalidOperationException">The device cannot trace.</exception>
     public static D3D12AccelerationStructure Build(
-        D3D12Context context, IReadOnlyList<TraceablePart> parts)
+        D3D12Context context,
+        IReadOnlyList<TraceablePart> parts,
+        IReadOnlyDictionary<int, (int Part, int Offset, int Count)>? shapes = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(parts);
+
+        bool[] rewritable = new bool[parts.Count];
+
+        foreach ((int Part, int Offset, int Count) shape in shapes?.Values ?? [])
+        {
+            if (shape.Part >= 0 && shape.Part < rewritable.Length)
+            {
+                rewritable[shape.Part] = true;
+            }
+        }
 
         if (!context.SupportsRayTracing)
         {
@@ -220,13 +349,15 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
             ID3D12GraphicsCommandList4* list = context.BeginOneShot();
 
             ulong[] bottomLevels = new ulong[parts.Count];
+            var pieces = new Piece[parts.Count];
 
             for (int i = 0; i < parts.Count; i++)
             {
                 TraceablePart part = parts[i];
                 triangles += part.Indices.Length / 3;
 
-                bottomLevels[i] = BuildBottomLevel(context, list, part, owned, scratch);
+                pieces[i] = BuildBottomLevel(context, list, part, rewritable[i], owned, scratch);
+                bottomLevels[i] = pieces[i].Structure.GetGPUVirtualAddress();
             }
 
             // Every bottom level must be finished before the top level reads it, and
@@ -247,10 +378,34 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
                 _topScratch = made.Scratch,
                 _transforms = [.. parts.Select(part => part.Transform)],
                 _traced = [.. parts.Select(_ => true)],
+                _masks = [.. parts.Select(part => TracedWorld.MaskFor(part.Part))],
+                _pieces = pieces,
             };
+
+            foreach ((int key, (int part, int offset, int count)) in
+                shapes ?? new Dictionary<int, (int, int, int)>())
+            {
+                structure._shapes[key] = (part, offset, count);
+            }
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                structure._instanceOf[parts[i].Part] = i;
+            }
 
             structure._owned.AddRange(owned);
             owned.Clear();
+
+            // A rewritable piece keeps its scratch for the same reason the top level does:
+            // Settle rebuilds it whenever a clip poses it, and allocating a scratch buffer
+            // per pose would be an allocation per character per frame.
+            foreach (Piece piece in pieces)
+            {
+                if (piece.Rewritable)
+                {
+                    scratch.Remove(piece.Scratch);
+                }
+            }
 
             // The top level's scratch is kept rather than freed with the rest: Settle
             // rebuilds it whenever anything moves, and allocating a scratch buffer per
@@ -328,48 +483,48 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
         }
 
         _owned.Clear();
+
+        foreach (Piece piece in _pieces)
+        {
+            if (piece.Rewritable)
+            {
+                piece.Scratch.Dispose();
+            }
+        }
+
+        _pieces = [];
         _topScratch.Dispose();
         _topLevel.Dispose();
     }
 
-    private static ulong BuildBottomLevel(
+    private static Piece BuildBottomLevel(
         D3D12Context context,
         ID3D12GraphicsCommandList4* list,
         TraceablePart part,
+        bool rewritable,
         List<ComPtr<ID3D12Resource>> owned,
         List<ComPtr<ID3D12Resource>> scratch)
     {
         ComPtr<ID3D12Resource> vertices = Upload<Vector3>(context, part.Vertices.Span, owned);
         ComPtr<ID3D12Resource> indices = Upload<uint>(context, part.Indices.Span, owned);
 
-        var triangles = new RaytracingGeometryTrianglesDesc
+        var piece = new Piece
         {
-            VertexFormat = Format.FormatR32G32B32Float,
+            Vertices = vertices,
+            Indices = indices,
+
+            // The vertices as the host last saw them, so that posing one mesh of a character
+            // can rewrite its own slice without the others having to be sent again. Kept
+            // only where something may pose it: the room is most of the triangles in a
+            // scene and never changes shape.
+            Positions = rewritable ? part.Vertices.ToArray() : [],
             VertexCount = (uint)part.Vertices.Length,
-            VertexBuffer = new GpuVirtualAddressAndStride
-            {
-                StartAddress = vertices.GetGPUVirtualAddress(),
-                StrideInBytes = (ulong)sizeof(Vector3),
-            },
-            IndexFormat = Format.FormatR32Uint,
             IndexCount = (uint)part.Indices.Length,
-            IndexBuffer = indices.GetGPUVirtualAddress(),
-
-            // Zero, and the geometry is placed by the instance instead. A per-geometry
-            // transform is read by the build and baked in, which would mean rebuilding the
-            // tree every time something moved.
-            Transform3x4 = 0,
+            Opaque = part.Opaque,
+            Rewritable = rewritable,
         };
 
-        var geometry = new RaytracingGeometryDesc
-        {
-            Type = RaytracingGeometryType.Triangles,
-            Flags = part.Opaque
-                ? RaytracingGeometryFlags.Opaque
-                : RaytracingGeometryFlags.None,
-        };
-
-        geometry.Anonymous.Triangles = triangles;
+        RaytracingGeometryDesc geometry = piece.Describe();
 
         var inputs = new BuildRaytracingAccelerationStructureInputs
         {
@@ -381,7 +536,83 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
 
         inputs.Anonymous.PGeometryDescs = &geometry;
 
-        return Build(context, list, inputs, owned, scratch);
+        List<ComPtr<ID3D12Resource>> result = [];
+        _ = Build(context, list, inputs, result, scratch);
+
+        // The structure outlives the build, so it is owned rather than scratch. Its own
+        // scratch is the last one Build added, and the caller takes that back out of the
+        // list to be freed where the piece may be rebuilt.
+        piece.Structure = result[0];
+        piece.Scratch = scratch[^1];
+        owned.AddRange(result);
+
+        return piece;
+    }
+
+    /// <summary>One thing the structure holds, and everything a rebuild of it needs.</summary>
+    private sealed class Piece
+    {
+        /// <summary>Its vertices on the device, in upload memory the host can rewrite.</summary>
+        public required ComPtr<ID3D12Resource> Vertices { get; init; }
+
+        /// <summary>Its triangles.</summary>
+        public required ComPtr<ID3D12Resource> Indices { get; init; }
+
+        /// <summary>The vertices as the host last saw them, or empty where nothing poses it.</summary>
+        public required Vector3[] Positions { get; init; }
+
+        /// <summary>How many vertices it has.</summary>
+        public required uint VertexCount { get; init; }
+
+        /// <summary>How many indices it has.</summary>
+        public required uint IndexCount { get; init; }
+
+        /// <summary>Whether a ray may stop at the first hit without asking a shader.</summary>
+        public required bool Opaque { get; init; }
+
+        /// <summary>Whether anything may pose this.</summary>
+        public required bool Rewritable { get; init; }
+
+        /// <summary>The bottom level itself.</summary>
+        public ComPtr<ID3D12Resource> Structure { get; set; }
+
+        /// <summary>Working space its rebuild needs, kept only where it is rewritable.</summary>
+        public ComPtr<ID3D12Resource> Scratch { get; set; }
+
+        /// <summary>Describes this geometry to a build.</summary>
+        /// <returns>The description.</returns>
+        public RaytracingGeometryDesc Describe()
+        {
+            var triangles = new RaytracingGeometryTrianglesDesc
+            {
+                VertexFormat = Format.FormatR32G32B32Float,
+                VertexCount = VertexCount,
+                VertexBuffer = new GpuVirtualAddressAndStride
+                {
+                    StartAddress = Vertices.GetGPUVirtualAddress(),
+                    StrideInBytes = (ulong)sizeof(Vector3),
+                },
+                IndexFormat = Format.FormatR32Uint,
+                IndexCount = IndexCount,
+                IndexBuffer = Indices.GetGPUVirtualAddress(),
+
+                // Zero, and the geometry is placed by the instance instead. A per-geometry
+                // transform is read by the build and baked in, which would mean rebuilding
+                // the tree every time something moved.
+                Transform3x4 = 0,
+            };
+
+            var geometry = new RaytracingGeometryDesc
+            {
+                Type = RaytracingGeometryType.Triangles,
+                Flags = Opaque
+                    ? RaytracingGeometryFlags.Opaque
+                    : RaytracingGeometryFlags.None,
+            };
+
+            geometry.Anonymous.Triangles = triangles;
+            return geometry;
+        }
     }
 
     private static ComPtr<ID3D12Resource> BuildTopLevel(
@@ -398,12 +629,17 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
 
         for (int i = 0; i < parts.Count; i++)
         {
+            // The same two halves the shaders ask for by name, and the same reading of a
+            // BSP's winding. See TracedWorld: a mask of 0xFF everywhere is not an error, it
+            // is every character standing in their own shadow.
             var instance = new RaytracingInstanceDesc
             {
                 InstanceID = (uint)i,
-                InstanceMask = 0xFF,
+                InstanceMask = TracedWorld.MaskFor(parts[i].Part),
                 InstanceContributionToHitGroupIndex = 0,
-                Flags = (uint)RaytracingInstanceFlags.None,
+                Flags = (uint)(TracedWorld.FacesBothWays(parts[i].Part)
+                    ? RaytracingInstanceFlags.TriangleCullDisable
+                    : RaytracingInstanceFlags.None),
                 AccelerationStructure = bottomLevels[i],
             };
 

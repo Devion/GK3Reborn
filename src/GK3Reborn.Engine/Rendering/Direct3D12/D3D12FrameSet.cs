@@ -180,6 +180,16 @@ public sealed unsafe class D3D12FrameSet : IDisposable
         }
     }
 
+    /// <summary>The buffer of lights one frame reads.</summary>
+    /// <param name="frame">Which frame.</param>
+    /// <returns>The rig.</returns>
+    /// <remarks>
+    /// The tracing pass reads the same rig the shading pass does, and reads it through a
+    /// binding of its own rather than through the frame table, so it needs the buffer rather
+    /// than a descriptor of it.
+    /// </remarks>
+    public D3D12Buffer Rig(int frame) => _rig[frame];
+
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
     /// <param name="scene">What the geometry occupies.</param>

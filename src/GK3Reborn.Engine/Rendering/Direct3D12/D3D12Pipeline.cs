@@ -73,6 +73,10 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     /// <param name="language">Which language the sources are written in.</param>
     /// <param name="depthWrite">Whether the depth target is written.</param>
     /// <param name="depthTest">Whether the depth target is tested.</param>
+    /// <param name="depthEqual">
+    /// Whether a fragment at exactly the depth already there passes. What anything drawn at
+    /// the far plane needs: see the remark in the depth state.
+    /// </param>
     /// <param name="cull">Which faces are discarded.</param>
     /// <param name="blend">Whether the colour target is blended over rather than replaced.</param>
     /// <param name="vertexEntryPoint">Entry point of the vertex shader in its own source.</param>
@@ -93,6 +97,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         ShaderLanguage language = ShaderLanguage.Glsl,
         bool depthWrite = true,
         bool depthTest = true,
+        bool depthEqual = false,
         CullMode cull = CullMode.Back,
         bool blend = false,
         string vertexEntryPoint = "main",
@@ -175,7 +180,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
                     RasterizerState = Rasterizer(cull),
                     BlendState = Blender(blend, colorFormats.Count),
                     DepthStencilState = DepthStencil(
-                        depthFormat != Format.FormatUnknown, depthWrite, depthTest),
+                        depthFormat != Format.FormatUnknown, depthWrite, depthTest, depthEqual),
                 };
 
                 for (int i = 0; i < colorFormats.Count && i < 8; i++)
@@ -199,6 +204,33 @@ public sealed unsafe class D3D12Pipeline : IDisposable
             signature.Dispose();
             throw;
         }
+    }
+
+    /// <summary>Builds a compute pipeline.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="compiler">Where the shader comes from.</param>
+    /// <param name="source">Compute shader source.</param>
+    /// <param name="name">Name used in error messages.</param>
+    /// <param name="layout">What the pipeline binds.</param>
+    /// <param name="language">Which language the source is written in.</param>
+    /// <param name="entryPoint">Entry point of the shader in its own source.</param>
+    /// <returns>The pipeline.</returns>
+    /// <exception cref="D3D12Exception">It could not be created.</exception>
+    /// <remarks>
+    /// Takes the context rather than the device pointer, so that a caller who has no reason
+    /// to be unsafe need not become so to build a pipeline.
+    /// </remarks>
+    public static D3D12Pipeline CreateCompute(
+        D3D12Context context,
+        ShaderCompiler compiler,
+        string source,
+        string name,
+        ShaderLayout? layout = null,
+        ShaderLanguage language = ShaderLanguage.Glsl,
+        string entryPoint = "main")
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return CreateCompute(context.Device, compiler, source, name, layout, language, entryPoint);
     }
 
     /// <summary>Builds a compute pipeline.</summary>
@@ -328,7 +360,8 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         return description;
     }
 
-    private static DepthStencilDesc DepthStencil(bool hasDepth, bool write, bool test) => new()
+    private static DepthStencilDesc DepthStencil(
+        bool hasDepth, bool write, bool test, bool equal) => new()
     {
         DepthEnable = hasDepth && test,
         DepthWriteMask = hasDepth && write ? DepthWriteMask.All : DepthWriteMask.Zero,
@@ -336,7 +369,13 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         // Less rather than greater: the projection puts the near plane at zero, as it does
         // on the Vulkan side. Both APIs agree about depth, which is the one convention
         // that did not have to be reconciled.
-        DepthFunc = ComparisonFunc.Less,
+        //
+        // <b>Anything drawn at the far plane needs the equality.</b> The depth buffer is
+        // cleared to one and a sky fragment is written at exactly one, so under a strict
+        // less-than it loses to the clear and nothing is drawn — a black sky rather than an
+        // error, in every scene the game has one. The Vulkan sky and horizon pipelines have
+        // always asked for LessOrEqual; this is the same statement.
+        DepthFunc = equal ? ComparisonFunc.LessEqual : ComparisonFunc.Less,
         StencilEnable = false,
         StencilReadMask = 0xFF,
         StencilWriteMask = 0xFF,

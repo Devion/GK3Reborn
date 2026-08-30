@@ -1,3 +1,4 @@
+using Silk.NET.DXGI;
 using GK3Reborn.Formats.Bitmaps;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
@@ -31,6 +32,13 @@ public static unsafe class D3D12Readback
     /// <param name="width">Its width in pixels.</param>
     /// <param name="height">Its height in pixels.</param>
     /// <param name="swapRedAndBlue">Whether the texture is BGRA and the picture wants RGBA.</param>
+    /// <param name="wide">
+    /// What the texture holds when it is not eight-bit colour, or unknown for the ordinary
+    /// case. A ten-bit or half-float frame is brought back down to sRGB rather than having
+    /// its bytes copied, because copying them gives the right picture with every value
+    /// scrambled — which looks like a renderer bug and is not one.
+    /// </param>
+    /// <param name="paperWhite">Where diffuse white sat, for a wide frame.</param>
     /// <returns>The picture, with four bytes a pixel.</returns>
     /// <exception cref="D3D12Exception">The read failed.</exception>
     public static DecodedImage Read(
@@ -39,7 +47,9 @@ public static unsafe class D3D12Readback
         ResourceStates state,
         int width,
         int height,
-        bool swapRedAndBlue = false)
+        bool swapRedAndBlue = false,
+        Format wide = Format.FormatUnknown,
+        float paperWhite = 200f)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(resource);
@@ -92,9 +102,33 @@ public static unsafe class D3D12Readback
 
             try
             {
-                byte[] pixels = new byte[width * height * 4];
                 var source = new ReadOnlySpan<byte>(mapped, (int)bytes);
                 uint pitch = footprint.Footprint.RowPitch;
+
+                bool halves = wide == Format.FormatR16G16B16A16Float;
+                int stride = halves ? 8 : 4;
+
+                if (wide is Format.FormatR10G10B10A2Unorm or Format.FormatR16G16B16A16Float)
+                {
+                    // De-padded first, because the conversion walks pixels and the rows the
+                    // device hands back are padded to its own alignment.
+                    byte[] packed = new byte[width * height * stride];
+
+                    for (int y = 0; y < height; y++)
+                    {
+                        source.Slice((int)(y * pitch), width * stride)
+                            .CopyTo(packed.AsSpan(y * width * stride, width * stride));
+                    }
+
+                    return new DecodedImage(
+                        width,
+                        height,
+                        HdrCapture.ToOrdinary(packed, width, height, halves, paperWhite),
+                        HasAlpha: false,
+                        SourceFormat: "d3d12");
+                }
+
+                byte[] pixels = new byte[width * height * 4];
 
                 for (int y = 0; y < height; y++)
                 {

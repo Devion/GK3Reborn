@@ -373,6 +373,12 @@ public static class Application
         StartupReport.Writable("Saves", Game.SaveStore.DefaultDirectory);
         StartupReport.Writable("Shader cache", Rendering.Shaders.ShaderCompiler.DefaultCacheDirectory);
 
+        // Which graphics API to draw through. The window has to be opened for the right one
+        // — Silk refuses to make a Vulkan window on a machine with no loader, and a Direct3D
+        // machine should not need one — so this is decided before there is a window rather
+        // than after there is a renderer.
+        Rendering.RenderBackend backend = ChooseBackend(Option(args, "--backend"));
+
         // --width and --height, for photographing the interface at a display size this
         // machine has not got. Everything about the interface's size is decided from the
         // framebuffer, so there is no other way to see what a 4K display would show.
@@ -383,21 +389,32 @@ public static class Application
                 : 1280,
             int.TryParse(Option(args, "--height"), out int windowHeight) && windowHeight > 0
                 ? windowHeight
-                : 720);
+                : 720,
+            backend == Rendering.RenderBackend.Vulkan
+                ? Platform.WindowGraphics.Vulkan
+                : Platform.WindowGraphics.None);
+
         // What the player has dropped into libs/, and NVIDIA's loader started against it.
         //
-        // Both before the renderer, and Streamline emphatically so: its features ask for
-        // Vulkan device extensions and for queues of their own, and there is no way to add
+        // Both before the renderer, and Streamline emphatically so on Vulkan: its features
+        // ask for device extensions and for queues of their own, and there is no way to add
         // either to a device that already exists. Starting it here is what makes DLSS
-        // selectable from the pause menu rather than only at the next launch.
+        // selectable from the pause menu rather than only at the next launch. Direct3D is
+        // the other way round — a device is made first and Streamline is told about it — so
+        // that backend starts its own and this one is left alone.
         var runtimes = Rendering.Upscaling.UpscalerRuntimes.Find(Option(args, "--libs-dir"));
         Log.Info(runtimes.ToString());
 
         using Rendering.Upscaling.Streamline? streamline =
-            Rendering.Upscaling.Streamline.TryStart(runtimes);
+            backend == Rendering.RenderBackend.Vulkan
+                ? Rendering.Upscaling.Streamline.TryStart(runtimes)
+                : null;
 
-        using var renderer = VulkanRenderer.Create(
-            window, window, streamline: streamline);
+        using Rendering.IRenderer renderer =
+            backend == Rendering.RenderBackend.Direct3D12
+                ? Rendering.Direct3D12.D3D12Renderer.Create(
+                    window, window, rayTracing: true, runtimes: Option(args, "--libs-dir"))
+                : VulkanRenderer.Create(window, window, streamline: streamline);
 
         renderer.Runtimes = runtimes;
 
@@ -2606,7 +2623,7 @@ public static class Application
     private static RoomExit FlyScene(
         Rendering.ScreenFade fade,
         Platform.SilkGameWindow window,
-        VulkanRenderer renderer,
+        Rendering.IRenderer renderer,
         SceneGeometry geometry,
         LoadedScene scene,
         string? cameraName,
@@ -3854,6 +3871,18 @@ public static class Application
                 presented++;
             }
 
+            // What Direct3D thought of that frame. Said once, after the first frame that
+            // presented, because the debug layer repeats itself every frame and one copy of
+            // a complaint is what a reader needs. Nothing is said when there is nothing to
+            // say, and nothing at all on a backend that has no such queue.
+            if (presented == 1 && renderer is Rendering.Direct3D12.D3D12Renderer direct3d)
+            {
+                foreach (string message in direct3d.Messages)
+                {
+                    Log.Warning("d3d: " + message);
+                }
+            }
+
             // How much the picture changes from one frame to the next, over frames where
             // the room itself is doing nothing. Anything a temporal filter gets wrong
             // shows here and nowhere else: a still picture that is quietly different every
@@ -4054,7 +4083,7 @@ public static class Application
     /// </remarks>
     private static void Announce(
         Platform.SilkGameWindow window,
-        VulkanRenderer renderer,
+        Rendering.IRenderer renderer,
         MenuPage? pages,
         GameStrings strings,
         Timeblock now,
@@ -4117,7 +4146,7 @@ public static class Application
 
         /// <summary>Puts it behind the menu.</summary>
         /// <param name="renderer">What draws it.</param>
-        public void Show(VulkanRenderer renderer)
+        public void Show(Rendering.IRenderer renderer)
         {
             ArgumentNullException.ThrowIfNull(renderer);
 
@@ -4174,7 +4203,7 @@ public static class Application
     /// </remarks>
     private static FrontEndOutcome ShowMenu(
         Platform.SilkGameWindow window,
-        VulkanRenderer renderer,
+        Rendering.IRenderer renderer,
         MenuPage pages,
         FrontEnd front,
         Action<Settings> apply,
@@ -4415,7 +4444,7 @@ public static class Application
     /// </remarks>
     private static void ShowIntro(
         Platform.SilkGameWindow window,
-        VulkanRenderer renderer,
+        Rendering.IRenderer renderer,
         Game.MoviePlayer movies,
         MenuPage? hint,
         IReadOnlyList<string> films)
@@ -4547,7 +4576,7 @@ public static class Application
     /// </remarks>
     private static void LoadMapArt(
         GameArchives archives,
-        VulkanRenderer renderer,
+        Rendering.IRenderer renderer,
         ScreenPainter screens,
         EnhancedTextures? enhanced)
     {
@@ -4800,7 +4829,7 @@ public static class Application
     /// file test per menu and is not worth remembering.
     /// </remarks>
     private static int Illustration(
-        Rendering.Vulkan.VulkanRenderer renderer, Game.SaveStore? saves, string slot)
+        Rendering.IRenderer renderer, Game.SaveStore? saves, string slot)
     {
         if (saves is null)
         {
@@ -5773,6 +5802,53 @@ public static class Application
         return 0;
     }
 
+    /// <summary>Works out which graphics API to draw through.</summary>
+    /// <param name="asked">What was typed after --backend, or null for whichever suits.</param>
+    /// <returns>The backend to open the window and the renderer for.</returns>
+    /// <remarks>
+    /// <para>
+    /// A name that cannot be spelled is a typo rather than a machine, so it is said out loud
+    /// and then ignored — starting in the wrong renderer because somebody wrote "dx12" would
+    /// be worse than saying so.
+    /// </para>
+    /// <para>
+    /// The default stays Vulkan on every platform for now. Direct3D draws the room, the sky,
+    /// the reconstructed terrain horizon, the interface, the film and the fade, and traces
+    /// rays; the horizon it used to be missing is there. What is left is a measured
+    /// difference nobody has explained — a fine edge pattern over every textured surface,
+    /// worth about four levels of one channel on a reference shot, present with and without
+    /// tracing. It is small, it is everywhere, and it reads as a sampling difference rather
+    /// than a shading one. A default is not the place to carry an unexplained one. See
+    /// <c>docs/d3d.md</c>.
+    /// </para>
+    /// </remarks>
+    private static Rendering.RenderBackend ChooseBackend(string? asked)
+    {
+        if (asked is null)
+        {
+            return Rendering.RenderBackend.Vulkan;
+        }
+
+        if (!Rendering.RenderBackends.TryParse(asked, out Rendering.RenderBackend wanted))
+        {
+            Log.Warning(
+                $"WARNING GK3R3420: '{asked}' names no graphics API; using Vulkan. " +
+                "Expected vulkan or d3d12.");
+
+            return Rendering.RenderBackend.Vulkan;
+        }
+
+        if (!Rendering.RenderBackends.IsPossible(wanted))
+        {
+            Log.Warning(
+                $"WARNING GK3R3421: {wanted} cannot be used on this machine; using Vulkan.");
+
+            return Rendering.RenderBackend.Vulkan;
+        }
+
+        return wanted;
+    }
+
     /// <summary>
     /// Prints what the machine's graphics hardware can do.
     /// </summary>
@@ -5787,27 +5863,31 @@ public static class Application
     /// own: building an instance purely to look through it is 145 ms of the time to a first
     /// frame, and doing it on another thread to hide that lost a device about one run in six.
     /// </param>
-    private static void ReportGraphics(Rendering.Vulkan.VulkanDeviceReport? report = null) =>
+    private static void ReportGraphics(Rendering.DeviceReport? report = null) =>
         Log.Write(GraphicsReport(report ?? Rendering.Vulkan.VulkanDeviceSelector.Survey()));
 
-    private static string GraphicsReport(Rendering.Vulkan.VulkanDeviceReport report)
+    private static string GraphicsReport(Rendering.DeviceReport report)
     {
         var text = new System.Text.StringBuilder();
 
-        if (!report.VulkanAvailable)
+        if (!report.Available)
         {
-            return text.AppendLine(CultureInfo.InvariantCulture, $"Vulkan unavailable: {report.Unavailable}").ToString();
+            return text
+                .AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"{report.Backend} unavailable: {report.Unavailable}")
+                .ToString();
         }
 
-        text.AppendLine(CultureInfo.InvariantCulture, $"Vulkan: {report.Devices.Count} device(s), "
+        text.AppendLine(CultureInfo.InvariantCulture, $"{report.Backend}: {report.Adapters.Count} device(s), "
             + $"validation layers {(report.ValidationAvailable ? "available" : "not installed")}");
 
-        foreach (Rendering.Vulkan.VulkanDeviceInfo device in report.Devices)
+        foreach (Rendering.AdapterInfo device in report.Adapters)
         {
             bool selected = ReferenceEquals(device, report.Selected);
             text.AppendLine(CultureInfo.InvariantCulture, $"  {(selected ? "*" : " ")} {device}");
 
-            foreach (string note in device.TierNotes)
+            foreach (string note in device.Notes)
             {
                 text.AppendLine(CultureInfo.InvariantCulture, $"      {note}");
             }

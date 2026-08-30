@@ -31,56 +31,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// </remarks>
 public sealed unsafe class SkyboxPipeline : IDisposable
 {
-    private const string VertexSource = """
-        #version 450
-
-        // One triangle covering the screen, from the vertex index alone. No vertex buffer,
-        // no attributes and nothing passed to the fragment stage: the direction to sample
-        // is worked out from where the fragment is, which is the one input that was ever
-        // demonstrably reaching it.
-        void main()
-        {
-            vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-
-            // Depth at the far plane, so the sky loses to anything the room drew. Written
-            // as clip coordinates outright, which is also why nothing here can be clipped
-            // by a near plane.
-            gl_Position = vec4((corner * 2.0) - 1.0, 1.0, 1.0);
-        }
-        """;
-
-    private const string FragmentSource = """
-        #version 450
-
-        layout(binding = 0) uniform samplerCube sky;
-
-        layout(push_constant) uniform Push
-        {
-            vec4 forward;   // xyz: where the camera looks, already turned by the azimuth
-            vec4 right;     // xyz: its right, scaled by nothing; w: tan of half the horizontal fov
-            vec4 up;        // xyz: its up;                      w: tan of half the vertical fov
-            vec4 viewport;  // xy: size in pixels
-        } push;
-
-        layout(location = 0) out vec4 outColor;
-
-        void main()
-        {
-            // The ray through this pixel, built from the camera's own basis rather than by
-            // inverting a projection. It is the same arithmetic the projection does, run
-            // forwards: an inverse is a thing that can be ill-conditioned or wrong in a way
-            // that is invisible until every pixel comes back with the same answer.
-            vec2 ndc = ((gl_FragCoord.xy / push.viewport.xy) * 2.0) - 1.0;
-
-            // gl_FragCoord counts down the screen and up counts up it.
-            vec3 direction = push.forward.xyz
-                           + (push.right.xyz * (ndc.x * push.right.w))
-                           - (push.up.xyz * (ndc.y * push.up.w));
-
-            outColor = vec4(texture(sky, normalize(direction)).rgb, 1.0);
-        }
-        """;
-
     /// <summary>The corners of a cube, two triangles a face, wound to be seen from inside.</summary>
     private readonly Vk _vk;
     private readonly VulkanContext _context;
@@ -128,10 +78,10 @@ public sealed unsafe class SkyboxPipeline : IDisposable
         try
         {
             pipeline._vertexModule = pipeline.CreateModule(compiler.Compile(
-                VertexSource, ShaderStage.Vertex, "skybox.vert", "main", ShaderLanguage.Glsl));
+                SkyboxShaders.Vertex, ShaderStage.Vertex, "skybox.vert", "main", ShaderLanguage.Glsl));
 
             pipeline._fragmentModule = pipeline.CreateModule(compiler.Compile(
-                FragmentSource, ShaderStage.Fragment, "skybox.frag", "main", ShaderLanguage.Glsl));
+                SkyboxShaders.Fragment, ShaderStage.Fragment, "skybox.frag", "main", ShaderLanguage.Glsl));
 
             pipeline._cube = VulkanTexture.CreateCube(context, faces);
 
@@ -166,25 +116,10 @@ public sealed unsafe class SkyboxPipeline : IDisposable
             return;
         }
 
-        // The camera's basis, the way CreateLookAtLeftHanded builds it.
-        Vector3 forward = Vector3.Normalize(camera.Target - camera.Position);
-        Vector3 right = Vector3.Normalize(Vector3.Cross(camera.Up, forward));
-        Vector3 up = Vector3.Cross(forward, right);
-
-        // Turning the sky by its azimuth is turning the ray the other way, which is one
-        // rotation of three vectors rather than a matrix through the whole pass.
-        Matrix4x4 azimuth = Matrix4x4.CreateRotationY(-Azimuth);
-
-        float tanY = MathF.Tan(camera.FieldOfView / 2f);
-        float tanX = tanY * width / height;
-
-        var push = new SkyPush
-        {
-            Forward = new Vector4(Vector3.TransformNormal(forward, azimuth), 0),
-            Right = new Vector4(Vector3.TransformNormal(right, azimuth), tanX),
-            Up = new Vector4(Vector3.TransformNormal(up, azimuth), tanY),
-            Viewport = new Vector4(width, height, 0, 0),
-        };
+        // The camera's basis and how wide it sees, worked out in SkyboxShaders so that both
+        // backends turn the sky the same way. It is the one piece of this pass that can be
+        // wrong in a way that still looks like a sky.
+        SkyboxConstants push = SkyboxShaders.Describe(camera, Azimuth, width, height);
 
         var viewport = new Viewport { Width = width, Height = height, MaxDepth = 1f };
         var scissor = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) };
@@ -199,7 +134,7 @@ public sealed unsafe class SkyboxPipeline : IDisposable
 
         _vk.CmdPushConstants(
             command, _layout, ShaderStageFlags.FragmentBit, 0,
-            (uint)Marshal.SizeOf<SkyPush>(), &push);
+            (uint)Marshal.SizeOf<SkyboxConstants>(), &push);
 
         _vk.CmdDraw(command, 3, 1, 0, 0);
     }
@@ -249,22 +184,6 @@ public sealed unsafe class SkyboxPipeline : IDisposable
     }
 
     /// <summary>A unit cube as thirty-six corners, seen from the inside.</summary>
-    /// <summary>What the fragment stage needs to turn a pixel into a direction.</summary>
-    [StructLayout(LayoutKind.Sequential)]
-    private struct SkyPush
-    {
-        /// <summary>Where the camera looks, turned by the sky's azimuth.</summary>
-        public Vector4 Forward;
-
-        /// <summary>Its right, with the tangent of half the horizontal field of view in w.</summary>
-        public Vector4 Right;
-
-        /// <summary>Its up, with the tangent of half the vertical field of view in w.</summary>
-        public Vector4 Up;
-
-        /// <summary>Width and height in pixels.</summary>
-        public Vector4 Viewport;
-    }
 
 
     private ShaderModule CreateModule(byte[] spirv)
@@ -372,7 +291,7 @@ public sealed unsafe class SkyboxPipeline : IDisposable
         {
             StageFlags = ShaderStageFlags.FragmentBit,
             Offset = 0,
-            Size = (uint)Marshal.SizeOf<SkyPush>(),
+            Size = (uint)Marshal.SizeOf<SkyboxConstants>(),
         };
 
         var layoutInfo = new PipelineLayoutCreateInfo

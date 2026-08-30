@@ -39,7 +39,7 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// and <c>SuboptimalKhr</c> rather than by failing.
 /// </para>
 /// </remarks>
-public sealed unsafe class VulkanRenderer : IDisposable
+public sealed unsafe class VulkanRenderer : IRenderer
 {
     private const int FramesInFlight = 2;
 
@@ -268,6 +268,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
 
     /// <summary>Whether to build the bring-up triangle. See <see cref="_triangle"/>.</summary>
     private readonly bool _bringUp;
+
+    /// <summary>Which API is behind this renderer.</summary>
+    public RenderBackend Backend => RenderBackend.Vulkan;
 
     /// <summary>The device this renderer is using.</summary>
     public string DeviceName { get; private set; } = "unknown";
@@ -563,7 +566,7 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// Asked of the instance the renderer already has. Surveying separately means creating a
     /// second instance and throwing it away, which is 145 ms nobody is waiting to read.
     /// </remarks>
-    public VulkanDeviceReport Survey() => VulkanDeviceSelector.Survey(_vk, _instance);
+    public DeviceReport Survey() => VulkanDeviceSelector.Survey(_vk, _instance);
 
     /// <summary>Creates a renderer for a window.</summary>
     /// <param name="window">Window to present into.</param>
@@ -887,79 +890,9 @@ public sealed unsafe class VulkanRenderer : IDisposable
     /// one. Anything above paper white clips, which is the whole point of the format it is
     /// being converted into.
     /// </remarks>
-    private byte[] Ordinary(byte[] raw, int width, int height)
-    {
-        byte[] pixels = new byte[width * height * 4];
-        float paperWhite = MathF.Max(_output.PaperWhiteNits, 1f);
-
-        for (int i = 0; i < width * height; i++)
-        {
-            float r;
-            float g;
-            float b;
-
-            if (_format == Format.R16G16B16A16Sfloat)
-            {
-                // scRGB: linear light in sRGB primaries, where one unit is 80 candelas.
-                int at = i * 8;
-                float scale = 80f / paperWhite;
-
-                r = (float)BitConverter.ToHalf(raw, at) * scale;
-                g = (float)BitConverter.ToHalf(raw, at + 2) * scale;
-                b = (float)BitConverter.ToHalf(raw, at + 4) * scale;
-            }
-            else
-            {
-                // HDR10: ten bits a channel through ST.2084, in Rec.2020 primaries. The
-                // pack order is A2B10G10R10, so red is the low ten bits.
-                uint packed = BitConverter.ToUInt32(raw, i * 4);
-
-                float wideRed = Luminance(packed & 0x3FF) / paperWhite;
-                float wideGreen = Luminance((packed >> 10) & 0x3FF) / paperWhite;
-                float wideBlue = Luminance((packed >> 20) & 0x3FF) / paperWhite;
-
-                // Rec.2020 back to Rec.709, which is the inverse of the matrix the output
-                // pass applied. Out-of-gamut colours come back negative and are clamped.
-                r = (1.6605f * wideRed) - (0.5876f * wideGreen) - (0.0728f * wideBlue);
-                g = (-0.1246f * wideRed) + (1.1329f * wideGreen) - (0.0083f * wideBlue);
-                b = (-0.0182f * wideRed) - (0.1006f * wideGreen) + (1.1187f * wideBlue);
-            }
-
-            pixels[(i * 4) + 0] = Encode(r);
-            pixels[(i * 4) + 1] = Encode(g);
-            pixels[(i * 4) + 2] = Encode(b);
-            pixels[(i * 4) + 3] = 255;
-        }
-
-        return pixels;
-    }
-
-    /// <summary>Undoes ST.2084, giving absolute luminance in candelas.</summary>
-    private static float Luminance(uint tenBits)
-    {
-        const float M1 = 0.1593017578125f;
-        const float M2 = 78.84375f;
-        const float C1 = 0.8359375f;
-        const float C2 = 18.8515625f;
-        const float C3 = 18.6875f;
-
-        float encoded = MathF.Pow(tenBits / 1023f, 1f / M2);
-        float numerator = MathF.Max(encoded - C1, 0f);
-
-        return 10_000f * MathF.Pow(numerator / (C2 - (C3 * encoded)), 1f / M1);
-    }
-
-    /// <summary>A linear value as an sRGB byte.</summary>
-    private static byte Encode(float linear)
-    {
-        float value = Math.Clamp(linear, 0f, 1f);
-
-        float encoded = value <= 0.0031308f
-            ? value * 12.92f
-            : (1.055f * MathF.Pow(value, 1f / 2.4f)) - 0.055f;
-
-        return (byte)Math.Clamp(MathF.Round(encoded * 255f), 0f, 255f);
-    }
+    private byte[] Ordinary(byte[] raw, int width, int height) =>
+        HdrCapture.ToOrdinary(
+            raw, width, height, _format == Format.R16G16B16A16Sfloat, _output.PaperWhiteNits);
 
     /// <summary>Reads the frame's motion vectors back, in pixels.</summary>
     /// <returns>
@@ -1493,24 +1426,14 @@ public sealed unsafe class VulkanRenderer : IDisposable
                 _presentFamily = present;
                 DeviceName = SilkMarshal.PtrToString((nint)properties.DeviceName) ?? "unknown";
 
-                // From the PCI identifier rather than from the name. Which upscalers the
-                // settings page may offer hangs off this, and a card whose marketing string
-                // changes between driver releases must not change what the menu shows.
-                Vendor = properties.VendorID switch
-                {
-                    0x10DE => GpuVendor.Nvidia,
-                    0x1002 or 0x1022 => GpuVendor.Amd,
-                    0x8086 => GpuVendor.Intel,
-                    0x106B => GpuVendor.Apple,
-                    _ => GpuVendor.Unknown,
-                };
+                Vendor = GpuVendors.Of(properties.VendorID);
             }
         }
 
         _physicalDevice = best ?? throw new VulkanException("No device can present to this window.");
 
-        VulkanDeviceReport report = VulkanDeviceSelector.Survey();
-        Tiers = report.Devices.FirstOrDefault(d => d.Name == DeviceName)?.Tiers
+        DeviceReport report = VulkanDeviceSelector.Survey();
+        Tiers = report.Adapters.FirstOrDefault(d => d.Name == DeviceName)?.Tiers
             ?? RenderCapabilityTier.Compatibility;
     }
 

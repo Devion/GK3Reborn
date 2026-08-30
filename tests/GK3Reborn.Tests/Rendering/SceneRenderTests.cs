@@ -31,8 +31,8 @@ public sealed class SceneRenderTests
     {
         try
         {
-            VulkanDeviceReport report = VulkanDeviceSelector.Survey();
-            return report.VulkanAvailable && report.Devices.Count > 0;
+            DeviceReport report = VulkanDeviceSelector.Survey();
+            return report.Available && report.Adapters.Count > 0;
         }
         catch (VulkanException)
         {

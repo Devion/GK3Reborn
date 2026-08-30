@@ -519,6 +519,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         Dictionary<int, List<int>> batches = [];
         _placements.Add(batches);
 
+        // The colour placeholders first, and before the batch below is opened. A group the
+        // artists gave no texture at all is drawn as a one-pixel texture of its own colour,
+        // and uploading one is a submission of its own — which on Direct3D means a one-shot
+        // command list, which cannot be opened inside the batch. Painted only uploads the
+        // first time it sees a colour, so asking twice costs a dictionary lookup.
+        foreach (ModMesh ahead in model.Meshes)
+        {
+            foreach (ModSubmesh submesh in ahead.Submeshes)
+            {
+                Painted(submesh);
+            }
+        }
+
         // As for the room: a character is a dozen meshes and a scene places dozens of
         // models, so the submissions add up even though each model is small.
         using IGeometryUploads uploads = _device.BeginUploads();

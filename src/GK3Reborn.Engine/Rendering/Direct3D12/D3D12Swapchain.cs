@@ -61,6 +61,28 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// <summary>What a back buffer holds.</summary>
     public Format Format { get; private set; } = Format.FormatR8G8B8A8Unorm;
 
+    /// <summary>The format a pass drawing onto a back buffer must be built for.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Not the same as <see cref="Format"/>, and the difference is the whole of the
+    /// standard-range encode.</b> A flip-model swapchain may not be created with an sRGB
+    /// format, so the buffers are plain <c>UNORM</c>; but every pass that writes them —
+    /// the output encode, the film, the interface, the fade — writes linear light and
+    /// expects the hardware to apply the curve. So the render target view declares the sRGB
+    /// form of the same bits, which is what makes the hardware do it.
+    /// </para>
+    /// <para>
+    /// Getting this wrong is not an error anywhere. It is a game that is far too dark, with
+    /// its darks crushed together and its colours pulled towards the primaries — which reads
+    /// as a lighting bug rather than as a missing encode.
+    /// </para>
+    /// <para>
+    /// On a high dynamic range surface the two are the same. There is no hardware curve for
+    /// ST.2084 and the shader does the encode itself.
+    /// </para>
+    /// </remarks>
+    public Format RenderFormat { get; private set; } = Format.FormatR8G8B8A8UnormSrgb;
+
     /// <summary>How the numbers in a back buffer are to be read by the display.</summary>
     public ColorSpaceType ColorSpace { get; private set; } = ColorSpaceType.RgbFullG22NoneP709;
 
@@ -213,6 +235,7 @@ public sealed unsafe class D3D12Swapchain : IDisposable
 
         Size = (width, height);
         Format = format;
+        RenderFormat = ViewOf(format);
         ApplyColorSpace(space);
         BindBuffers();
     }
@@ -244,6 +267,21 @@ public sealed unsafe class D3D12Swapchain : IDisposable
         _chain.Dispose();
     }
 
+    /// <summary>The format a render target view of a back buffer declares.</summary>
+    /// <param name="format">The format the buffers were created with.</param>
+    /// <returns>The format to write through.</returns>
+    /// <remarks>
+    /// The sRGB form of the eight-bit format, so the hardware applies the standard-range
+    /// curve; anything else unchanged, because a ten-bit surface carries ST.2084 and the
+    /// shader encodes that itself.
+    /// </remarks>
+    private static Format ViewOf(Format format) => format switch
+    {
+        Format.FormatR8G8B8A8Unorm => Format.FormatR8G8B8A8UnormSrgb,
+        Format.FormatB8G8R8A8Unorm => Format.FormatB8G8R8A8UnormSrgb,
+        _ => format,
+    };
+
     /// <summary>Which format and colour space to present in.</summary>
     /// <param name="wantHdr">Whether high dynamic range was asked for.</param>
     /// <param name="space">How the display should read the numbers.</param>
@@ -253,10 +291,13 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// Three genuinely different pictures rather than three qualities of one:
     /// </para>
     /// <para>
-    /// <b>R8G8B8A8_UNORM with sRGB.</b> Eight bits a channel, encoded by the output pass.
-    /// The format is deliberately not the <c>_SRGB</c> one: an sRGB back buffer converts on
-    /// write, which is a second encode on top of the one the output pass already did, and
-    /// the picture comes out washed out. The Vulkan path made exactly this mistake once.
+    /// <b>R8G8B8A8_UNORM, written through an sRGB view.</b> Eight bits a channel, encoded
+    /// by the hardware. The buffers cannot be created in the <c>_SRGB</c> format — a
+    /// flip-model swapchain refuses it — so the format here is the plain one and
+    /// <see cref="RenderFormat"/> is its sRGB form, which is what the render target view and
+    /// every pipeline that writes a back buffer declare. The passes write linear light and
+    /// the curve is applied on write, exactly as on the Vulkan surface, which picks an
+    /// <c>_SRGB</c> format outright because Vulkan allows one.
     /// </para>
     /// <para>
     /// <b>R10G10B10A2_UNORM with ST.2084.</b> HDR10. Ten bits a channel is enough for a
@@ -373,6 +414,7 @@ public sealed unsafe class D3D12Swapchain : IDisposable
 
         Size = ((int)description.Width, (int)description.Height);
         Format = description.Format;
+        RenderFormat = ViewOf(Format);
 
         Format wanted = Choose(wantHdr, out ColorSpaceType space);
         if (wanted != Format)
@@ -412,8 +454,20 @@ public sealed unsafe class D3D12Swapchain : IDisposable
                 $"take back buffer {i}");
 
             uint slot = _renderTargets.Allocate();
+
+            // Stated, not inherited. A null description means "whatever the resource says",
+            // and what the resource says is the one thing that must not be used here: the
+            // buffer is plain UNORM and the view has to be its sRGB form.
+            var view = new RenderTargetViewDesc
+            {
+                Format = RenderFormat,
+                ViewDimension = RtvDimension.Texture2D,
+            };
+
+            view.Anonymous.Texture2D = new Tex2DRtv { MipSlice = 0, PlaneSlice = 0 };
+
             _context.Device->CreateRenderTargetView(
-                _buffers[i].Handle, (RenderTargetViewDesc*)null, _renderTargets.Cpu(slot));
+                _buffers[i].Handle, &view, _renderTargets.Cpu(slot));
 
             // A back buffer comes out of DXGI in the Present state, which is where the
             // renderer must put it back before each present.

@@ -117,6 +117,66 @@ public static unsafe class D3D12TextureUpload
         }
     }
 
+    /// <summary>Puts the six sides of a sky on the device.</summary>
+    /// <param name="context">The device.</param>
+    /// <param name="faces">The six sides: right, left, up, down, front, back.</param>
+    /// <param name="into">An open batch to record into, or null to submit on its own.</param>
+    /// <returns>The cube map.</returns>
+    /// <exception cref="ArgumentException">There are not six square faces of one size.</exception>
+    /// <exception cref="D3D12Exception">It could not be created or filled.</exception>
+    /// <remarks>
+    /// The order is Direct3D's own, which is the same order Vulkan wants and the same order
+    /// the game's files are read in. A cube with two faces swapped is not obviously wrong
+    /// from inside it — the sky is still a sky — which is why it is stated here rather than
+    /// left to whoever calls this.
+    /// </remarks>
+    public static D3D12Texture CreateCube(
+        D3D12Context context, IReadOnlyList<DecodedImage> faces, D3D12Uploads? into = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(faces);
+
+        if (faces.Count != 6)
+        {
+            throw new ArgumentException("A cube map needs exactly six faces.", nameof(faces));
+        }
+
+        int size = faces[0].Width;
+
+        foreach (DecodedImage face in faces)
+        {
+            if (face.Width != size || face.Height != size)
+            {
+                throw new ArgumentException(
+                    "A cube map's faces must all be square and the same size.", nameof(faces));
+            }
+        }
+
+        D3D12Texture texture = D3D12Texture.CreateCube(
+            context, Format.FormatR8G8B8A8UnormSrgb, size);
+
+        try
+        {
+            // Six subresources rather than six mips of one. A texture's subresources are
+            // numbered mip-fastest, so a cube with one mip a face numbers its faces nought
+            // to five and the copy walks them exactly as it walks a mip chain.
+            var sides = new List<byte[]>(6);
+
+            foreach (DecodedImage face in faces)
+            {
+                sides.Add(face.Pixels);
+            }
+
+            Fill(context, texture, sides, 6, into);
+            return texture;
+        }
+        catch
+        {
+            texture.Dispose();
+            throw;
+        }
+    }
+
     /// <summary>Puts an already-compressed picture on the device.</summary>
     /// <param name="context">The device.</param>
     /// <param name="source">The compressed levels, as the file holds them.</param>

@@ -6,12 +6,12 @@
 
 using System.Runtime.InteropServices;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Shaders;
 
 /// <summary>What a pass that writes the swapchain has to know about the display.</summary>
 /// <param name="Transfer">
 /// Which encoding: nought for an sRGB target the hardware encodes, one for ST.2084, two for
-/// scRGB. See <see cref="OutputPipeline"/> for the same three constants.
+/// scRGB. See <c>OutputPipeline</c> for the same three constants.
 /// </param>
 /// <param name="PaperWhite">Where diffuse white sits, in candelas per square metre.</param>
 /// <param name="Headroom">How far above it the display can go.</param>
@@ -23,8 +23,17 @@ public readonly record struct DisplayEncode(
     float Headroom,
     float Unused = 0f)
 {
+    /// <summary>The hardware encodes: write linear and let the sRGB target do the curve.</summary>
+    public const float TransferHardware = 0f;
+
+    /// <summary>ST.2084, in Rec.2020 primaries, with luminance in absolute nits.</summary>
+    public const float TransferPerceptualQuantiser = 1f;
+
+    /// <summary>scRGB: linear light in sRGB primaries, where 1.0 is 80 nits.</summary>
+    public const float TransferExtendedLinear = 2f;
+
     /// <summary>The ordinary case: an sRGB target, encoded by the hardware.</summary>
-    public static DisplayEncode Standard { get; } = new(0f, 200f, 1f);
+    public static DisplayEncode Standard { get; } = new(TransferHardware, 200f, 1f);
 }
 
 /// <summary>
