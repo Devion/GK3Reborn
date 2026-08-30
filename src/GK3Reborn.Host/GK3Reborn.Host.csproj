@@ -90,8 +90,31 @@
       <_RebornRuntimesNative>
         <RelativePath>libs\%(RebornRid)\%(Filename)%(Extension)</RelativePath>
       </_RebornRuntimesNative>
+    </ItemGroup>
 
+    <ItemGroup>
+      <!-- A publish for one RID carries that RID and no other. It has to be said here
+           because a referenced project does not learn the RID: RuntimeIdentifier comes
+           from a publish profile, which is a property of this project rather than a global
+           property, and the SDK builds a RID-agnostic project reference with the RID
+           removed. So GK3Reborn.Engine is built portable whatever is being published, and
+           the two DXC libraries it places by hand - runtimes/win-x64 and runtimes/win-arm64,
+           see its csproj - arrive in every publish including the ones that have no
+           Direct3D at all.
+
+           Harmless on Linux and fatal on a Mac: codesign treats a .dll inside a bundle as
+           nested code, refuses to seal over one it cannot sign, and fails the whole bundle
+           with "code object is not signed at all. In subcomponent: .../libs/win-x64/dxil.dll".
+           Dropping the foreign RIDs is the fix and is right on its own terms - neither
+           macOS nor Linux has a Direct3D path to feed. -->
+      <_RebornForeignNative Remove="@(_RebornForeignNative)" />
+      <_RebornForeignNative Include="@(_RebornRuntimesNative)" Condition="'$(RuntimeIdentifier)' != '' and '%(_RebornRuntimesNative.RebornRid)' != '$(RuntimeIdentifier)'" />
+      <_RebornRuntimesNative Remove="@(_RebornForeignNative)" />
+    </ItemGroup>
+
+    <ItemGroup>
       <ResolvedFileToPublish Remove="@(_RebornRuntimesNative)" />
+      <ResolvedFileToPublish Remove="@(_RebornForeignNative)" />
       <ResolvedFileToPublish Include="@(_RebornRuntimesNative)" />
     </ItemGroup>
   </Target>

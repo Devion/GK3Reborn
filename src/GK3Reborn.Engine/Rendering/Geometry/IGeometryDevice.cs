@@ -213,6 +213,25 @@ public interface IGeometryDevice : IDisposable
     /// </remarks>
     void Reserve(int materials);
 
+    /// <summary>Frees every material the device has handed out.</summary>
+    /// <remarks>
+    /// <para>
+    /// The other half of <see cref="Reserve"/>, and not optional on either backend. A
+    /// material is a descriptor - a Vulkan set out of a pool, a run of slots in a Direct3D
+    /// heap - and nothing else refers to one once the scene that asked for it has gone, so
+    /// a scene releases them as it is disposed. Without this a session leaks a room's worth
+    /// of descriptors at every door: Vulkan opens a pool per room and keeps it, and
+    /// Direct3D fills a fixed heap and throws part-way through loading the room that
+    /// overflows it.
+    /// </para>
+    /// <para>
+    /// One scene's materials at a time, therefore. Both backends free everything they have
+    /// handed out since the last release, so a second scene built while a first is still
+    /// alive would take the first's descriptors with it.
+    /// </para>
+    /// </remarks>
+    void ReleaseMaterials();
+
     /// <summary>Builds an acceleration structure over some geometry.</summary>
     /// <param name="meshes">What the rays can hit.</param>
     /// <returns>The structure, or null where the device cannot trace or there is nothing to.</returns>

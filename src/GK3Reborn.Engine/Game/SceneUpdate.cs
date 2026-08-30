@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
@@ -365,6 +366,48 @@ public sealed class SceneUpdate
     /// <summary>Where the animations that name those clips come from.</summary>
     public Content.AnimationLibrary? Animations { get; set; }
 
+    /// <summary>Told where every actor stands, whenever a clip takes one or lets one go.</summary>
+    /// <remarks>
+    /// <para>
+    /// Null unless somebody asked — <c>--trace-actors</c> — because it is a line per clip
+    /// per character and a cutscene is hundreds of them.
+    /// </para>
+    /// <para>
+    /// <b>Where somebody is standing is not something to reason about from a screenshot.</b>
+    /// A character drawn in the wrong place and a character whose <em>placement</em> is in
+    /// the wrong place look identical for as long as one clip is playing and diverge the
+    /// moment the next one starts, and the whole family of defects this exists for is of
+    /// that shape: an actor who steps towards somebody and steps back, a pair who turn to
+    /// face the player and are facing the wall a line later. The clip's name beside the two
+    /// numbers, at the frame it starts and the frame it ends, is what tells the two apart.
+    /// </para>
+    /// </remarks>
+    public Action<string>? TraceActors { get; set; }
+
+    /// <summary>Reports where an actor stands, for <see cref="TraceActors"/>.</summary>
+    /// <param name="what">What just happened, such as <c>plays</c> or <c>ends</c>.</param>
+    /// <param name="clip">The clip it happened to.</param>
+    /// <param name="target">Whose it is.</param>
+    /// <param name="note">Anything else worth saying, or empty.</param>
+    private void Trace(string what, string clip, PlacedModel target, string note = "")
+    {
+        if (TraceActors is not { } tell || target.Kind != PlacedModelKind.Actor)
+        {
+            return;
+        }
+
+        Matrix4x4 standing = _geometry.TransformOf(target.Placement);
+        Vector3 where = standing.Translation;
+        float heading = Navigation.Walker.Wrapped(
+            Navigation.Walker.Rotation(MathF.Atan2(standing.M31, standing.M33)) +
+            (target.BuiltFacing ?? MathF.PI) - MathF.PI);
+
+        tell(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{target.Name} {what} {clip}: placed ({where.X:0.#}, {where.Z:0.#}) " +
+            $"facing {heading * 180f / MathF.PI:0.#}°{(note.Length > 0 ? ", " + note : string.Empty)}"));
+    }
+
     /// <summary>
     /// The faces in the room, when there is anything that can move one.
     /// </summary>
@@ -580,6 +623,15 @@ public sealed class SceneUpdate
                 interrupted.Interrupted = true;
             }
 
+            // Cut short is still as far as it got. The reference commits a move clip's
+            // ground every frame, so stopping one part-way leaves the actor wherever it had
+            // carried them by then; here the commit happens as a clip lets go of a model,
+            // and this is one of the three ways that happens. See Adopt.
+            foreach (Playing stopped in _playing.Where(p => Drives(p, target) && !p.Reverts))
+            {
+                Adopt(stopped);
+            }
+
             _playing.RemoveAll(p => Drives(p, target));
 
             // The move flag is carried but not yet spent. Committing the ground a clip
@@ -646,10 +698,20 @@ public sealed class SceneUpdate
                 _carried.Remove(target.Name);
             }
 
-            _playing.Add(new Playing(
+            var started = new Playing(
                 clip, target, action, repeat, moves, Where(target.Name),
                 _geometry.TransformOf(target.Placement), fromBehaviour, animation.Rate,
-                Characters?.Of(target.Name), carrier is not null));
+                Characters?.Of(target.Name), carrier is not null);
+
+            Trace(
+                "plays",
+                clip.Name,
+                target,
+                (started.Absolute ? "absolute" : "relative") +
+                (started.Reverts ? ", reverts" : ", keeps the ground") +
+                (fromBehaviour ? ", from its own script" : string.Empty));
+
+            _playing.Add(started);
             longest = Math.Max(
                 longest,
                 ((double)clip.FrameCount + action.Frame) / Math.Max(1, animation.Rate));
@@ -2226,6 +2288,13 @@ public sealed class SceneUpdate
             p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase)))
         {
             Rest(running);
+
+            // And an actor keeps whatever ground a move clip had covered by the time it was
+            // stopped, as it would have if the clip had been left to finish. See Adopt.
+            if (!running.Reverts)
+            {
+                Adopt(running);
+            }
         }
 
         _playing.RemoveAll(p =>
@@ -2774,16 +2843,153 @@ public sealed class SceneUpdate
     /// </remarks>
     private void Reseat(PlacedModel actor, Vector3 position, float heading)
     {
-        // The placement is scale, then a turn, then a move, and the scale has to survive.
+        _geometry.MoveModel(actor.Placement, Standing(actor, position, heading));
+    }
+
+    /// <summary>A placement that stands an actor at a spot, facing a heading.</summary>
+    /// <param name="actor">Whose placement it is, for its scale and its built facing.</param>
+    /// <param name="position">Where to stand them.</param>
+    /// <param name="heading">Which way to face, as the game's data measures a heading.</param>
+    /// <remarks>
+    /// The placement is scale, then a turn, then a move, and the scale has to survive.
+    /// </remarks>
+    private static Matrix4x4 Standing(PlacedModel actor, Vector3 position, float heading)
+    {
         float scale = new Vector3(
             actor.Transform.M11, actor.Transform.M12, actor.Transform.M13).Length();
 
-        _geometry.MoveModel(
-            actor.Placement,
+        return
             Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) *
             Matrix4x4.CreateRotationY(
                 Actors.FacingArrow.Rotation(heading, actor.BuiltFacing)) *
-            Matrix4x4.CreateTranslation(position));
+            Matrix4x4.CreateTranslation(position);
+    }
+
+    /// <summary>
+    /// Takes where a clip has left an actor standing as where that actor now stands.
+    /// </summary>
+    /// <param name="actor">Whoever the clip was posing.</param>
+    /// <param name="position">Where its last frame put their feet, in the room.</param>
+    /// <param name="heading">And which way it left them facing.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The rule this is: an actor's position and heading follow their model.</b> The
+    /// reference does it every frame — <c>GKActor::OnLateUpdate</c> ends in
+    /// <c>SyncActorToModelPositionAndRotation</c>, which reads the posed model's floor
+    /// position and facing direction and moves the actor to them — and this engine did not
+    /// do it at all. A clip poses the meshes and the placement underneath them was never
+    /// written to, so the placement stayed wherever the scene file put the character for
+    /// the whole life of the room.
+    /// </para>
+    /// <para>
+    /// <b>What that looks like is a cutscene that keeps snapping its cast back.</b> A
+    /// relative clip is played through the placement — see <see cref="Playing.Correction"/>
+    /// — so every clip after the first began again at the spot and the heading the scene
+    /// opened with, however far the one before it had carried them. Reported from the
+    /// museum, where <c>LHETurn2Gab</c> turns Lady Howard to face Gabriel and walks Estelle
+    /// a step towards him with <c>EstOneStep</c>: Estelle took her step and turned straight
+    /// back round, and the pair reset between every line of the introduction.
+    /// </para>
+    /// <para>
+    /// <b>It is a sync and not a move</b>, so the picture is identical on the frame it
+    /// happens. The placement is what a mesh's own transform is drawn through, so writing a
+    /// new one would shift the model by the whole of what the clip had just carried it. Each
+    /// mesh's transform is therefore rewritten by the same amount the other way, which
+    /// leaves every vertex exactly where it was and moves only the frame the next clip will
+    /// be played in — which is the whole point, and is what the reference gets for free by
+    /// keeping the actor and its model as two transforms rather than one.
+    /// </para>
+    /// <para>
+    /// Only for a clip that <em>keeps</em> the ground it covered. A non-move animation puts
+    /// the actor back where it found them, which is where the placement already is, so there
+    /// is nothing to write: see <see cref="Playing.Reverts"/>.
+    /// </para>
+    /// </remarks>
+    private void Settle(PlacedModel actor, Vector3 position, float heading)
+    {
+        if (!actor.Placement.Exists)
+        {
+            return;
+        }
+
+        Matrix4x4 was = _geometry.TransformOf(actor.Placement);
+        Matrix4x4 now = Standing(actor, position, heading);
+
+        if (!Matrix4x4.Invert(now, out Matrix4x4 back))
+        {
+            return;
+        }
+
+        Matrix4x4 keep = was * back;
+
+        _geometry.MoveModel(actor.Placement, now);
+
+        for (int mesh = 0; mesh < actor.Model.Meshes.Count; mesh++)
+        {
+            Matrix4x4 local = actor.PoseOf(mesh) * keep;
+
+            _geometry.PoseMesh(actor.Placement, mesh, local);
+            actor.Pose(mesh, local);
+        }
+    }
+
+    /// <summary>Hands a clip's last frame to the actor it was posing.</summary>
+    /// <param name="playing">The clip, on the frame it stopped.</param>
+    /// <remarks>
+    /// Where and which way come from the pose rather than from a running total of how far
+    /// the clip travelled, for the same reason <c>Follow</c> reads them there: a placement
+    /// that was wrong to begin with makes every total measured from it wrong too. Only an
+    /// actor has a heading to keep — a prop's clip is authored in the room's own space and
+    /// its placement is the identity — and only a clip that says something about the hips
+    /// can answer at all, so one that does not leaves the actor as they were rather than
+    /// moving them to a guess.
+    /// </remarks>
+    private void Adopt(Playing playing)
+    {
+        if (playing.Target.Kind != PlacedModelKind.Actor)
+        {
+            return;
+        }
+
+        // <b>Not for a clip the model's own behaviour script asked for.</b> This is a
+        // deliberate narrowing of the reference's rule, which syncs the actor to the model
+        // every frame whatever is posing it, and the difference is that this happens once,
+        // as a clip lets go. For a story clip the two agree at the only moment that matters.
+        // For an <em>idle</em> they do not: the reference tracks a fidget continuously and
+        // re-snaps the model to the actor as each new relative clip starts, so the drift is
+        // bounded and cancels; taking one snapshot at the end of a fidget bakes it in
+        // permanently.
+        //
+        // And a fidget is decoration, which this engine already says everywhere else — an
+        // idle is dropped where the story is animating, paused for a walk, and cleaned up
+        // when interrupted. Letting one relocate an actor for the rest of the room is the
+        // same mistake in a new place. Madeline Buthane is the case: she is placed at
+        // BUTHANE_TALK facing Gabriel, and her idle is madMapIdle.gas, whose clips are
+        // authored absolutely at the back of her van with her turned to the map — 128° from
+        // him. Adopting that left her talking to the whole conversation over her shoulder,
+        // because the talk script that plays through her placement is relative.
+        if (playing.FromBehaviour)
+        {
+            return;
+        }
+
+        Matrix4x4 standing = _geometry.TransformOf(playing.Target.Placement);
+
+        if (playing.Facing(standing) is not { } heading)
+        {
+            Trace("keeps", playing.Clip.Name, playing.Target, "the clip says nothing about its hips");
+            return;
+        }
+
+        Settle(playing.Target, playing.Now(standing), heading);
+
+        Trace(
+            "keeps",
+            playing.Clip.Name,
+            playing.Target,
+            Actors.AnimationStart.Stance
+                ? "taken from the stance"
+                : "from the hip mesh — this clip poses no shoes");
     }
 
     /// <summary>
@@ -3193,6 +3399,14 @@ public sealed class SceneUpdate
                 if (playing.Reverts)
                 {
                     Follow(playing.Target.Name, playing.Began);
+                    Trace("reverts after", playing.Clip.Name, playing.Target);
+                }
+                else
+                {
+                    // And keeping it means writing it down. See Settle: until it did, the
+                    // next clip through this actor's placement began at the spot the scene
+                    // file named, whatever this one had just done with them.
+                    Adopt(playing);
                 }
 
                 happened.Add($"{playing.Clip.Name} finished");

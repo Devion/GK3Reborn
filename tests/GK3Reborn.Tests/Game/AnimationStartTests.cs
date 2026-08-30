@@ -179,6 +179,71 @@ public sealed class AnimationStartTests
     }
 
     [Fact]
+    public void The_facing_is_the_stance_rather_than_the_hip_meshs_own_axis()
+    {
+        // The hips are turned a quarter circle away from the feet, which happens whenever
+        // somebody is authored looking over their shoulder. The reference reads the facing
+        // off the triangle the hips and shoes make — GKActor::GetModelFacingDirection — and
+        // the mesh's own rotation is not that triangle. Reading the rotation instead came
+        // out a half turn away for Gabriel, and everything measured against it was aimed at
+        // his back: the head glances, the approach=anim arrivals, and the heading a
+        // finished clip leaves the actor at.
+        Matrix4x4 hips = Matrix4x4.CreateRotationY(MathF.PI / 2f) *
+                         Matrix4x4.CreateTranslation(0, 60, 0);
+
+        (Vector3 Position, float Heading)? start = Start(hips, Vector3.Zero);
+
+        Assert.NotNull(start);
+
+        // Right shoe at +x, left at −x, hips above: cross(right − left, hip − left)
+        // flattened points along +z, which is a heading of zero — whatever the hip mesh
+        // itself has been turned to.
+        float apart = MathF.Abs(Wrap(start.Value.Heading));
+
+        Assert.True(apart < 0.01f, $"expected 0, got {start.Value.Heading}");
+
+        // And the mesh's own reading is a quarter turn from that, which is what makes this
+        // fixture able to tell the two apart at all.
+        Assert.True(
+            MathF.Abs(Wrap(Walker.HeadingOf(hips))) > 1f,
+            "the fixture no longer distinguishes the stance from the mesh");
+    }
+
+    [Fact]
+    public void A_facing_part_way_through_a_clip_reads_the_feet_on_that_frame()
+    {
+        // Both feet swap sides between the two frames, which is the whole of a turn: the
+        // stance faces +z on the first and −z on the second. Reading the feet on frame zero
+        // under the hips of whatever frame was asked about is a triangle that never existed,
+        // and it is worst on exactly the clips whose purpose is a turn — the museum's
+        // Lh2MusEstTurn2Gab left Lady Howard and Estelle standing 165 and 99 degrees from
+        // the man they had just turned to face.
+        ClipBuilder clip = new ClipBuilder(3, "gab")
+            .Frame(
+                (RightShoe, ClipBuilder.Transform(Matrix4x4.CreateTranslation(2, 0, 0))),
+                (LeftShoe, ClipBuilder.Transform(Matrix4x4.CreateTranslation(-2, 0, 0))),
+                (Hips, ClipBuilder.Transform(Matrix4x4.CreateTranslation(0, 60, 0))))
+            .Frame(
+                (RightShoe, ClipBuilder.Transform(Matrix4x4.CreateTranslation(-2, 0, 0))),
+                (LeftShoe, ClipBuilder.Transform(Matrix4x4.CreateTranslation(2, 0, 0))),
+                (Hips, ClipBuilder.Transform(Matrix4x4.CreateTranslation(0, 60, 0))));
+
+        ActFile read = Library("gab_turn", clip).Read("gab_turn")!;
+
+        float? opening = AnimationStart.FacingAt(
+            read, 0f, false, Character(), Matrix4x4.Identity, null);
+
+        float? closing = AnimationStart.FacingAt(
+            read, 1f, false, Character(), Matrix4x4.Identity, null);
+
+        Assert.NotNull(opening);
+        Assert.NotNull(closing);
+
+        Assert.True(MathF.Abs(Wrap(opening.Value)) < 0.01f, $"opened at {opening}");
+        Assert.True(MathF.Abs(Wrap(MathF.PI - closing.Value)) < 0.01f, $"closed at {closing}");
+    }
+
+    [Fact]
     public void A_pose_that_records_no_shoes_falls_back_to_the_hips()
     {
         // A rigid clip records no vertices, so there is no sole to read. Answering with the

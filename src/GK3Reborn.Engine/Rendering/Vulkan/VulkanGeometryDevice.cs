@@ -330,6 +330,26 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Every pool, because every set in one is a material: the pools are opened by
+    /// <see cref="Reserve"/> for a room that is about to be built and by <c>Allocate</c> for
+    /// the repaints that room goes on to need, and nothing else allocates from them. Freeing
+    /// the pool frees the sets in it, which is why the sets themselves are not returned one
+    /// by one. The caller has already waited for the device to go idle.
+    /// </remarks>
+    public void ReleaseMaterials()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        foreach (DescriptorPool pool in _pools)
+        {
+            _context.Api.DestroyDescriptorPool(_context.Device, pool, null);
+        }
+
+        _pools.Clear();
+    }
+
+    /// <inheritdoc/>
     public IGeometryAccelerationStructure? BuildAccelerationStructure(
         IReadOnlyList<TraceableMesh> meshes)
     {

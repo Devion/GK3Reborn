@@ -606,16 +606,26 @@ public sealed class SceneLoader
         }
 
         // Outdoors, the ground does not stop at the floor object: verges, rock faces and
-        // roadside carry the same displaced-class textures and were left flat by the
+        // roadside carry the same ground the floor does and were left flat by the
         // floor-only rule, which the reconstructed horizon made the sharpest thing on
-        // screen. Every displaced-class texture the scene uses is cut wherever it appears.
+        // screen. Those surfaces are cut wherever they appear.
+        //
+        // <b>The room's own floor textures are what "the same ground" means.</b> The test
+        // used to be every displaced-class texture the scene uses, and a skybox is not the
+        // same thing as being outdoors: the museum has one through its doorway and so does
+        // every hotel bedroom with a window, so the wider rule cut whatever those rooms
+        // happen to be furnished with. R25 displaced its wardrobe, its rug and the keys of
+        // Gabriel's laptop — 40 textures, up to 6.8 units — and MS3 its display cabinets.
+        // A texture the scene itself lays on the floor it names is ground by the room's own
+        // account, and nothing else in the room is.
         if (asset is { Skybox.IsEmpty: false } && Finishes is { } finishes)
         {
             HashSet<string> everywhere = new(StringComparer.OrdinalIgnoreCase);
 
             foreach (BspSurface surface in bsp.Surfaces)
             {
-                if (finishes.Of(surface.TextureName) is { Displaced: true, HeightDepth: > 0f })
+                if (floorTextures.Contains(surface.TextureName) &&
+                    finishes.Of(surface.TextureName) is { Displaced: true, HeightDepth: > 0f })
                 {
                     everywhere.Add(surface.TextureName);
                 }

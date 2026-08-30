@@ -26,12 +26,13 @@ namespace GK3Reborn.Game.Actors;
 /// </para>
 /// <para>
 /// Which way they face has to be worked out rather than read, and this is the part that is
-/// not obvious. A character's model normally faces <b>−Z</b>, so a heading is the mesh's
-/// rotation plus a half turn — but the game is not consistent about it and a few animations
-/// are authored the other way round. The triads settle it: the three points make a triangle
-/// whose normal is the way the body is actually facing, and comparing that against the hip
-/// mesh's own Y axis says which of the two conventions this clip was authored in. Getting
-/// it wrong walks the actor to the right spot with their back to the thing.
+/// not obvious. The triads settle it: the three points make a triangle, and <b>its normal
+/// flattened onto the floor is the facing outright</b> — no half turn, no convention to
+/// choose between, and no reading taken off any mesh's own axes. That is
+/// <c>GKActor::GetModelFacingDirection</c>, and it is the same measure
+/// <c>SceneUpdate.Playing.Correction</c> draws the body by, which is the point: two ways of
+/// asking where somebody is facing is one too many, and the two answered a half turn apart.
+/// Getting it wrong walks the actor to the right spot with their back to the thing.
 /// </para>
 /// </remarks>
 public static class AnimationStart
@@ -95,7 +96,7 @@ public static class AnimationStart
             Vector3 local = Point(clip, hips) ?? Vector3.Zero;
             Vector3 position = Vector3.Transform(local, basis);
 
-            return (position, Facing(clip, character, basis, toWorld, built));
+            return (position, Facing(clip, character, basis, toWorld, 0f, repeat: false, built));
         }
 
         return null;
@@ -228,7 +229,7 @@ public static class AnimationStart
             return null;
         }
 
-        return Facing(clip, character, pose * toWorld, toWorld, built);
+        return Facing(clip, character, pose * toWorld, toWorld, frame, repeat, built);
     }
 
     /// <summary>The triad's point on the opening frame, if the clip records vertices.</summary>
@@ -237,46 +238,78 @@ public static class AnimationStart
             ? shape[axes.Point]
             : null;
 
-    /// <summary>The last dot product the facing test read, for a diagnostic to print.</summary>
+    /// <summary>How far the triangle's answer stood from the hip mesh's, last time it was read.</summary>
     /// <remarks>
-    /// The reference says the vast majority of models face opposite the hip mesh's Y axis,
-    /// which is a negative reading. If ours come out positive the sign is inverted somewhere
-    /// and every character is being turned the wrong way, which is not something to argue
-    /// about when it can be measured.
+    /// In degrees, for a diagnostic to print. It used to be a dot product, because the
+    /// heading used to be the hip mesh's rotation with the triangle only choosing a sign;
+    /// see <see cref="Facing"/> for why it is no longer. A large number here is a clip whose
+    /// hips are turned relative to the stance, which is ordinary and no longer changes the
+    /// answer.
     /// </remarks>
     public static float Reading { get; private set; }
+
+    /// <summary>Whether the last facing read had a stance to read it from.</summary>
+    /// <remarks>
+    /// False means the clip poses no shoes on that frame and the answer came from the hip
+    /// mesh's own rotation instead, which is a different measurement and routinely a long
+    /// way off. Worth being able to see: it is not an error and it is not the answer either.
+    /// </remarks>
+    public static bool Stance { get; private set; }
 
     /// <summary>
     /// Which way the body is facing on the opening frame.
     /// </summary>
     /// <remarks>
-    /// The shoes and the hips make a triangle, and its normal flattened onto the floor is
-    /// the direction the body faces. Nearly every model in the game has that opposite the
-    /// hip mesh's Y axis, which is what makes a heading "the mesh's rotation plus a half
-    /// turn"; a few have it the same way round, and for those the half turn must not be
-    /// applied. The dot product is the whole of the test, and it is the original's.
+    /// <para>
+    /// The shoes and the hips make a triangle, and <b>its normal flattened onto the floor is
+    /// the facing outright</b> — <c>GKActor::GetModelFacingDirection</c>, the branch it takes
+    /// whenever nothing is animating the facing helper. No dot product and no rare branch.
+    /// </para>
+    /// <para>
+    /// It used to read the heading off the hip mesh's own rotation and use the triangle only
+    /// to choose between that and a half turn from it, which is a different measurement and
+    /// <b>came out a half turn from this one for Gabriel</b> — measured, on <c>gab_GabYawn</c>:
+    /// the triangle says −179.9° and the mesh rotation said −3.2°. That was one measurement
+    /// too many. <see cref="SceneUpdate.Playing.Correction"/> already draws the body by the
+    /// triangle, so everything that asked here instead was aimed a half turn from the body it
+    /// was aimed at, and every one of those is a reported bug: a head glance turned Emilio's
+    /// head backwards over his shoulders as he crossed the lobby; an <c>approach=anim</c>
+    /// stood Gabriel at the wardrobe facing away from it, so his clip played correctly and
+    /// his idle spun him round the moment it ended; and the opening-pose report accused half
+    /// the cast of facing the wrong way.
+    /// </para>
     /// </remarks>
     private static float Facing(
         Formats.Animation.ActFile clip,
         CharacterConfig character,
         Matrix4x4 basis,
         Matrix4x4 toWorld,
+        float frame,
+        bool repeat,
         float? built)
     {
-        // The character's own arrow is loaded and measured — see FacingArrow — and it is not
-        // used here yet. Every one of the game's twenty-three reads a half turn, which
-        // confirms the assumption the rest of the engine makes and rules the built facing
-        // out as the cause of a reversed character. Substituting it for the triangle below
-        // was tried and turned Estelle without turning Lady Howard, which cannot be right
-        // when both of them are reversed together.
+        // Which way the model is built to face is the placement's business — see
+        // FacingArrow — and not this one. What comes back here is where the clip has the
+        // body pointing, in the room.
         _ = built;
 
         float turned = Walker.HeadingOf(basis);
 
+        Stance = false;
+
+        // All three corners on the same frame. The shoes used to be read on frame zero
+        // whatever frame the hips were asked about, which is a triangle that never existed:
+        // right for an opening pose, and wrong by however much the clip has turned the
+        // character by the frame it is really on. A clip whose whole purpose is a turn is
+        // the worst case, and the museum has one — `Lh2MusEstTurn2Gab` ends with Lady
+        // Howard and Estelle facing Gabriel, and the frame-zero feet under the last frame's
+        // hips put them 165 and 99 degrees away from him. Which is what a head glance was
+        // measured against, and, once a finished clip's facing began to be kept, what they
+        // were left standing at.
         if (character.LeftShoe is not { } left ||
             character.RightShoe is not { } right ||
-            clip.PoseOf(left.Mesh, 0) is not { } leftPose ||
-            clip.PoseOf(right.Mesh, 0) is not { } rightPose)
+            clip.PoseAt(left.Mesh, frame, repeat) is not { } leftPose ||
+            clip.PoseAt(right.Mesh, frame, repeat) is not { } rightPose)
         {
             return turned;
         }
@@ -290,19 +323,19 @@ public static class AnimationStart
 
         Vector3 normal = Vector3.Cross(across, up) with { Y = 0 };
 
+        // A clip that records no stance to read — the feet on top of each other, or a rigid
+        // pose with nothing between them — has no triangle, and the mesh's own rotation is
+        // the only thing left to answer with.
         if (normal.LengthSquared() < 1e-6f)
         {
             return turned;
         }
 
-        var axis = new Vector3(basis.M21, basis.M22, basis.M23);
+        float facing = Walker.Heading(normal);
 
-        // Facing along the mesh's own Y axis is the rare case, and the one where the half
-        // turn is wrong. Walker.HeadingOf is the half turn, so this undoes it.
-        Reading = Vector3.Dot(axis, Vector3.Normalize(normal));
+        Reading = Walker.Wrapped(facing - turned) * 180f / MathF.PI;
+        Stance = true;
 
-        return Reading > 0
-            ? Walker.HeadingOf(basis) - MathF.PI
-            : turned;
+        return facing;
     }
 }

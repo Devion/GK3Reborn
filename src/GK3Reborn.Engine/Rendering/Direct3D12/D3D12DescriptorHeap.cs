@@ -156,6 +156,23 @@ public sealed unsafe class D3D12DescriptorHeap : IDisposable
     /// </remarks>
     public void Reset() => _used = 0;
 
+    /// <summary>Forgets every descriptor handed out after a point.</summary>
+    /// <param name="mark">A value <see cref="Used"/> once had.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The mark is above the high-water mark.</exception>
+    /// <remarks>
+    /// A room change, where the heap also holds something older than the room. The frame's
+    /// own descriptors are taken once when the pipeline is built and are still bound by the
+    /// next room, so unloading one has to go back to where its materials began rather than
+    /// to the start. Winding back to a mark is all a bump allocator can offer and all this
+    /// needs: the run being forgotten is the newest one.
+    /// </remarks>
+    public void Reset(uint mark)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(mark, _used);
+
+        _used = mark;
+    }
+
     /// <summary>Where a descriptor is, for the CPU to write.</summary>
     /// <param name="index">Which descriptor.</param>
     /// <returns>Its handle.</returns>

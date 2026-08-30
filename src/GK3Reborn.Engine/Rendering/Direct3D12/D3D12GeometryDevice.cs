@@ -225,6 +225,10 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     private readonly D3D12DescriptorHeap _views;
     private readonly D3D12DescriptorHeap _samplers;
     private readonly D3D12Samplers _shared;
+
+    /// <summary>Where the materials start in the view heap, once one has been made.</summary>
+    private uint? _materialsBase;
+
     private bool _disposed;
 
     private D3D12GeometryDevice(
@@ -396,6 +400,12 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
 
         D3D12Texture[] images = [Of(diffuse), Of(lightmap), Of(normal), Of(orm), Of(height)];
 
+        // Where this session's materials begin, remembered the first time one is asked for
+        // rather than when the device is made: the frame's own descriptors are taken out of
+        // this heap too, by D3D12FrameSet, and they are taken after the device exists and
+        // are still bound long after any one room has gone.
+        _materialsBase ??= _views.Used;
+
         uint first = _views.Allocate(TexturesPerMaterial);
 
         for (uint i = 0; i < TexturesPerMaterial; i++)
@@ -415,6 +425,24 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     /// next five slots in it.
     /// </remarks>
     public void Reserve(int materials) => _ = materials;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The heap is a bump allocator, so this is the allocator winding back to where the
+    /// room's materials began. Nothing is destroyed - a descriptor is a slot, and the
+    /// textures it described belong to the cache, which outlives the room - and the caller
+    /// has already waited for the device to go idle, which is the one hazard: overwriting a
+    /// slot a command list in flight is still reading.
+    /// </remarks>
+    public void ReleaseMaterials()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (_materialsBase is uint some)
+        {
+            _views.Reset(some);
+        }
+    }
 
     /// <inheritdoc/>
     public IGeometryAccelerationStructure? BuildAccelerationStructure(

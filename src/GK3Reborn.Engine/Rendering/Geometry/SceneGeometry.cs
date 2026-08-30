@@ -1219,13 +1219,22 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     continue;
                 }
 
-                // Outdoor ground gets its depth multiplied: the derived depths average 1.2
-                // units — honest for a floor somebody stands on, invisible on a road seen
-                // from a room camera. Capped past even the library's own ceiling, because
-                // the boost is the point.
+                // Ground beyond the floor object gets its depth multiplied: the derived
+                // depths average 1.2 units — honest for a floor somebody stands on,
+                // invisible on a verge or a roadside seen from a room camera. Capped past
+                // even the library's own ceiling, because the boost is the point.
+                //
+                // <b>Never on the floor object itself.</b> The floor's depth is the number
+                // the material library was reviewed at for a surface somebody walks on,
+                // and multiplying it is what curled the museum's tiles: MSMFLOOR asked for
+                // 1.5 units and was cut at 3.75, so every tile domed and the grout between
+                // them wandered. The boost belongs to the ground this feature added — the
+                // part that was flat until the horizon was reconstructed — and not to the
+                // floor that was already right.
                 float depth = geometry.Materials.Of(surface.TextureName).HeightDepth;
 
-                if (geometry._reliefEverywhere.Contains(surface.TextureName))
+                if (surface.ObjectIndex != plan.FloorObject &&
+                    geometry._reliefEverywhere.Contains(surface.TextureName))
                 {
                     depth = MathF.Min(depth * 2.5f, 12f);
                 }
@@ -2375,8 +2384,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         _repainted.Clear();
 
         // The textures are the renderer's and outlast this room; see TextureCache. The
-        // materials belong to the geometry device, which keeps them for as long as it keeps
-        // the descriptors they point at.
+        // materials do not: a material is a descriptor that names five of those textures,
+        // nothing refers to one once this room's batches are gone, and a session that walks
+        // from room to room without releasing them fills a Direct3D heap - 4096 materials,
+        // which is a dozen rooms - and then throws part-way through loading the thirteenth.
+        // Safe here and nowhere earlier: the wait above is what makes overwriting a
+        // descriptor slot something the device is no longer reading.
+        _device.ReleaseMaterials();
+
         _lightmap?.Dispose();
         _lightmap = null;
         _lightmapAtlas = null;

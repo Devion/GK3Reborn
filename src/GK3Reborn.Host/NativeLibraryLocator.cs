@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using Silk.NET.Core.Loader;
 
 namespace GK3Reborn.Bootstrap;
 
@@ -73,25 +72,15 @@ public static class NativeLibraryLocator
     /// <c>runtimes/&lt;rid&gt;/native</c>.
     /// </summary>
     /// <remarks>
-    /// <see cref="DefaultPathResolver.Resolvers"/> is a public, mutable list of candidate
-    /// generators; prepending puts an absolute path from the install root ahead of both
-    /// the bare name - which would let a stray system copy win - and the now-absent
-    /// runtimes tree. The directory check happens per call rather than once, so a run
-    /// started before the payload was dropped in still picks it up.
+    /// The engine registers a resolver of its own with Silk.NET - see
+    /// <see cref="Foundation.NativeLibraries"/>, which exists because Silk cannot
+    /// find its own natives on Linux at all - so this adds a directory to that one rather
+    /// than installing a second. Ahead of everything else it searches: an install root's
+    /// payload should beat both a bare name, which would let a stray system copy win, and
+    /// the runtimes tree a publish has already flattened away.
     /// </remarks>
-    private static void InstallSilkResolver()
-    {
-        if (PathResolver.Default is not DefaultPathResolver resolver)
-        {
-            return;
-        }
-
-        string root = _libsRoot!;
-
-        resolver.Resolvers.Insert(
-            0,
-            name => Directory.Exists(root) ? [Path.Combine(root, name)] : []);
-    }
+    private static void InstallSilkResolver() =>
+        Foundation.NativeLibraries.AddSearchDirectory(_libsRoot!);
 
     /// <summary>Finds a candidate file for a native library name, or null.</summary>
     /// <param name="libraryName">Name as written in the <c>DllImport</c>.</param>

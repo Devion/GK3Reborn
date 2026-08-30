@@ -1,4 +1,6 @@
+using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Models;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Direct3D12;
 using GK3Reborn.Rendering.Geometry;
@@ -44,6 +46,32 @@ public sealed class D3D12GeometryDeviceTests
         Array.Fill(pixels, value);
 
         return new DecodedImage(size, size, pixels, HasAlpha: false, SourceFormat: "test");
+    }
+
+    /// <summary>A unit quad, so that a room can be built without any of the game's data.</summary>
+    private static ModFile Quad(string texture)
+    {
+        var submesh = new ModSubmesh
+        {
+            TextureName = texture,
+            Color = (255, 255, 255),
+            Positions = [new(-1, -1, 0), new(1, -1, 0), new(1, 1, 0), new(-1, 1, 0)],
+            Normals = [-Vector3.UnitZ, -Vector3.UnitZ, -Vector3.UnitZ, -Vector3.UnitZ],
+            TexCoords = [new(0, 1), new(1, 1), new(1, 0), new(0, 0)],
+            Indices = [0, 1, 2, 0, 2, 3],
+        };
+
+        return ModFile.FromMeshes(
+            "quad",
+            [
+                new ModMesh
+                {
+                    MeshToLocal = Matrix4x4.Identity,
+                    BoundsMin = new Vector3(-1, -1, 0),
+                    BoundsMax = new Vector3(1, 1, 0),
+                    Submeshes = [submesh],
+                },
+            ]);
     }
 
     [Fact]
@@ -122,6 +150,79 @@ public sealed class D3D12GeometryDeviceTests
             // five textures wants is a property of what the texture is, and that is the same
             // for every material in the game.
             Assert.Equal(D3D12GeometryDevice.TexturesPerMaterial, device.SamplerDescriptorsUsed);
+        }
+    }
+
+    [Fact]
+    public void Releasing_a_rooms_materials_hands_its_slots_back()
+    {
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+
+        using D3D12Context context = D3D12Context.Create(enableValidation: true);
+        using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+        using var cache = new TextureCache(device, Flat(255));
+
+        cache.Add("wall", Flat(200));
+
+        const uint Materials = 8;
+
+        for (uint room = 0; room < 3; room++)
+        {
+            for (uint i = 0; i < Materials; i++)
+            {
+                device.CreateMaterial(
+                    cache.Get("wall"), cache.White, cache.Flat, cache.Neutral, cache.Level);
+            }
+
+            Assert.Equal(
+                Materials * D3D12GeometryDevice.TexturesPerMaterial,
+                device.ViewDescriptorsUsed);
+
+            device.ReleaseMaterials();
+
+            // Back to nothing, and back to nothing three times: the heap is a bump
+            // allocator, so a release that only worked once would leave the second room
+            // starting where the first ended.
+            Assert.Equal(0u, device.ViewDescriptorsUsed);
+        }
+    }
+
+    [Fact]
+    public void Walking_from_room_to_room_does_not_fill_the_view_heap()
+    {
+        // Reported as a crash on the way through a door, several rooms in: "the
+        // DescriptorHeapTypeCbvSrvUav descriptor heap is full: 20480 of 20480 used, 5 more
+        // asked for", thrown from SceneGeometry.Finish while the next room was being built.
+        // Nothing released a room's materials, so every room a session visited kept its
+        // descriptors for the life of the process and the heap ran out on about the
+        // thirteenth. Twenty rooms here, and the count after each is the count after the
+        // first.
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+
+        using D3D12Context context = D3D12Context.Create(enableValidation: true);
+        using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+        using var cache = new TextureCache(device, Flat(255));
+
+        uint afterTheFirst = 0;
+
+        for (int room = 0; room < 20; room++)
+        {
+            using (SceneGeometry geometry = SceneGeometry.Create(device, cache))
+            {
+                geometry.AddTexture("wall", Flat(200));
+                geometry.Add(Quad("wall"));
+                geometry.Finish();
+
+                if (room == 0)
+                {
+                    afterTheFirst = device.ViewDescriptorsUsed;
+                    Assert.True(afterTheFirst > 0, "the room took no descriptors at all");
+                }
+
+                Assert.Equal(afterTheFirst, device.ViewDescriptorsUsed);
+            }
+
+            Assert.Equal(0u, device.ViewDescriptorsUsed);
         }
     }
 

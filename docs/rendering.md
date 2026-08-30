@@ -611,6 +611,16 @@ which is exactly how this shipped flat twice — once from height maps that were
 once from the fade. A typical move well under half the material's `heightDepth` means
 something is holding the floor down.
 
+**Outdoors the ground runs past the floor object**, into verges, rock and roadside, and those
+are cut too — but only where they carry one of the room's *own floor textures*. The test used
+to be every displaced-class texture in any room with a skybox, and a skybox is not the same
+thing as being outdoors: the museum has one through its doorway and so does every hotel bedroom
+with a window, so R25 was displacing its wardrobe, its rug and the keys of Gabriel's laptop.
+The ground past the floor is also cut **deeper** — ×2.5, capped at 12 — because the derived
+depths average 1.2 units, which is honest underfoot and invisible on a verge seen from a room
+camera. Never on the floor object itself: that depth is the one the library was reviewed at,
+and multiplying it curled the museum's tiles.
+
 `--relief N` sets the budget for a run of the game and `--relief 0` displaces nothing, which
 is how the two are compared in a screenshot; `render-scene --no-relief` is the same switch
 for the tool.

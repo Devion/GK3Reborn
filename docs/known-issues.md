@@ -221,6 +221,97 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Half the cast faced the wrong way, and cutscenes kept resetting them — fixed 2026-08-31
+
+**Reported** as four things, which turned out to be three causes and one of them shared:
+Emilio crossing the lobby with his head turned half a circle from his shoulders; Gabriel
+spinning a half turn the instant the coat-hanger and the sticky-tape animations ended; Gabriel
+facing away from Emilio just before their handshake, turning to face him and inverting again;
+and Estelle stepping towards Gabriel in the museum and immediately stepping back, with the pair
+resetting between every line of the introduction.
+
+**There were two ways of asking which way a character faces, and they disagreed by a half
+turn.** `SceneUpdate.Playing.Correction` draws the body by the triangle the hip and shoe
+triads make, which is the reference's own measure — `GKActor::GetModelFacingDirection`, the
+branch it takes whenever nothing animates the facing helper. `AnimationStart.Facing` did
+something else: it read the heading off the hip *mesh's* rotation and used the triangle only to
+choose between that and a half turn from it. Measured on `gab_GabYawn`, the triangle says
+−179.9° and the mesh rotation said −3.2°.
+
+Everything that asked the second was therefore aimed at the back of the body the first was
+drawing. `approach=anim` stood Gabriel at the wardrobe facing away from it, so his clip played
+correctly and his idle spun him round the moment it ended; a head glance is a yaw off the
+body's facing, so Emilio's went half a circle the wrong way; and the opening-pose report
+accused half the cast of facing the wrong way — the museum pair's now reads 7° and 33° from
+the scene file's headings rather than 136°. There is one measurement now.
+
+**The feet were read on frame zero whatever frame the hips were asked about.** `FacingAt`
+took the hips at the frame it was given and both shoes from the opening frame, which is a
+triangle that never existed at any moment of the clip: right for an opening pose and wrong by
+however far the clip has turned the character since. The worst case is a clip whose whole
+purpose is a turn, and the museum has one — `Lh2MusEstTurn2Gab` ends with Lady Howard and
+Estelle facing Gabriel, and the frame-zero feet under the last frame's hips put them 165° and
+99° away from him. They now land 17° and 12° from him.
+
+**An actor's position and heading never followed their model.** The reference syncs them every
+frame — `GKActor::OnLateUpdate` ends in `SyncActorToModelPositionAndRotation` — and this
+engine did not do it at all. A relative clip is played *through* the placement, so every clip
+after the first began again at the spot and heading the scene file opened with, however far
+the one before had carried them. That is the cutscene that keeps snapping its cast back, and
+it is why `EstOneStep` took Estelle a step towards Gabriel and left her back where she began.
+
+`SceneUpdate.Settle` writes it, at the three points a clip lets go of a model: it finishes, it
+is stopped, or another clip takes the model off it. Only for a clip that keeps the ground it
+covered — a non-move animation puts the actor back where it found them, which is where the
+placement already is. **It is a sync and not a move**: the placement is what a mesh's own
+transform is drawn through, so each mesh's transform is rewritten by the same amount the other
+way and not a vertex moves. What moves is the frame the next clip will be played in.
+
+**Nothing ever ended a conversation.** `LeaveConversation` was reachable only from a script's
+own `EndConversation`, and no shipped script calls one for the museum's, or the front desk's,
+or any other conversation a topic list is picked from. The original ends them from its own
+code: `ActionManager::OnActionBarCanceled` runs `GLB_ALL`'s `CodeCallEndConv$`, whose whole
+body is `EndConversation()`, "every time the action bar disables". Without it the participants
+kept the talk and listen scripts `[LISTENERS]` lends them and the pose the enter animation put
+them in, and the camera went on framing the pair — reported as Lady Howard and Estelle never
+leaving the conversation, with Gabriel stuck in front of them until Get Unstuck was used. The
+bar being dismissed ends it now; taking a verb off it is not a cancel and ends nothing.
+
+**`--trace-actors` is why the last two were found rather than argued about.** A character drawn
+in the wrong place and a character whose *placement* is in the wrong place look identical while
+one clip plays and diverge the moment the next starts, which is the whole family. It prints the
+placement and the heading beside the clip's name as each clip takes an actor and lets one go,
+and says whether the clip is absolute and whether it keeps its ground.
+
+### Interior floors were displaced as if they were outdoor ground — fixed 2026-08-31
+
+**Reported** as the museum's tile floor being badly tessellated: every joint between the tiles
+wobbled, and each tile curled up at its edges.
+
+**A skybox is not the same thing as being outdoors.** The rule that cuts relief past the
+`floor=` object — verges, rock and roadside, which the reconstructed horizon made the sharpest
+thing on screen — gathered *every displaced-class texture in the room* and applied it wherever
+it appeared, in any scene with a skybox. The museum has one through its doorway and so does
+every hotel bedroom with a window, so the rule cut whatever those rooms happen to be furnished
+with: R25 displaced its wardrobe, its rug, a lightbulb and the keys of Gabriel's laptop — 40
+textures, up to 6.8 units of relief in a hotel bedroom — and MS3 its display cabinets. The set
+is the room's own floor textures now, which is what "the ground runs past the floor object"
+means; R25 displaces nothing at all, because neither of its floor textures is displaced-class.
+
+**And the outdoor depth boost was landing on the floor itself.** The ×2.5 is for the ground
+this feature *added*; the floor's own depth is the number the material library was reviewed at
+for a surface somebody walks on. `MSMFLOOR` asked for 1.5 units and was cut at 3.75. It is
+applied only beyond the floor object now. Measured: the museum's typical move falls from 0.21
+units to 0.14 and RC1's street goes back to the depth it was already right at, while its verges
+keep the boost.
+
+**The rest was the height map, and it is a material correction rather than an engine one.** A
+tile floor's only real relief is its joint, and at 0.6 units that is finer than the two-unit
+cell the geometry can carry — so everything the cut *could* carry on `MSMFLOOR` was the mottled
+glaze the field derives from the picture, and 1.5 units of it domed every tile. `displaced` is
+off for it in the material edits; the joint still marches and still normal-maps. The lobby's
+octagonal tile is left alone: its field resolves the tiles themselves and it never wobbled.
+
 ### The black cat at RC3 stood outside the wall, and petting it froze the game — fixed 2026-08-29
 
 **Reported** as the cat in Rennes-le-Château spawning outside the wall, and as the camera

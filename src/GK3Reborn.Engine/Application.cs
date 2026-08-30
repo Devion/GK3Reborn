@@ -1578,6 +1578,14 @@ public static class Application
             update.Clips = clips;
             update.Characters = characters;
 
+            // Where everybody stands, whenever a clip takes them or lets them go. Off
+            // unless asked for: it is a line per clip per character, and a cutscene is
+            // hundreds of them. See SceneUpdate.TraceActors for what it is for.
+            if (args.Contains("--trace-actors", StringComparer.OrdinalIgnoreCase))
+            {
+                update.TraceActors = Log.Info;
+            }
+
             // What a step sounds like. Three files decide it and none of them was read, so
             // every character in the game walked in silence over carpet, tile and gravel
             // alike — while the clips said, three or four times a stride, that a foot had
@@ -3342,6 +3350,11 @@ public static class Application
             // interface: the label follows the mouse, and a headless run has never moved it.
             Vector2 pointer = aimed;
 
+            // Whether the verb bar was up when this frame began, and whether anything was
+            // taken off it. The two together are how a conversation ends; see below.
+            bool barWasShowing = menu is not null;
+            bool barTookAVerb = false;
+
             // --menu opens it without a right-click, for the same reason --pointer exists.
             if (forceMenu && menu is null && hover.Actionable)
             {
@@ -3736,6 +3749,8 @@ public static class Application
                 // everywhere, including a click on open floor.
                 update.WarpNextWalk = window.IsHeld(Platform.CameraAction.Fast);
 
+                barTookAVerb = menu is not null && chosenRow is { Length: > 0 } && !openingBag;
+
                 ActionOutcome? did = menu is { } open
                     ? chosenRow is { Length: > 0 } && !openingBag
                         ? interaction.Do(open, chosenRow, hurry)
@@ -3791,6 +3806,26 @@ public static class Application
                               $"{outcome.Statements.Count} statement(s)") +
                         (outcome.Seconds > 0 ? $", {outcome.Seconds:F1}s" : string.Empty));
                 }
+            }
+
+            // <b>A conversation ends when the bar it was being held through goes away.</b>
+            // Nothing in the game's own scripts ends the museum's, or the front desk's, or
+            // any of the others a topic list is picked from: the original ends them from its
+            // own code, and it does it here — ActionManager::OnActionBarCanceled runs
+            // GLB_ALL's CodeCallEndConv$, whose whole body is EndConversation(), "every time
+            // the action bar disables". Dismissed, or emptied of topics and dismissed for
+            // you; taking a verb off it is not a cancel and must not end anything.
+            //
+            // Without it a conversation never ended. Its participants kept the talk and
+            // listen scripts the [LISTENERS] section lends them and the pose its enter
+            // animation put them in, and the camera kept framing the pair — reported from
+            // the museum as Lady Howard and Estelle never leaving the conversation, with
+            // Gabriel stuck in front of them until Get Unstuck was used.
+            if (barWasShowing && menu is null && !barTookAVerb && api.State.Conversation is not null)
+            {
+                Log.Info($"conversation: {api.State.Conversation} ends with the verb bar");
+                Sheep.SheepExpression.Evaluate(
+                    "CallSheep(\"GLB_ALL\", \"CodeCallEndConv\")", api);
             }
 
             // The device is the clock for dialogue: the next line of a voice-over starts
@@ -4824,7 +4859,7 @@ public static class Application
 
         return m.Wanted is { } want
             ? at + FormattableString.Invariant(
-                $" (the clip wants {Degrees(want):F0}, dot {Game.Actors.AnimationStart.Reading:F2})")
+                $" (the clip wants {Degrees(want):F0}, hips {Game.Actors.AnimationStart.Reading:F0}° off)")
             : at;
     }
 
