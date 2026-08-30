@@ -837,8 +837,22 @@ public sealed class FrontEnd
 
         if (Settings.Upscaler != UpscalerKind.Off)
         {
+            bool pinned = Settings.Upscaler == UpscalerKind.Dlss && Settings.NeuralUplift;
+
             rows.Add(MenuItem.Choice(
-                "ratio", "Quality", Describe(Settings.UpscalerQuality)));
+                "ratio", "Quality", Describe(Settings.UpscalerQuality)) with
+            {
+                Enabled = !pinned,
+            });
+
+            // What the player cannot find out by trying it: the row is dead because the
+            // network will not scale, not because the setting stopped working.
+            if (pinned)
+            {
+                rows.Add(MenuItem.Label(
+                    "Neural uplift draws at the window's own size; it reworks the picture " +
+                    "rather than enlarging it."));
+            }
 
             rows.Add(MenuItem.Label(Settings.Upscaling.Describe(Window.Width, Window.Height)));
 
@@ -872,8 +886,10 @@ public sealed class FrontEnd
                 rows.Add(MenuItem.Label(
                     DlssRayReconstructionNote is { Length: > 0 } why
                         ? "Not available: " + why + "."
-                        : "Needs sl.dlss_d.dll and nvngx_dlssnr.dll in the libs folder."));
+                        : "Needs sl.dlss_d.dll and nvngx_dlssd.dll in the libs folder."));
             }
+
+            rows.AddRange(Neural());
         }
 
         bool generation = Settings.Upscaler switch
@@ -909,6 +925,97 @@ public sealed class FrontEnd
         }
 
         rows.Add(MenuItem.Button("back", "Back"));
+
+        return rows;
+    }
+
+    /// <summary>The rows for the neural rendering network.</summary>
+    /// <remarks>
+    /// <para>
+    /// Under DLSS because it stands in the same place — it scales the frame — but it needs
+    /// only <c>nvngx_dlssnr.dll</c>, not Streamline and not the plugin that would ordinarily
+    /// drive it. So the row is offered as soon as that one file is there, whatever the rest
+    /// of the DLSS rows say about themselves.
+    /// </para>
+    /// <para>
+    /// The strengths only appear once it is on. A page of sliders that do nothing is worse
+    /// than a page that grows when there is something to set.
+    /// </para>
+    /// </remarks>
+    private List<MenuItem> Neural()
+    {
+        bool installed = Runtimes?.NeuralRendering.Present ?? false;
+
+        List<MenuItem> rows =
+        [
+            MenuItem.Toggle("neural", "Neural uplift", Settings.NeuralUplift) with
+            {
+                Enabled = installed,
+            },
+        ];
+
+        if (!installed)
+        {
+            rows.Add(MenuItem.Label(
+                "Needs nvngx_dlssnr.dll in the game's libs folder."));
+
+            return rows;
+        }
+
+        if (!Settings.NeuralUplift)
+        {
+            return rows;
+        }
+
+        rows.Add(MenuItem.Slider(
+            "nrstrength",
+            "Strength",
+            Settings.NeuralIntensity,
+            MenuPage.Percent(Settings.NeuralIntensity)));
+
+        rows.Add(MenuItem.Slider(
+            "nrtone",
+            "Local contrast",
+            Settings.NeuralLocalTone,
+            MenuPage.Percent(Settings.NeuralLocalTone)));
+
+        rows.Add(MenuItem.Slider(
+            "nrglobal",
+            "Overall tone",
+            Settings.NeuralGlobalTone,
+            MenuPage.Percent(Settings.NeuralGlobalTone)));
+
+        rows.Add(MenuItem.Slider(
+            "nrstructure",
+            "Fine detail",
+            Settings.NeuralLocalStructure,
+            MenuPage.Percent(Settings.NeuralLocalStructure)));
+
+        rows.Add(MenuItem.Toggle(
+            "nrskinfollow", "Skin follows detail", Settings.NeuralSkinFollowsStructure));
+
+        if (!Settings.NeuralSkinFollowsStructure)
+        {
+            rows.Add(MenuItem.Slider(
+                "nrskin",
+                "Skin detail",
+                Settings.NeuralSkinStructure,
+                MenuPage.Percent(Settings.NeuralSkinStructure)));
+        }
+
+        rows.Add(MenuItem.Toggle("nrskinmask", "Find skin", Settings.NeuralAutoSkinMask));
+
+        rows.Add(MenuItem.Choice(
+            "nrpreset", "Network", NeuralUplift.Describe(Settings.NeuralPreset)));
+
+        rows.Add(MenuItem.Choice(
+            "nrstyle", "Look", NeuralUplift.Describe(Settings.NeuralStyle)));
+
+        // What the player cannot find out by trying it: a network that ships one set of
+        // weights answers both of those rows with the same picture, and there is no way to
+        // tell that from a setting that is not working.
+        rows.Add(MenuItem.Label(
+            "Network and look do nothing unless the installed file carries more than one."));
 
         return rows;
     }
@@ -1032,6 +1139,57 @@ public sealed class FrontEnd
             },
 
             "reconstruction" => Settings with { RayReconstruction = !Settings.RayReconstruction },
+
+            "neural" => Settings with { NeuralUplift = !Settings.NeuralUplift },
+
+            "nrstrength" => Settings with
+            {
+                NeuralIntensity = Level(Settings.NeuralIntensity, action),
+            },
+
+            "nrtone" => Settings with
+            {
+                NeuralLocalTone = Level(Settings.NeuralLocalTone, action),
+            },
+
+            "nrglobal" => Settings with
+            {
+                NeuralGlobalTone = Level(Settings.NeuralGlobalTone, action),
+            },
+
+            "nrstructure" => Settings with
+            {
+                NeuralLocalStructure = Level(Settings.NeuralLocalStructure, action),
+            },
+
+            "nrskinfollow" => Settings with
+            {
+                NeuralSkinFollowsStructure = !Settings.NeuralSkinFollowsStructure,
+            },
+
+            "nrskin" => Settings with
+            {
+                NeuralSkinStructure = Level(Settings.NeuralSkinStructure, action),
+            },
+
+            "nrskinmask" => Settings with
+            {
+                NeuralAutoSkinMask = !Settings.NeuralAutoSkinMask,
+            },
+
+            "nrpreset" => Settings with
+            {
+                NeuralPreset = Wrapped(
+                    Settings.NeuralPreset + (action.Step == 0 ? 1 : action.Step),
+                    NeuralUplift.Highest + 1),
+            },
+
+            "nrstyle" => Settings with
+            {
+                NeuralStyle = Wrapped(
+                    Settings.NeuralStyle + (action.Step == 0 ? 1 : action.Step),
+                    NeuralUplift.Highest + 1),
+            },
 
             // Round the letters rather than stopping at the ends, the same way every other
             // choice on these pages does, and past the ones with names as well: a preset a

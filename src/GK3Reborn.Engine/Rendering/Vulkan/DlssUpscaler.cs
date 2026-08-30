@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -106,16 +106,22 @@ internal sealed class DlssUpscaler : IUpscaler
             return null;
         }
 
-        // Whether a traced picture is needed depends on which denoising plugin loaded. The
-        // documented feature wants normals, roughness and albedo and has nothing to do
-        // without them; neural rendering asks for colour, depth and motion, which this
-        // engine draws whether or not it traced anything.
-        bool reconstruction = plan.RayReconstruction &&
+        // Ray reconstruction only. The neural uplift used to be run from here too, and that
+        // was the wrong place for it: it reworks a finished picture and wants one that has
+        // been tone-mapped, where this stage hands over linear light with lamps and windows
+        // hundreds of times over one. It runs in the renderer now, after the tone map.
+        bool reconstruction = !streamline.NeuralRenderingLoaded &&
+                              plan.RayReconstruction &&
                               streamline.CanReconstruct(plan.Quality) &&
-                              (tracing || !streamline.RayReconstructionNeedsTracedInputs);
+                              tracing;
 
         if (!streamline.SetDlssOptions(
-                plan.Quality, plan.DlssPreset, (display.Width, display.Height), plan.HighDynamicRange, reconstruction))
+                plan.Quality,
+                plan.DlssPreset,
+                (display.Width, display.Height),
+                plan.HighDynamicRange,
+                reconstruction,
+                plan.Neural))
         {
             Log.Warning("WARNING GK3R3436: DLSS refused the options it was given.");
             return null;

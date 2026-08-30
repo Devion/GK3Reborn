@@ -405,6 +405,15 @@ public static class Application
         var runtimes = Rendering.Upscaling.UpscalerRuntimes.Find(Option(args, "--libs-dir"));
         Log.Info(runtimes.ToString());
 
+        // Before Streamline, and it has to be: Streamline asks every feature it was told to
+        // load for its requirements while it starts, and a feature the driver declined once
+        // is not asked again. See NgxFeatureTable for what is being filled in and why the
+        // driver cannot load the network without it.
+        if (settings.NeuralUplift)
+        {
+            Rendering.Upscaling.NgxFeatureTable.TryEnable();
+        }
+
         using Rendering.Upscaling.Streamline? streamline =
             backend == Rendering.RenderBackend.Vulkan
                 ? Rendering.Upscaling.Streamline.TryStart(runtimes)

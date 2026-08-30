@@ -74,6 +74,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private D3D12Reflections? _reflections;
     private bool _denoiserBound;
     private D3D12DlssUpscaler? _dlss;
+    private D3D12NeuralRenderer? _neural;
+    private bool _neuralRefused;
     private D3D12FsrUpscaler? _fsr;
     private Streamline? _streamline;
     private UpscalerRuntimes? _runtimes;
@@ -141,6 +143,18 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             _fsr?.Dispose();
             _fsr = null;
 
+            // A refusal is forgotten with the plan that caused it, so that a player who
+            // changes something and tries again is answered afresh rather than by a decision
+            // taken about a different setting.
+            _neuralRefused = false;
+
+            // The neural network is deliberately left standing. Most of what a player can
+            // change about it — every strength, the skin controls, the style — is read
+            // afresh each frame and changes nothing the feature was built around, and
+            // tearing it down for a slider step would stall the queue and drop the history
+            // under their hand. Whether the standing one still serves is asked below, where
+            // the sizes are known.
+
             // Forgotten rather than compared: a plan that changed may not have changed these
             // two, but a runtime that refused them last time should be asked again.
             _generating = -1;
@@ -149,7 +163,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     }
 
     /// <summary>What the upscaler is doing, for the startup report.</summary>
-    public string? UpscalerNote => _dlss?.Describe() ?? _fsr?.Describe();
+    public string? UpscalerNote =>
+        _neural?.Describe() ?? _dlss?.Describe() ?? _fsr?.Describe();
 
     /// <summary>Whether DLSS is available on this machine at all.</summary>
     public bool HasDlss => _streamline is { Ready: true };
@@ -167,6 +182,22 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// the runtime over rather than growing methods that only pass through.
     /// </remarks>
     public Streamline? Streamline => _streamline;
+
+    /// <summary>This frame's depth, for a pass that runs after the room is finished.</summary>
+    /// <remarks>
+    /// Lent rather than given. The neural uplift runs in the renderer, after the picture has
+    /// been tone-mapped onto the back buffer, but it still wants the two guides every temporal
+    /// pass wants — and those belong to the room, which is drawn here. They are at the size
+    /// the room was drawn at, which is why the uplift only runs when that is also the size the
+    /// picture is shown at.
+    /// </remarks>
+    public D3D12Texture? Guides => _depth;
+
+    /// <summary>This frame's motion vectors, in render-resolution pixels.</summary>
+    public D3D12Texture? Motion => _gbuffer.Length > 2 ? _gbuffer[2] : null;
+
+    /// <summary>Where inside its pixel this frame sampled.</summary>
+    public Vector2 JitterPixels => _jitter;
 
     /// <summary>Whether the runtime offers ray reconstruction.</summary>
     public bool HasRayReconstruction => _streamline is { HasRayReconstruction: true };
@@ -299,7 +330,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         // frames, so a camera that never moves its sample point gives it the same picture
         // every frame and nothing to reconstruct from — a soft image that never sharpens,
         // which reads as the upscaler not working.
-        if (_dlss is not null)
+        // Super resolution wants it and the neural uplift does not care, because the uplift
+        // runs after the tone map on a picture this has already resolved. The hand-driven
+        // network is the exception: it still sits in this slot, and it is told nothing about
+        // jitter.
+        if (_dlss is not null || (_neural is not null && D3D12NeuralRenderer.WantsJitter))
         {
             int phases = JitterSequence.PhaseCount(renderWidth, displayWidth);
             _jitter = JitterSequence.Offset(_frame, phases);
@@ -404,7 +439,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         int shownWidth = _displayWidth;
         int shownHeight = _displayHeight;
 
-        if (_dlss is not null || _fsr is not null)
+        if (_dlss is not null || _neural is not null || _fsr is not null)
         {
             // The states are not decorative. Both runtimes are told what each texture is in
             // and believe it: a wrong one is a read through a barrier nobody issued, and a
@@ -428,9 +463,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
                 Upscaling?.Sharpness ?? 0f,
                 Upscaling?.HighDynamicRange ?? false);
 
-            bool upscaled = _dlss is not null
-                ? _dlss.Record(list, finished, _depth, _gbuffer[2], _upscaled!, described)
-                : _fsr!.Record(list, finished, _depth, _gbuffer[2], _upscaled!, described);
+            bool upscaled = _neural is not null
+                ? _neural.Record(list, finished, _depth, _gbuffer[2], _upscaled!, described)
+                : _dlss is not null
+                    ? _dlss.Record(list, finished, _depth, _gbuffer[2], _upscaled!, described)
+                    : _fsr!.Record(list, finished, _depth, _gbuffer[2], _upscaled!, described);
 
             if (upscaled)
             {
@@ -935,10 +972,72 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         // At most one of the two, ever. They are alternatives rather than stages: both
         // accumulate across frames from the same inputs, and running one over the other's
         // output would be two histories filtering one picture.
-        if (asked is { Kind: UpscalerKind.Dlss } && _streamline is not null)
+        if (asked is { Kind: UpscalerKind.Dlss })
         {
             _fsr?.Dispose();
             _fsr = null;
+
+            // The network driven by hand, and only where Streamline is not already driving
+            // it. Once the driver's feature table has its missing entry filled in, sl.dlss_nr
+            // loads and the ordinary path runs the same network with the same settings; this
+            // is what is left for the case where that could not be done — an unfamiliar
+            // driver build, or one that has closed the gap another way.
+            if (asked.Neural.Enabled && _streamline is not { NeuralRenderingLoaded: true })
+            {
+                // A network that has given up is let go of here rather than asked again, so
+                // the frame falls through to super resolution instead of being drawn small
+                // and stretched for the rest of the run.
+                if (_neural is { Refused: true })
+                {
+                    RetireNeural();
+                    _neuralRefused = true;
+                }
+
+                if (_neural is not null && _neural.Serves(asked, render, display))
+                {
+                    _dlss?.Dispose();
+                    _dlss = null;
+
+                    return;
+                }
+
+                RetireNeural();
+
+                // Asked once for this plan. Everything that stops the network starting is a
+                // fact about the machine rather than about the frame, so trying again every
+                // frame would buy nothing and cost a line in the log each time.
+                if (!_neuralRefused)
+                {
+                    _neural = D3D12NeuralRenderer.TryCreate(
+                        _context, _runtimes, asked, render, display);
+
+                    _neuralRefused = _neural is null;
+                }
+
+                if (_neural is not null)
+                {
+                    _dlss?.Dispose();
+                    _dlss = null;
+
+                    return;
+                }
+
+                // Asked for and not to be had. Falling through to super resolution is the
+                // right answer rather than drawing nothing: the note on the settings page
+                // says which of the two is running.
+            }
+            else
+            {
+                RetireNeural();
+            }
+
+            if (_streamline is null)
+            {
+                _dlss?.Dispose();
+                _dlss = null;
+
+                return;
+            }
 
             if (_dlss is not null && _dlss.Serves(asked, render, display))
             {
@@ -956,6 +1055,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         {
             _dlss?.Dispose();
             _dlss = null;
+            RetireNeural();
 
             if (_fsr is not null && _fsr.Serves(asked, render, display))
             {
@@ -972,6 +1072,27 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _dlss = null;
         _fsr?.Dispose();
         _fsr = null;
+        RetireNeural();
+    }
+
+    /// <summary>Lets go of the neural network, once the card has finished with it.</summary>
+    /// <remarks>
+    /// NGX frees the network's working memory when the feature is released, so the queue has
+    /// to have drained first: freeing memory a frame still in flight reads from is a device
+    /// loss rather than a leak. The wait is affordable because this happens only when a
+    /// player changes one of the few things the feature was built around — the sizes, the
+    /// preset — and never once a frame.
+    /// </remarks>
+    private void RetireNeural()
+    {
+        if (_neural is null)
+        {
+            return;
+        }
+
+        _context.Wait();
+        _neural.Dispose();
+        _neural = null;
     }
 
     private void Release()
@@ -1005,7 +1126,9 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _targets?.Dispose();
         _depths?.Dispose();
         _dlss?.Dispose();
+        _neural?.Dispose();
 
+        _neural = null;
         _depth = null;
         _upscaled = null;
         _lit = null;

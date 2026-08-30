@@ -133,13 +133,29 @@ public sealed unsafe class Streamline : IDisposable
     private const uint TagSpecularAlbedo = 8;
     private const uint TagNormalRoughness = 14;
 
-    /// <summary>The three buffers <c>sl.dlss_nr.dll</c> reads, which the headers reserve.</summary>
+    /// <summary>The three buffers <c>sl.dlss_nr.dll</c> reads.</summary>
     /// <remarks>
-    /// <c>sl_core_types.h</c> names seventy, seventy-one and seventy-two only as
-    /// <c>kBufferTypeReserved70</c> through <c>72</c>. The plugin asks for exactly those
-    /// three: the first two are required and it refuses the frame without them, and the
-    /// third is fetched as optional and left null when nothing tagged it. It takes depth and
-    /// motion under their ordinary names.
+    /// <para>
+    /// The headers name seventy, seventy-one and seventy-two only as
+    /// <c>kBufferTypeReserved70</c> through <c>72</c>, but the runtime knows what they are:
+    /// <c>kBufferTypeUpliftInputColor</c>, <c>kBufferTypeUpliftOutputColor</c> and
+    /// <c>kBufferTypeUpliftControlMask</c>. It says the first, second and fourth of those out
+    /// loud the moment the plugin loads — "Registering required tag
+    /// 'kBufferTypeUpliftInputColor'" — and <c>sl.common.dll</c> carries a function that
+    /// turns a buffer number into its name, which is where the numbers here come from.
+    /// </para>
+    /// <para>
+    /// <b>Do not count them off the strings in the binary.</b> They appear there in the order
+    /// the compiler laid them down, which is not the order of the enumeration: counted that
+    /// way the uplift buffers land on twenty-five and twenty-six, which the runtime then
+    /// reports as "Tag of buffer kBufferTypeUpliftInputColor not set". The function that
+    /// switches on the number is the only thing worth believing.
+    /// </para>
+    /// <para>
+    /// The first two are required and the plugin refuses the frame without them; the third is
+    /// optional and left null when nothing tags it. Depth and motion it takes under their
+    /// ordinary names.
+    /// </para>
     /// </remarks>
     /// <summary>The picture as it stood before the interface was drawn over it.</summary>
     /// <remarks>
@@ -240,6 +256,9 @@ public sealed unsafe class Streamline : IDisposable
     private nint _device;
     private bool _attached;
     private Matrix4x4? _previousViewProjection;
+
+    /// <summary>The frame the common constants were last set for.</summary>
+    private void* _constantsFor;
     private uint _frameNumber;
 
     /// <summary>Which API the device is, in Streamline's numbering.</summary>
@@ -316,6 +335,15 @@ public sealed unsafe class Streamline : IDisposable
     /// so has something to work with whether or not anything was traced.
     /// </remarks>
     public bool RayReconstructionNeedsTracedInputs => _denoiser == FeatureRayReconstruction;
+
+    /// <summary>Whether the denoiser that loaded is the neural rendering one.</summary>
+    /// <remarks>
+    /// Which of the two loaded decides which setting governs it, because they are not the
+    /// same offer. Ray reconstruction replaces the engine's denoiser over a traced picture;
+    /// neural rendering reworks any picture at all, and is the one the neural uplift settings
+    /// belong to.
+    /// </remarks>
+    public bool NeuralRenderingLoaded => _denoiser == FeatureNeuralRendering;
 
     /// <summary>Whether the loaded denoiser has the rung the plan is asking for.</summary>
     /// <remarks>
@@ -663,13 +691,18 @@ public sealed unsafe class Streamline : IDisposable
     /// <param name="display">The size the picture is shown at.</param>
     /// <param name="highDynamicRange">Whether the colour runs past one.</param>
     /// <param name="rayReconstruction">Whether to configure the denoising variant instead.</param>
+    /// <param name="uplift">
+    /// What the neural network is asked to do, where that is the denoiser. Ignored by the
+    /// documented ray-reconstruction feature, which has none of these controls.
+    /// </param>
     /// <returns>True when the runtime accepted it.</returns>
     public bool SetDlssOptions(
         UpscalerQuality quality,
         int preset,
         (uint Width, uint Height) display,
         bool highDynamicRange,
-        bool rayReconstruction)
+        bool rayReconstruction,
+        NeuralUplift? uplift = null)
     {
         if (!Ready)
         {
@@ -687,6 +720,8 @@ public sealed unsafe class Streamline : IDisposable
                 return false;
             }
 
+            NeuralUplift asked = uplift?.Sane() ?? NeuralUplift.None;
+
             var neural = new SlDlssnrOptions
             {
                 Header = SlHeader.Of(
@@ -702,17 +737,17 @@ public sealed unsafe class Streamline : IDisposable
                 // value a caller who set nothing would have been given had these been
                 // defaulted with it. Nought asks the network to do none of what it does,
                 // and it does not answer that by passing the picture through.
-                Intensity = NeuralStrength,
-                LocalToneStrength = NeuralStrength,
-                LocalStructureStrength = NeuralStrength,
-                GlobalToneStrength = NeuralStrength,
-                SkinStructureStrength = NeuralStrength,
+                Intensity = asked.Intensity,
+                LocalToneStrength = asked.LocalTone,
+                LocalStructureStrength = asked.LocalStructure,
+                GlobalToneStrength = asked.GlobalTone,
+                SkinStructureStrength = asked.SkinStrength,
 
                 // Nothing is tagged as a control mask, so the network is left to find its
                 // own. What it decides from is unknown, and it decides which pixels it is
                 // allowed to rework — so this is the second switch to try when the picture
                 // is wrong in a way that follows the camera rather than the geometry.
-                UseAutoMask = NeuralAutoMask,
+                UseAutoMask = (byte)(asked.AutoSkinMask ? 1 : 0),
 
                 // Not the super-resolution preset. That number is a rung on a ladder of
                 // trained upscaling models named by letter; this one indexes a table of
@@ -721,7 +756,8 @@ public sealed unsafe class Streamline : IDisposable
                 // ships as default, and reports anything it does not have as unavailable
                 // and falls back — so a wrong number here is quiet rather than fatal, which
                 // is exactly why it should not be a number from the other ladder.
-                Preset = 0,
+                Preset = (uint)asked.Preset,
+                Style = (uint)asked.Style,
 
                 // The one rung this feature does not have. It takes max performance,
                 // balanced, max quality, ultra performance and DLAA and refuses ultra
@@ -1270,6 +1306,21 @@ public sealed unsafe class Streamline : IDisposable
     /// </remarks>
     private bool Constants(void* token, SlViewport* viewport, in StreamlineFrame frame)
     {
+        // Once a frame, however many features are run in it. The runtime refuses a second
+        // set — "Setting different 'common' constants multiple times within the same frame is
+        // NOT allowed" — and it is right to: the camera and the jitter are facts about the
+        // frame, not about the feature, and the second caller would only be restating them.
+        // Two features in one frame is the ordinary case now that the neural uplift runs
+        // after the tone map, over a picture super resolution may already have made.
+        //
+        // Also, the second set would not be a restatement. This walks the camera's history
+        // forward — the previous view-projection becomes this one — so calling it twice would
+        // leave the second feature believing the camera had not moved since itself.
+        if (token == _constantsFor)
+        {
+            return true;
+        }
+
         Camera camera = frame.Camera ?? new Camera();
         float aspect = frame.Aspect > 0 ? frame.Aspect : 1f;
 
@@ -1348,7 +1399,13 @@ public sealed unsafe class Streamline : IDisposable
         Copy(clipToPrevious, constants.ClipToPrevClip);
         Copy(previousToClip, constants.PrevClipToClip);
 
-        return _setConstants(&constants, token, viewport) == 0;
+        if (_setConstants(&constants, token, viewport) != 0)
+        {
+            return false;
+        }
+
+        _constantsFor = token;
+        return true;
     }
 
     private static void Copy(Matrix4x4 matrix, float* destination)

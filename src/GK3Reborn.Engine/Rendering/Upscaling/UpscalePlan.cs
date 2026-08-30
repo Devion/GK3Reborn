@@ -84,6 +84,16 @@ public sealed record UpscalePlan
     /// </remarks>
     public int DlssPreset { get; init; }
 
+    /// <summary>
+    /// What the neural rendering network is asked to do, where the player has one.
+    /// </summary>
+    /// <remarks>
+    /// Its own record rather than a handful of fields here, because it is the whole of a
+    /// separate runtime's settings and none of it means anything to the other three
+    /// upscalers. Off by default; see <see cref="NeuralUplift"/>.
+    /// </remarks>
+    public NeuralUplift Neural { get; init; } = NeuralUplift.None;
+
     /// <summary>Whether the colour handed to the upscaler is high dynamic range.</summary>
     /// <remarks>
     /// Set by the renderer from the output chain rather than by the player: it is a fact
@@ -146,11 +156,23 @@ public sealed record UpscalePlan
     public UpscalePlan Sane() => this with
     {
         Kind = Enum.IsDefined(Kind) ? Kind : UpscalerKind.Off,
-        Quality = Enum.IsDefined(Quality) ? Quality : UpscalerQuality.Quality,
+        // The network runs one-to-one and only one-to-one, for two reasons that both hold.
+        // It is handed depth and motion, and those are the size the room was drawn at, so a
+        // picture shown at any other size would have it reading its guides off the edge. And
+        // the plugin sets no scaling ratio for it in any case — the parameter names for one
+        // are not in the plugin at all — so asked to scale it refuses every frame. Pinning
+        // the rung is what makes the setting mean what it says.
+        //
+        // Native is not nothing: with DLSS selected the upscaler still runs as DLAA, and the
+        // uplift reworks what it resolved.
+        Quality = Neural is { Enabled: true }
+            ? UpscalerQuality.Native
+            : Enum.IsDefined(Quality) ? Quality : UpscalerQuality.Quality,
         Sharpness = float.IsFinite(Sharpness) ? Math.Clamp(Sharpness, 0f, 1f) : 0.5f,
         FrameGeneration = Enum.IsDefined(FrameGeneration) ? FrameGeneration : FrameGeneration.Off,
         Latency = Enum.IsDefined(Latency) ? Latency : LatencyMode.On,
         DlssPreset = Math.Clamp(DlssPreset, 0, DlssPresets.Highest),
+        Neural = Neural?.Sane() ?? NeuralUplift.None,
     };
 
     /// <summary>How the ratio reads on the settings page.</summary>

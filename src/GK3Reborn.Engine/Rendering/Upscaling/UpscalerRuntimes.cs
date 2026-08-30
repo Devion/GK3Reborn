@@ -96,13 +96,15 @@ public sealed class UpscalerRuntimes
         RuntimeFiles fsr,
         RuntimeFiles dlss,
         RuntimeFiles dlssFrameGeneration,
-        RuntimeFiles dlssRayReconstruction)
+        RuntimeFiles dlssRayReconstruction,
+        RuntimeFiles neuralRendering)
     {
         Searched = searched;
         Fsr = fsr;
         Dlss = dlss;
         DlssFrameGeneration = dlssFrameGeneration;
         DlssRayReconstruction = dlssRayReconstruction;
+        NeuralRendering = neuralRendering;
     }
 
     /// <summary>Where this looked, in the order it looked.</summary>
@@ -119,6 +121,17 @@ public sealed class UpscalerRuntimes
 
     /// <summary>NVIDIA's, for denoising the traced terms while it upscales them.</summary>
     public RuntimeFiles DlssRayReconstruction { get; }
+
+    /// <summary>NVIDIA's neural rendering network, on its own.</summary>
+    /// <remarks>
+    /// <b>The network without the plugin that would ordinarily drive it.</b>
+    /// <see cref="DlssRayReconstruction"/> asks for both files because that is what
+    /// Streamline needs; this asks for the network alone, because the driver on most
+    /// machines will not let Streamline load the plugin at all and the engine drives the
+    /// network directly instead. So a player who has copied in one file has a working
+    /// feature and should be told so.
+    /// </remarks>
+    public RuntimeFiles NeuralRendering { get; }
 
     /// <summary>What was found for one kind of upscaler.</summary>
     /// <param name="kind">Which one.</param>
@@ -198,7 +211,8 @@ public sealed class UpscalerRuntimes
             Look(searched, StreamlineFrameGeneration,
                 [StreamlineFrameGeneration, NgxFrameGeneration]),
             Look(searched, StreamlineRayReconstruction,
-                [StreamlineRayReconstruction, NgxRayReconstruction]));
+                [StreamlineRayReconstruction, NgxRayReconstruction]),
+            Look(searched, NgxRayReconstruction, [NgxRayReconstruction]));
     }
 
     /// <summary>Finds one file in the directories searched.</summary>
@@ -236,7 +250,8 @@ public sealed class UpscalerRuntimes
     public override string ToString() =>
         $"Upscalers: FSR {Fsr.Describe()}; DLSS {Dlss.Describe()}; " +
         $"DLSS frame generation {DlssFrameGeneration.Describe()}; " +
-        $"DLSS ray reconstruction {DlssRayReconstruction.Describe()}";
+        $"DLSS ray reconstruction {DlssRayReconstruction.Describe()}; " +
+        $"neural rendering {NeuralRendering.Describe()}";
 
     /// <summary>AMD's runtime, whichever of the two backends' libraries is there.</summary>
     /// <param name="searched">Where to look.</param>

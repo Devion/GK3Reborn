@@ -207,7 +207,7 @@ only because of that drain. Both would need per-frame buffers first.
   R25 and CSD are two of the rooms it killed. The placeholders are resolved before the batch
   opens now.
 
-## Seven things worth not relearning
+## Eight things worth not relearning
 
 **Anything drawn at the far plane needs `LESS_EQUAL`.** The depth buffer is cleared to one
 and a sky fragment is written at exactly one, so under Direct3D's default strict less-than
@@ -239,6 +239,15 @@ Two lessons rather than one. The encoding may not be changed underneath a player
 some unrelated setting is on; and **anything that changes the swapchain's format has to be
 judged on the interface, not on the room**, because the room is composited through a pass
 that handles the transfer function and the interface is not.
+
+**A resize has to read the window, not the thing being resized.** `Recreate` took the size
+back out of the swapchain it was about to resize and handed it straight back, so a resize
+resized nothing: the chain stayed at whatever size it was first made at and DXGI stretched
+every presented frame to fill the window. It reads as a game that gets blurrier the further
+the window is dragged from the size it started at, blurriest at fullscreen, with the
+interface blurred along with the room — which is what made it look like a font problem. The
+Vulkan renderer holds its window for exactly this; this one took a window, made a swapchain
+and let go of it.
 
 **A display list carries its own atlas, and the renderer has to follow it.** The interface is
 cut at two sizes — the room's captions and the menu — and `SetOverlay` on this backend took

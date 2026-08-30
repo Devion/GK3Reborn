@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Rendering.Upscaling;
 using Silk.NET.Direct3D12;
@@ -98,12 +98,22 @@ public sealed unsafe class D3D12DlssUpscaler : IDisposable
         // documented feature wants normals, roughness and albedo and has nothing to do
         // without them; neural rendering asks for colour, depth and motion, which this engine
         // draws whether or not it traced anything.
-        bool reconstruction = plan.RayReconstruction &&
+        // Ray reconstruction only. The neural uplift used to be run from here too, and that
+        // was the wrong place for it: it reworks a finished picture and wants one that has
+        // been tone-mapped, where this stage hands over linear light with lamps and windows
+        // hundreds of times over one. It runs in the renderer now, after the tone map.
+        bool reconstruction = !streamline.NeuralRenderingLoaded &&
+                              plan.RayReconstruction &&
                               streamline.CanReconstruct(plan.Quality) &&
-                              (tracing || !streamline.RayReconstructionNeedsTracedInputs);
+                              tracing;
 
         if (!streamline.SetDlssOptions(
-                plan.Quality, plan.DlssPreset, display, plan.HighDynamicRange, reconstruction))
+                plan.Quality,
+                plan.DlssPreset,
+                display,
+                plan.HighDynamicRange,
+                reconstruction,
+                plan.Neural))
         {
             Log.Warning("WARNING GK3R3436: DLSS refused the options it was given.");
             return null;

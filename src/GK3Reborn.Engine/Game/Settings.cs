@@ -194,6 +194,50 @@ public sealed record Settings
     /// <remarks>The letter's ordinal. See <see cref="DlssPresets"/>.</remarks>
     public int DlssPreset { get; init; }
 
+    /// <summary>
+    /// Whether NVIDIA's neural rendering network reworks the picture as it upscales it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Needs only <c>nvngx_dlssnr.dll</c> in the libs folder — not Streamline, and not the
+    /// plugin that would ordinarily drive it, because the driver installed on most machines
+    /// refuses to load that plugin whatever else is present. See
+    /// <see cref="Rendering.Upscaling.Ngx"/> for why, and for what is done instead.
+    /// </para>
+    /// <para>
+    /// Off by default. It changes how the game looks rather than fixing how it looks, and a
+    /// port whose whole business is the 1999 picture should not restyle it unasked.
+    /// </para>
+    /// </remarks>
+    public bool NeuralUplift { get; init; }
+
+    /// <summary>How much of the neural effect to apply, from nothing to all of it.</summary>
+    public float NeuralIntensity { get; init; } = 1f;
+
+    /// <summary>How hard local contrast is lifted.</summary>
+    public float NeuralLocalTone { get; init; } = 1f;
+
+    /// <summary>How hard the picture's overall tone is reworked.</summary>
+    public float NeuralGlobalTone { get; init; } = 1f;
+
+    /// <summary>How much fine structure and micro-detail is rebuilt.</summary>
+    public float NeuralLocalStructure { get; init; } = 1f;
+
+    /// <summary>Whether skin takes the general structure strength rather than its own.</summary>
+    public bool NeuralSkinFollowsStructure { get; init; } = true;
+
+    /// <summary>How much detail skin takes, when it is not following.</summary>
+    public float NeuralSkinStructure { get; init; } = 0.5f;
+
+    /// <summary>Whether the network works out for itself which pixels are skin.</summary>
+    public bool NeuralAutoSkinMask { get; init; } = true;
+
+    /// <summary>Which of the network's trained weights, or nought for its own choice.</summary>
+    public int NeuralPreset { get; init; }
+
+    /// <summary>Which of the network's looks, or nought for its own choice.</summary>
+    public int NeuralStyle { get; init; }
+
     /// <summary>Whether to ask the display for a high dynamic range colour space.</summary>
     public bool HighDynamicRange { get; init; }
 
@@ -424,6 +468,20 @@ public sealed record Settings
         Latency = Latency,
         RayReconstruction = RayReconstruction,
         DlssPreset = DlssPreset,
+
+        Neural = new Rendering.Upscaling.NeuralUplift
+        {
+            Enabled = NeuralUplift,
+            Intensity = NeuralIntensity,
+            LocalTone = NeuralLocalTone,
+            GlobalTone = NeuralGlobalTone,
+            LocalStructure = NeuralLocalStructure,
+            SkinFollowsStructure = NeuralSkinFollowsStructure,
+            SkinStructure = NeuralSkinStructure,
+            AutoSkinMask = NeuralAutoSkinMask,
+            Preset = NeuralPreset,
+            Style = NeuralStyle,
+        },
     }.Sane();
 
     /// <summary>What the renderer should do about the display.</summary>

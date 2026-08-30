@@ -62,6 +62,10 @@ public sealed unsafe class D3D12Renderer : IRenderer
     private bool _needsRecreate;
     /// <summary>The picture without the interface, kept for frame generation.</summary>
     private D3D12Texture? _hudLess;
+    private D3D12Texture? _shown;
+    private D3D12Texture? _uplifted;
+    private (uint Width, uint Height) _upliftFor;
+    private NeuralUplift? _upliftAs;
 
     private bool _presentedAnything;
 
@@ -89,14 +93,26 @@ public sealed unsafe class D3D12Renderer : IRenderer
         D3D12FramePipeline pipeline,
         D3D12FrameRing ring,
         D3D12Swapchain swapchain,
-        D3D12OverlayPass overlay)
+        D3D12OverlayPass overlay,
+        IGameWindow window)
     {
         _context = context;
         _pipeline = pipeline;
         _ring = ring;
         _swapchain = swapchain;
         _overlay = overlay;
+        _window = window;
     }
+
+    /// <summary>
+    /// The window, kept for the one question only it can answer: how big it is now.
+    /// </summary>
+    /// <remarks>
+    /// The Vulkan renderer has always held one for this. This one took a window, used it to
+    /// make a swapchain and let go of it, which left <see cref="Recreate"/> with nowhere to
+    /// read a new size from — see what that cost, there.
+    /// </remarks>
+    private readonly IGameWindow _window;
 
     /// <summary>Which API is behind this renderer.</summary>
     public RenderBackend Backend => RenderBackend.Direct3D12;
@@ -288,7 +304,8 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
             Foundation.Diagnostics.Log.Info(pipeline.LatencyReport());
 
-            var renderer = new D3D12Renderer(context, pipeline, ring, swapchain, overlay);
+            var renderer = new D3D12Renderer(
+                context, pipeline, ring, swapchain, overlay, window);
             renderer.Retarget();
             return renderer;
         }
@@ -581,6 +598,10 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
         // Over the room, and under the interface. A film covers the window, so what is
         // behind it does not matter; the captions that go with one do.
+        // The neural uplift, over the finished picture rather than over the light that made
+        // it. Before the film and the interface, so that neither is reworked.
+        RecordUplift(list, buffer, width, height, camera, streamline);
+
         RecordFilm(list, target, display, width, height);
 
         // Everything that is not the interface is now on the back buffer, which is exactly
@@ -713,6 +734,8 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _movie?.Dispose();
         _output?.Dispose();
         _hudLess?.Dispose();
+        _shown?.Dispose();
+        _uplifted?.Dispose();
 
         _overlay.Dispose();
         _swapchain.Dispose();
@@ -826,10 +849,27 @@ public sealed unsafe class D3D12Renderer : IRenderer
     {
         _needsRecreate = false;
 
+        // <b>The window's size, not the swapchain's own.</b> This used to read the size back
+        // out of the chain it was about to resize and hand it straight back — so a resize
+        // resized nothing. The chain stayed at whatever size it was first made at, and DXGI
+        // stretched every presented frame to fill the window: a game that got blurrier the
+        // further the window was dragged from the size it started at, and blurriest of all
+        // at fullscreen. The interface went with it, which is what made it look like a font
+        // problem rather than a swapchain one.
+        int width = _window.FramebufferWidth;
+        int height = _window.FramebufferHeight;
+
+        // A minimised window is nought by nought, which a swapchain may not be. Nothing is
+        // rebuilt until it comes back, and the frame is skipped either way.
+        if (width <= 0 || height <= 0)
+        {
+            _needsRecreate = true;
+            return;
+        }
+
         _ring.Wait();
         _context.Wait();
 
-        (int width, int height) = _swapchain.Size;
         _swapchain.Resize(width, height, _output_.HighDynamicRange, Transfer());
 
         Retarget();
@@ -839,7 +879,149 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _pipeline.Reset = true;
     }
 
-    /// <summary>Builds the passes that write the swapchain, for whatever format it now has.</summary>
+    /// <summary>Runs the neural uplift over the picture as it will be shown.</summary>
+    /// <param name="list">The frame's command list.</param>
+    /// <param name="buffer">Which back buffer the picture was just drawn onto.</param>
+    /// <param name="width">Its width.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="camera">Where the frame was seen from.</param>
+    /// <param name="streamline">The runtime, or null.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Here rather than with the upscalers, and that is the whole point.</b> The network
+    /// reworks a finished picture: its controls are intensity, local and global tone, and
+    /// structure, which are things you can only do to a signal that has been mapped for a
+    /// display. It is given no exposure and no high-range flag — <c>nvngx_dlssnr.dll</c> has
+    /// neither, so it cannot be told — and it was run for a while from the upscaler slot,
+    /// where what it got was linear light with a lamp in it three hundred times over one.
+    /// Above its range its channels part company, and channels parting company is colour: the
+    /// bright things in a frame fringed and flickered.
+    /// </para>
+    /// <para>
+    /// So it runs on the back buffer, after the tone map and the display encode and before
+    /// the film and the interface. That is the same picture a ReShade add-in would hand it,
+    /// which is the one configuration this network is known to be happy in.
+    /// </para>
+    /// <para>
+    /// <b>Two copies rather than a render target.</b> The picture is copied off the back
+    /// buffer, reworked into a second texture, and copied back. A copy either side is worth
+    /// more than the descriptor plumbing a render target would need here, and it borrows a
+    /// path this file already trusts — the hud-less copy below does the same thing.
+    /// </para>
+    /// <para>
+    /// The two guides come from the room and are the size the room was drawn at, so this only
+    /// runs where that is also the size it is shown at. <see cref="UpscalePlan.Sane"/> pins
+    /// the rung to native whenever the uplift is on, which is what makes that true.
+    /// </para>
+    /// </remarks>
+    private void RecordUplift(
+        ID3D12GraphicsCommandList4* list,
+        uint buffer,
+        int width,
+        int height,
+        Camera? camera,
+        Streamline? streamline)
+    {
+        if (streamline is not { NeuralRenderingLoaded: true } ||
+            !_upscaling.Neural.Enabled ||
+            _pipeline.Guides is not { } depth ||
+            _pipeline.Motion is not { } motion)
+        {
+            return;
+        }
+
+        // The guides are the room's own size. Anything else means something upscaled, and
+        // the network would be reading them off the edge of the picture.
+        if (depth.Width != width || depth.Height != height)
+        {
+            return;
+        }
+
+        Format format = _swapchain.Format;
+
+        if (_shown is null || _uplifted is null ||
+            _shown.Width != width || _shown.Height != height || _shown.Format != format)
+        {
+            _context.Wait();
+            _shown?.Dispose();
+            _uplifted?.Dispose();
+
+            _shown = D3D12Texture.CreateSampled(_context, format, width, height);
+            _uplifted = D3D12Texture.CreateStorage(_context, format, width, height);
+
+            _upliftFor = default;
+        }
+
+        var size = ((uint)width, (uint)height);
+
+        // Told what to do only when what to do changed. The options are plugin state that
+        // survives a frame, and a slider the player is dragging must not tear the feature
+        // down and build it again under their hand.
+        if (_upliftFor != size || _upliftAs != _upscaling.Neural)
+        {
+            if (!streamline.SetDlssOptions(
+                    _upscaling.Quality,
+                    _upscaling.DlssPreset,
+                    size,
+                    _upscaling.HighDynamicRange,
+                    rayReconstruction: true,
+                    _upscaling.Neural))
+            {
+                return;
+            }
+
+            _upliftFor = size;
+            _upliftAs = _upscaling.Neural;
+        }
+
+        _swapchain.Transition(list, buffer, ResourceStates.CopySource);
+        _shown.Transition(list, ResourceStates.CopyDest);
+
+        list->CopyResource(_shown.Handle, _swapchain.Buffer(buffer));
+
+        _shown.Transition(list, ResourceStates.NonPixelShaderResource);
+        _uplifted.Transition(list, ResourceStates.UnorderedAccess);
+        depth.Transition(list, ResourceStates.NonPixelShaderResource);
+        motion.Transition(list, ResourceStates.NonPixelShaderResource);
+
+        var frame = new StreamlineFrame(
+            Surface(_shown),
+            Surface(depth),
+            Surface(motion),
+            Surface(_uplifted),
+            _pipeline.JitterPixels,
+            _pipeline.DeltaSeconds,
+            _pipeline.Reset,
+            camera,
+            height > 0 ? (float)width / height : 1f,
+            Sharpen: false,
+            Sharpness: 0f,
+            _upscaling.HighDynamicRange);
+
+        bool reworked = streamline.Evaluate((nint)list, frame, rayReconstruction: true);
+
+        if (reworked)
+        {
+            _uplifted.Transition(list, ResourceStates.CopySource);
+            _swapchain.Transition(list, buffer, ResourceStates.CopyDest);
+
+            list->CopyResource(_swapchain.Buffer(buffer), _uplifted.Handle);
+        }
+
+        // Back to what the rest of the frame expects either way. A refused frame leaves the
+        // picture as it was drawn, which is the right answer and not a visible one.
+        _swapchain.Transition(list, buffer, ResourceStates.RenderTarget);
+    }
+
+    /// <summary>Says what a texture is in the terms the runtime asks for.</summary>
+    private static UpscaleSurface Surface(D3D12Texture texture) => new(
+        (nint)texture.Handle,
+        0,
+        (uint)texture.State,
+        (uint)texture.Width,
+        (uint)texture.Height,
+        (uint)texture.Format);
+
     /// <summary>Copies the frame as it stands, and hands the copy to frame generation.</summary>
     /// <param name="list">The frame's command list.</param>
     /// <param name="buffer">Which back buffer this frame is drawing into.</param>
@@ -904,6 +1086,7 @@ public sealed unsafe class D3D12Renderer : IRenderer
                 (uint)format));
     }
 
+    /// <summary>Builds the passes that write the swapchain, for whatever format it now has.</summary>
     private void Retarget()
     {
         if (_surface == _swapchain.RenderFormat && _output is not null)
