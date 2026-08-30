@@ -451,3 +451,199 @@ internal unsafe struct SlAdapterInfo
     private readonly uint _pad0;
     public nint VkPhysicalDevice;
 }
+
+/// <summary>
+/// What Reflex is asked to do about latency.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Read out of <c>sl.reflex.dll</c> rather than copied from a header.</b> NVIDIA
+/// publishes <c>sl_reflex.h</c>, but no copy of it is in this tree and a structure that is
+/// nearly right is worse than one that is absent: Streamline finds a structure in the
+/// chained list by GUID and reads its fields by offset, so a wrong GUID is a call that
+/// silently does nothing and a wrong offset is a field read from the middle of another one.
+/// </para>
+/// <para>
+/// The plugin's <c>slSetData</c> was decompiled on 2026-08-30. It searches the chain for
+/// <c>F03AF81A-6D0B-4902-A651-C4965E215434</c>, reads the mode as a word at thirty-two, the
+/// virtual key as a half-word at forty-two, and the thread at forty-four, and then copies
+/// forty-eight bytes of the whole thing into its own context. Thirty-two is where a field
+/// lands after <see cref="SlHeader"/>, so the field list below is the only one that both
+/// fits those three offsets and comes to forty-eight bytes.
+/// </para>
+/// <para>
+/// The two fields nothing here reads are named from the published field order, and both are
+/// left at nought: a frame limit this engine does not impose, and a hint that only applies
+/// to the boosted mode.
+/// </para>
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+internal struct SlReflexOptions
+{
+    public SlHeader Header;
+
+    /// <summary>Nought off, one low latency, two low latency with boost.</summary>
+    public uint Mode;
+
+    /// <summary>A frame cap in microseconds, or nought for none.</summary>
+    public uint FrameLimitUs;
+
+    /// <summary>Whether the markers may be used to place the sleep. Boosted mode only.</summary>
+    public byte UseMarkersToOptimise;
+
+    private readonly byte _pad0;
+
+    /// <summary>
+    /// A hot key that stands in for the latency-ping message, or nought.
+    /// </summary>
+    /// <remarks>
+    /// The plugin refuses anything but <c>VK_F13</c>, <c>VK_F14</c> and <c>VK_F15</c> — it
+    /// says so and returns an error — so nought is the only other value worth sending.
+    /// </remarks>
+    public ushort VirtualKey;
+
+    /// <summary>Which thread the latency statistics messages come from, or nought.</summary>
+    public uint IdThread;
+}
+
+/// <summary>One marker, saying where in the frame the caller has reached.</summary>
+/// <remarks>
+/// <para>
+/// Not a structure any header names: <c>slReflexSetMarker</c> takes a marker and a frame
+/// token, and builds this to pass them down. Recovered by decompiling that function, which
+/// writes a header carrying <c>E268B3DC-F963-4C37-9776-AF048E132621</c> at version one, puts
+/// the marker at thirty-two, and chains the frame token behind it.
+/// </para>
+/// <para>
+/// <c>slReflexSleep</c> builds the same structure with the marker set to four thousand and
+/// ninety-six, which is not a marker at all — it is how the plugin tells its own sleep apart
+/// from the markers an application sends. See <see cref="Streamline.MarkerSleep"/>.
+/// </para>
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+internal struct SlReflexMarker
+{
+    public SlHeader Header;
+
+    public uint Marker;
+    private readonly uint _pad0;
+}
+
+/// <summary>What the frame-generation feature is asked to do.</summary>
+/// <remarks>
+/// <para>
+/// Read out of <c>sl.dlss_g.dll</c> on 2026-08-30, for the reason
+/// <see cref="SlReflexOptions"/> gives. Its <c>slSetData</c> searches the chain for
+/// <c>FAC5F1CB-2DFD-4F36-A1E6-3A9E865256C5</c>, refuses a count of nought at thirty-six
+/// ("numFramesToGenerate must be greater than 0"), refuses one above what the hardware
+/// reports, and copies a hundred and twenty bytes into its own context. Its <c>slGetData</c>
+/// reads the flags at forty and the six extents and five formats between fifty-two and
+/// eighty-eight to estimate memory, which is what fixes every offset below.
+/// </para>
+/// <para>
+/// <b>The count is the whole of multi-frame generation.</b> One generated frame for every
+/// drawn one is two times; three is four times. What the card will allow is not a guess —
+/// <see cref="SlDlssgState.NumFramesToGenerateMax"/> is the number, and asking for more is
+/// an error naming both.
+/// </para>
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+internal struct SlDlssgOptions
+{
+    public SlHeader Header;
+
+    /// <summary>Nought off, one on, two automatic.</summary>
+    public uint Mode;
+
+    /// <summary>How many frames to make for each one drawn. One is two-times.</summary>
+    public uint NumFramesToGenerate;
+
+    public uint Flags;
+    public uint DynamicResWidth;
+    public uint DynamicResHeight;
+    public uint NumBackBuffers;
+
+    /// <summary>The size the motion and depth buffers are, which here is the render size.</summary>
+    public uint MvecDepthWidth;
+    public uint MvecDepthHeight;
+
+    /// <summary>The size the colour buffer is, which here is the display size.</summary>
+    public uint ColorWidth;
+    public uint ColorHeight;
+
+    public uint ColorBufferFormat;
+    public uint MvecBufferFormat;
+    public uint DepthBufferFormat;
+    public uint HudLessBufferFormat;
+    public uint UiBufferFormat;
+
+    private readonly uint _pad0;
+
+    /// <summary>
+    /// A callback the plugin takes atomically at ninety-six, and which nothing here sets.
+    /// </summary>
+    /// <remarks>
+    /// Named only by its offset, because what it is was not established: the plugin stores
+    /// it with an interlocked exchange into a slot nothing else read in the part that was
+    /// decompiled. Null is the value a caller who set nothing would have sent.
+    /// </remarks>
+    public nint Callback;
+
+    private readonly ulong _pad1;
+    private readonly ulong _pad2;
+}
+
+/// <summary>What the frame-generation feature says about itself.</summary>
+/// <remarks>
+/// <para>
+/// <b>The header's version decides how much of this is filled in.</b> The plugin checks it
+/// three times: at two it writes <see cref="NumFramesToGenerateMax"/>, at three the fence
+/// pair, at four the last flag. Asking at version one and then reading the maximum is
+/// reading whatever was in the buffer, which is how a card that can generate three frames
+/// comes to be offered none.
+/// </para>
+/// <para>
+/// Recovered from <c>slGetData</c> in <c>sl.dlss_g.dll</c>, which fills a structure found by
+/// <c>CC8AC8E1-A179-44F5-97FA-E74112F9BC61</c>.
+/// </para>
+/// </remarks>
+[StructLayout(LayoutKind.Sequential)]
+internal struct SlDlssgState
+{
+    public SlHeader Header;
+
+    /// <summary>How much device memory it expects to want.</summary>
+    public ulong EstimatedVramBytes;
+
+    /// <summary>Nought when it is running; anything else is a reason it is not.</summary>
+    public uint Status;
+
+    /// <summary>The smallest edge it will work on, which the plugin states as a hundred.</summary>
+    public uint MinWidthOrHeight;
+
+    /// <summary>How many frames the last present actually put on the display.</summary>
+    public uint NumFramesActuallyPresented;
+
+    /// <summary>The largest count this card and driver will accept. Version two.</summary>
+    public uint NumFramesToGenerateMax;
+
+    private readonly byte _pad0;
+
+    /// <summary>Whether it is in a state where it would run. Version two.</summary>
+    public byte Enabled;
+
+    private readonly ushort _pad1;
+    private readonly uint _pad2;
+
+    public ulong Fence;
+    public ulong FenceValue;
+
+    public byte Flag;
+    private readonly byte _pad3;
+    private readonly ushort _pad4;
+    private readonly uint _pad5;
+    private readonly ulong _pad6;
+    private readonly ulong _pad7;
+    private readonly ulong _pad8;
+    private readonly ulong _pad9;
+}

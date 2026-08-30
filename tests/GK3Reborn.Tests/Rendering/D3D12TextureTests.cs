@@ -125,6 +125,60 @@ public sealed class D3D12TextureTests
         Assert.InRange(g, 0.44f, 0.56f);
     }
 
+    /// <summary>A picture of alternating black and white pixels.</summary>
+    /// <remarks>
+    /// The one picture that tells the two filters apart. Every level below the top is half
+    /// black and half white, and the answer is a different number depending on the space the
+    /// halves are averaged in — 128 in the encoding, 188 in light.
+    /// </remarks>
+    private static DecodedImage Checkerboard(int size)
+    {
+        byte[] pixels = new byte[size * size * 4];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                int at = ((y * size) + x) * 4;
+                byte value = (byte)(((x + y) % 2) == 0 ? 0 : 255);
+
+                pixels[at] = value;
+                pixels[at + 1] = value;
+                pixels[at + 2] = value;
+                pixels[at + 3] = 255;
+            }
+        }
+
+        return new DecodedImage(size, size, pixels, HasAlpha: false, SourceFormat: "test");
+    }
+
+    [Theory]
+    [InlineData(1u)]
+    [InlineData(2u)]
+    [InlineData(3u)]
+    public void A_colour_mip_chain_averages_in_light_rather_than_in_the_encoding(uint level)
+    {
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+
+        using D3D12TextureProbe probe = D3D12TextureProbe.Create();
+
+        // Half black, half white. Averaged as light that is 0.5, which written back out
+        // sRGB-encoded is 188. Averaged as the stored bytes it is 128, which is the sRGB
+        // encoding of 0.216 — a level three quarters of a stop dark, and darker again at
+        // every level after it, because each one averages the last one's answer.
+        //
+        // Vulkan builds this chain with vkCmdBlitImage, which decodes an sRGB source before
+        // it filters and encodes the result after. This is the number that has to match, and
+        // it is the whole of the difference between the two backends' pictures.
+        DecodedImage level0 = Checkerboard(64);
+        DecodedImage read = probe.LevelOf(level0, level, colour: true);
+
+        foreach (int at in (int[])[0, read.Pixels.Length / 2, read.Pixels.Length - 4])
+        {
+            Assert.InRange(read.Pixels[at], 186, 190);
+        }
+    }
+
     [Fact]
     public void Uploading_says_nothing_to_the_debug_layer()
     {
@@ -132,6 +186,22 @@ public sealed class D3D12TextureTests
 
         using D3D12TextureProbe probe = D3D12TextureProbe.Create();
         probe.RoundTrip(Gradient(100, 60), mipmaps: true);
+
+        Assert.DoesNotContain(
+            probe.Messages,
+            m => !m.Contains("MessageSeverityInfo", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Building_a_colour_mip_chain_says_nothing_to_the_debug_layer()
+    {
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+
+        // The one path that reads through an sRGB view and writes through a plain one, which
+        // is a cast between two fully typed formats and so is the thing a device might
+        // refuse. Every check above this uploads as data and never asks.
+        using D3D12TextureProbe probe = D3D12TextureProbe.Create();
+        probe.LevelOf(Gradient(100, 60), level: 2, colour: true);
 
         Assert.DoesNotContain(
             probe.Messages,

@@ -5,7 +5,8 @@ Where the second backend stands as of 2026-08-30, and what to pick up next.
 ## Working
 
 The game runs on Direct3D 12: `--backend d3d12`. Room, sky, **the reconstructed terrain
-horizon**, interface, film, fade, ray tracing, DLSS, HDR10.
+horizon**, interface, film, fade, ray tracing, DLSS super resolution, **Reflex**, **DLSS
+frame generation at two, three and four times**, **FSR**, HDR10 and **scRGB**.
 
 Reference renders: `render-scene --backend d3d12 [--rt high] [--dlss quality]`. Note that
 `render-scene` cannot show the horizon on *either* backend — the Vulkan headless
@@ -18,43 +19,93 @@ room-to-picture chain behind the windowed and the headless renderer.
 
 ### What the two backends measure at
 
-Mean channel delta against the Vulkan render of the same shot:
+Mean per-channel difference against the Vulkan render of the same shot, over the whole
+frame, from `render-scene --model R25 --timeblock 202P --width 1024 --height 768`. Say the
+width and the height when quoting one of these: the number moves with the resolution, and
+an earlier row measured at another size is not comparable to one measured here.
 
 | shot | delta | max |
 |---|---|---|
-| R25 202P, raster, `render-scene` | 4.65 | 202 |
-| R25 202P, `--rt high`, `render-scene` | 4.35 | 186 |
-| CSD 202P, windowed, terrain horizon | 6.72 | 233 |
+| R25 202P, enhanced content, raster | 0.862 | 142 |
+| R25 202P, enhanced content, `--rt high` | 0.809 | 168 |
+| R25 202P, original content, raster | 0.103 | 85 |
 
-**These are worse than the 3.85 and 0.424 this file recorded before, and the difference is
-not the terrain.** Amplify the R25 difference image and it is a fine edge pattern spread
-evenly over every surface in the room — the ceiling relief, the wallpaper, the carpet —
-including walls no character or shadow touches. It reads as a sampling difference rather
-than a shading one, and it is present with and without tracing. Both backends ask for
-sixteen-times anisotropy and both build the same mip chains, so that is not it either. This
-is the first thing to chase, and it wants a flat untextured shot and a single quad before it
-wants a room.
+**The delta is understood.** It was two things, one of them a real mistake and one of them
+the driver.
+
+The mistake was the mip chain, and it is fixed; see below. It is the whole of the
+difference on content the packs do not cover, where the chain is built on the device rather
+than shipped, and it grew as the picture shrank: at 320 by 240, where every texture is
+minified hard, R25 measured 0.843 before and 0.644 after.
+
+The rest — all of it — is **anisotropic filtering**. Both backends ask for sixteen times,
+on the same card, from the same blocks with the same shipped levels, and NVIDIA's two
+drivers do not sample the same thing. It shows on the enhanced set and hardly at all on the
+original one because the enhanced textures are eight times the size, so a room is drawn
+from the middle of their chains rather than from the top of them.
+
+How that was pinned down, because each step rules out a whole class of cause:
+
+- Replacing the sampled albedo with a constant in the shader takes 0.862 to 0.106. It is
+  the base colour tap and nothing downstream of it.
+- Pinning both samplers to a single level — `MinLOD` and `MaxLOD` both 1, 2, 3, 5 — gives
+  0.008 to 0.011 at every one. So the levels themselves agree; the two backends are
+  identical texture data sampled differently.
+- Turning anisotropy off on both gives 0.009. Turning it back up walks the delta straight
+  back: one 0.009, two 0.583, four 0.708, eight 0.869, sixteen 0.862.
+- **`MipLODBias = 0.25f` on the Direct3D sampler gives 0.009.** A quarter of a level, exactly
+  — 0.15 and 0.35 are both worse, in opposite directions. Direct3D is the sharper of the
+  two by that quarter level, which an edge-energy measure agrees with: 20.4 against Vulkan's
+  17.9.
+
+So the two backends now agree to a quarter of a mip level of sharpness under anisotropy,
+and to a rounding error without it. Whether to *write* that quarter level down is a
+decision nobody has taken yet — see below.
+
+Ruled out along the way, none of which moved the number at all, and each of which is worth
+not re-testing: the ray tracing level (`none`, `low` and `high` land within a twentieth of
+each other), the floor relief, the improved geometry, the normal map, the
+occlusion-roughness-metalness map,
+the height map's addressing, DXC's `-Gis`, and non-determinism — each backend reproduces
+its own picture byte for byte.
 
 ## To do, roughly in order
 
-### 1. Explain the sampling delta above
+### 1. Decide whether to bias Direct3D's sampler by a quarter of a level
 
-See the table. Until it is understood the two backends cannot be said to agree, and the
-default cannot move.
+`MipLODBias = 0.25f` in `D3D12Samplers.Write` makes the two pictures agree to 0.009 and is
+the only thing between them. It has not been written down, because it is a constant
+measured against one driver on one card, and because it makes the sharper picture blurrier
+to match the softer one rather than the other way round. Neither backend is wrong: both ask
+for the same filter and both are within what either specification promises. This is a call
+about what "agree" is worth, and it belongs to whoever flips the default.
 
-### 2. Frame generation and Reflex
+### 2. Prove frame generation over a session rather than a screenshot
 
-Streamline is attached and DLSS super resolution runs. Frame generation wants a
-`R16G16B16A16_FLOAT` scRGB swapchain rather than a PQ one — `D3D12Swapchain.Choose`
-already names the format and the reason in its own doc comment, but does not offer it.
-`HdrCapture.ToOrdinary` already handles reading that format back.
+It runs: with the count at two, R25 presented 1,416 frames for 481 drawn, and the runtime's
+own state reported three presented per present. But **whether it elects to interpolate
+varies between runs with identical settings** — the same build and settings gave a clean
+2.94x once and exactly 1.00x the next time, at every count.
+
+That is DLSS-G's own adaptive gate rather than anything on this side: it keeps a
+`disable-interpolation` buffer and a readback of it, and decides per frame. What it decides
+from was not established. What is established is that everything this side has to get right
+is right, because none of it is conditional — if the tags, the options, the proxy or the
+markers were wrong it could never have generated at all.
+
+`--frames N --screenshot` is the wrong instrument for the rest of it: nothing moves, the
+camera is still, and the loop is not paced like a session. This wants somebody at the
+keyboard with the frame counter visible.
 
 ### 3. Flip the default
 
 `Application.ChooseBackend` returns `RenderBackend.Vulkan` unconditionally. Make it
 Direct3D on Windows, Vulkan elsewhere. The comment in that method says why it has not
 happened yet — update it rather than deleting it. The terrain that used to be the reason is
-there now; the sampling delta is the reason today.
+there now, and so is the sampling delta: what is left of it is a quarter of a mip level of
+anisotropic sharpness, which is item 1 and is a decision rather than a defect. FSR is there
+now too, so an AMD or Intel machine is no longer offered less by this backend than by the
+other one.
 
 ### 4. The frame ring is one frame deep
 
@@ -67,6 +118,65 @@ only because of that drain. Both would need per-frame buffers first.
 
 ## Done since this file was written
 
+- **Reflex, and the frame token everything else hangs off.** `Streamline.BeginFrame` opens
+  a frame and holds its token; the sleep, the six markers, the resource tags, the upscale and
+  the present all carry it, which is what makes them one frame to a runtime that is timing
+  them. Two tokens in a frame is two frames as far as Reflex and frame generation are
+  concerned. The sleep is the only call that does anything to latency and it is the first
+  thing a frame does; the markers only tell it where the frame's parts are.
+- **Frame generation, at two, three and four times.** The count is
+  `DLSSGOptions.numFramesToGenerate` and the most a card will take is
+  `DLSSGState.numFramesToGenerateMax`, which this machine reports as three. The settings row
+  is trimmed to it rather than offering a factor the runtime would refuse — it declines the
+  whole call rather than clamping, so an unreachable setting would quietly mean "off".
+- **The swapchain is Streamline's.** `slUpgradeInterface` on the DXGI factory, before
+  `CreateSwapChainForHwnd`, so the chain that comes back is a proxy and the generated frames
+  have somewhere to be presented from. The factory is borrowed rather than replaced: the
+  proxy takes its own reference, so the context goes on using the real one. This is also what
+  made `presentCommon` observed on this backend, which the Vulkan one still complains about.
+- **The picture without the interface.** Frame generation registers `kBufferTypeHUDLessColor`
+  as a *required* tag and then says nothing when it is missing — it presents once, which is a
+  game that works and a feature that is off. The back buffer is copied after the film and
+  before the interface and tagged, and only while something is generating. It was the last
+  missing piece: with it the NGX feature is created, without it only the plugin's generic
+  resources ever were.
+- **scRGB.** `D3D12Swapchain.Choose` offered PQ or eight-bit and nothing else, so
+  `HdrTransfer.ExtendedLinear` silently fell back to standard range. `R16G16B16A16_FLOAT`
+  with `RgbFullG10NoneP709` is offered now, and is offered **only when it is asked for**.
+  Automatic still means PQ first, as it always did — see the fourth thing worth not
+  relearning.
+- **FSR on Direct3D.** `D3D12FsrUpscaler`, the twin of the Vulkan one. The FidelityFX types
+  that say nothing about which API is underneath moved to `Rendering/Upscaling`; what is left
+  beside each backend is its own backend description, what a resource handle points at, and
+  how a format is numbered. **Neither backend's FSR has been run** — no FidelityFX runtime is
+  installed on this machine — and the file says so at the top.
+- **Streamline was told it was Vulkan on both backends.** `Preferences.renderApi` was two
+  unconditionally, so every feature was asked what Vulkan extensions it wanted and none was
+  asked what it wanted of a Direct3D device.
+- **A feature that states its requirements has not necessarily loaded.** Ray reconstruction
+  answered what driver it wanted, was then dropped with "not supported on this platform", and
+  was reported as available — so the setting that turns it on looked like it worked.
+  `slIsFeatureLoaded` is asked as well now, and the startup line says which of the two
+  happened.
+
+- **The mip chain averaged in the encoding rather than in light.** A colour texture's
+  levels were built by reading the stored bytes through a plain view, averaging those, and
+  storing them back. Vulkan's `vkCmdBlitImage` decodes an sRGB source before it filters and
+  encodes the result after, so the two backends' chains were different textures. Half black
+  and half white is 128 one way and 188 the other: every level three quarters of a stop
+  dark, and darker again at each level after it, on every texture with detail in it and on
+  nothing else. `D3D12MipChain` reads through the texture's own sRGB view now and encodes
+  before it stores; `D3D12Texture.DescribeLevel` no longer casts the encode away. The
+  chain is within two of an exact reference at every level, where it was sixty out at the
+  first. It hid because `D3D12TextureProbe` uploaded everything as data — the one
+  path where the encode does not exist — so the tests only ever asked the question that has
+  no wrong answer.
+- **A plain `dFdx` is coarse on one backend and fine on the other.** The tangent frame is
+  built per fragment from screen-space derivatives, and GLSL's `dFdx` is whichever of the
+  two the implementation likes: Vulkan takes it fine, Direct3D takes it coarse, which is one
+  frame for a whole two-by-two quad. `MeshShaders` asks for `dFdxFine` and `dFdyFine` now,
+  which is what a per-pixel frame meant in the first place. Vulkan's picture does not move
+  at all; Direct3D's moves onto it.
 - **Per-frame state the windowed renderer never set.** `scene.Flush`, `scene.Advance`,
   `Frames.EmissiveGain`, `Frames.Seconds` and the upscaler's delta are all set in
   `D3D12Renderer.DrawFrame` now. Each was a silent wrong answer: last frame's pose on a
@@ -97,7 +207,7 @@ only because of that drain. Both would need per-frame buffers first.
   R25 and CSD are two of the rooms it killed. The placeholders are resolved before the batch
   opens now.
 
-## Three things worth not relearning
+## Seven things worth not relearning
 
 **Anything drawn at the far plane needs `LESS_EQUAL`.** The depth buffer is cleared to one
 and a sky fragment is written at exactly one, so under Direct3D's default strict less-than
@@ -114,6 +224,49 @@ built for. Getting it wrong is a game that is far too dark, not an error.
 bytes of RGBA gives the right picture with every value scrambled — perfect geometry,
 noise for colour — which looks exactly like a renderer bug and is not one. `HdrCapture`
 is the conversion; both backends use it.
+
+**An encoding is not a private matter between the swapchain and the room.** Automatic was
+briefly made to prefer scRGB while frames were being generated, on the sound-looking argument
+that interpolating two ST.2084 frames averages a quantity that is not linear in light. What
+it overlooked is that the interface, the film and the fade are drawn straight onto the
+swapchain and **blend in whatever space it carries** — `DisplayEncoding` says so, and says
+this project chose that over compositing deliberately. PQ is perceptual and scRGB is linear
+light, and a glyph is almost entirely partial coverage, so the blend space is the whole of
+how its edges look. The room went on looking correct and every letter in the game came out
+wrong.
+
+Two lessons rather than one. The encoding may not be changed underneath a player because
+some unrelated setting is on; and **anything that changes the swapchain's format has to be
+judged on the interface, not on the room**, because the room is composited through a pass
+that handles the transfer function and the interface is not.
+
+**A display list carries its own atlas, and the renderer has to follow it.** The interface is
+cut at two sizes — the room's captions and the menu — and `SetOverlay` on this backend took
+the list and kept whichever sheet was already on the device. The menu was therefore drawn
+with the room's atlas: one sheet sampled with another's coordinates, which is a row of
+fragments where the words should be. The layout stays correct, so it reads as a broken font
+rather than as a renderer that swapped a texture.
+
+`VulkanRenderer.SetOverlay` had always compared the two and re-uploaded, and says so in a
+comment naming this exact symptom. Nobody saw it here because Vulkan was the default and
+everything except the menu draws from the sheet that is already loaded. **Flipping a default
+is not a no-op: it is the first time anybody looks at the other backend's whole surface.**
+
+**A required Streamline tag that is missing is silent.** Frame generation prints the list it
+requires once, at startup, into the runtime's own log at a level nothing normally shows —
+`Registering required tag 'kBufferTypeHUDLessColor'`. A frame that arrives without one is not
+refused, warned about, or reported through any state the application can read: it is
+presented exactly once. Everything else looked right for as long as it took to find that
+line — the hooks all reported OK, the plugin allocated its resources, the state said no
+error. Turn `Preferences.logLevel` up to two and let the informational messages through
+before believing that a Streamline feature is configured.
+
+**A backend comparison is only a number beside the resolution it was measured at.** The
+delta between the two moves by a factor of ten across the sizes anybody would render at,
+and in both directions depending on what is causing it: a mip-chain difference grows as the
+picture shrinks, and an anisotropy difference barely moves. Two rows measured at different
+sizes cannot be subtracted, and a regression against a row whose size nobody wrote down
+cannot be shown. Every row in the table above says 1024 by 768, and a new one must too.
 
 The debug layer is the fastest way to the truth here and nothing drains it by itself.
 `D3D12Renderer.Messages` reads it, and `Application` prints whatever it says after the

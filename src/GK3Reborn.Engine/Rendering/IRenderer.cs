@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Upscaling;
@@ -137,6 +137,19 @@ public interface IRenderer : IDisposable
 
     /// <summary>Whether the runtime offers frame generation.</summary>
     bool DlssFrameGeneration { get; }
+
+    /// <summary>
+    /// How many frames the runtime will generate for each drawn one, or nought for none.
+    /// </summary>
+    /// <remarks>
+    /// Not the same question as <see cref="DlssFrameGeneration"/>, which asks whether the
+    /// feature is there at all. This is what the card will actually do, and a menu that does
+    /// not trim itself to it offers a factor the runtime refuses outright.
+    /// </remarks>
+    int FrameGenerationMaximum => 0;
+
+    /// <summary>Whether latency can be controlled: Reflex, where there is one.</summary>
+    bool LatencyControl => false;
 
     /// <summary>Whether the swapchain is really presenting high dynamic range.</summary>
     /// <remarks>

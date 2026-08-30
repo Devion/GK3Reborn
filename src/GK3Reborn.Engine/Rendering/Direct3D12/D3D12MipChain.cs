@@ -29,6 +29,17 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <c>n + 1</c> is written and one texture cannot be in two states at once unless the
 /// states are per subresource.
 /// </para>
+/// <para>
+/// <b>A colour texture is averaged in light, not in its encoding.</b> The source is read
+/// through the texture's own sRGB format so the hardware decodes it, and the result is
+/// encoded again here before it is stored, because an unordered access view cannot carry an
+/// sRGB encode and so cannot do it. Getting this wrong is not obvious and does not look like
+/// a mistake: half black and half white averages to 128 in the encoding and to 188 in light,
+/// so every level comes out three quarters of a stop dark and darker again at each level
+/// after it, on every texture with detail in it and on nothing else. Vulkan's
+/// <c>vkCmdBlitImage</c> decodes and re-encodes an sRGB image for exactly this reason, which
+/// is what made the two backends disagree over the whole of a room.
+/// </para>
 /// </remarks>
 public static unsafe class D3D12MipChain
 {
@@ -43,10 +54,22 @@ public static unsafe class D3D12MipChain
 
         layout(push_constant) uniform Push
         {
-            // Width and height of the level being written; the rest is padding, because a
-            // root constant block is counted in whole words either way.
+            // Width and height of the level being written, then whether the source is a
+            // colour texture whose bytes carry an sRGB encode. The last word is padding,
+            // because a root constant block is counted in whole words either way.
             ivec4 size;
         } push;
+
+        // The sRGB transfer function, which is what the destination view cannot apply.
+        // Written out rather than approximated by a power, because the hardware applies
+        // exactly this on the way in and anything else would not round-trip.
+        vec3 encode(vec3 light)
+        {
+            return mix(
+                light * 12.92,
+                (pow(light, vec3(1.0 / 2.4)) * 1.055) - 0.055,
+                greaterThan(light, vec3(0.0031308)));
+        }
 
         void main()
         {
@@ -64,7 +87,16 @@ public static unsafe class D3D12MipChain
             // not two texels by two.
             vec2 uv = (vec2(at) + 0.5) / vec2(target);
 
-            imageStore(finer, at, textureLod(coarser, uv, 0.0));
+            // Light, for a colour texture: the source view carries the encode and the
+            // hardware took it off. Alpha never carries one, on either side.
+            vec4 filtered = textureLod(coarser, uv, 0.0);
+
+            if (push.size.z != 0)
+            {
+                filtered.rgb = encode(filtered.rgb);
+            }
+
+            imageStore(finer, at, filtered);
         }
         """;
 
@@ -112,6 +144,11 @@ public static unsafe class D3D12MipChain
         using D3D12DescriptorHeap samplers = D3D12DescriptorHeap.Create(
             context.Device, DescriptorHeapType.Sampler, texture.Mips, shaderVisible: true);
 
+        // Whether the stored bytes carry an sRGB encode, which decides whether the filtered
+        // result has to be given one back. Every wall and floor texture in the game does;
+        // a normal map, an occlusion map and a height map do not.
+        bool encoded = D3D12Texture.Linearise(texture.Format) != texture.Format;
+
         ID3D12GraphicsCommandList4* list = context.BeginOneShot();
 
         // Whole-resource first, so every subresource is in one known state before the
@@ -158,7 +195,7 @@ public static unsafe class D3D12MipChain
 
             size[0] = width;
             size[1] = height;
-            size[2] = 0;
+            size[2] = encoded ? 1 : 0;
             size[3] = 0;
 
             list->SetComputeRoot32BitConstants(

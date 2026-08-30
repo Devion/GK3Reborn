@@ -7,7 +7,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace GK3Reborn.Rendering.Vulkan;
+namespace GK3Reborn.Rendering.Upscaling;
 
 /// <summary>
 /// The five functions AMD's FidelityFX runtime exports, resolved by name from a file the
@@ -15,10 +15,10 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>amd_fidelityfx_vk.dll</c> presents one small C interface for every effect it
-/// contains: create a context, configure it, query it, dispatch it, destroy it. Everything
+/// <c>amd_fidelityfx_vk.dll</c> and <c>amd_fidelityfx_dx12.dll</c> present one small C
+/// interface for every effect they contain: create a context, configure it, query it, dispatch it, destroy it. Everything
 /// specific to super resolution is a structure passed through those, identified by a
-/// number in its header — which is why this file is short and <see cref="FsrUpscaler"/> is
+/// number in its header — which is why this file is short and the backends' own upscalers is
 /// not.
 /// </para>
 /// <para>

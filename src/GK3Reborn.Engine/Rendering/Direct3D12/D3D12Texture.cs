@@ -299,9 +299,17 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="where">Where to write it.</param>
     /// <param name="level">Which mip level.</param>
     /// <remarks>
+    /// <para>
     /// One level and no others, which is what the mip builder samples through: a view of
     /// the whole chain would let the filter pick a level of its own and the result would
     /// depend on what the sampler decided rather than on what was asked for.
+    /// </para>
+    /// <para>
+    /// The texture's own format, sRGB encode and all — unlike <see cref="DescribeWrite"/>,
+    /// which has no choice. Reading a colour texture through the plain format hands the
+    /// filter the stored bytes and it averages a transfer curve, which is not what averaging
+    /// light means and not what Vulkan's blit does. See <see cref="D3D12MipChain"/>.
+    /// </para>
     /// </remarks>
     public void DescribeLevel(D3D12Context context, CpuDescriptorHandle where, uint level)
     {
@@ -309,7 +317,7 @@ public sealed unsafe class D3D12Texture : IDisposable
 
         var description = new ShaderResourceViewDesc
         {
-            Format = Linearise(Format),
+            Format = Format,
             ViewDimension = SrvDimension.Texture2D,
             Shader4ComponentMapping = D3D12AccelerationStructure.DefaultComponentMapping,
         };

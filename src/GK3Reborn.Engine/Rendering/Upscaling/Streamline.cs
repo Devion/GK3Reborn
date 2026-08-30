@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -60,6 +60,16 @@ namespace GK3Reborn.Rendering.Upscaling;
 /// </remarks>
 public sealed unsafe class Streamline : IDisposable
 {
+    /// <summary>Which graphics API a device is, from <c>sl::RenderAPI</c>.</summary>
+    /// <remarks>
+    /// Stated rather than inferred, and it matters before a device exists: it decides what
+    /// <c>slGetFeatureRequirements</c> answers with, so a Direct3D session that says Vulkan
+    /// is one that collects Vulkan extension names it will never use and asks for queues
+    /// nothing will create.
+    /// </remarks>
+    internal const uint RenderApiDirect3D12 = 1;
+    internal const uint RenderApiVulkan = 2;
+
     /// <summary>Streamline's own feature numbers.</summary>
     private const uint FeatureSuperResolution = 0;
     private const uint FeatureFrameGeneration = 1000;
@@ -131,12 +141,41 @@ public sealed unsafe class Streamline : IDisposable
     /// third is fetched as optional and left null when nothing tagged it. It takes depth and
     /// motion under their ordinary names.
     /// </remarks>
+    /// <summary>The picture as it stood before the interface was drawn over it.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Frame generation will not run without it.</b> The runtime says so at startup and
+    /// only there — "Registering required tag 'kBufferTypeHUDLessColor'" — and a frame that
+    /// arrives without it is not refused, warned about, or reported as an error. It is
+    /// presented exactly once, which is a game that works and a feature that is quietly off.
+    /// </para>
+    /// <para>
+    /// Why it is needed at all: a generated frame is made by interpolating two drawn ones,
+    /// and an interface interpolated between two positions smears. Given the picture without
+    /// it, the runtime can take the difference against the back buffer, work out what the
+    /// interface was, and lay it over the generated frame rather than through it.
+    /// </para>
+    /// </remarks>
+    private const uint TagHudLessColour = 2;
+
     private const uint TagNeuralInputColor = 70;
     private const uint TagNeuralOutputColor = 71;
     private const uint TagNeuralControlMask = 72;
 
     /// <summary>A tagged resource does not change until the frame is presented.</summary>
     private const uint ValidUntilPresent = 1;
+
+    /// <summary>
+    /// The marker <c>slReflexSleep</c> sends, which is not a marker.
+    /// </summary>
+    /// <remarks>
+    /// Recovered by decompiling <c>slReflexSleep</c>, which builds the same structure
+    /// <c>slReflexSetMarker</c> does and puts four thousand and ninety-six in it. It is how
+    /// the plugin tells its own sleep apart from anything an application could send: the
+    /// real markers are a short run from nought, and the handler takes this one first and
+    /// returns before any of them are considered.
+    /// </remarks>
+    internal const uint MarkerSleep = 4096;
 
     /// <summary>
     /// How hard the neural-rendering network is asked to work, from nothing to one.
@@ -179,10 +218,19 @@ public sealed unsafe class Streamline : IDisposable
     private readonly delegate* unmanaged[Cdecl]<void*, void*, void*, uint, void*, uint> _setTagForFrame;
     private readonly delegate* unmanaged[Cdecl]<uint, void*, void**, uint, void*, uint> _evaluateFeature;
     private readonly delegate* unmanaged[Cdecl]<uint, void*, uint> _freeResources;
+    private readonly delegate* unmanaged[Cdecl]<void**, uint> _upgradeInterface;
+    private readonly delegate* unmanaged[Cdecl]<uint, byte*, uint> _isFeatureLoaded;
 
     private delegate* unmanaged[Cdecl]<void*, void*, uint> _setDlssOptions;
     private delegate* unmanaged[Cdecl]<void*, void*, uint> _setDlssdOptions;
     private delegate* unmanaged[Cdecl]<void*, void*, uint> _setDlssnrOptions;
+    private delegate* unmanaged[Cdecl]<void*, void*, uint> _setFrameGenerationOptions;
+
+    /// <summary>Reflex's own three, which are shaped differently from each other.</summary>
+    private delegate* unmanaged[Cdecl]<void*, uint> _setReflexOptions;
+    private delegate* unmanaged[Cdecl]<void*, uint> _sleep;
+    private delegate* unmanaged[Cdecl]<uint, void*, uint> _setMarker;
+    private delegate* unmanaged[Cdecl]<void*, void*, void*, uint> _getFrameGenerationState;
 
     /// <summary>Which denoising feature loaded, or nought when neither did.</summary>
     private uint _denoiser;
@@ -193,6 +241,23 @@ public sealed unsafe class Streamline : IDisposable
     private bool _attached;
     private Matrix4x4? _previousViewProjection;
     private uint _frameNumber;
+
+    /// <summary>Which API the device is, in Streamline's numbering.</summary>
+    private uint _renderApi = RenderApiVulkan;
+
+    /// <summary>This frame's token, from <see cref="BeginFrame"/>.</summary>
+    /// <remarks>
+    /// Held rather than made where it is needed, because a marker, a tag and an evaluation
+    /// are only about the same frame if they carry the same token. Reflex measures the
+    /// distance between two markers and frame generation pairs a drawn frame with the one
+    /// before it; both read the number out of this. Two tokens in a frame is two frames as
+    /// far as either is concerned, and the symptom is latency figures that make no sense and
+    /// generated frames that pair the wrong inputs.
+    /// </remarks>
+    private void* _token;
+
+    private uint _latencyMode;
+    private int _framesToGenerate;
 
     private Streamline(nint library)
     {
@@ -217,6 +282,8 @@ public sealed unsafe class Streamline : IDisposable
         _evaluateFeature =
             (delegate* unmanaged[Cdecl]<uint, void*, void**, uint, void*, uint>)Entry("slEvaluateFeature");
         _freeResources = (delegate* unmanaged[Cdecl]<uint, void*, uint>)Entry("slFreeResources");
+        _upgradeInterface = (delegate* unmanaged[Cdecl]<void**, uint>)Entry("slUpgradeInterface");
+        _isFeatureLoaded = (delegate* unmanaged[Cdecl]<uint, byte*, uint>)Entry("slIsFeatureLoaded");
     }
 
     /// <summary>Whether the whole chain is up and DLSS can be evaluated.</summary>
@@ -301,6 +368,7 @@ public sealed unsafe class Streamline : IDisposable
     /// Starts Streamline, or returns null when it is not installed or will not start.
     /// </summary>
     /// <param name="runtimes">Where the player's runtimes were found.</param>
+    /// <param name="renderApi">Which graphics API the device about to be attached is.</param>
     /// <param name="wantFrameGeneration">Whether to load the frame-generation plugin.</param>
     /// <param name="wantRayReconstruction">Whether to load the ray-reconstruction plugin.</param>
     /// <returns>A started Streamline, or null.</returns>
@@ -312,6 +380,7 @@ public sealed unsafe class Streamline : IDisposable
     /// </remarks>
     public static Streamline? TryStart(
         UpscalerRuntimes? runtimes,
+        uint renderApi = RenderApiVulkan,
         bool wantFrameGeneration = true,
         bool wantRayReconstruction = true)
     {
@@ -336,7 +405,7 @@ public sealed unsafe class Streamline : IDisposable
 
         try
         {
-            started = new Streamline(library);
+            started = new Streamline(library) { _renderApi = renderApi };
         }
         catch (EntryPointNotFoundException)
         {
@@ -371,11 +440,13 @@ public sealed unsafe class Streamline : IDisposable
             // this build looks for is nvngx_dlssnr.dll, which is its network and not the
             // documented feature's. A feature whose plugin is absent simply states no
             // requirements, so asking after both costs a call.
-            if (started.Gather(FeatureNeuralRendering))
+            if (started.Gather(FeatureNeuralRendering) &&
+                started.Loaded(FeatureNeuralRendering))
             {
                 started._denoiser = FeatureNeuralRendering;
             }
-            else if (started.Gather(FeatureRayReconstruction))
+            else if (started.Gather(FeatureRayReconstruction) &&
+                     started.Loaded(FeatureRayReconstruction))
             {
                 started._denoiser = FeatureRayReconstruction;
             }
@@ -389,9 +460,19 @@ public sealed unsafe class Streamline : IDisposable
         {
             // Reflex first: frame generation depends on it, and what it wants of the device
             // has to be in the extension list either way.
-            started.Gather(FeatureReflex);
+            //
+            // And Reflex is worth having on its own. It is what shortens the queue between
+            // the frame this thread is building and the one the display is waiting for, and
+            // it costs a plugin that is being loaded anyway — so whether it loaded is kept,
+            // rather than being treated as a detail of frame generation.
+            started.HasLatencyControl =
+                started.Gather(FeatureReflex) && started.Loaded(FeatureReflex);
+
             started.Gather(FeaturePresentCounter);
-            started.Gather(FeatureFrameGeneration);
+
+            started.HasFrameGeneration =
+                started.Gather(FeatureFrameGeneration) &&
+                started.Loaded(FeatureFrameGeneration);
         }
 
         return started;
@@ -563,6 +644,15 @@ public sealed unsafe class Streamline : IDisposable
             HasFrameGeneration = false;
         }
 
+        // Reflex answers for hardware that is not NVIDIA's as well: there it collects
+        // latency statistics and sleeps for nobody, which is a working answer rather than a
+        // missing feature. So this asks and believes the answer rather than assuming a
+        // GeForce.
+        if (HasLatencyControl && _isFeatureSupported(FeatureReflex, adapter) != 0)
+        {
+            HasLatencyControl = false;
+        }
+
         return true;
     }
 
@@ -723,12 +813,19 @@ public sealed unsafe class Streamline : IDisposable
             return false;
         }
 
-        void* token = null;
-        uint number = _frameNumber++;
+        // The frame's own token where a caller opened one, and a token of this call's own
+        // where nobody did. The second is what the headless renderers do — they draw one
+        // picture and never present, so there is no frame for a marker to be part of.
+        void* token = _token;
 
-        if (_getNewFrameToken(&token, &number) != 0 || token is null)
+        if (token is null)
         {
-            return false;
+            uint number = _frameNumber++;
+
+            if (_getNewFrameToken(&token, &number) != 0 || token is null)
+            {
+                return false;
+            }
         }
 
         SlViewport viewport = Viewport();
@@ -777,6 +874,357 @@ public sealed unsafe class Streamline : IDisposable
 
         Log.Warning($"WARNING GK3R3438: DLSS declined a frame (code {result}).");
         return false;
+    }
+
+    /// <summary>Opens a frame, and hands back whether there is one to work with.</summary>
+    /// <returns>True when a token was issued.</returns>
+    /// <remarks>
+    /// <para>
+    /// Called once at the top of a frame, before the first marker. Everything the rest of
+    /// the frame says to Streamline — a marker, a resource tag, the camera, the evaluation,
+    /// the present — carries the token this issued, which is what makes them one frame
+    /// rather than several.
+    /// </para>
+    /// <para>
+    /// The number is this engine's own counter and rises by one a frame. Streamline hands
+    /// back a token object for it; asking twice for the same number gives the same token,
+    /// which is why nothing here has to pass it around.
+    /// </para>
+    /// </remarks>
+    public bool BeginFrame()
+    {
+        if (!_attached)
+        {
+            return false;
+        }
+
+        void* token = null;
+        uint number = _frameNumber++;
+
+        if (_getNewFrameToken(&token, &number) != 0 || token is null)
+        {
+            _token = null;
+            return false;
+        }
+
+        _token = token;
+        return true;
+    }
+
+    /// <summary>Closes the frame, so nothing later reaches for a stale token.</summary>
+    public void EndFrame() => _token = null;
+
+    /// <summary>Whether Reflex loaded and can be driven.</summary>
+    public bool HasLatencyControl { get; private set; }
+
+    /// <summary>What the latency mode is set to: nought off, one on, two on with boost.</summary>
+    public uint LatencyMode => _latencyMode;
+
+    /// <summary>Says how hard to work at keeping the queue short.</summary>
+    /// <param name="mode">Nought off, one low latency, two low latency with boost.</param>
+    /// <param name="frameLimitUs">A frame cap in microseconds, or nought for none.</param>
+    /// <returns>True when the runtime took it.</returns>
+    /// <remarks>
+    /// <para>
+    /// Called when something changed rather than every frame, which is not an optimisation
+    /// for its own sake: the plugin copies the options into its context and asks the driver
+    /// to set the sleep mode each time, and the driver's call is not free.
+    /// </para>
+    /// <para>
+    /// On hardware that is not NVIDIA's the plugin says so once and collects statistics
+    /// without sleeping. That is not an error and is not reported as one.
+    /// </para>
+    /// </remarks>
+    public bool SetLatencyMode(uint mode, uint frameLimitUs = 0)
+    {
+        if (!_attached || !HasLatencyControl)
+        {
+            return false;
+        }
+
+        if (!Resolve(FeatureReflex, "slReflexSetOptions", ref _setReflexOptions))
+        {
+            return false;
+        }
+
+        var options = new SlReflexOptions
+        {
+            Header = SlHeader.Of(
+                0xf03af81a, 0x6d0b, 0x4902, 0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34, 1),
+            Mode = mode,
+            FrameLimitUs = frameLimitUs,
+
+            // Nought, and all three deliberately. The engine imposes no cap of its own —
+            // vertical sync and the display do that — the marker hint applies only to the
+            // boosted mode, where what it optimises is a submission pattern this renderer
+            // does not have, and the plugin refuses any virtual key but VK_F13 through
+            // VK_F15 and returns an error saying so.
+            UseMarkersToOptimise = 0,
+            VirtualKey = 0,
+            IdThread = 0,
+        };
+
+        uint result = _setReflexOptions(&options);
+
+        if (result != 0)
+        {
+            Log.Warning($"WARNING GK3R3441: Reflex would not take its options (code {result}).");
+            return false;
+        }
+
+        _latencyMode = mode;
+        return true;
+    }
+
+    /// <summary>Waits, if Reflex thinks this frame should start later than it wants to.</summary>
+    /// <returns>True when it was asked.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The whole of what Reflex does for latency happens here.</b> The markers only tell
+    /// it where the frame's parts are; this is the call that returns later than it was made,
+    /// and it must be the first thing a frame does — before input is read, because the point
+    /// is to read input as late as possible and still make the present.
+    /// </para>
+    /// <para>
+    /// It blocks, and that is not a fault to be moved off the frame thread: the sleep is
+    /// calculated for the thread that is about to do the work.
+    /// </para>
+    /// </remarks>
+    public bool Sleep()
+    {
+        if (!_attached || !HasLatencyControl || _token is null || _latencyMode == 0)
+        {
+            return false;
+        }
+
+        if (!Resolve(FeatureReflex, "slReflexSleep", ref _sleep))
+        {
+            return false;
+        }
+
+        return _sleep(_token) == 0;
+    }
+
+    /// <summary>Says where in the frame the caller has reached.</summary>
+    /// <param name="marker">Which point.</param>
+    /// <returns>True when the runtime took it.</returns>
+    /// <remarks>
+    /// Silent about failure. A marker is a measurement rather than a step in drawing, and a
+    /// frame that could not be measured is still a frame; warning once a marker would be six
+    /// lines a frame.
+    /// </remarks>
+    public bool Mark(StreamlineMarker marker)
+    {
+        if (!_attached || !HasLatencyControl || _token is null)
+        {
+            return false;
+        }
+
+        if (!Resolve(FeatureReflex, "slReflexSetMarker", ref _setMarker))
+        {
+            return false;
+        }
+
+        return _setMarker((uint)marker, _token) == 0;
+    }
+
+    /// <summary>The largest number of frames this card will generate for each drawn one.</summary>
+    /// <remarks>
+    /// Nought until <see cref="RefreshFrameGeneration"/> has been able to ask. One is
+    /// two-times and three is four-times; a card that cannot generate at all reports nought,
+    /// and the setting is then not offered rather than offered and refused.
+    /// </remarks>
+    public int FrameGenerationMaximum { get; private set; }
+
+    /// <summary>Why frame generation is not running, or nought when it is.</summary>
+    public uint FrameGenerationStatus { get; private set; }
+
+    /// <summary>How many frames the last present actually put on the display.</summary>
+    public uint FramesPresented { get; private set; }
+
+    /// <summary>Asks the runtime what it can do and what it is doing.</summary>
+    /// <returns>True when it answered.</returns>
+    /// <remarks>
+    /// <b>The version in the header decides how much comes back.</b> The plugin fills the
+    /// maximum count only when asked at version two or above, the fence pair at three and
+    /// the last flag at four, so this asks at four and hands it a structure long enough for
+    /// all of them. Asking at one and then reading the maximum is reading the bytes this
+    /// side zeroed, which is a card that can generate three frames offering none.
+    /// </remarks>
+    public bool RefreshFrameGeneration()
+    {
+        if (!_attached || !HasFrameGeneration)
+        {
+            return false;
+        }
+
+        if (!Resolve(FeatureFrameGeneration, "slDLSSGGetState", ref _getFrameGenerationState))
+        {
+            return false;
+        }
+
+        var state = new SlDlssgState
+        {
+            Header = SlHeader.Of(
+                0xcc8ac8e1, 0xa179, 0x44f5, 0x97, 0xfa, 0xe7, 0x41, 0x12, 0xf9, 0xbc, 0x61, 4),
+        };
+
+        SlViewport viewport = Viewport();
+
+        if (_getFrameGenerationState(&viewport, &state, null) != 0)
+        {
+            return false;
+        }
+
+        // Clamped, because the number is used to size a menu and a bad read should cost a
+        // short list rather than a very long one.
+        FrameGenerationMaximum = (int)Math.Min(state.NumFramesToGenerateMax, 16u);
+        FrameGenerationStatus = state.Status;
+        FramesPresented = state.NumFramesActuallyPresented;
+        return true;
+    }
+
+    /// <summary>Turns frame generation on at a factor, or off.</summary>
+    /// <param name="generated">
+    /// How many frames to make for each one drawn: nought off, one for two-times, three for
+    /// four-times.
+    /// </param>
+    /// <param name="render">The size the room is drawn at, which is what motion and depth are.</param>
+    /// <param name="display">The size the picture is shown at, which is what colour is.</param>
+    /// <returns>True when the runtime took it.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Off is a mode, not a count of nought.</b> The plugin refuses a count of nought
+    /// outright — "numFramesToGenerate must be greater than 0" — so turning it off is mode
+    /// nought with the count left at one.
+    /// </para>
+    /// <para>
+    /// The extents are not decoration: they are what the runtime works its memory out from,
+    /// and depth and motion are at the render size while the colour it interpolates is at
+    /// the display size. With no upscaler the two are equal, which is why getting it wrong
+    /// is invisible until somebody turns DLSS on.
+    /// </para>
+    /// </remarks>
+    public bool SetFrameGeneration(
+        int generated, (uint Width, uint Height) render, (uint Width, uint Height) display)
+    {
+        if (!_attached || !HasFrameGeneration)
+        {
+            return false;
+        }
+
+        if (!Resolve(
+                FeatureFrameGeneration, "slDLSSGSetOptions", ref _setFrameGenerationOptions))
+        {
+            return false;
+        }
+
+        var options = new SlDlssgOptions
+        {
+            Header = SlHeader.Of(
+                0xfac5f1cb, 0x2dfd, 0x4f36, 0xa1, 0xe6, 0x3a, 0x9e, 0x86, 0x52, 0x56, 0xc5, 4),
+            Mode = generated > 0 ? 1u : 0u,
+            NumFramesToGenerate = (uint)Math.Max(1, generated),
+            NumBackBuffers = 3,
+            MvecDepthWidth = render.Width,
+            MvecDepthHeight = render.Height,
+            ColorWidth = display.Width,
+            ColorHeight = display.Height,
+        };
+
+        SlViewport viewport = Viewport();
+        uint result = _setFrameGenerationOptions(&viewport, &options);
+
+        if (result != 0)
+        {
+            Log.Warning(
+                $"WARNING GK3R3442: frame generation would not take {generated} " +
+                $"generated frame(s) (code {Reason(result)}).");
+
+            return false;
+        }
+
+        _framesToGenerate = generated;
+        return true;
+    }
+
+    /// <summary>How many frames it is currently set to generate for each drawn one.</summary>
+    public int FramesGenerated => _framesToGenerate;
+
+    /// <summary>Puts a Streamline proxy in front of a Direct3D or DXGI interface.</summary>
+    /// <param name="wrapped">
+    /// The interface to replace. On success it points at the proxy instead.
+    /// </param>
+    /// <returns>True when it was replaced.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>This is what makes frame generation possible at all, and nothing else does.</b>
+    /// The generated frames are produced and presented inside the swapchain's own
+    /// <c>Present</c>, so a swapchain the runtime has never seen is one it cannot generate
+    /// for. Upgrading the DXGI factory before the swapchain is created is what makes the
+    /// swapchain that comes back one of Streamline's — everything else follows from that,
+    /// including the housekeeping the runtime does at each present and which it otherwise
+    /// complains it never observes.
+    /// </para>
+    /// <para>
+    /// It takes an <c>ID3D12Device</c>, an <c>IDXGIFactory</c> or an <c>IDXGISwapChain</c>
+    /// and refuses anything else. Only the factory is upgraded here: upgrading the device as
+    /// well buys the command-queue hook, which matters to an engine that makes queues after
+    /// the swapchain and not to this one, which makes its one queue first and hands it
+    /// straight to <c>CreateSwapChainForHwnd</c>.
+    /// </para>
+    /// <para>
+    /// <b>The proxy holds a reference of its own to what it wraps.</b> The caller's pointer
+    /// is overwritten, so the reference it used to name is no longer reachable through it;
+    /// releasing the proxy releases the proxy's reference and not that one. That is NVIDIA's
+    /// own documented usage, and what it costs is one DXGI factory that outlives the process
+    /// by a few microseconds.
+    /// </para>
+    /// </remarks>
+    public bool UpgradeInterface(void** wrapped)
+    {
+        if (!_attached || wrapped is null || *wrapped is null)
+        {
+            return false;
+        }
+
+        uint result = _upgradeInterface(wrapped);
+
+        if (result == 0)
+        {
+            return true;
+        }
+
+        Log.Warning(
+            $"WARNING GK3R3443: Streamline would not proxy that interface ({Reason(result)}). " +
+            "Frame generation needs the swapchain to be one of its own, so it will not run.");
+
+        return false;
+    }
+
+    /// <summary>Hands over the picture as it was before the interface went on it.</summary>
+    /// <param name="commandList">The frame's command list, for the barriers the runtime adds.</param>
+    /// <param name="hudLess">The copy, at display size, in whatever state it was left in.</param>
+    /// <returns>True when the runtime took it.</returns>
+    /// <remarks>
+    /// Separate from <see cref="Evaluate"/> and later in the frame, because it is a different
+    /// moment: upscaling happens while the room is still the only thing drawn, and this is
+    /// taken after the room, the film and everything else that is not the interface. Both
+    /// carry the frame's own token, which is what puts them in the same frame.
+    /// </remarks>
+    public bool TagHudLess(nint commandList, UpscaleSurface hudLess)
+    {
+        if (!_attached || _token is null || !hudLess.Exists)
+        {
+            return false;
+        }
+
+        SlViewport viewport = Viewport();
+        SlResource resource = Describe(hudLess);
+
+        SlResourceTag tag = Tag(&resource, TagHudLessColour, hudLess);
+
+        return _setTagForFrame(_token, &viewport, &tag, 1, (void*)commandList) == 0;
     }
 
     /// <summary>Lets go of whatever the feature allocated for this viewport.</summary>
@@ -1072,11 +1520,15 @@ public sealed unsafe class Streamline : IDisposable
                     NumFeaturesToLoad = (uint)wanted.Length,
                     ProjectId = (void*)project,
 
-                    // Custom engine, and Vulkan — which the header says to state, because
-                    // it decides what the requirements queries come back with.
+                    // Custom engine, and whichever API the caller is about to attach —
+                    // which the header says to state, because it decides what the
+                    // requirements queries come back with. It used to say Vulkan
+                    // unconditionally, which on the Direct3D backend meant every feature
+                    // was asked what Vulkan extensions it wanted and none was asked what it
+                    // wanted of a Direct3D device.
                     Engine = 0,
                     EngineVersion = (void*)version,
-                    RenderApi = 2,
+                    RenderApi = _renderApi,
                 };
 
                 uint result = _init(&preferences, SdkVersion);
@@ -1152,6 +1604,37 @@ public sealed unsafe class Streamline : IDisposable
         Log.Info("DLSS: ray reconstruction is not available (" + RayReconstructionNote + ").");
     }
 
+    /// <summary>Whether a plugin actually loaded, rather than merely being on disk.</summary>
+    /// <param name="feature">Which feature.</param>
+    /// <returns>True when the runtime has it.</returns>
+    /// <remarks>
+    /// <para>
+    /// A different question from <see cref="Gather"/>, and the one that was missing. A
+    /// feature states its requirements from the manifest embedded in its plugin, which can
+    /// be read from a plugin the runtime then declines to load — so a feature can answer
+    /// what it wants of a device and still not be there. Ray reconstruction on this machine
+    /// does exactly that: it names a driver version it is satisfied by, and the plugin is
+    /// then dropped with "not supported on this platform", and the startup line said it was
+    /// available.
+    /// </para>
+    /// <para>
+    /// What made it worth finding: the two answers differ only in the log, and the setting
+    /// that turns the feature on is then a setting that appears to work.
+    /// </para>
+    /// </remarks>
+    private bool Loaded(uint feature)
+    {
+        byte loaded = 0;
+
+        if (_isFeatureLoaded(feature, &loaded) != 0 || loaded == 0)
+        {
+            Log.Info($"Streamline: feature {feature} stated its requirements but did not load.");
+            return false;
+        }
+
+        return true;
+    }
+
     /// <summary>Collects what a feature needs from the instance and the device.</summary>
     /// <remarks>
     /// Called once per loaded feature, before anything Vulkan exists. The strings come back
@@ -1177,13 +1660,6 @@ public sealed unsafe class Streamline : IDisposable
         if (result != 0)
         {
             Log.Info($"Streamline: feature {feature} states no requirements ({Reason(result)}).");
-
-            // Believing the files instead is how ray reconstruction came to be reported as
-            // available and then refused every time it was asked for.
-            if (feature == FeatureFrameGeneration)
-            {
-                HasFrameGeneration = false;
-            }
 
             return false;
         }
@@ -1237,19 +1713,104 @@ public sealed unsafe class Streamline : IDisposable
             return true;
         }
 
+        void* function = Function(feature, name);
+
+        if (function is null)
+        {
+            return false;
+        }
+
+        into = (delegate* unmanaged[Cdecl]<void*, void*, uint>)function;
+        return true;
+    }
+
+    /// <summary>The same, for a function taking one structure.</summary>
+    /// <remarks>
+    /// Four shapes rather than one, because a plugin's own functions are not all shaped
+    /// alike: setting options takes one structure, a marker takes a number and a token, and
+    /// reading a feature's state takes a viewport, somewhere to put the answer and the
+    /// options it is to be read against. Casting one signature to another compiles and
+    /// passes rubbish.
+    /// </remarks>
+    private bool Resolve(
+        uint feature, string name, ref delegate* unmanaged[Cdecl]<void*, uint> into)
+    {
+        if (into is not null)
+        {
+            return true;
+        }
+
+        void* function = Function(feature, name);
+
+        if (function is null)
+        {
+            return false;
+        }
+
+        into = (delegate* unmanaged[Cdecl]<void*, uint>)function;
+        return true;
+    }
+
+    /// <summary>The same, for a function taking a number and a structure.</summary>
+    private bool Resolve(
+        uint feature, string name, ref delegate* unmanaged[Cdecl]<uint, void*, uint> into)
+    {
+        if (into is not null)
+        {
+            return true;
+        }
+
+        void* function = Function(feature, name);
+
+        if (function is null)
+        {
+            return false;
+        }
+
+        into = (delegate* unmanaged[Cdecl]<uint, void*, uint>)function;
+        return true;
+    }
+
+    /// <summary>The same, for a function taking three structures.</summary>
+    private bool Resolve(
+        uint feature, string name, ref delegate* unmanaged[Cdecl]<void*, void*, void*, uint> into)
+    {
+        if (into is not null)
+        {
+            return true;
+        }
+
+        void* function = Function(feature, name);
+
+        if (function is null)
+        {
+            return false;
+        }
+
+        into = (delegate* unmanaged[Cdecl]<void*, void*, void*, uint>)function;
+        return true;
+    }
+
+    /// <summary>Looks one of a feature's functions up by name.</summary>
+    /// <remarks>
+    /// A plugin exports <c>slGetPluginFunction</c> and nothing else — every function it has
+    /// is behind that, found by the name it was compiled with. So a name that is wrong by a
+    /// letter is a null rather than a link error, which is why every caller checks.
+    /// </remarks>
+    private void* Function(uint feature, string name)
+    {
         byte[] bytes = System.Text.Encoding.ASCII.GetBytes(name + "\0");
 
         fixed (byte* pointer = bytes)
         {
             void* function = null;
 
-            if (_getFeatureFunction(feature, pointer, &function) != 0 || function is null)
+            if (_getFeatureFunction(feature, pointer, &function) != 0)
             {
-                return false;
+                return null;
             }
 
-            into = (delegate* unmanaged[Cdecl]<void*, void*, uint>)function;
-            return true;
+            return function;
         }
     }
 

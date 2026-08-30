@@ -1,3 +1,4 @@
+﻿using GK3Reborn.Rendering.Upscaling;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
 using Silk.NET.DXGI;
@@ -43,6 +44,7 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     private readonly D3D12Context _context;
     private readonly nint _window;
 
+    private Streamline? _streamline;
     private ComPtr<IDXGISwapChain4> _chain;
     private readonly ComPtr<ID3D12Resource>[] _buffers = new ComPtr<ID3D12Resource>[BufferCount];
     private readonly ResourceStates[] _states = new ResourceStates[BufferCount];
@@ -100,6 +102,10 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// <param name="width">Width in pixels.</param>
     /// <param name="height">Height in pixels.</param>
     /// <param name="wantHdr">Whether to present high dynamic range if the display accepts it.</param>
+    /// <param name="streamline">
+    /// The runtime, when there is one, so the chain can be made through its proxy.
+    /// </param>
+    /// <param name="transfer">Which wide encoding to prefer, where one is wanted.</param>
     /// <returns>The swapchain.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
     public static D3D12Swapchain Create(
@@ -107,7 +113,9 @@ public sealed unsafe class D3D12Swapchain : IDisposable
         nint window,
         int width,
         int height,
-        bool wantHdr = false)
+        bool wantHdr = false,
+        Streamline? streamline = null,
+        HdrTransfer transfer = HdrTransfer.Automatic)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -117,11 +125,11 @@ public sealed unsafe class D3D12Swapchain : IDisposable
                 "This window has no HWND, so there is nothing to make a swapchain against.");
         }
 
-        var chain = new D3D12Swapchain(context, window);
+        var chain = new D3D12Swapchain(context, window) { _streamline = streamline };
 
         try
         {
-            chain.Start(width, height, wantHdr);
+            chain.Start(width, height, wantHdr, transfer);
             return chain;
         }
         catch
@@ -197,20 +205,46 @@ public sealed unsafe class D3D12Swapchain : IDisposable
         return true;
     }
 
+    /// <summary>How many presents DXGI has counted on this chain.</summary>
+    public uint PresentCount
+    {
+        get
+        {
+            uint count = 0;
+            if (_chain.Handle is not null)
+            {
+                _chain.GetLastPresentCount(&count);
+            }
+            return count;
+        }
+    }
+
     /// <summary>Whether this machine will let a present tear.</summary>
     public bool AllowsTearing { get; private set; }
+
+    /// <summary>Whether the chain is one Streamline made and can therefore generate into.</summary>
+    /// <remarks>
+    /// The one thing that decides whether frame generation can run. It is false whenever
+    /// there is no runtime, and false when there is one that would not proxy the factory —
+    /// and in the second case the picture is exactly as correct as before, which is why this
+    /// is reported rather than thrown.
+    /// </remarks>
+    public bool Proxied { get; private set; }
 
     /// <summary>Rebuilds the chain at a new size.</summary>
     /// <param name="width">Width in pixels.</param>
     /// <param name="height">Height in pixels.</param>
     /// <param name="wantHdr">Whether to present high dynamic range if the display accepts it.</param>
+    /// <param name="transfer">Which wide encoding to prefer, where one is wanted.</param>
     /// <exception cref="D3D12Exception">The chain could not be resized.</exception>
     /// <remarks>
     /// Every reference to a back buffer must be gone before the resize and the device must
     /// have finished with them, or DXGI refuses and says only that a call was invalid. The
     /// wait is the caller's to have done; releasing the buffers is this method's.
     /// </remarks>
-    public void Resize(int width, int height, bool wantHdr = false)
+    public void Resize(
+        int width, int height, bool wantHdr = false,
+        HdrTransfer transfer = HdrTransfer.Automatic)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -226,7 +260,7 @@ public sealed unsafe class D3D12Swapchain : IDisposable
             _states[i] = ResourceStates.Common;
         }
 
-        Format format = Choose(wantHdr, out ColorSpaceType space);
+        Format format = Choose(wantHdr, transfer, out ColorSpaceType space);
 
         D3D12Exception.ThrowIfFailed(
             _chain.ResizeBuffers(
@@ -311,12 +345,42 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// named, because the reason it exists is not obvious from the format.
     /// </para>
     /// </remarks>
-    private Format Choose(bool wantHdr, out ColorSpaceType space)
+    /// <param name="transfer">Which encoding was asked for.</param>
+    private Format Choose(bool wantHdr, HdrTransfer transfer, out ColorSpaceType space)
     {
-        if (wantHdr && SupportsColorSpace(ColorSpaceType.RgbFullG2084NoneP2020))
+        if (wantHdr)
         {
-            space = ColorSpaceType.RgbFullG2084NoneP2020;
-            return Format.FormatR10G10B10A2Unorm;
+            // Asked for outright, or asked for by whatever else needs it. scRGB is tried
+            // first here rather than PQ, because a caller that named it named it for a
+            // reason — see the class remarks on what frame generation wants.
+            if (transfer != HdrTransfer.PerceptualQuantiser &&
+                SupportsColorSpace(ColorSpaceType.RgbFullG10NoneP709))
+            {
+                space = ColorSpaceType.RgbFullG10NoneP709;
+                return Format.FormatR16G16B16A16Float;
+            }
+
+            if (transfer != HdrTransfer.ExtendedLinear &&
+                SupportsColorSpace(ColorSpaceType.RgbFullG2084NoneP2020))
+            {
+                space = ColorSpaceType.RgbFullG2084NoneP2020;
+                return Format.FormatR10G10B10A2Unorm;
+            }
+
+            // A display that refused the one that was named. Falling back to the other wide
+            // one is better than falling back to standard range, and it is what Automatic
+            // would have chosen anyway.
+            if (SupportsColorSpace(ColorSpaceType.RgbFullG2084NoneP2020))
+            {
+                space = ColorSpaceType.RgbFullG2084NoneP2020;
+                return Format.FormatR10G10B10A2Unorm;
+            }
+
+            if (SupportsColorSpace(ColorSpaceType.RgbFullG10NoneP709))
+            {
+                space = ColorSpaceType.RgbFullG10NoneP709;
+                return Format.FormatR16G16B16A16Float;
+            }
         }
 
         space = ColorSpaceType.RgbFullG22NoneP709;
@@ -353,7 +417,7 @@ public sealed unsafe class D3D12Swapchain : IDisposable
         }
     }
 
-    private void Start(int width, int height, bool wantHdr)
+    private void Start(int width, int height, bool wantHdr, HdrTransfer transfer)
     {
         AllowsTearing = TearingAllowed();
 
@@ -382,15 +446,36 @@ public sealed unsafe class D3D12Swapchain : IDisposable
 
         ComPtr<IDXGISwapChain1> chain1 = default;
 
-        D3D12Exception.ThrowIfFailed(
-            _context.Factory->CreateSwapChainForHwnd(
-                (IUnknown*)_context.Queue,
-                _window,
-                &description,
-                null,
-                (IDXGIOutput*)null,
-                chain1.GetAddressOf()),
-            "create the swapchain");
+        // Through Streamline's proxy where there is one, because the chain this returns is
+        // then Streamline's too — and a chain it did not make is a chain it cannot generate
+        // frames into, whatever else is configured. The factory is borrowed rather than
+        // replaced: the proxy takes a reference of its own on it, so the context's own
+        // pointer stays valid and everything else goes on using the real factory.
+        //
+        // Released immediately afterwards. What has to outlive this call is the swapchain,
+        // which carries its own proxy and its own reference to what it needs.
+        void* factory = _context.Factory;
+        Proxied = _streamline is not null && _streamline.UpgradeInterface(&factory);
+
+        try
+        {
+            D3D12Exception.ThrowIfFailed(
+                ((IDXGIFactory2*)factory)->CreateSwapChainForHwnd(
+                    (IUnknown*)_context.Queue,
+                    _window,
+                    &description,
+                    null,
+                    (IDXGIOutput*)null,
+                    chain1.GetAddressOf()),
+                "create the swapchain");
+        }
+        finally
+        {
+            if (Proxied)
+            {
+                ((IUnknown*)factory)->Release();
+            }
+        }
 
         try
         {
@@ -416,10 +501,10 @@ public sealed unsafe class D3D12Swapchain : IDisposable
         Format = description.Format;
         RenderFormat = ViewOf(Format);
 
-        Format wanted = Choose(wantHdr, out ColorSpaceType space);
+        Format wanted = Choose(wantHdr, transfer, out ColorSpaceType space);
         if (wanted != Format)
         {
-            Resize((int)description.Width, (int)description.Height, wantHdr);
+            Resize((int)description.Width, (int)description.Height, wantHdr, transfer);
             return;
         }
 

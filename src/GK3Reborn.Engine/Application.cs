@@ -377,7 +377,7 @@ public static class Application
         // — Silk refuses to make a Vulkan window on a machine with no loader, and a Direct3D
         // machine should not need one — so this is decided before there is a window rather
         // than after there is a renderer.
-        Rendering.RenderBackend backend = ChooseBackend(Option(args, "--backend"));
+        Rendering.RenderBackend backend = ChooseBackend(Option(args, "--backend"), settings);
 
         // --width and --height, for photographing the interface at a display size this
         // machine has not got. Everything about the interface's size is decided from the
@@ -4246,6 +4246,9 @@ public static class Application
             front.DlssRayReconstruction = renderer.DlssRayReconstruction;
             front.DlssRayReconstructionNote = renderer.DlssRayReconstructionNote;
             front.DlssFrameGeneration = renderer.DlssFrameGeneration;
+            front.FrameGenerationMaximum = renderer.FrameGenerationMaximum;
+            front.LatencyControl = renderer.LatencyControl;
+            front.RunningBackend = renderer.Backend;
 
             IReadOnlyList<MenuItem> items = front.Items;
 
@@ -5804,6 +5807,7 @@ public static class Application
 
     /// <summary>Works out which graphics API to draw through.</summary>
     /// <param name="asked">What was typed after --backend, or null for whichever suits.</param>
+    /// <param name="settings">The player's, for the backend they chose.</param>
     /// <returns>The backend to open the window and the renderer for.</returns>
     /// <remarks>
     /// <para>
@@ -5812,30 +5816,43 @@ public static class Application
     /// be worse than saying so.
     /// </para>
     /// <para>
-    /// The default stays Vulkan on every platform for now. Direct3D draws the room, the sky,
-    /// the reconstructed terrain horizon, the interface, the film and the fade, and traces
-    /// rays; the horizon it used to be missing is there. What is left is a measured
-    /// difference nobody has explained — a fine edge pattern over every textured surface,
-    /// worth about four levels of one channel on a reference shot, present with and without
-    /// tracing. It is small, it is everywhere, and it reads as a sampling difference rather
-    /// than a shading one. A default is not the place to carry an unexplained one. See
-    /// <c>docs/d3d.md</c>.
+    /// <b>Direct3D 12 on Windows and Vulkan everywhere else</b>, which is what
+    /// <see cref="Rendering.RenderBackends.Choose"/> has always said and what this method
+    /// used to override. Direct3D draws the room, the sky, the reconstructed terrain horizon,
+    /// the interface, the film and the fade, traces rays, upscales with DLSS and FSR, and
+    /// does what the other backend cannot: Reflex, DLSS frame generation at two, three and
+    /// four times, and scRGB as well as HDR10.
+    /// </para>
+    /// <para>
+    /// The difference against Vulkan's picture that used to be the reason to stay is
+    /// explained: it was a mip chain averaged in the sRGB encoding, which is fixed, and
+    /// NVIDIA's two anisotropic filters, which sample a quarter of a mip level apart and are
+    /// nobody's mistake. See <c>docs/d3d.md</c>.
+    /// </para>
+    /// <para>
+    /// Three things decide it, in this order: <c>--backend</c> on the command line, the
+    /// player's setting, and then the machine. The command line outranks the setting because
+    /// somebody who typed one meant this run rather than every run, and Vulkan on Windows
+    /// stays supported and tested — it is the first thing to try when a Windows machine
+    /// misbehaves.
     /// </para>
     /// </remarks>
-    private static Rendering.RenderBackend ChooseBackend(string? asked)
+    private static Rendering.RenderBackend ChooseBackend(string? asked, Settings settings)
     {
+        // The command line first, then the settings file, then whatever suits the machine.
+        // A backend typed for one run is meant for that run and does not become the setting.
         if (asked is null)
         {
-            return Rendering.RenderBackend.Vulkan;
+            return Rendering.RenderBackends.Resolve(settings.Backend);
         }
 
         if (!Rendering.RenderBackends.TryParse(asked, out Rendering.RenderBackend wanted))
         {
             Log.Warning(
-                $"WARNING GK3R3420: '{asked}' names no graphics API; using Vulkan. " +
+                $"WARNING GK3R3420: '{asked}' names no graphics API; using the usual one. " +
                 "Expected vulkan or d3d12.");
 
-            return Rendering.RenderBackend.Vulkan;
+            return Rendering.RenderBackends.Resolve(settings.Backend);
         }
 
         if (!Rendering.RenderBackends.IsPossible(wanted))
@@ -5846,7 +5863,7 @@ public static class Application
             return Rendering.RenderBackend.Vulkan;
         }
 
-        return wanted;
+        return Rendering.RenderBackends.Resolve(wanted);
     }
 
     /// <summary>

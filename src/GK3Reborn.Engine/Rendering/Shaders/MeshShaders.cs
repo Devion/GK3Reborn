@@ -799,10 +799,17 @@ public static class MeshShaders
             surface.world = vec2(0.0);
             surface.valid = false;
 
-            vec3 dpx = dFdx(inWorld);
-            vec3 dpy = dFdy(inWorld);
-            vec2 dtx = dFdx(inTexCoord);
-            vec2 dty = dFdy(inTexCoord);
+            // The *fine* derivatives, and that is not a preference. A plain dFdx is
+            // whichever of the two the implementation likes: Vulkan takes it fine here and
+            // Direct3D takes it coarse, so the same frame came out of the same shader
+            // differently on the two backends — a coarse derivative is one value for a
+            // whole two-by-two quad, which is a tangent frame three pixels in four did not
+            // ask for. Asking for fine says what this wants anyway, since the frame is
+            // meant to be per-pixel.
+            vec3 dpx = dFdxFine(inWorld);
+            vec3 dpy = dFdyFine(inWorld);
+            vec2 dtx = dFdxFine(inTexCoord);
+            vec2 dty = dFdyFine(inTexCoord);
 
             float area = (dtx.x * dty.y) - (dty.x * dtx.y);
 
@@ -950,8 +957,11 @@ public static class MeshShaders
             // into the HLSL intrinsic of that name, and a local called ddx then shadows the
             // intrinsic that the next line needs - "type float2 does not provide a call
             // operator", from a shader nobody wrote. Vulkan never sees the collision.
-            vec2 alongX = dFdx(inTexCoord);
-            vec2 alongY = dFdy(inTexCoord);
+            //
+            // Fine, for the reason FrameAt gives: a plain dFdx is coarse on one backend and
+            // fine on the other.
+            vec2 alongX = dFdxFine(inTexCoord);
+            vec2 alongY = dFdyFine(inTexCoord);
 
             float s = 1.0;
             vec2 uv = inTexCoord - (span * 0.5);

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -60,6 +60,9 @@ public sealed unsafe class D3D12Renderer : IRenderer
     private readonly Dictionary<string, int> _pictures = [];
 
     private bool _needsRecreate;
+    /// <summary>The picture without the interface, kept for frame generation.</summary>
+    private D3D12Texture? _hudLess;
+
     private bool _presentedAnything;
 
     /// <summary>
@@ -131,9 +134,14 @@ public sealed unsafe class D3D12Renderer : IRenderer
     public SceneLightGrid? LightGrid => _pipeline.Frames.Grid;
 
     /// <summary>Which upscalers this adapter can be asked for.</summary>
+    /// <remarks>
+    /// FSR on every adapter, DLSS only on NVIDIA's. That asymmetry is AMD's doing rather
+    /// than this renderer's: FidelityFX runs on anything with a compute shader, and NGX
+    /// refuses anything that is not a GeForce RTX and says so.
+    /// </remarks>
     public IReadOnlyList<UpscalerKind> OfferedUpscalers => Vendor is GpuVendor.Nvidia
-        ? [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Dlss]
-        : [UpscalerKind.Off, UpscalerKind.Spatial];
+        ? [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr, UpscalerKind.Dlss]
+        : [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr];
 
     /// <summary>What the upscaler is doing, for the startup report.</summary>
     public string UpscalerName => _pipeline.UpscalerNote ?? "none";
@@ -152,11 +160,25 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <summary>Whether the runtime offers frame generation.</summary>
     public bool DlssFrameGeneration => _pipeline.HasFrameGeneration;
 
+    /// <inheritdoc/>
+    public int FrameGenerationMaximum =>
+        _pipeline.CanGenerate ? _pipeline.Streamline?.FrameGenerationMaximum ?? 0 : 0;
+
+    /// <inheritdoc/>
+    public bool LatencyControl => _pipeline.Streamline is { HasLatencyControl: true };
+
     /// <summary>Whether the swapchain is actually presenting high dynamic range.</summary>
     public bool HighDynamicRangeActive => _swapchain.HighDynamicRange;
 
     /// <summary>Whether an interface is being drawn.</summary>
-    public bool HasOverlay => _list is not null;
+    /// <remarks>
+    /// Whether this renderer can draw an interface, which it always can — the pass is built
+    /// with the renderer. It used to ask whether a mesh had been <em>set</em>, which is a
+    /// different question and one whose answer at startup, where this is reported, is always
+    /// no: every run said "NOT drawing" over an interface that was drawing perfectly well,
+    /// and said it on the one line somebody reads when the interface looks wrong.
+    /// </remarks>
+    public bool HasOverlay => true;
 
     /// <summary>Everything the debug layer has said since it was last asked.</summary>
     /// <remarks>
@@ -245,10 +267,26 @@ public sealed unsafe class D3D12Renderer : IRenderer
             int height = window.FramebufferHeight;
 
             swapchain = D3D12Swapchain.Create(
-                context, windowSource.WindowHandle, width, height);
+                context, windowSource.WindowHandle, width, height,
+                wantHdr: false, pipeline.Streamline);
+
+            // Standard range to begin with, whatever the settings say: the output plan
+            // arrives after the renderer exists and asks for a rebuild if it wants
+            // something else. Creating in the wide format here would mean guessing what
+            // it is going to be.
+
 
             overlay = D3D12OverlayPass.Create(
                 context, pipeline.Compiler, swapchain.RenderFormat, ring.Frames);
+
+            // Only now is it known: the pipeline was built before the swapchain, and whether
+            // the swapchain is one Streamline made is the whole of whether frames can be
+            // generated. Asked once here rather than every frame, because what a card will
+            // do does not change while the game is running.
+            pipeline.CanGenerate = swapchain.Proxied;
+            pipeline.Streamline?.RefreshFrameGeneration();
+
+            Foundation.Diagnostics.Log.Info(pipeline.LatencyReport());
 
             var renderer = new D3D12Renderer(context, pipeline, ring, swapchain, overlay);
             renderer.Retarget();
@@ -379,7 +417,26 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
     /// <summary>Sets what the interface draws this frame.</summary>
     /// <param name="overlay">The display list, or null to draw none.</param>
-    public void SetOverlay(Overlay? overlay) => _list = overlay;
+    public void SetOverlay(Overlay? overlay)
+    {
+        // A display list carries the sheet it was cut from, and the interface has more than
+        // one: the room's captions and the menu are drawn at different sizes from different
+        // atlases. This used to take the list and keep whichever sheet happened to be on the
+        // device, so the menu was drawn with the room's — one atlas sampled with another's
+        // coordinates, which is a row of fragments where the words should be. The layout is
+        // right, every glyph is wrong, and it looks like a broken font rather than a
+        // renderer that swapped one texture for another.
+        //
+        // The Vulkan renderer has always done this. It was never seen here because Vulkan
+        // was the default until the backend moved, and the room's captions are drawn from
+        // the sheet that is already loaded — so everything except the menu looked right.
+        if (overlay is not null && !ReferenceEquals(overlay.Atlas, _atlas))
+        {
+            SetOverlayAtlas(overlay.Atlas);
+        }
+
+        _list = overlay;
+    }
 
     /// <summary>Shows a frame of film over everything.</summary>
     /// <param name="frame">The frame, or null to stop showing one.</param>
@@ -438,6 +495,19 @@ public sealed unsafe class D3D12Renderer : IRenderer
             return false;
         }
 
+        // The frame's token, and then the wait. Everything below carries the token — the
+        // markers, the tags, the upscale, the present — which is what makes them one frame
+        // to a runtime that is timing them.
+        //
+        // The wait is first because it is the whole of what Reflex does: it returns later
+        // than it was called, so that a frame the display is not ready for is begun later
+        // rather than queued. Anything done before it is work whose result waits.
+        Streamline? streamline = _pipeline.Streamline;
+
+        streamline?.BeginFrame();
+        streamline?.Sleep();
+        streamline?.Mark(StreamlineMarker.SimulationStart);
+
         // Whatever the swapchain is now. Checked here rather than only after something asks
         // for a rebuild, because a pipeline outliving the format it was built for is not an
         // error the frame reports — it is a picture made of the wrong bits, and the debug
@@ -462,6 +532,11 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _pipeline.DeltaSeconds = Pace();
 
         _pipeline.Prepare(width, height, clear, camera, _scene);
+
+        // Everything that decides what this frame contains has now happened, and everything
+        // after it is recording. The pair is what Reflex measures the simulation by.
+        streamline?.Mark(StreamlineMarker.SimulationEnd);
+        streamline?.Mark(StreamlineMarker.RenderSubmitStart);
 
         ID3D12GraphicsCommandList4* list = _ring.Begin();
 
@@ -508,6 +583,11 @@ public sealed unsafe class D3D12Renderer : IRenderer
         // behind it does not matter; the captions that go with one do.
         RecordFilm(list, target, display, width, height);
 
+        // Everything that is not the interface is now on the back buffer, which is exactly
+        // what frame generation wants a copy of. Taken here rather than reasoned about
+        // later: the next three lines put the interface on top of it.
+        RecordHudLess(list, buffer, width, height, streamline);
+
         // On top of everything and at the size of the window, never at the size the room was
         // drawn at. Drawing an interface at render resolution and stretching it is the single
         // most visible way to get the two sizes wrong.
@@ -524,7 +604,19 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _swapchain.Transition(list, buffer, ResourceStates.Present);
         _ring.Submit();
 
-        if (!_swapchain.Present(VerticalSync))
+        streamline?.Mark(StreamlineMarker.RenderSubmitEnd);
+        streamline?.Mark(StreamlineMarker.PresentStart);
+
+        bool presented = _swapchain.Present(VerticalSync);
+
+        streamline?.Mark(StreamlineMarker.PresentEnd);
+
+        // Closed here, and not before the present: the present is where frame generation
+        // does its work, and it does it against the token this frame was opened with. A
+        // token let go of first is a generated frame with nothing to pair against.
+        streamline?.EndFrame();
+
+        if (!presented)
         {
             _needsRecreate = true;
         }
@@ -587,6 +679,22 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// </remarks>
     public float[]? CaptureMotion() => null;
 
+    /// <summary>The device, the chain and the colour space, in one line.</summary>
+    /// <returns>What the Vulkan renderer says about itself, about this one.</returns>
+    /// <remarks>
+    /// It used to say only the type's name, which is the one thing a reader already knows.
+    /// The swapchain's format and colour space are what somebody actually needs when a
+    /// picture is wrong — and they are not otherwise discoverable without photographing the
+    /// screen and guessing, which is how an encoding changing underneath the interface came
+    /// to be diagnosed the slow way.
+    /// </remarks>
+    public override string ToString() =>
+        string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{DeviceName}: {_swapchain.Size.Width}x{_swapchain.Size.Height}, " +
+            $"{D3D12Swapchain.BufferCount} buffers, {_swapchain.Format}, " +
+            $"{_swapchain.ColorSpace}, tiers {Tiers}");
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -604,6 +712,7 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _fade?.Dispose();
         _movie?.Dispose();
         _output?.Dispose();
+        _hudLess?.Dispose();
 
         _overlay.Dispose();
         _swapchain.Dispose();
@@ -619,6 +728,32 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// did not is not a subtle mismatch: it is a correct picture with a washed-out menu over
     /// it.
     /// </remarks>
+    /// <summary>Which wide encoding this frame wants the swapchain in.</summary>
+    /// <remarks>
+    /// <para>
+    /// The player's choice and nothing else. This used to make
+    /// <see cref="HdrTransfer.Automatic"/> mean scRGB while frames were being generated,
+    /// because a generated frame is an interpolation between two presented ones and PQ is
+    /// not linear in light — averaging two PQ frames averages the wrong quantity.
+    /// </para>
+    /// <para>
+    /// <b>That was wrong, and the interface is what showed it.</b> The interface, the film
+    /// and the fade are drawn straight onto the swapchain and blend in whatever space it
+    /// carries — see <see cref="DisplayEncoding"/>, which explains why this project blends
+    /// in encoded space rather than compositing. On a PQ surface that space is perceptual;
+    /// on scRGB it is linear light. A glyph is almost entirely partial coverage, so the
+    /// blend space is the whole of how its edges look: the room went on looking right and
+    /// every letter in the game came out wrong.
+    /// </para>
+    /// <para>
+    /// So an encoding is not changed underneath a player because an unrelated setting is on.
+    /// scRGB is theirs to choose and it is honoured; what it costs is that interpolation
+    /// question left as it was, which is NVIDIA's to answer and not visible in the way a
+    /// wrecked interface is.
+    /// </para>
+    /// </remarks>
+    private HdrTransfer Transfer() => _output_.Transfer;
+
     private DisplayEncode Encoding() => _swapchain.HighDynamicRange
         ? new DisplayEncode(
             _swapchain.ColorSpace == ColorSpaceType.RgbFullG2084NoneP2020
@@ -695,7 +830,7 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _context.Wait();
 
         (int width, int height) = _swapchain.Size;
-        _swapchain.Resize(width, height, _output_.HighDynamicRange);
+        _swapchain.Resize(width, height, _output_.HighDynamicRange, Transfer());
 
         Retarget();
 
@@ -705,6 +840,70 @@ public sealed unsafe class D3D12Renderer : IRenderer
     }
 
     /// <summary>Builds the passes that write the swapchain, for whatever format it now has.</summary>
+    /// <summary>Copies the frame as it stands, and hands the copy to frame generation.</summary>
+    /// <param name="list">The frame's command list.</param>
+    /// <param name="buffer">Which back buffer this frame is drawing into.</param>
+    /// <param name="width">Its width.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="streamline">The runtime, or null.</param>
+    /// <remarks>
+    /// <para>
+    /// A copy of the whole back buffer, every frame, and it is not free — but the cheaper
+    /// arrangements are all worse. Drawing the room into a target of its own and copying
+    /// that onto the back buffer costs the same copy; drawing the interface into a target of
+    /// its own changes how every existing frame blends, which
+    /// <see cref="DisplayEncoding"/> explains this project has already decided against.
+    /// </para>
+    /// <para>
+    /// Skipped entirely when nothing is generating frames, which is the ordinary case: the
+    /// copy exists for one feature and should cost nothing when that feature is off.
+    /// </para>
+    /// </remarks>
+    private void RecordHudLess(
+        ID3D12GraphicsCommandList4* list, uint buffer, int width, int height,
+        Streamline? streamline)
+    {
+        if (streamline is null || !_pipeline.CanGenerate || _pipeline.Generating <= 0)
+        {
+            return;
+        }
+
+        Format format = _swapchain.Format;
+
+        if (_hudLess is null ||
+            _hudLess.Width != width || _hudLess.Height != height || _hudLess.Format != format)
+        {
+            _context.Wait();
+            _hudLess?.Dispose();
+
+            // A plain sampled texture. It is never drawn into — it is only ever the
+            // destination of a copy and then something the runtime reads.
+            _hudLess = D3D12Texture.CreateSampled(_context, format, width, height);
+        }
+
+        _swapchain.Transition(list, buffer, ResourceStates.CopySource);
+        _hudLess.Transition(list, ResourceStates.CopyDest);
+
+        list->CopyResource(_hudLess.Handle, _swapchain.Buffer(buffer));
+
+        // Back to what the rest of the frame expects, and into what the runtime will read it
+        // as. Both are stated rather than left implied: Streamline inserts its own barriers
+        // from the state it is told, so a state that is not the true one is a read of a
+        // resource the device is still writing.
+        _swapchain.Transition(list, buffer, ResourceStates.RenderTarget);
+        _hudLess.Transition(list, ResourceStates.AllShaderResource);
+
+        streamline.TagHudLess(
+            (nint)list,
+            new UpscaleSurface(
+                (nint)_hudLess.Handle,
+                0,
+                (uint)ResourceStates.AllShaderResource,
+                (uint)width,
+                (uint)height,
+                (uint)format));
+    }
+
     private void Retarget()
     {
         if (_surface == _swapchain.RenderFormat && _output is not null)

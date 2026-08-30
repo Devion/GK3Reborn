@@ -156,6 +156,30 @@ public sealed record Settings
     /// <summary>Whether frames are generated between the ones the game draws.</summary>
     public FrameGeneration FrameGeneration { get; init; } = FrameGeneration.Off;
 
+    /// <summary>How hard to work at keeping latency down. See <see cref="LatencyMode"/>.</summary>
+    public LatencyMode Latency { get; init; } = LatencyMode.On;
+
+    /// <summary>Which graphics API to draw through.</summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="RenderBackend.Automatic"/> by default, which is Direct3D 12 on Windows and
+    /// Vulkan everywhere else — see <see cref="RenderBackends.Choose"/> for why that way
+    /// round. Naming one is for the case the automatic answer is wrong on a particular
+    /// machine, which is the first thing to try when a Windows machine misbehaves.
+    /// </para>
+    /// <para>
+    /// <b>Read once, at startup.</b> The device, the swapchain, every pipeline and every
+    /// texture belong to a backend, so changing it means building all of them again — which
+    /// is what starting the game does. The settings page says so rather than pretending
+    /// otherwise.
+    /// </para>
+    /// <para>
+    /// <c>--backend</c> on the command line outranks it. Somebody who typed a backend for one
+    /// run meant that run, and should not have to put the setting back afterwards.
+    /// </para>
+    /// </remarks>
+    public RenderBackend Backend { get; init; } = RenderBackend.Automatic;
+
     /// <summary>
     /// Whether DLSS is allowed to denoise the traced light as well as upscale it.
     /// </summary>
@@ -397,6 +421,7 @@ public sealed record Settings
         Sharpen = Sharpening,
         Sharpness = Sharpness,
         FrameGeneration = FrameGeneration,
+        Latency = Latency,
         RayReconstruction = RayReconstruction,
         DlssPreset = DlssPreset,
     }.Sane();
@@ -502,6 +527,13 @@ public sealed record Settings
             : UpscalerQuality.Quality,
         Sharpness = float.IsFinite(Sharpness) ? Math.Clamp(Sharpness, 0f, 1f) : 0.5f,
         FrameGeneration = Enum.IsDefined(FrameGeneration) ? FrameGeneration : FrameGeneration.Off,
+        Latency = Enum.IsDefined(Latency) ? Latency : LatencyMode.On,
+
+        // A machine that is not Windows cannot have Direct3D whatever the file says, and a
+        // settings file copied from one that was is not a reason to fail to start.
+        Backend = Enum.IsDefined(Backend) && RenderBackends.IsPossible(Backend)
+            ? Backend
+            : RenderBackend.Automatic,
         DlssPreset = Math.Clamp(DlssPreset, 0, DlssPresets.Highest),
 
         HdrTransfer = Enum.IsDefined(HdrTransfer) ? HdrTransfer : HdrTransfer.Automatic,

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -148,6 +148,105 @@ public enum FrameGeneration
     /// <summary>Every frame shown is a frame the game drew.</summary>
     Off,
 
-    /// <summary>One generated frame between each pair of drawn ones.</summary>
+    /// <summary>One generated frame between each pair of drawn ones: twice the frames.</summary>
+    /// <remarks>
+    /// Named for what it does rather than for its factor, and kept that way: settings are
+    /// written out by name, so renaming this is every existing player's choice failing to
+    /// read back. The three below say their factor because they never had another name.
+    /// </remarks>
     Interpolated,
+
+    /// <summary>Two generated frames between each pair of drawn ones: three times.</summary>
+    Triple,
+
+    /// <summary>Three generated frames between each pair of drawn ones: four times.</summary>
+    Quadruple,
+}
+
+/// <summary>How many frames each setting asks for, and what to call it.</summary>
+public static class FrameGenerations
+{
+    /// <summary>Every setting, in order, for a menu to step through.</summary>
+    public static IReadOnlyList<FrameGeneration> All { get; } =
+    [
+        FrameGeneration.Off,
+        FrameGeneration.Interpolated,
+        FrameGeneration.Triple,
+        FrameGeneration.Quadruple,
+    ];
+
+    /// <summary>How many frames to generate for each one drawn.</summary>
+    /// <param name="generation">The setting.</param>
+    /// <returns>Nought for off, then one, two or three.</returns>
+    /// <remarks>
+    /// The runtime counts generated frames rather than multiples, so this is the translation
+    /// and the only place it happens. Three generated frames is four times the frames shown,
+    /// which is the number a player recognises and not the number the runtime wants.
+    /// </remarks>
+    public static int Generated(this FrameGeneration generation) => generation switch
+    {
+        FrameGeneration.Interpolated => 1,
+        FrameGeneration.Triple => 2,
+        FrameGeneration.Quadruple => 3,
+        _ => 0,
+    };
+
+    /// <summary>What to show for a setting.</summary>
+    /// <param name="generation">The setting.</param>
+    /// <returns>Its name.</returns>
+    public static string Describe(this FrameGeneration generation) => generation switch
+    {
+        FrameGeneration.Interpolated => "2x",
+        FrameGeneration.Triple => "3x",
+        FrameGeneration.Quadruple => "4x",
+        _ => "Off",
+    };
+
+    /// <summary>The most this hardware will do, as a setting.</summary>
+    /// <param name="generated">How many frames the runtime says it will generate.</param>
+    /// <returns>The highest setting that asks for no more than that.</returns>
+    /// <remarks>
+    /// What the menu is trimmed to. A card that will generate one frame must not be offered
+    /// four times: the runtime refuses the whole call rather than clamping it, so the player
+    /// would step to a setting that silently turns generation off altogether.
+    /// </remarks>
+    public static FrameGeneration Most(int generated) => generated switch
+    {
+        <= 0 => FrameGeneration.Off,
+        1 => FrameGeneration.Interpolated,
+        2 => FrameGeneration.Triple,
+        _ => FrameGeneration.Quadruple,
+    };
+}
+
+/// <summary>How hard to work at keeping the frame the display is waiting for close behind.</summary>
+/// <remarks>
+/// <para>
+/// Reflex, and its own setting because it is its own trade. It shortens the queue between
+/// the frame this machine is building and the one the display is about to show, which costs
+/// a little throughput and buys a game that answers the mouse sooner.
+/// </para>
+/// <para>
+/// <b>Frame generation cannot run without it.</b> A generated frame is placed in time
+/// between two drawn ones, and where in time that is comes from the same measurements Reflex
+/// makes — so the two are not independent, however separate they look in a menu.
+/// </para>
+/// </remarks>
+public enum LatencyMode
+{
+    /// <summary>Frames are queued as deep as the driver likes.</summary>
+    Off,
+
+    /// <summary>The queue is kept short.</summary>
+    On,
+
+    /// <summary>
+    /// The queue is kept short and the card is held at a clock that keeps it short.
+    /// </summary>
+    /// <remarks>
+    /// Worth less here than in a game that is limited by the processor: this one is not, most
+    /// of the time, and what boost costs is power spent holding clocks up for a frame that
+    /// was never waiting on them.
+    /// </remarks>
+    Boost,
 }

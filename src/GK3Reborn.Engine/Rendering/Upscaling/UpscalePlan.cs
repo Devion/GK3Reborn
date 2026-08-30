@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -42,8 +42,23 @@ public sealed record UpscalePlan
     /// <summary>How hard, from nothing to as much as the pass will do.</summary>
     public float Sharpness { get; init; } = 0.5f;
 
-    /// <summary>Whether frames are interpolated between the drawn ones.</summary>
+    /// <summary>Whether frames are interpolated between the drawn ones, and how many.</summary>
     public FrameGeneration FrameGeneration { get; init; } = FrameGeneration.Off;
+
+    /// <summary>How hard to work at keeping latency down.</summary>
+    /// <remarks>
+    /// <para>
+    /// Here rather than on the output plan because of what it is bound to: frame generation
+    /// cannot run without it, and the two are stepped together often enough that separating
+    /// them across two structures would mean a caller that set one and forgot the other.
+    /// </para>
+    /// <para>
+    /// On by default. It costs a little throughput on a machine that has throughput to
+    /// spare, and this game is not one that runs short of it — what it buys is a mouse that
+    /// answers sooner, which is the whole of how an adventure game feels to use.
+    /// </para>
+    /// </remarks>
+    public LatencyMode Latency { get; init; } = LatencyMode.On;
 
     /// <summary>
     /// Whether DLSS is asked to denoise the traced terms as well as upscale them.
@@ -134,6 +149,7 @@ public sealed record UpscalePlan
         Quality = Enum.IsDefined(Quality) ? Quality : UpscalerQuality.Quality,
         Sharpness = float.IsFinite(Sharpness) ? Math.Clamp(Sharpness, 0f, 1f) : 0.5f,
         FrameGeneration = Enum.IsDefined(FrameGeneration) ? FrameGeneration : FrameGeneration.Off,
+        Latency = Enum.IsDefined(Latency) ? Latency : LatencyMode.On,
         DlssPreset = Math.Clamp(DlssPreset, 0, DlssPresets.Highest),
     };
 

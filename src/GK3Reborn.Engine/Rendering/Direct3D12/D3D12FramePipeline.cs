@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -74,7 +74,9 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private D3D12Reflections? _reflections;
     private bool _denoiserBound;
     private D3D12DlssUpscaler? _dlss;
+    private D3D12FsrUpscaler? _fsr;
     private Streamline? _streamline;
+    private UpscalerRuntimes? _runtimes;
     private UpscalePlan? _plan;
     private int _width;
     private int _height;
@@ -136,17 +138,35 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             _plan = value;
             _dlss?.Dispose();
             _dlss = null;
+            _fsr?.Dispose();
+            _fsr = null;
+
+            // Forgotten rather than compared: a plan that changed may not have changed these
+            // two, but a runtime that refused them last time should be asked again.
+            _generating = -1;
+            _latency = uint.MaxValue;
         }
     }
 
     /// <summary>What the upscaler is doing, for the startup report.</summary>
-    public string? UpscalerNote => _dlss?.Describe();
+    public string? UpscalerNote => _dlss?.Describe() ?? _fsr?.Describe();
 
     /// <summary>Whether DLSS is available on this machine at all.</summary>
     public bool HasDlss => _streamline is { Ready: true };
 
     /// <summary>Whether the runtime offers frame generation.</summary>
     public bool HasFrameGeneration => _streamline is { HasFrameGeneration: true };
+
+    /// <summary>
+    /// The runtime itself, for the two things that are not upscaling.
+    /// </summary>
+    /// <remarks>
+    /// The swapchain needs it before it is created, because a chain Streamline did not make
+    /// cannot have frames generated into it; and the renderer needs it every frame, for the
+    /// sleep and the markers. Both are outside what a frame pipeline is about, so it hands
+    /// the runtime over rather than growing methods that only pass through.
+    /// </remarks>
+    public Streamline? Streamline => _streamline;
 
     /// <summary>Whether the runtime offers ray reconstruction.</summary>
     public bool HasRayReconstruction => _streamline is { HasRayReconstruction: true };
@@ -193,7 +213,10 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         // Vulkan. There, Streamline has to be consulted while the device is being created
         // because its features ask for extensions and queues; here it is told about a device
         // that already exists.
-        Streamline? streamline = Streamline.TryStart(UpscalerRuntimes.Find(runtimes));
+        UpscalerRuntimes found = UpscalerRuntimes.Find(runtimes);
+
+        Streamline? streamline = Streamline.TryStart(
+            found, Streamline.RenderApiDirect3D12);
 
         if (streamline is not null &&
             !streamline.AttachDirect3D((nint)context.Device, context.AdapterLuid))
@@ -231,6 +254,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             context, geometry, compiler, frames, mesh, composite, traced)
         {
             _streamline = streamline,
+            _runtimes = found,
         };
     }
 
@@ -380,11 +404,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         int shownWidth = _displayWidth;
         int shownHeight = _displayHeight;
 
-        if (_dlss is not null)
+        if (_dlss is not null || _fsr is not null)
         {
-            // The states are not decorative. Streamline is told what each texture is in and
-            // believes it: a wrong one is a read through a barrier nobody issued, and a frame
-            // built partly out of whatever was there before.
+            // The states are not decorative. Both runtimes are told what each texture is in
+            // and believe it: a wrong one is a read through a barrier nobody issued, and a
+            // frame built partly out of whatever was there before.
             finished.Transition(list, ResourceStates.NonPixelShaderResource);
             _depth.Transition(list, ResourceStates.NonPixelShaderResource);
             _gbuffer[2].Transition(list, ResourceStates.NonPixelShaderResource);
@@ -404,7 +428,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
                 Upscaling?.Sharpness ?? 0f,
                 Upscaling?.HighDynamicRange ?? false);
 
-            if (_dlss.Record(list, finished, _depth, _gbuffer[2], _upscaled, described))
+            bool upscaled = _dlss is not null
+                ? _dlss.Record(list, finished, _depth, _gbuffer[2], _upscaled!, described)
+                : _fsr!.Record(list, finished, _depth, _gbuffer[2], _upscaled!, described);
+
+            if (upscaled)
             {
                 _upscaled.Transition(list, ResourceStates.AllShaderResource);
                 finished = _upscaled;
@@ -782,27 +810,168 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         }
     }
 
+    /// <summary>How many frames the runtime last said it would generate.</summary>
+    private int _generating = -1;
+
+    /// <summary>What the latency mode was last set to, so it is not set again every frame.</summary>
+    private uint _latency = uint.MaxValue;
+
+    /// <summary>How many frames the runtime is currently generating for each drawn one.</summary>
+    /// <remarks>
+    /// What the renderer reads to decide whether the frame owes frame generation a copy of
+    /// itself without the interface. Nought means it does not.
+    /// </remarks>
+    public int Generating => Math.Max(0, _generating);
+
+    /// <summary>Whether the swapchain is one frame generation could run into.</summary>
+    /// <remarks>
+    /// Set by the renderer, because it is the only thing that knows: the pipeline is built
+    /// before the swapchain exists. False means the options below are not sent at all rather
+    /// than sent and refused — a runtime asked to generate frames into a chain it never saw
+    /// answers with a message about hooks that reads like a missing feature.
+    /// </remarks>
+    public bool CanGenerate { get; set; }
+
+    /// <summary>What Reflex and frame generation came to, in one line.</summary>
+    /// <returns>Something a player or a log can be shown.</returns>
+    /// <remarks>
+    /// Printed once at startup, because every one of these is invisible when it fails. A
+    /// runtime that is present and a feature that is on look identical to a runtime that is
+    /// present and a feature the card declined, and the difference is not something anybody
+    /// can see in the picture — a game with frame generation quietly off is a game that
+    /// works.
+    /// </remarks>
+    public string LatencyReport()
+    {
+        if (_streamline is null)
+        {
+            return "Latency: no Streamline runtime, so no Reflex and no frame generation.";
+        }
+
+        string reflex = _streamline.HasLatencyControl
+            ? "Reflex available"
+            : "Reflex unavailable";
+
+        if (!_streamline.HasFrameGeneration)
+        {
+            return $"Latency: {reflex}; frame generation unavailable.";
+        }
+
+        if (!CanGenerate)
+        {
+            return $"Latency: {reflex}; frame generation loaded but the swapchain is not " +
+                   "Streamline's, so it cannot run.";
+        }
+
+        int most = _streamline.FrameGenerationMaximum;
+
+        string generation = most > 0
+            ? $"frame generation up to {FrameGenerations.Most(most).Describe()}"
+            : "frame generation loaded but this card will generate none";
+
+        return $"Latency: {reflex}; {generation}" +
+               (_streamline.FrameGenerationStatus == 0
+                   ? "."
+                   : $" (status {_streamline.FrameGenerationStatus}).");
+    }
+
+    /// <summary>Tells Reflex and frame generation what this frame wants of them.</summary>
+    /// <param name="render">The size the room is drawn at.</param>
+    /// <param name="display">The size the picture is shown at.</param>
+    /// <remarks>
+    /// <para>
+    /// Both are set only when they change. Neither is free: the latency mode reaches the
+    /// driver, and the generation options are copied into the plugin's context and warned
+    /// about if they arrive twice for one frame — the plugin says so by name, calling it a
+    /// redundant call or a race with the present.
+    /// </para>
+    /// <para>
+    /// <b>Reflex comes on whenever frames are being generated, whatever the player set.</b>
+    /// It is not a preference there: the runtime places a generated frame in time using the
+    /// measurements Reflex makes, so generation with the latency mode off is generation
+    /// pacing against nothing.
+    /// </para>
+    /// </remarks>
+    private void PrepareLatency((uint Width, uint Height) render, (uint Width, uint Height) display)
+    {
+        if (_streamline is null)
+        {
+            return;
+        }
+
+        UpscalePlan plan = Upscaling ?? UpscalePlan.None;
+
+        int generated = CanGenerate && _streamline.HasFrameGeneration
+            ? Math.Min(plan.FrameGeneration.Generated(), _streamline.FrameGenerationMaximum)
+            : 0;
+
+        uint latency = generated > 0
+            ? Math.Max((uint)plan.Latency, (uint)LatencyMode.On)
+            : (uint)plan.Latency;
+
+        if (latency != _latency)
+        {
+            _streamline.SetLatencyMode(latency);
+            _latency = latency;
+        }
+
+        if (generated != _generating)
+        {
+            _streamline.SetFrameGeneration(generated, render, display);
+            _generating = generated;
+        }
+    }
+
     /// <summary>Builds the upscaler the plan asks for, if it is not already the right one.</summary>
     private void PrepareUpscaler(int width, int height, int displayWidth, int displayHeight)
     {
-        if (Upscaling is not { Active: true, Kind: UpscalerKind.Dlss } plan || _streamline is null)
-        {
-            _dlss?.Dispose();
-            _dlss = null;
-            return;
-        }
+        PrepareLatency(((uint)width, (uint)height), ((uint)displayWidth, (uint)displayHeight));
+
+        UpscalePlan? asked = Upscaling is { Active: true } ? Upscaling : null;
 
         var render = ((uint)width, (uint)height);
         var display = ((uint)displayWidth, (uint)displayHeight);
 
-        if (_dlss is not null && _dlss.Serves(plan, render, display))
+        // At most one of the two, ever. They are alternatives rather than stages: both
+        // accumulate across frames from the same inputs, and running one over the other's
+        // output would be two histories filtering one picture.
+        if (asked is { Kind: UpscalerKind.Dlss } && _streamline is not null)
         {
+            _fsr?.Dispose();
+            _fsr = null;
+
+            if (_dlss is not null && _dlss.Serves(asked, render, display))
+            {
+                return;
+            }
+
+            _dlss?.Dispose();
+            _dlss = D3D12DlssUpscaler.TryCreate(
+                _context, _streamline, asked, render, display, _rayTracing);
+
+            return;
+        }
+
+        if (asked is { Kind: UpscalerKind.Fsr })
+        {
+            _dlss?.Dispose();
+            _dlss = null;
+
+            if (_fsr is not null && _fsr.Serves(asked, render, display))
+            {
+                return;
+            }
+
+            _fsr?.Dispose();
+            _fsr = D3D12FsrUpscaler.TryCreate(_context, _runtimes, asked, render, display);
+
             return;
         }
 
         _dlss?.Dispose();
-        _dlss = D3D12DlssUpscaler.TryCreate(
-            _context, _streamline, plan, render, display, _rayTracing);
+        _dlss = null;
+        _fsr?.Dispose();
+        _fsr = null;
     }
 
     private void Release()

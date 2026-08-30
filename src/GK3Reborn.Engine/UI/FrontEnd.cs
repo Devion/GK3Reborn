@@ -113,8 +113,30 @@ public sealed class FrontEnd
         UpscalerQuality.UltraPerformance,
     ];
 
-    private static readonly FrameGeneration[] Generations =
-        [FrameGeneration.Off, FrameGeneration.Interpolated];
+    /// <summary>
+    /// The frame-generation settings this machine can actually reach.
+    /// </summary>
+    /// <remarks>
+    /// Trimmed to what the runtime says the card will do, rather than offered in full and
+    /// refused. Asking for more generated frames than a card supports is not clamped — the
+    /// runtime declines the whole call and generation goes off — so a menu that offers
+    /// four-times on a card that does two is a menu with a setting in it that quietly means
+    /// "off".
+    ///
+    /// Nought is not a card that will generate none: it is a front end nothing has told yet,
+    /// which is what a test looks like and what the first frame of a run looks like. There
+    /// the whole list stands, and the row is disabled by the runtime check instead.
+    /// </remarks>
+    private FrameGeneration[] Generations =>
+        FrameGenerationMaximum <= 0
+            ? [.. FrameGenerations.All]
+            : [.. FrameGenerations.All.Where(g => g.Generated() <= FrameGenerationMaximum)];
+
+    private static readonly RenderBackend[] Backends =
+        [RenderBackend.Automatic, RenderBackend.Vulkan, RenderBackend.Direct3D12];
+
+    private static readonly LatencyMode[] Latencies =
+        [LatencyMode.Off, LatencyMode.On, LatencyMode.Boost];
 
     private static readonly HdrTransfer[] Transfers =
         [HdrTransfer.Automatic, HdrTransfer.PerceptualQuantiser, HdrTransfer.ExtendedLinear];
@@ -621,6 +643,28 @@ public sealed class FrontEnd
     /// <summary>Whether DLSS can generate frames.</summary>
     public bool DlssFrameGeneration { get; set; }
 
+    /// <summary>
+    /// How many frames the runtime will generate for each drawn one, or nought for none.
+    /// </summary>
+    /// <remarks>
+    /// What the frame-generation row is trimmed to. Offering a factor the card will not do
+    /// is worse than not offering it: the runtime refuses the whole call rather than
+    /// clamping, so stepping to it turns generation off altogether and says nothing.
+    /// </remarks>
+    public int FrameGenerationMaximum { get; set; }
+
+    /// <summary>Whether Reflex loaded and can be driven.</summary>
+    public bool LatencyControl { get; set; }
+
+    /// <summary>Which graphics API is drawing, as against the one that is chosen.</summary>
+    /// <remarks>
+    /// The two differ from the moment somebody steps the row until the next time the game
+    /// starts, and the row says so. Nought — <see cref="RenderBackend.Automatic"/> — is a
+    /// front end nothing has told, which is what a test looks like; there the row says what
+    /// was chosen and claims nothing about what is running.
+    /// </remarks>
+    public RenderBackend RunningBackend { get; set; }
+
     private static IReadOnlyList<MenuItem> Options() =>
     [
         MenuItem.Button("video", "Picture"),
@@ -670,7 +714,17 @@ public sealed class FrontEnd
     /// </remarks>
     private List<MenuItem> Display()
     {
-        List<MenuItem> rows =
+        List<MenuItem> rows = [];
+
+        // Windows only, because it is the only machine where there is a choice: every other
+        // one has Vulkan and nothing else, and a row with one value on it is a row that
+        // teaches somebody the game has settings that do nothing.
+        if (RenderBackends.IsPossible(RenderBackend.Direct3D12))
+        {
+            rows.Add(MenuItem.Choice("backend", "Graphics API", DescribeBackend()));
+        }
+
+        rows.AddRange(
         [
             MenuItem.Choice("window", "Window", Describe(Settings.Display)),
 
@@ -691,7 +745,7 @@ public sealed class FrontEnd
 
             MenuItem.Toggle("vsync", "Wait for the display", Settings.VerticalSync),
             MenuItem.Toggle("hdr", "High dynamic range", Settings.HighDynamicRange),
-        ];
+        ]);
 
         if (Settings.HighDynamicRange)
         {
@@ -830,7 +884,7 @@ public sealed class FrontEnd
         };
 
         rows.Add(MenuItem.Choice(
-            "generation", "Frame generation", Describe(Settings.FrameGeneration)) with
+            "generation", "Frame generation", Settings.FrameGeneration.Describe()) with
         {
             Enabled = generation,
         });
@@ -840,6 +894,14 @@ public sealed class FrontEnd
             rows.Add(MenuItem.Label(
                 "Needs FSR or DLSS, and their frame-generation runtime, in the libs folder."));
         }
+        // No line of its own, and neither does the row above. What a card will generate
+        // limits the row rather than being written under it: a factor that is not offered
+        // needs no sentence explaining that it is not offered, and Reflex comes out of the
+        // same bundle the line above already names.
+        rows.Add(MenuItem.Choice("latency", "Low latency", Describe(Settings.Latency)) with
+        {
+            Enabled = LatencyControl,
+        });
 
         if (UpscalerRunning is { Length: > 0 })
         {
@@ -957,6 +1019,16 @@ public sealed class FrontEnd
             "generation" => Settings with
             {
                 FrameGeneration = Step(Generations, Settings.FrameGeneration, action.Step),
+            },
+
+            "backend" => Settings with
+            {
+                Backend = Step(Backends, Settings.Backend, action.Step),
+            },
+
+            "latency" => Settings with
+            {
+                Latency = Step(Latencies, Settings.Latency, action.Step),
             },
 
             "reconstruction" => Settings with { RayReconstruction = !Settings.RayReconstruction },
@@ -1159,8 +1231,45 @@ public sealed class FrontEnd
         _ => "Ultra performance",
     };
 
-    private static string Describe(FrameGeneration generation) =>
-        generation == FrameGeneration.Interpolated ? "On" : "Off";
+    /// <summary>The chosen graphics API, and whether it is the one drawing.</summary>
+    /// <remarks>
+    /// <para>
+    /// The automatic answer says what it resolved to, because "Automatic" alone tells a
+    /// player nothing about the machine in front of them — and what it resolves to is the
+    /// whole reason somebody would look at this row.
+    /// </para>
+    /// <para>
+    /// <b>The restart is said in the value rather than under the row.</b> A setting that
+    /// waits is worth saying and this page allows itself no prose, so it is said where it is
+    /// true: the moment the two agree again the words go away by themselves, which a line of
+    /// explanation underneath would not.
+    /// </para>
+    /// </remarks>
+    private string DescribeBackend()
+    {
+        RenderBackend chosen = RenderBackends.Resolve(Settings.Backend);
+
+        string name = Settings.Backend == RenderBackend.Automatic
+            ? $"Automatic ({Describe(chosen)})"
+            : Describe(chosen);
+
+        return RunningBackend != RenderBackend.Automatic && RunningBackend != chosen
+            ? name + ", next start"
+            : name;
+    }
+
+    private static string Describe(RenderBackend backend) => backend switch
+    {
+        RenderBackend.Direct3D12 => "Direct3D 12",
+        _ => "Vulkan",
+    };
+
+    private static string Describe(LatencyMode latency) => latency switch
+    {
+        LatencyMode.On => "On",
+        LatencyMode.Boost => "On + boost",
+        _ => "Off",
+    };
 
     private static string Describe(HdrTransfer transfer) => transfer switch
     {

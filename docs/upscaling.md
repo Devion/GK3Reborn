@@ -220,11 +220,38 @@ panel rather than the screen.
 ## What is not done
 
 **Frame generation.** The setting exists, is stored, and is gated on a runtime that can
-actually do it; nothing interpolates a frame yet. Both vendors' implementations replace the
+actually do it **on Vulkan**; on Direct3D it does. Both vendors' implementations replace the
 swapchain — FSR through `FFX_API_CREATE_CONTEXT_DESC_TYPE_FGSWAPCHAIN_VK` and its
 replacement `vkAcquireNextImageKHR` and `vkQueuePresentKHR`, DLSS-G through Streamline's
-present hooks — so this is a change to how the renderer presents rather than another pass at
-the end of a frame, and it wants its own decision record.
+present hooks — so it is a change to how the renderer presents rather than another pass at
+the end of a frame.
+
+On Direct3D that change is small and is made: `slUpgradeInterface` on the DXGI factory before
+the swapchain is created, so the chain that comes back is Streamline's own. On Vulkan it is
+the loader change `Streamline`'s class remarks describe and has not been made — the
+interposer has to stand in for `vulkan-1.dll`, the surface has to be created through it, and
+`slSetVulkanInfo` must then not be called at all, and all three have to land together.
+
+What Direct3D does now, and what a reader coming to the Vulkan side will need:
+
+- **Two, three and four times.** The runtime is told a count of *generated* frames, not a
+  multiple: three generated is four times shown. `DLSSGState.numFramesToGenerateMax` is what
+  the card will take, and the settings row is trimmed to it — asking for more is not clamped,
+  it declines the whole call.
+- **Reflex is not optional.** A generated frame is placed in time using the measurements
+  Reflex makes, so it is turned on whatever the player set whenever frames are being
+  generated. The markers and the sleep hang off one frame token per frame; two tokens in a
+  frame is two frames as far as either feature is concerned.
+- **The picture without the interface has to be handed over.** `kBufferTypeHUDLessColor` is a
+  required tag, and a frame that arrives without it is presented once and nothing is said —
+  no error, no warning, no state a caller can read. It is a copy of the back buffer taken
+  after the film and before the interface, and it is why the runtime can lay the interface
+  over a generated frame rather than interpolating through it.
+- **PQ is not ideal for it, and is used anyway.** Interpolating two ST.2084 frames averages
+  a quantity that is not linear in light, so scRGB would suit generation better. Automatic
+  does not switch to it: the interface blends in whatever space the swapchain carries, and
+  changing that under a player wrecks every glyph in the game while leaving the room looking
+  right. scRGB is available to anyone who chooses it.
 
 **DLSS ray reconstruction.** Two things are missing and only one of them is ours. It needs
 guide buffers this renderer does not produce — an albedo and a specular albedo target, and
@@ -236,12 +263,17 @@ drive. Both cases are detected and reported on the settings page rather than gue
 options structure whose layout was inferred rather than read is a pointer handed to somebody
 else's signed binary with the fields in the wrong places.
 
-**FSR has not been run.** The code is written against the FidelityFX API headers at
-`v1.1.4` and the structure layouts are laid out byte for byte against them, but
-`amd_fidelityfx_vk.dll` was not available on the machine this was written on, so the path
-has never executed. DLSS has, and the equivalent Streamline structures read back correct
-driver versions and extension counts, which is the same class of evidence — but it is not
-the same as having run it.
+**FSR has not been run, on either backend.** The code is written against the FidelityFX API
+headers at `v1.1.4` and the structure layouts are laid out byte for byte against them, but
+neither `amd_fidelityfx_vk.dll` nor `amd_fidelityfx_dx12.dll` was available on the machine
+this was written on, so the path has never executed. DLSS has, and the equivalent Streamline
+structures read back correct driver versions and extension counts, which is the same class of
+evidence — but it is not the same as having run it.
+
+There are two libraries because there are two backends: the FidelityFX API is one C interface
+with one backend built into each. The parts that say nothing about which graphics API is
+underneath live in `Rendering/Upscaling`; what is beside each backend is its own backend
+description, what a resource handle points at, and how a format is numbered.
 
 **Exclusive fullscreen is a window state, not a mode set.** It asks the windowing backend
 for fullscreen at the current size; it does not change the display's video mode.

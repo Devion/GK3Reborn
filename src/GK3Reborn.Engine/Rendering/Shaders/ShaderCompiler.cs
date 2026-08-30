@@ -55,7 +55,7 @@ public sealed class ShaderCompiler : IDisposable
     /// all of them belong here, because none of them appears in the text of a shader.
     /// </para>
     /// </remarks>
-    private const string Recipe = "4";
+    private const string Recipe = "5";
 
     /// <summary>
     /// Where compiled shaders are cached when nobody has said otherwise.

@@ -69,10 +69,44 @@ public sealed unsafe class D3D12TextureProbe : IDisposable
     /// <exception cref="D3D12Exception">Something on the device refused.</exception>
     public (float R, float G, float B) AverageOfLevel(DecodedImage source, uint level)
     {
+        DecodedImage read = LevelOf(source, level);
+
+        long r = 0;
+        long g = 0;
+        long b = 0;
+
+        for (int i = 0; i < read.Pixels.Length; i += 4)
+        {
+            r += read.Pixels[i];
+            g += read.Pixels[i + 1];
+            b += read.Pixels[i + 2];
+        }
+
+        int count = read.Width * read.Height;
+        return (r / (255f * count), g / (255f * count), b / (255f * count));
+    }
+
+    /// <summary>Uploads a picture, builds its mips, and reads one level back as it stands.</summary>
+    /// <param name="source">The picture.</param>
+    /// <param name="level">Which level to read.</param>
+    /// <param name="colour">
+    /// Whether the picture is colour, and so uploaded sRGB-encoded as every wall and floor
+    /// texture in the game is, rather than data uploaded as plain bytes.
+    /// </param>
+    /// <returns>The bytes of that level, which for a colour picture are still encoded.</returns>
+    /// <exception cref="D3D12Exception">Something on the device refused.</exception>
+    /// <remarks>
+    /// The bytes are returned rather than decoded, because the question this answers is what
+    /// the mip builder wrote. A colour texture is filtered by the device through the sRGB
+    /// decode and re-encoded on the way back out; whether that happened is exactly what a
+    /// caller comparing against Vulkan's blit wants to see.
+    /// </remarks>
+    public DecodedImage LevelOf(DecodedImage source, uint level, bool colour = false)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         using D3D12Texture texture = D3D12TextureUpload.Create(
-            _context, source, mipmaps: true, linear: true);
+            _context, source, mipmaps: true, linear: !colour);
 
         int width = Math.Max(1, source.Width >> (int)level);
         int height = Math.Max(1, source.Height >> (int)level);
@@ -105,21 +139,7 @@ public sealed unsafe class D3D12TextureProbe : IDisposable
         list->CopyTextureRegion(&destination, 0, 0, 0, &origin, (Box*)null);
         _context.EndOneShot();
 
-        DecodedImage read = D3D12Readback.Read(_context, one.Handle, one.State, width, height);
-
-        long r = 0;
-        long g = 0;
-        long b = 0;
-
-        for (int i = 0; i < read.Pixels.Length; i += 4)
-        {
-            r += read.Pixels[i];
-            g += read.Pixels[i + 1];
-            b += read.Pixels[i + 2];
-        }
-
-        int count = width * height;
-        return (r / (255f * count), g / (255f * count), b / (255f * count));
+        return D3D12Readback.Read(_context, one.Handle, one.State, width, height);
     }
 
     /// <inheritdoc/>

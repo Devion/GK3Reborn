@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -61,6 +61,14 @@ public sealed class UpscalerRuntimes
 
     /// <summary>AMD's FidelityFX entry point for Vulkan.</summary>
     public const string FidelityFx = "amd_fidelityfx_vk.dll";
+
+    /// <summary>AMD's runtime, for the Direct3D backend.</summary>
+    /// <remarks>
+    /// A different file rather than a different entry point: the FidelityFX API is one C
+    /// interface with one backend built into each library, so a machine that runs the game
+    /// on both backends wants both files and a machine that runs one wants one.
+    /// </remarks>
+    public const string FidelityFxDirect3D12 = "amd_fidelityfx_dx12.dll";
 
     /// <summary>NVIDIA's Streamline loader.</summary>
     public const string StreamlineInterposer = "sl.interposer.dll";
@@ -136,7 +144,7 @@ public sealed class UpscalerRuntimes
     /// </remarks>
     public static IReadOnlyList<string> Required(UpscalerKind kind) => kind switch
     {
-        UpscalerKind.Fsr => [FidelityFx],
+        UpscalerKind.Fsr => [FidelityFx, FidelityFxDirect3D12],
         UpscalerKind.Dlss =>
             [StreamlineInterposer, StreamlineSuperResolution, NgxSuperResolution],
         _ => [],
@@ -184,7 +192,7 @@ public sealed class UpscalerRuntimes
 
         return new UpscalerRuntimes(
             searched,
-            Look(searched, FidelityFx, [FidelityFx]),
+            FidelityFxFiles(searched),
             Look(searched, StreamlineInterposer,
                 [StreamlineInterposer, StreamlineSuperResolution, NgxSuperResolution]),
             Look(searched, StreamlineFrameGeneration,
@@ -229,6 +237,32 @@ public sealed class UpscalerRuntimes
         $"Upscalers: FSR {Fsr.Describe()}; DLSS {Dlss.Describe()}; " +
         $"DLSS frame generation {DlssFrameGeneration.Describe()}; " +
         $"DLSS ray reconstruction {DlssRayReconstruction.Describe()}";
+
+    /// <summary>AMD's runtime, whichever of the two backends' libraries is there.</summary>
+    /// <param name="searched">Where to look.</param>
+    /// <returns>Whichever was found, or an absence naming both.</returns>
+    /// <remarks>
+    /// Which one a run needs depends on the backend it started in, which is not known here
+    /// and is not worth threading through: what this answers is whether the settings page
+    /// may offer the row at all, and the backend that goes looking for its own file reports
+    /// its own absence when it does not find one. What an absence must name is both, because
+    /// somebody who reads it does not yet know which backend they will be running.
+    /// </remarks>
+    private static RuntimeFiles FidelityFxFiles(IReadOnlyList<string> searched)
+    {
+        RuntimeFiles vulkan = Look(searched, FidelityFx, [FidelityFx]);
+
+        if (vulkan.Present)
+        {
+            return vulkan;
+        }
+
+        RuntimeFiles direct = Look(searched, FidelityFxDirect3D12, [FidelityFxDirect3D12]);
+
+        return direct.Present
+            ? direct
+            : new RuntimeFiles(false, null, null, [FidelityFx, FidelityFxDirect3D12]);
+    }
 
     private static RuntimeFiles Look(
         IReadOnlyList<string> searched, string principal, IReadOnlyList<string> required)
