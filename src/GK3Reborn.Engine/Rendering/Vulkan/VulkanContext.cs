@@ -106,7 +106,7 @@ public sealed unsafe class VulkanContext : IDisposable
     }
 
     /// <summary>Loads the Vulkan API, reporting a missing loader as a Vulkan failure.</summary>
-    /// <returns>The API.</returns>
+    /// <returns>The API. <b>Never dispose it.</b></returns>
     /// <exception cref="VulkanException">No loader is present.</exception>
     /// <remarks>
     /// A machine with no loader at all throws out of Silk.NET's own loading rather than
@@ -116,6 +116,26 @@ public sealed unsafe class VulkanContext : IDisposable
     /// "this machine cannot render" keys off <see cref="VulkanException"/>, so an absent
     /// loader is reported as one. <c>VulkanDeviceSelector.Survey</c> says the same thing in
     /// its own way, by returning a report rather than throwing.
+    /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// <b>The handle this returns is never released, by anyone.</b> Silk.NET's
+    /// <c>GetApi</c> opens <c>libvulkan</c> and its <c>Dispose</c> closes it, and when the
+    /// last handle closes the library is unloaded — which the loader is not built for. It
+    /// opens the machine's ICDs and layers itself, and those are what leave process-exit
+    /// handlers behind pointing into an image that is no longer mapped. Windows and macOS
+    /// hide it; glibc does not, and a suite that unloaded and reloaded a native library
+    /// through a run is what made the Linux build die with SIGSEGV after its last test had
+    /// passed. <c>Rendering/Shaders/ShaderToolchain.cs</c> carries the whole account.
+    /// </para>
+    /// <para>
+    /// Each caller still gets a handle of its own rather than one shared instance. A Silk
+    /// <c>Vk</c> is not just a table of function pointers: it remembers which instance and
+    /// which device it was last used with, and two contexts sharing one would resolve each
+    /// other's device functions. That was tried, and it faulted as soon as two test classes
+    /// created contexts at the same time. One handle each, none of them released, and the
+    /// library is loaded once and stays.
+    /// </para>
     /// </remarks>
     internal static Vk LoadApi()
     {

@@ -157,6 +157,78 @@ public sealed partial class LayeringTests
         Assert.Empty(violations);
     }
 
+    /// <summary>The four files allowed to open a Silk.NET native library.</summary>
+    /// <remarks>
+    /// Every other file borrows a handle from one of them. See
+    /// <c>Rendering/Shaders/ShaderToolchain.cs</c> for why there is a rule at all.
+    /// </remarks>
+    private static readonly string[] MayOpenANativeLibrary =
+    [
+        Path.Combine("Rendering", "Shaders", "ShaderToolchain.cs"),
+        Path.Combine("Rendering", "Direct3D12", "D3D12Runtime.cs"),
+        Path.Combine("Rendering", "Vulkan", "VulkanContext.cs"),
+        Path.Combine("Audio", "OpenAlBackend.cs"),
+    ];
+
+    [Fact]
+    public void Only_the_four_holders_open_a_native_library()
+    {
+        // Silk.NET's GetApi opens the shared library and its Dispose closes it, and when the
+        // last handle closes the library is unloaded. Calling the pair freely is what made
+        // the Linux build map and unmap glslang dozens of times in a run and then die with
+        // SIGSEGV after its last test had passed; Windows and macOS hide the same mistake.
+        // So opening is confined to four files, each of which documents that what it hands
+        // out is never released.
+        List<string> violations = [];
+
+        foreach (string file in Directory.EnumerateFiles(EngineRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(EngineRoot, file);
+
+            if (MayOpenANativeLibrary.Contains(relative, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (CodeIn(file).Any(line => OpensANativeLibrary().IsMatch(line)))
+            {
+                violations.Add($"{relative} calls GetApi");
+            }
+        }
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Nothing_unloads_a_native_library()
+    {
+        // The other half of the rule above, and the half that actually crashed. A handle
+        // borrowed from one of the four holders must not be disposed: doing so unloads the
+        // library out from under everything else still using it, and leaves the process-exit
+        // handlers its C++ statics registered pointing at an image that is no longer mapped.
+        List<string> violations = [];
+
+        foreach (string file in Directory.EnumerateFiles(EngineRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            foreach (Match match in CodeIn(file).SelectMany(line => UnloadsANativeLibrary().Matches(line)))
+            {
+                violations.Add(
+                    $"{Path.GetRelativePath(EngineRoot, file)} disposes {match.Groups["handle"].Value}");
+            }
+        }
+
+        Assert.Empty(violations);
+    }
+
+    /// <summary>A file's lines with the comment-only ones dropped.</summary>
+    /// <remarks>
+    /// Both rules above are about what the engine calls, and this tree explains itself at
+    /// length: the two files that document why a native library must not be reopened name
+    /// the very calls they forbid. Prose is not a call site.
+    /// </remarks>
+    private static IEnumerable<string> CodeIn(string file) =>
+        File.ReadLines(file).Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal));
+
     private static IEnumerable<string> UsingsIn(string file)
     {
         foreach (string line in File.ReadLines(file))
@@ -174,4 +246,10 @@ public sealed partial class LayeringTests
 
     [GeneratedRegex(@"\bRandom\.Shared\b|\bnew\s+Random\s*\(")]
     private static partial Regex AmbientRandomness();
+
+    [GeneratedRegex(@"\b(?:AL|ALContext|Cross|DXC|DXGI|D3D12|Shaderc|Vk)\.GetApi\s*\(")]
+    private static partial Regex OpensANativeLibrary();
+
+    [GeneratedRegex(@"\b_?(?<handle>al|alc|cross|dxc|dxgi|d3d12|shaderc|vk)\.Dispose\s*\(\s*\)")]
+    private static partial Regex UnloadsANativeLibrary();
 }

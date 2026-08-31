@@ -68,9 +68,9 @@ public sealed class VulkanDeviceSelector
         Vk vk;
         try
         {
-            vk = Vk.GetApi();
+            vk = VulkanContext.LoadApi();
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or FileNotFoundException)
+        catch (VulkanException ex)
         {
             // No loader means no Vulkan. That is a fact about the machine, not a failure
             // of the engine, and the caller needs to be able to say so.
@@ -108,7 +108,9 @@ public sealed class VulkanDeviceSelector
                     vk.DestroyInstance(instance, null);
                 }
 
-                vk.Dispose();
+                // The loader handle is not released; see VulkanContext.LoadApi. This is the
+                // most-called of the three places that used to release it, because every
+                // test that asks whether this machine can render comes through here.
             }
         }
     }

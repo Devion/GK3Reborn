@@ -55,19 +55,16 @@ public static unsafe class D3D12DeviceSelector
                 RenderBackend.Direct3D12, "Direct3D is a Windows API and this is not Windows.");
         }
 
-        DXGI? dxgi = null;
-        D3D12? d3d12 = null;
+        DXGI dxgi;
+        D3D12 d3d12;
 
         try
         {
-            dxgi = DXGI.GetApi(null);
-            d3d12 = D3D12.GetApi();
+            dxgi = D3D12Runtime.Dxgi;
+            d3d12 = D3D12Runtime.D3D12;
         }
         catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException)
         {
-            dxgi?.Dispose();
-            d3d12?.Dispose();
-
             return DeviceReport.Missing(
                 RenderBackend.Direct3D12, "the Direct3D 12 runtime is not present.");
         }
@@ -148,8 +145,8 @@ public static unsafe class D3D12DeviceSelector
         }
         finally
         {
-            dxgi.Dispose();
-            d3d12.Dispose();
+            // The two library handles are D3D12Runtime's and stay loaded; see the note
+            // there. The factory and the adapters above are this survey's and are released.
         }
     }
 

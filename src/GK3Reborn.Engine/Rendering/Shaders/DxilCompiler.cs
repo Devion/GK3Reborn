@@ -46,7 +46,7 @@ public sealed class DxilCompiler : IDisposable
 
         try
         {
-            _dxc = DXC.GetApi();
+            _dxc = ShaderToolchain.Dxc;
         }
         catch (Exception exception) when (exception is DllNotFoundException or FileNotFoundException)
         {
@@ -64,7 +64,6 @@ public sealed class DxilCompiler : IDisposable
 
         if (hr < 0)
         {
-            _dxc.Dispose();
             throw new ShaderCompilationException($"Could not start DXC: 0x{hr:X8}.");
         }
 
@@ -224,8 +223,11 @@ public sealed class DxilCompiler : IDisposable
         }
 
         _disposed = true;
+
+        // The compiler object is this instance's and is released here. The library handle
+        // is not: it belongs to ShaderToolchain and is held for the life of the process,
+        // for the reasons written down there.
         _compiler.Dispose();
-        _dxc.Dispose();
     }
 
     /// <summary>Whether a DXIL container carries a signature rather than sixteen zero bytes.</summary>

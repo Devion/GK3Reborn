@@ -221,6 +221,72 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Every scripted moment in the game played nothing — fixed 2026-08-31
+
+**Reported** from the hotel dining room on day one: Mosely reads his newspaper through the
+whole conversation instead of folding it onto the table when Gabriel walks over, and the
+paper hangs in the air beside him once his talk animations move his arms.
+
+**It is not about the newspaper.** `StartMom("coffeepot")` is the beat in `GabCoffee$` that
+runs between the coffee and the walk over, and `ECOFFEEPOT.MOM` holds all of it: Gabriel's
+spit take at frame 0, `MosDinPaperShow` at 24, `MosDinPaperDown3B` at 56 — which is the clip
+that puts the paper flat on the table, and the only one in the game that does — a cut to
+`VIEW_OF_SPIT` at 59, two lines of dialogue and five sounds.
+
+**`AnimationLibrary.Read` tried `.ANM` and `.YAK` and nothing else**, so the asset was never
+found and `StartMom` returned a length of zero to a script that was waiting on it. The
+reference registers `.MOM` for the same asset type as the other two and tags it so only a
+moment's own lookup consults it (`GEngine.cpp`). Here it is tried last, which comes to the
+same thing on this corpus: `DEFAULT` is the one name that exists as both, and the `.ANM` wins
+in the reference too. All 39 moments were silently doing nothing.
+
+The tell was that nothing about the paper was wrong — `mos_paper`'s clips play, at the right
+time, in the right hands. Three quarters of the search went into proving that, by mapping
+each clip's start and end with `render-scene --play`: `Down3A` runs table-to-reading and
+`Down3B` reading-to-table, and `Down3A` is what the script plays at the *end* of the
+conversation. A clip that starts with the paper already on the table, played to pick it back
+up, is the evidence that something earlier was meant to put it there.
+
+### The Ubuntu release build segfaulted after every test passed — fixed 2026-08-31
+
+**Reported** from the release workflow: `GK3Reborn.Tests  Total: 1805, Errors: 0, Failed: 0,
+Skipped: 85` and then `Segmentation fault (core dumped)` out of `dotnet exec`, which
+`run-tests.sh` turns into a failed job. Ubuntu only; the same commit passed on Windows and
+macOS. Nothing had failed — the crash is in the shutdown after the last test reported.
+
+**The engine was unloading its native libraries, dozens of times a run.** Silk.NET's
+`GetApi` opens the shared library and resolves every entry point into a fresh handle, and its
+`Dispose` closes it; when the last handle closes, the library is unmapped. That pair was being
+called freely. `SpirvCompiler` and `HlslTranspiler` opened shaderc and SPIRV-Cross in their
+constructors and closed them in `Dispose`, and a `ShaderCompiler` is made and disposed per
+renderer, per pass and — in the suite — per test; `VulkanDeviceSelector.Survey` opened and
+closed `libvulkan` on every call, which is every test class that asks whether this machine can
+render; `D3D12RootSignature.Serialize` did it once per signature.
+
+Ubuntu is the only one of the three platforms where the unmapping is real. `dlclose` on glibc
+genuinely unmaps the image and runs its static destructors, where Windows keeps the DLL for as
+long as anything holds it and macOS declines to unload most images at all — which is exactly
+the shape of a defect that is invisible on two platforms and fatal on the third. Two things go
+wrong once the unmapping happens: a handle held on another thread — xunit runs test classes in
+parallel, and two of them compile shaders — goes on pointing into an image that has been
+unmapped and remapped elsewhere; and glslang and SPIRV-Cross are C++ libraries whose static and
+thread-local destructors are registered with libstdc++ and libc, which are *not* unloaded, so a
+load/unload cycle leaves those registrations pointing at addresses that are no longer mapped.
+They are called at process exit, which is why the summary prints first.
+
+So nothing unloads a native library any more. `ShaderToolchain` and `D3D12Runtime` hold shaderc,
+SPIRV-Cross, DXC, Direct3D 12 and DXGI for the life of the process, created on first use so a
+Vulkan session still never loads `dxcompiler`; `OpenAlBackend` holds OpenAL the same way; and
+`VulkanContext.LoadApi` is the one place `libvulkan` is opened and nobody closes it. Two
+`LayeringTests` keep it that way — one that only those four files may call `GetApi`, one that
+nothing may dispose what they hand out — and both were checked against a reintroduced violation.
+
+**Vulkan is the exception that has to keep a handle each.** Sharing one `Vk` across contexts
+was tried first and faulted immediately, on Windows as well: a Silk `Vk` is not just a table of
+function pointers, it remembers which instance and device it was last used with, so two
+contexts sharing one resolve each other's device functions. One handle per owner, none of them
+released, and the library is still loaded exactly once.
+
 ### Half the cast faced the wrong way, and cutscenes kept resetting them — fixed 2026-08-31
 
 **Reported** as four things, which turned out to be three causes and one of them shared:
@@ -276,6 +342,21 @@ kept the talk and listen scripts `[LISTENERS]` lends them and the pose the enter
 them in, and the camera went on framing the pair — reported as Lady Howard and Estelle never
 leaving the conversation, with Gabriel stuck in front of them until Get Unstuck was used. The
 bar being dismissed ends it now; taking a verb off it is not a cancel and ends nothing.
+
+**A fidget must not relocate anybody, which the sync had to be narrowed to say.** Reported
+straight afterwards, as Madeline Buthane holding her whole conversation at the van over her
+shoulder: she is placed at `BUTHANE_TALK` facing Gabriel with `initanim=MADRC1TURN2`, and her
+idle is `madMapIdle.gas`, whose `MadRc1ReadM` and `MadRc1FigM` are authored *absolutely* at the
+back of her van with her turned to the map — 128° off him. Absolute means move, move means keep,
+so the sync took the map pose as where she now stood, and `madreltalk.gas` is relative and plays
+through exactly that.
+
+The reference syncs every frame whatever is posing the model, and re-snaps the model to the
+actor as each new relative clip starts, so a fidget's drift is bounded and cancels. This engine
+syncs once, as a clip lets go, which is the same answer for a story clip and a permanent one for
+an idle. So a clip a model's own behaviour script asked for no longer writes the placement —
+which is what this engine says about fidgets everywhere else anyway: an idle is dropped where
+the story is animating, paused for a walk, and cleaned up when interrupted.
 
 **`--trace-actors` is why the last two were found rather than argued about.** A character drawn
 in the wrong place and a character whose *placement* is in the wrong place look identical while

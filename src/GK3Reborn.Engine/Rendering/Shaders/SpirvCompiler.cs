@@ -36,10 +36,7 @@ namespace GK3Reborn.Rendering.Shaders;
 /// </remarks>
 public sealed class SpirvCompiler : IDisposable
 {
-    private readonly Shaderc _shaderc;
-
-    /// <summary>Creates a compiler.</summary>
-    public SpirvCompiler() => _shaderc = Shaderc.GetApi();
+    private readonly Shaderc _shaderc = ShaderToolchain.Shaderc;
 
     /// <summary>Compiles a shader to SPIR-V.</summary>
     /// <param name="source">Shader source.</param>
@@ -140,5 +137,15 @@ public sealed class SpirvCompiler : IDisposable
     }
 
     /// <inheritdoc/>
-    public void Dispose() => _shaderc.Dispose();
+    /// <remarks>
+    /// Nothing to release. The shaderc handle belongs to <see cref="ShaderToolchain"/> and
+    /// outlives every compiler that borrows it; releasing it here is what unmapped glslang
+    /// out from under the other threads still compiling, and killed the Linux build at
+    /// exit. Everything this class allocates from shaderc — the compiler, its options and
+    /// each result — is already released by the compile that made it. <c>IDisposable</c>
+    /// stays because callers hold this in a <c>using</c>.
+    /// </remarks>
+    public void Dispose()
+    {
+    }
 }

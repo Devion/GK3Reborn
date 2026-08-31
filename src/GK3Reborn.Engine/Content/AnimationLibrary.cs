@@ -74,10 +74,30 @@ public sealed class AnimationLibrary
     /// <param name="name">Its name, with or without an extension.</param>
     /// <returns>The animation, or null when there is no such file.</returns>
     /// <remarks>
+    /// <para>
     /// A script names an animation without saying which kind it is or what language it is
-    /// in, so four names are tried: the plain <c>.ANM</c> and <c>.YAK</c> that ordinary
-    /// animations use, then the localised pair that recorded dialogue uses. The plain names
-    /// come first because they are the ones that exist for everything that is not speech.
+    /// in, so six names are tried: the plain <c>.ANM</c> and <c>.YAK</c> that ordinary
+    /// animations use, then the localised pair that recorded dialogue uses, then
+    /// <c>.MOM</c>. The plain names come first because they are the ones that exist for
+    /// everything that is not speech.
+    /// </para>
+    /// <para>
+    /// <b><c>.MOM</c> is the same file in a different directory, and leaving it out meant
+    /// <c>StartMom</c> silently played nothing.</b> A moment is a scripted beat that is not
+    /// tied to one character - a spit take, a handshake, a toast - and there are 39 of them.
+    /// The reference registers the extension for the same asset type the other two use and
+    /// tags it, so only a moment's own lookup consults it (<c>GEngine.cpp</c>'s
+    /// <c>AddTypeExtension&lt;Animation&gt;(".MOM", "mom")</c>); it is last here instead,
+    /// which comes to the same thing on this corpus - <c>DEFAULT</c> is the one name that
+    /// exists as both, and the <c>.ANM</c> wins there in the reference too.
+    /// </para>
+    /// <para>
+    /// The dining room is what it cost. <c>StartMom("coffeepot")</c> is the beat where
+    /// Gabriel spits his coffee out and Mosely folds his newspaper onto the table; without
+    /// the extension the asset was never found, so Gabriel drank in silence, two lines and
+    /// five sounds never played, the <c>VIEW_OF_SPIT</c> camera never cut, and Mosely held
+    /// the paper up through the whole conversation that followed.
+    /// </para>
     /// </remarks>
     public AnimationFile? Read(string name)
     {
@@ -95,7 +115,9 @@ public sealed class AnimationLibrary
             _open($"{bare}.ANM") ??
             _open($"{bare}.YAK") ??
             _open($"{spoken}.YAK") ??
-            _open($"{spoken}.ANM");
+            _open($"{spoken}.ANM") ??
+            _open($"{bare}.MOM") ??
+            _open($"{spoken}.MOM");
 
         AnimationFile? animation = text is null
             ? null

@@ -358,71 +358,66 @@ public sealed unsafe class D3D12RootSignature : IDisposable
     private static ComPtr<ID3D12RootSignature> Serialize(
         ID3D12Device5* device, List<RootParameter> parameters, bool allowInputLayout)
     {
-        var d3d12 = D3D12.GetApi();
+        // Held for the life of the process rather than opened and closed per signature; see
+        // D3D12Runtime.
+        D3D12 d3d12 = D3D12Runtime.D3D12;
 
-        try
+        fixed (RootParameter* first = CollectionsMarshal.AsSpan(parameters))
         {
-            fixed (RootParameter* first = CollectionsMarshal.AsSpan(parameters))
+            var description = new RootSignatureDesc
             {
-                var description = new RootSignatureDesc
+                NumParameters = (uint)parameters.Count,
+                PParameters = parameters.Count > 0 ? first : null,
+                NumStaticSamplers = 0,
+                PStaticSamplers = null,
+
+                // A signature that does not say it allows an input layout gets one
+                // rejected at pipeline creation, and a compute signature that says it
+                // does wastes a root slot. Neither failure names the flag.
+                Flags = allowInputLayout
+                    ? RootSignatureFlags.AllowInputAssemblerInputLayout
+                    : RootSignatureFlags.None,
+            };
+
+            ComPtr<ID3D10Blob> blob = default;
+            ComPtr<ID3D10Blob> errors = default;
+
+            int hr = d3d12.SerializeRootSignature(
+                &description,
+                D3DRootSignatureVersion.Version10,
+                blob.GetAddressOf(),
+                errors.GetAddressOf());
+
+            try
+            {
+                if (hr < 0)
                 {
-                    NumParameters = (uint)parameters.Count,
-                    PParameters = parameters.Count > 0 ? first : null,
-                    NumStaticSamplers = 0,
-                    PStaticSamplers = null,
+                    string message = errors.Handle is not null
+                        ? Marshal.PtrToStringAnsi((nint)errors.GetBufferPointer()) ?? "no detail"
+                        : "no detail";
 
-                    // A signature that does not say it allows an input layout gets one
-                    // rejected at pipeline creation, and a compute signature that says it
-                    // does wastes a root slot. Neither failure names the flag.
-                    Flags = allowInputLayout
-                        ? RootSignatureFlags.AllowInputAssemblerInputLayout
-                        : RootSignatureFlags.None,
-                };
-
-                ComPtr<ID3D10Blob> blob = default;
-                ComPtr<ID3D10Blob> errors = default;
-
-                int hr = d3d12.SerializeRootSignature(
-                    &description,
-                    D3DRootSignatureVersion.Version10,
-                    blob.GetAddressOf(),
-                    errors.GetAddressOf());
-
-                try
-                {
-                    if (hr < 0)
-                    {
-                        string message = errors.Handle is not null
-                            ? Marshal.PtrToStringAnsi((nint)errors.GetBufferPointer()) ?? "no detail"
-                            : "no detail";
-
-                        throw new D3D12Exception($"Could not serialise the root signature: {message}");
-                    }
-
-                    ComPtr<ID3D12RootSignature> signature = default;
-                    Guid signatureId = ID3D12RootSignature.Guid;
-
-                    D3D12Exception.ThrowIfFailed(
-                        device->CreateRootSignature(
-                            0,
-                            blob.GetBufferPointer(),
-                            blob.GetBufferSize(),
-                            &signatureId,
-                            (void**)signature.GetAddressOf()),
-                        "create the root signature");
-
-                    return signature;
+                    throw new D3D12Exception($"Could not serialise the root signature: {message}");
                 }
-                finally
-                {
-                    blob.Dispose();
-                    errors.Dispose();
-                }
+
+                ComPtr<ID3D12RootSignature> signature = default;
+                Guid signatureId = ID3D12RootSignature.Guid;
+
+                D3D12Exception.ThrowIfFailed(
+                    device->CreateRootSignature(
+                        0,
+                        blob.GetBufferPointer(),
+                        blob.GetBufferSize(),
+                        &signatureId,
+                        (void**)signature.GetAddressOf()),
+                    "create the root signature");
+
+                return signature;
             }
-        }
-        finally
-        {
-            d3d12.Dispose();
+            finally
+            {
+                blob.Dispose();
+                errors.Dispose();
+            }
         }
     }
 }

@@ -43,11 +43,7 @@ namespace GK3Reborn.Rendering.Shaders;
 /// </remarks>
 public sealed class HlslTranspiler : IDisposable
 {
-    private readonly Cross _cross;
-    private bool _disposed;
-
-    /// <summary>Creates a transpiler.</summary>
-    public HlslTranspiler() => _cross = Cross.GetApi();
+    private readonly Cross _cross = ShaderToolchain.Cross;
 
     /// <summary>Which locations a module reads as stage inputs.</summary>
     /// <param name="spirv">SPIR-V words as bytes.</param>
@@ -259,15 +255,13 @@ public sealed class HlslTranspiler : IDisposable
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing to release; see <see cref="ShaderToolchain"/>. Every SPIRV-Cross context
+    /// this class creates is destroyed by the call that created it, and the library handle
+    /// is not this class's to give back.
+    /// </remarks>
     public void Dispose()
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _cross.Dispose();
     }
 
     /// <summary>Which locations a compiler's module writes as stage outputs.</summary>

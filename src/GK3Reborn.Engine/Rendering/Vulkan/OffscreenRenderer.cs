@@ -172,7 +172,9 @@ public sealed unsafe class OffscreenRenderer : IDisposable
             _vk.DestroyInstance(_instance, null);
         }
 
-        _vk.Dispose();
+        // The loader handle is not released; see VulkanContext.LoadApi. Unloading libvulkan
+        // is what killed the Linux test run at exit. The instance and the device above are
+        // this renderer's own and are destroyed.
     }
 
     private void CreateInstance()

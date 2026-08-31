@@ -90,6 +90,13 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
     /// <summary>What the device called itself.</summary>
     public string DeviceName { get; private init; } = "unknown";
 
+    /// <summary>OpenAL, opened at most once and held for the life of the process.</summary>
+    private static readonly Lazy<AL> AlApi = new(static () => AL.GetApi(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    /// <summary>Its context extension, likewise.</summary>
+    private static readonly Lazy<ALContext> AlcApi =
+        new(static () => ALContext.GetApi(), LazyThreadSafetyMode.ExecutionAndPublication);
+
     /// <summary>Opens the default output device.</summary>
     /// <param name="layout">The layout the player asked for.</param>
     /// <param name="diagnostics">Receives a reason when there is no device.</param>
@@ -103,8 +110,8 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
 
         try
         {
-            alc = ALContext.GetApi();
-            al = AL.GetApi();
+            alc = AlcApi.Value;
+            al = AlApi.Value;
         }
         catch (Exception ex)
             when (ex is DllNotFoundException or EntryPointNotFoundException or FileNotFoundException)
@@ -474,8 +481,11 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
         _alc.DestroyContext(_context);
         _alc.CloseDevice(_device);
 
-        _al.Dispose();
-        _alc.Dispose();
+        // The device, the context and every buffer are this backend's and are released
+        // above. The two library handles are not: they are opened once and held for the
+        // life of the process, because Silk.NET's Dispose unloads the library and OpenAL
+        // Soft is not built to be unloaded and reopened. See
+        // Rendering/Shaders/ShaderToolchain.cs for what that costs on Linux.
     }
 
     private float Gain(AudioBus bus) =>

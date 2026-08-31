@@ -119,8 +119,8 @@ public sealed unsafe class D3D12Context : IDisposable
 
         try
         {
-            d3d12 = D3D12.GetApi();
-            dxgi = DXGI.GetApi(null);
+            d3d12 = D3D12Runtime.D3D12;
+            dxgi = D3D12Runtime.Dxgi;
         }
         catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException)
         {
@@ -520,8 +520,8 @@ public sealed unsafe class D3D12Context : IDisposable
         _adapter.Dispose();
         _factory.Dispose();
 
-        _dxgi.Dispose();
-        _d3d12.Dispose();
+        // The two library handles belong to D3D12Runtime and outlive this context; see the
+        // note there. Everything above is this context's own and is released.
     }
 
     private void Start(bool enableValidation)

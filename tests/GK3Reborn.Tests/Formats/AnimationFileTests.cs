@@ -232,6 +232,40 @@ public sealed class AnimationFileTests
     }
 
     [Fact]
+    public void A_moment_is_found_under_its_own_extension()
+    {
+        // StartMom("coffeepot") asks for "Ecoffeepot" and the file is ECOFFEEPOT.MOM. Until
+        // the extension was tried, every one of the game's 39 moments resolved to nothing
+        // and played nothing, waited on by a script that was told it took no time: the
+        // dining room lost Gabriel's spit take, two lines, five sounds, a camera cut, and
+        // Mosely folding his newspaper onto the table before the conversation.
+        var library = new AnimationLibrary(
+            name => name.Equals("ECOFFEEPOT.MOM", StringComparison.OrdinalIgnoreCase)
+                ? "[HEADER]\n141\n"
+                : null);
+
+        Assert.Equal(141 / 15.0, library.SecondsOf("Ecoffeepot"), 3);
+    }
+
+    [Fact]
+    public void An_animation_beats_a_moment_of_the_same_name()
+    {
+        // DEFAULT is the one name in the corpus that exists as both, and the reference
+        // registers .ANM ahead of .MOM. Reversing that would hand every plain lookup of
+        // that name a moment instead of the animation it asked for.
+        Dictionary<string, string> files = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DEFAULT.ANM"] = "[HEADER]\n30\n",
+            ["DEFAULT.MOM"] = "[HEADER]\n141\n",
+        };
+
+        var library = new AnimationLibrary(
+            name => files.TryGetValue(name, out string? text) ? text : null);
+
+        Assert.Equal(2.0, library.SecondsOf("DEFAULT"), 3);
+    }
+
+    [Fact]
     public void A_voice_over_of_several_lines_is_several_animations_in_a_row()
     {
         // The last character of the plate is a sequence number, and each line is the plate
@@ -298,8 +332,8 @@ public sealed class AnimationFileTests
         Assert.Equal(0, library.SecondsOf("NOPE"));
         Assert.Equal(0, library.SecondsOf("NOPE"));
 
-        // Four names tried, once. The thing most likely to ask twice is a script in a loop.
-        Assert.Equal(4, looks);
+        // Six names tried, once. The thing most likely to ask twice is a script in a loop.
+        Assert.Equal(6, looks);
         Assert.Equal(1, library.Count);
     }
 }
