@@ -221,6 +221,91 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### A moment spoke none of its own lines — fixed 2026-08-31
+
+**Reported** from the hotel dining room on day one: "Mosely?  Is that YOU?" and the reply to
+it, "No, it's my evil twin!  What the hell're you doin' here, Knight?", were both missing —
+no audio and no caption. The scene otherwise played: Gabriel drank, spat, and the exchange
+carried on afterwards as though the two lines had happened.
+
+**Neither line is a call in `DIN110A`.** The script starts `174AY0W5Z4` — "Thanks, Buddy." —
+waits for it, and then `StartMom("coffeepot")`. `ECOFFEEPOT.MOM` carries the rest as animation
+nodes of its own: `15,DIALOGUE,E174AY0W5Z5`, `62,DIALOGUE,E174AY0W5Z6` and
+`59,CAMERA,VIEW_OF_SPIT`. The `ContinueDialogue(1)` the script makes after the moment is a
+continuation *of those* — it is what says `Z7` — so losing the moment's two lines lost a third
+one that was called for outright.
+
+**`AnimationFile` read the `[GK3]` section for captions, lip sync, faces and footsteps and
+let everything else fall through the `default` arm in silence.** Four node kinds went that
+way, and they exist only in the moments: 50 `DIALOGUE`, 18 `CAMERA`, 11 `MOOD` and one
+`EXPRESSION`, across 36 of the game's 39 `.MOM` files. So every scripted beat in the game was
+played as mime, framed on whatever camera the script had left the view on, and with nobody's
+face changing.
+
+This is the second half of *Every scripted moment in the game played nothing* below. That one
+found the moments — `.MOM` was not an extension the animation library tried, so the asset was
+never opened at all — and restored their clips and their sounds. Its account of what the beat
+does was written from the file rather than from what reached the screen, and claimed the two
+lines with the rest; they were being parsed away one layer down.
+
+The nodes are now read into `AnimationFile.Dialogue`, `.Shots` and `.Moods`, scheduled by
+`SceneUpdate.Play` on the same clock as the sound cues and the footfalls, and handed back to
+`SceneScripting` through three hooks — the same shape as `SceneUpdate.Sound`, and for the same
+reason: the world knows when, and the audio and the camera know how. A line's plate keeps the
+language letter the file writes it with, which is what lets a later `ContinueDialogue` carry on
+from the same stem.
+
+The soundtrack nodes that were left over are done too — see below.
+
+### The music never changed under a line of dialogue — fixed 2026-08-31
+
+**Left over from the entry above**, which fixed the moments and named this as the piece it
+did not cover.
+
+**A line of dialogue is where GK3 keeps its score changes.** 79 of the corpus's 81
+`PLAYSOUNDTRACK` / `STOPSOUNDTRACK` / `STOPALLSOUNDTRACKS` nodes are inside a `.YAK`, on a
+frame chosen against the words: `E01KED3S4U6` — "Yes, they dropped Grace at the hotel and
+took off. But I'm afraid I have bad news." — cuts the lobby's soundtrack at frame 40 and
+brings `FightDrone.STK` up at 50, part-way through the sentence. The remaining two are in a
+moment: `EHANDSHAKE.MOM` swaps the hotel's daytime bed for its evening one across frames 665
+and 666.
+
+None of them ran. The `[GK3]` reader dropped the three keywords, and a YAK reaches
+`SceneAudio`, which had no per-frame schedule at all — it started a line's sound and waited
+for the device to say it had stopped. So every fight, every sneak and every arrival in the
+game was scored with whatever the room had been playing beforehand.
+
+**A line now carries a schedule of its own**, advanced from `SceneAudio.Update` against the
+recording's clock, and both paths end at one `SceneAudio.Cue`. Four things had to be right
+beyond the reading:
+
+- **Frame order, not file order.** `E0SB2J3H7B1` writes the stop at frame 9 on the line
+  *after* the play at frame 10; performed in file order it silences what it had just
+  started. This turned out to be true of `SceneUpdate`'s new schedules as well — they walked
+  backwards so a spent entry could be removed as it was passed, which reverses two nodes that
+  come due in the same frame, and `EHANDSHAKE`'s 665/666 pair is exactly that. Both now
+  dispatch oldest frame first; see `SceneUpdate.Due`.
+- **The extension is the typist's, not the file's.** Every script writes `"R25Doors.STK"` and
+  half the animation nodes leave it off — `FightDrone`, `LHIHandShakeTell`, `TE5Vamps`. 24 of
+  the 46 soundtracks an animation starts were being looked for under a name no archive has.
+  The lookup now tries `.STK` and the soundtrack is named by the file that answered, so the
+  two spellings are one soundtrack rather than two.
+- **A change outlives the sentence it was timed against.** Whatever a line has not reached is
+  performed when it ends, is replaced, or is tapped through by the player — otherwise
+  skipping "But I'm afraid I have bad news" plays the rest of the scene to the wrong music.
+  Not when the room is being left or silenced: that would be music in the wrong room.
+- **Two of the corpus's calls miss, and should.** `StopSoundTrack,CS3Monster.STK` names
+  nothing that exists and `StopSoundTrack,MontUpstaris.STK` is a misspelling of
+  `MontUpStairs.STK`. Both are in the shipped data and the original missed them too.
+
+**Not done, and it needs nothing done:** the `[GK3]` section has a `SHEEP` keyword whose text
+is script rather than nodes. The corpus has exactly one, on frame 0 of `E0CFG51K5I3`, and it
+is **commented out** — `//0,SHEEP,StopAllSoundTracks();PlaySoundTrack("TestFight.STK")` — so
+the INI reader strips it before the parser sees it, and the line beside it, `E0CFG51K5I1`,
+writes the same two changes as ordinary nodes. There is nothing live to run. It was
+implemented and then removed once the comment marker was noticed; the reference
+implementation does not read the keyword either.
+
 ### Every scripted moment in the game played nothing — fixed 2026-08-31
 
 **Reported** from the hotel dining room on day one: Mosely reads his newspaper through the
@@ -231,7 +316,8 @@ paper hangs in the air beside him once his talk animations move his arms.
 runs between the coffee and the walk over, and `ECOFFEEPOT.MOM` holds all of it: Gabriel's
 spit take at frame 0, `MosDinPaperShow` at 24, `MosDinPaperDown3B` at 56 — which is the clip
 that puts the paper flat on the table, and the only one in the game that does — a cut to
-`VIEW_OF_SPIT` at 59, two lines of dialogue and five sounds.
+`VIEW_OF_SPIT` at 59, two lines of dialogue and five sounds. (The cut and the two lines
+needed a second fix — see *A moment spoke none of its own lines* above.)
 
 **`AnimationLibrary.Read` tried `.ANM` and `.YAK` and nothing else**, so the asset was never
 found and `StartMom` returned a length of zero to a script that was waiting on it. The

@@ -1728,10 +1728,31 @@ public static class Application
 
                 // What PlaySoundTrack names: a .STK in the archives, which the audio layer
                 // has no way to open on its own.
+                // The extension is the caller's guess rather than the file's. Every script
+                // in the corpus writes `PlaySoundTrack("R25Doors.STK")`, and half the
+                // animation nodes that ask for one leave it off — `FightDrone`,
+                // `LHIHandShakeTell`, `TE5Vamps` — so the name is tried as given and then
+                // with .STK on the end. Without the second try, 24 of the 46 soundtracks
+                // an animation starts are looked for under a name no archive has.
                 room.Soundtracks = named =>
-                    archives.ReadText(named) is { } text
-                        ? Formats.Audio.SoundtrackFile.Parse(text, named, new DiagnosticBag())
-                        : null;
+                {
+                    // Named by the file that answered rather than by what was asked for,
+                    // so that "FightDrone" and "FightDrone.STK" are one soundtrack: they
+                    // are both in the corpus, and two names for one list would start it
+                    // twice and stop only one of them.
+                    string file = Path.HasExtension(named) ? named : named + ".STK";
+                    string? text = archives.ReadText(file);
+
+                    if (text is null && !Path.HasExtension(named))
+                    {
+                        text = archives.ReadText(named);
+                        file = named;
+                    }
+
+                    return text is null
+                        ? null
+                        : Formats.Audio.SoundtrackFile.Parse(text, file, new DiagnosticBag());
+                };
             }
 
             // The pose everything opens in, before anything runs. A door that starts open,

@@ -198,6 +198,95 @@ public sealed class AnimationFileTests
     }
 
     [Fact]
+    public void A_moment_speaks_the_lines_it_names_itself()
+    {
+        // ECOFFEEPOT.MOM, the dining room's spit take. Neither of the two lines it names is
+        // a call in DIN110A, so a reader that walks past DIALOGUE loses both of them —
+        // "Mosely?  Is that YOU?" is the second — and the ContinueDialogue the script makes
+        // afterwards, which continues the run these started.
+        AnimationFile animation = Parse(
+            "[HEADER]\n141\n\n[GK3]\n3\n15,DIALOGUE,E174AY0W5Z5\n" +
+            "62,DIALOGUE,E174AY0W5Z6\n59,CAMERA,VIEW_OF_SPIT\n");
+
+        Assert.Equal(
+            [
+                new AnimationDialogue(15, "E174AY0W5Z5"),
+                new AnimationDialogue(62, "E174AY0W5Z6"),
+            ],
+            animation.Dialogue);
+
+        // The plate is kept exactly as written, language letter and all: the animation
+        // library resolves a name with or without one, and stripping it would change the
+        // stem a later ContinueDialogue carries on from.
+        Assert.Equal(new AnimationShot(59, "VIEW_OF_SPIT", false), Assert.Single(animation.Shots));
+    }
+
+    [Fact]
+    public void A_camera_node_says_whether_the_view_travels_or_cuts()
+    {
+        AnimationFile animation = Parse(
+            "[HEADER]\n60\n\n[GK3]\n2\n38,CAMERA,TOMB_CIN, glide\n15,CAMERA,BABY_CU,glide\n");
+
+        Assert.All(animation.Shots, shot => Assert.True(shot.Glide));
+        Assert.Equal("TOMB_CIN", animation.Shots[0].Camera);
+    }
+
+    [Fact]
+    public void A_mood_is_worn_and_an_expression_is_over_when_it_has_played()
+    {
+        // EPAINTINGS.MOM carries one of each, five frames apart. They are the same line
+        // with one difference and it is the whole difference: a mood stays on until
+        // something takes it off, which is why the two cannot be read as one.
+        AnimationFile animation = Parse(
+            "[HEADER]\n90\n\n[GK3]\n2\n65,EXPRESSION, GRACE, SURPRISED\n" +
+            "75,MOOD, GRACE, HALFANGRY\n");
+
+        Assert.Equal(
+            [
+                new AnimationMood(65, "GRACE", "SURPRISED", false),
+                new AnimationMood(75, "GRACE", "HALFANGRY", true),
+            ],
+            animation.Moods);
+    }
+
+    [Fact]
+    public void A_line_of_dialogue_carries_the_music_that_changes_under_it()
+    {
+        // E01KED3S4U6 — "Yes, they dropped Grace at the hotel and took off.  But I'm afraid
+        // I have bad news." The lobby's soundtrack stops at frame 40 and the fight's comes
+        // up at 50, in the middle of the sentence, which is why a line is the clock these
+        // are cut against rather than the script that started it.
+        AnimationFile animation = Parse(
+            "[HEADER]\n125\n\n[GK3]\n3\n40,StopAllSoundTracks\n" +
+            "50,PlaySoundTrack,FightDrone.STK\n128,StopSoundtrack,R33StoryIn.STK\n");
+
+        Assert.Equal(
+            [
+                new AnimationMusic(40, null, Stop: true),
+                new AnimationMusic(50, "FightDrone.STK", Stop: false),
+                new AnimationMusic(128, "R33StoryIn.STK", Stop: true),
+            ],
+            animation.Music);
+
+        // And it is a performance, which is what the flag has always meant.
+        Assert.True(animation.StartsSoundtrack);
+    }
+
+    [Fact]
+    public void Stopping_every_soundtrack_names_none_and_stopping_one_names_it()
+    {
+        AnimationFile animation = Parse("[HEADER]\n30\n\n[GK3]\n1\n1,StopAllSoundTracks\n");
+
+        Assert.Null(Assert.Single(animation.Music).Track);
+        Assert.True(Assert.Single(animation.Music).Stop);
+
+        // Nothing is started, so it is not a performance — a file that only silences
+        // things is not a scene happening.
+        Assert.False(animation.StartsSoundtrack);
+    }
+
+
+    [Fact]
     public void The_lip_synch_nodes_are_passed_over()
     {
         // 98,153 of them across the corpus, a mouth shape per frame. Reading one needs a

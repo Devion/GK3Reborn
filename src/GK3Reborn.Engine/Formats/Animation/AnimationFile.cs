@@ -84,6 +84,78 @@ public readonly record struct AnimationFace(
 /// </remarks>
 public readonly record struct AnimationStep(int Frame, string Actor, bool Scuff);
 
+/// <summary>A line of recorded speech an animation starts part-way through itself.</summary>
+/// <param name="Frame">Which frame it begins on.</param>
+/// <param name="Plate">
+/// The licence plate of the line, as the file writes it — usually with the language letter
+/// already on the front, which is what tells this apart from the plate a script gives.
+/// </param>
+/// <remarks>
+/// <para>
+/// The <em>moments</em> are what carry these: a scripted beat that belongs to nobody in
+/// particular and speaks for itself. <c>StartMom("coffeepot")</c> is the dining room's
+/// spit take, and both of the lines around it — Gabriel's "Mosely? Is that YOU?" and
+/// Mosely's reply — are nodes in the moment rather than calls in the script, because the
+/// timing is the animation's and not the story's.
+/// </para>
+/// <para>
+/// Fifty of them, in 36 of the game's 39 moments. Read past, the beat plays in mime.
+/// </para>
+/// </remarks>
+public readonly record struct AnimationDialogue(int Frame, string Plate);
+
+/// <summary>A camera an animation puts the view on part-way through itself.</summary>
+/// <param name="Frame">Which frame it cuts on.</param>
+/// <param name="Camera">The camera's name, as the scene names it.</param>
+/// <param name="Glide">Whether the view travels there rather than cutting.</param>
+/// <remarks>
+/// A moment frames itself. The spit take cuts to <c>VIEW_OF_SPIT</c> three frames before
+/// the coffee leaves Gabriel's mouth, and the handshake in front of the Lady Howard's
+/// door cuts between four cameras across its 600 frames. Eighteen of these in the corpus,
+/// all in moments.
+/// </remarks>
+public readonly record struct AnimationShot(int Frame, string Camera, bool Glide);
+
+/// <summary>An expression an animation puts on somebody's face part-way through itself.</summary>
+/// <param name="Frame">Which frame it appears on.</param>
+/// <param name="Actor">The noun of whoever's face it is.</param>
+/// <param name="Name">The mood or expression — <c>SURPRISED</c>, <c>HALFANGRY</c>.</param>
+/// <param name="Worn">
+/// Whether it is worn until something takes it off (<c>MOOD</c>) or happens once and is
+/// over (<c>EXPRESSION</c>). The distinction is the file's and it matters: a mood left on
+/// is a character who stays surprised for the rest of the scene.
+/// </param>
+public readonly record struct AnimationMood(int Frame, string Actor, string Name, bool Worn);
+
+/// <summary>A soundtrack an animation starts or stops part-way through itself.</summary>
+/// <param name="Frame">Which frame it happens on.</param>
+/// <param name="Track">
+/// The <c>.STK</c>, written with or without its extension depending on who typed the line,
+/// or null for <c>STOPALLSOUNDTRACKS</c>.
+/// </param>
+/// <param name="Stop">Whether it stops one rather than starting it.</param>
+/// <param name="Looping">
+/// Whether a started soundtrack walks its list forever or once. <c>PLAYSOUNDTRACKTBS</c> is
+/// the once-through form; nothing in the corpus uses it, and it is read because the
+/// distinction is real and the machinery already has it.
+/// </param>
+/// <remarks>
+/// <para>
+/// These are what the <em>music</em> hangs on. Eighty-one of them across the corpus and 79
+/// are inside a line of dialogue's own <c>.YAK</c>: a line is the clock the score is cut
+/// against, so the fight music comes up under the sentence that starts the fight rather
+/// than a beat before or after it. <c>E01KED3S4U6</c> — "Yes, they dropped Grace at the
+/// hotel and took off. But I'm afraid I have bad news." — stops the lobby's soundtrack at
+/// frame 40 and starts <c>FightDrone.STK</c> at 50, in the middle of the word.
+/// </para>
+/// <para>
+/// The other two are in moments, where <see cref="Game.SceneUpdate"/> schedules them
+/// against the animation's own clock instead.
+/// </para>
+/// </remarks>
+public readonly record struct AnimationMusic(
+    int Frame, string? Track, bool Stop, bool Looping = true);
+
 /// <summary>A texture an animation swaps part-way through.</summary>
 /// <param name="Frame">Which frame it changes on.</param>
 /// <param name="Model">The model whose surface it is.</param>
@@ -304,6 +376,24 @@ public sealed class AnimationFile
     /// <summary>The lines it speaks, in file order.</summary>
     public IReadOnlyList<AnimationCaption> Captions { get; }
 
+    /// <summary>The recorded lines it starts as it runs, in file order.</summary>
+    /// <remarks>
+    /// Distinct from <see cref="Captions"/>, which is what a line of dialogue says about
+    /// <em>itself</em>. This is one animation asking for another one's line, and it is how
+    /// a moment speaks — see <see cref="AnimationDialogue"/>.
+    /// </remarks>
+    public IReadOnlyList<AnimationDialogue> Dialogue { get; init; } = [];
+
+    /// <summary>The cameras it puts the view on as it runs, in file order.</summary>
+    public IReadOnlyList<AnimationShot> Shots { get; init; } = [];
+
+    /// <summary>The moods and expressions it sets as it runs, in file order.</summary>
+    public IReadOnlyList<AnimationMood> Moods { get; init; } = [];
+
+    /// <summary>The soundtracks it starts and stops as it runs, in file order.</summary>
+    public IReadOnlyList<AnimationMusic> Music { get; init; } = [];
+
+
     /// <summary>
     /// The mouth shapes it puts on people, in frame order.
     /// </summary>
@@ -349,6 +439,10 @@ public sealed class AnimationFile
         List<AnimationTexture> textures = [];
         List<AnimationSceneTexture> sceneTextures = [];
         List<AnimationSceneVisibility> sceneVisibility = [];
+        List<AnimationDialogue> spoken = [];
+        List<AnimationShot> shots = [];
+        List<AnimationMood> moods = [];
+        List<AnimationMusic> music = [];
         int rate = FramesPerSecond;
 
         foreach (IniSection section in document.Sections)
@@ -459,17 +553,14 @@ public sealed class AnimationFile
                     break;
 
                 case "GK3":
-                    Spoken(section, captions, mouths, faces, steps);
+                    Spoken(
+                        section, captions, mouths, faces, steps,
+                        spoken, shots, moods, music);
 
-                    // Whether it puts music under itself. Not played from here — the
-                    // soundtrack machinery is elsewhere — but recorded, because it is the
-                    // sharpest thing in an animation file that says "this is a scene that
-                    // happens" rather than "this is where a thing rests". See
-                    // <see cref="IsPerformance"/>.
-                    soundtrack = soundtrack || section.Lines.Any(
-                        l => l.Entries.Count > 1 &&
-                             l.Entries[1].Key.Equals(
-                                 "PlaySoundTrack", StringComparison.OrdinalIgnoreCase));
+                    // Whether it puts music under itself, which is the sharpest thing in an
+                    // animation file that says "this is a scene that happens" rather than
+                    // "this is where a thing rests". See <see cref="IsPerformance"/>.
+                    soundtrack = soundtrack || music.Any(m => !m.Stop);
 
                     break;
 
@@ -493,6 +584,10 @@ public sealed class AnimationFile
             visibility, steps, textures, sceneTextures, sceneVisibility, rate)
         {
             StartsSoundtrack = soundtrack,
+            Dialogue = spoken,
+            Shots = shots,
+            Moods = moods,
+            Music = music,
         };
     }
 
@@ -610,7 +705,11 @@ public sealed class AnimationFile
         List<AnimationCaption> captions,
         List<AnimationMouth> mouths,
         List<AnimationFace> faces,
-        List<AnimationStep> steps)
+        List<AnimationStep> steps,
+        List<AnimationDialogue> spoken,
+        List<AnimationShot> shots,
+        List<AnimationMood> moods,
+        List<AnimationMusic> music)
     {
         string speaker = string.Empty;
 
@@ -668,6 +767,84 @@ public sealed class AnimationFile
                             line.Entries[1].Key.Equals("FOOTSCUFF", StringComparison.OrdinalIgnoreCase)));
                     }
 
+                    break;
+
+                // <frame>,DIALOGUE,<plate>. One animation asking for another one's
+                // recorded line, which is how a moment speaks: the spit take in the dining
+                // room carries two of these and the script around it carries neither.
+                case "DIALOGUE":
+                    if (line.Entries.Count > 2 &&
+                        line.Entries[2].Key.Trim() is { Length: > 0 } plate)
+                    {
+                        spoken.Add(new AnimationDialogue(frame, plate));
+                    }
+
+                    break;
+
+                // <frame>,CAMERA,<name>[,GLIDE]. A moment frames itself.
+                case "CAMERA":
+                    if (line.Entries.Count > 2 &&
+                        line.Entries[2].Key.Trim() is { Length: > 0 } shot)
+                    {
+                        shots.Add(new AnimationShot(
+                            frame,
+                            shot,
+                            line.Entries.Skip(3).Any(e => e.Key.Trim().Equals(
+                                "GLIDE", StringComparison.OrdinalIgnoreCase))));
+                    }
+
+                    break;
+
+                // <frame>,MOOD,<noun>,<mood> and <frame>,EXPRESSION,<noun>,<expression>.
+                // The same line with one difference: a mood is worn until something takes
+                // it off, an expression happens and is over.
+                case "MOOD":
+                case "EXPRESSION":
+                    if (line.Entries.Count > 3 &&
+                        line.Entries[2].Key.Trim() is { Length: > 0 } wearer &&
+                        line.Entries[3].Key.Trim() is { Length: > 0 } worn)
+                    {
+                        moods.Add(new AnimationMood(
+                            frame,
+                            wearer,
+                            worn,
+                            line.Entries[1].Key.Trim().Equals(
+                                "MOOD", StringComparison.OrdinalIgnoreCase)));
+                    }
+
+                    break;
+
+                // <frame>,PLAYSOUNDTRACK,<stk> and its once-through twin. The name is
+                // written with or without the extension depending on who typed it, which is
+                // the reader's problem rather than the caller's.
+                case "PLAYSOUNDTRACK":
+                case "PLAYSOUNDTRACKTBS":
+                    if (line.Entries.Count > 2 &&
+                        line.Entries[2].Key.Trim() is { Length: > 0 } started)
+                    {
+                        music.Add(new AnimationMusic(
+                            frame,
+                            started,
+                            Stop: false,
+                            Looping: !line.Entries[1].Key.Trim().EndsWith(
+                                "TBS", StringComparison.OrdinalIgnoreCase)));
+                    }
+
+                    break;
+
+                // <frame>,STOPSOUNDTRACK,<stk>, against <frame>,STOPALLSOUNDTRACKS, which
+                // names nothing and means every one of them — the room's own included.
+                case "STOPSOUNDTRACK":
+                    if (line.Entries.Count > 2 &&
+                        line.Entries[2].Key.Trim() is { Length: > 0 } silenced)
+                    {
+                        music.Add(new AnimationMusic(frame, silenced, Stop: true));
+                    }
+
+                    break;
+
+                case "STOPALLSOUNDTRACKS":
+                    music.Add(new AnimationMusic(frame, null, Stop: true));
                     break;
 
                 case "LIPSYNCH":

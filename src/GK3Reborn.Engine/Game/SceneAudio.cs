@@ -275,6 +275,15 @@ public sealed class SceneAudio
     private string? _stem;
     private int _next;
 
+    // The line being spoken, how far into it we are, and how many of its own soundtrack
+    // changes have been performed. A line is a schedule as well as a recording:
+    // 79 of the corpus's 81 soundtrack changes are written inside one, because the sentence
+    // is the clock the score is cut against. See Cueing.
+    private AnimationFile? _sounding;
+    private double _spoken;
+    private int _cued;
+    private IReadOnlyList<AnimationMusic> _changes = [];
+
     /// <summary>Starts the room's ambience from the soundtracks the scene names.</summary>
     /// <param name="soundtracks">What the scene listed.</param>
     /// <returns>What is playing, or null when none of it could be.</returns>
@@ -459,7 +468,10 @@ public sealed class SceneAudio
     {
         ArgumentNullException.ThrowIfNull(plate);
 
-        Hush();
+        // Replacing the line, not ending the room: whatever it had left to do to the music
+        // still happens. The reference does not stop the outgoing line's animation at all,
+        // so its nodes go on firing there; this is the nearest thing with one voice.
+        Hush(performed: true);
 
         if (plate.Length == 0)
         {
@@ -574,6 +586,12 @@ public sealed class SceneAudio
             _line = AudioVoice.None;
         }
 
+        // Tapping through the words does not tap through what they do to the room. The
+        // player skipping "But I'm afraid I have bad news" would otherwise skip the fight
+        // music that comes up under its last few frames, and the room would be wrong for
+        // the rest of the scene.
+        Ended(performed: true);
+
         Saying = null;
         Caption = null;
         Speaker = null;
@@ -584,13 +602,25 @@ public sealed class SceneAudio
     }
 
     /// <summary>Stops whatever is being said and forgets the rest of it.</summary>
-    public void Hush()
+    /// <remarks>
+    /// What the line was going to do to the music is forgotten with it. A caller that means
+    /// to replace the line rather than to end the room says so — see <see cref="Ended"/>.
+    /// </remarks>
+    public void Hush() => Hush(performed: false);
+
+    /// <summary>Stops whatever is being said, saying what becomes of its schedule.</summary>
+    /// <param name="performed">
+    /// Whether the soundtrack changes the line had not reached yet still happen.
+    /// </param>
+    private void Hush(bool performed)
     {
         if (_line.Exists)
         {
             _backend.Silence(_line);
             _line = AudioVoice.None;
         }
+
+        Ended(performed);
 
         _speaking.Clear();
         Saying = null;
@@ -747,7 +777,17 @@ public sealed class SceneAudio
     /// twice does nothing, which is what the original does — the same list started twice
     /// would be the same sound at two different points in its own walk.
     /// </remarks>
-    public bool Play(SoundtrackFile track)
+    public bool Play(SoundtrackFile track) => Play(track, looping: true);
+
+    /// <summary>Starts a soundtrack, saying whether it walks its list more than once.</summary>
+    /// <param name="track">The file.</param>
+    /// <param name="looping">
+    /// Whether it goes round again when its list is spent. <c>PLAYSOUNDTRACKTBS</c> is the
+    /// once-through form; nothing in the corpus asks for it, and it is here because the
+    /// program already knows how and the alternative is a flag read and then dropped.
+    /// </param>
+    /// <returns>True if it was not already playing.</returns>
+    public bool Play(SoundtrackFile track, bool looping)
     {
         ArgumentNullException.ThrowIfNull(track);
 
@@ -759,7 +799,7 @@ public sealed class SceneAudio
             }
         }
 
-        var playing = new Playing(new SoundtrackProgram(track, _chance));
+        var playing = new Playing(new SoundtrackProgram(track, _chance, looping));
         _programs.Add(playing);
 
         // One step now, so a soundtrack started by a script is heard on the frame it was
@@ -783,10 +823,16 @@ public sealed class SceneAudio
 
         for (int i = _programs.Count - 1; i >= 0; i--)
         {
+            // Compared without extensions on either side. Whether a caller writes
+            // "FightDrone" or "FightDrone.STK" is down to who typed the line — the scripts
+            // always write it and the animation nodes are split about half and half — and
+            // the two mean the same soundtrack.
             if (name is { Length: > 0 } &&
                 !_programs[i].Program.Track.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
                 !Path.GetFileNameWithoutExtension(_programs[i].Program.Track.Name)
-                    .Equals(name, StringComparison.OrdinalIgnoreCase))
+                    .Equals(
+                        Path.GetFileNameWithoutExtension(name),
+                        StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -799,6 +845,36 @@ public sealed class SceneAudio
         Reported();
 
         return stopped;
+    }
+
+    /// <summary>Does what an animation's soundtrack node says.</summary>
+    /// <param name="change">The node.</param>
+    /// <returns>True if anything started or stopped.</returns>
+    /// <remarks>
+    /// <para>
+    /// The one place a <c>PLAYSOUNDTRACK</c>, a <c>STOPSOUNDTRACK</c> or a
+    /// <c>STOPALLSOUNDTRACKS</c> is performed, whichever kind of animation carried it: a
+    /// line of dialogue's own schedule reaches it from inside this class, and a moment's
+    /// reaches it through <c>SceneUpdate.Music</c>. Both mean the same thing and neither
+    /// should mean it differently.
+    /// </para>
+    /// <para>
+    /// A stop names the soundtrack it stops; stopping one that is not running is nothing
+    /// happening rather than a fault, and the corpus does it — <c>MontUpstaris.STK</c> is a
+    /// stop for a soundtrack whose real name is spelled the other way, so the original
+    /// missed it too.
+    /// </para>
+    /// </remarks>
+    public bool Cue(AnimationMusic change)
+    {
+        if (change.Stop)
+        {
+            return StopSoundtrack(change.Track) > 0;
+        }
+
+        return change.Track is { Length: > 0 } named &&
+               Soundtracks?.Invoke(named) is { } track &&
+               Play(track, change.Looping);
     }
 
     /// <summary>The soundtracks the room is running, by name.</summary>
@@ -949,6 +1025,10 @@ public sealed class SceneAudio
     {
         _backend.Update();
 
+        // What the line being spoken does to the music, first: a soundtrack it starts this
+        // frame should be walked by the loop below on this frame rather than the next.
+        Cueing(seconds);
+
         // The room's own soundtracks, each a list being walked. Before the decode below
         // rather than after it, so a bed a program asks for this frame is picked up this
         // frame rather than the next.
@@ -991,6 +1071,12 @@ public sealed class SceneAudio
         if (_line.Exists && !_backend.IsPlaying(_line))
         {
             _line = AudioVoice.None;
+
+            // A YAK is a few frames longer than its recording — the mouth closes before the
+            // last frame and the DIALOGUECUE sits after it — so anything the line had left
+            // is performed here rather than lost to the difference.
+            Ended(performed: true);
+
             Saying = null;
             Caption = null;
             Speaker = null;
@@ -1050,17 +1136,92 @@ public sealed class SceneAudio
 
                 if (_line.Exists)
                 {
+                    Opening(animation);
                     Speaking?.Invoke(animation);
                     return;
                 }
             }
 
             // The animation is there but its audio is not, so the line is skipped rather
-            // than holding up the ones behind it.
+            // than holding up the ones behind it. What it was going to do to the music
+            // still happens, all at once: the line contributes no time, and a fight whose
+            // first sentence is missing should still get its music.
+            Opening(animation);
+            Ended(performed: true);
+
             Saying = null;
             Caption = null;
             Speaker = null;
         }
+    }
+
+    /// <summary>Takes on the schedule the line about to be spoken carries.</summary>
+    /// <remarks>
+    /// Sorted by frame rather than taken in file order, because the files are not written in
+    /// order — <c>E0SB2J3H7B1</c> stops one soundtrack at frame 9 on the line after the one
+    /// that starts another at frame 10 — and a cursor over file order would perform them the
+    /// wrong way round.
+    /// </remarks>
+    private void Opening(AnimationFile line)
+    {
+        _sounding = line;
+        _spoken = 0;
+        _cued = 0;
+        _changes = line.Music.Count > 1 ? [.. line.Music.OrderBy(m => m.Frame)] : line.Music;
+
+        // Frame zero is now rather than in a frame's time, as it is everywhere else a
+        // schedule is taken on.
+        Cueing(0);
+    }
+
+    /// <summary>Performs whatever the line being spoken has reached.</summary>
+    /// <param name="seconds">How long since the last frame.</param>
+    /// <remarks>
+    /// The line is the clock. 79 of the corpus's 81 soundtrack changes are written inside
+    /// one, on a frame chosen against the words — <c>E01KED3S4U6</c> cuts the lobby's music
+    /// at frame 40 of "But I'm afraid I have bad news" and brings the fight's up at 50 —
+    /// so performing them anywhere but against the recording's own clock puts the music on
+    /// the wrong side of the sentence.
+    /// </remarks>
+    private void Cueing(double seconds)
+    {
+        if (_sounding is not { } line)
+        {
+            return;
+        }
+
+        _spoken += seconds;
+        double rate = Math.Max(1, line.Rate);
+
+        while (_cued < _changes.Count && _changes[_cued].Frame / rate <= _spoken)
+        {
+            Cue(_changes[_cued++]);
+        }
+    }
+
+    /// <summary>Lets go of the schedule the line being spoken carried.</summary>
+    /// <param name="performed">
+    /// Whether what it had not reached yet still happens. It does wherever the line ends
+    /// because it is over, is cut short by the next one, or is tapped through by the
+    /// player — a soundtrack change is a statement about the room and outlives the sentence
+    /// it was timed against, and every one of them in the corpus sits before its line's
+    /// <c>DIALOGUECUE</c>, so this is a safety net rather than the usual path. It does not
+    /// where the room itself is being left or silenced: starting music on the way out is
+    /// music in the wrong room.
+    /// </param>
+    private void Ended(bool performed)
+    {
+        if (performed)
+        {
+            while (_cued < _changes.Count)
+            {
+                Cue(_changes[_cued++]);
+            }
+        }
+
+        _sounding = null;
+        _changes = [];
+        _cued = 0;
     }
 
     private static int Sequence(char c) => c switch

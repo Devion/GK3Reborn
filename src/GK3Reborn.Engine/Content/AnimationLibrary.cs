@@ -94,9 +94,14 @@ public sealed class AnimationLibrary
     /// <para>
     /// The dining room is what it cost. <c>StartMom("coffeepot")</c> is the beat where
     /// Gabriel spits his coffee out and Mosely folds his newspaper onto the table; without
-    /// the extension the asset was never found, so Gabriel drank in silence, two lines and
-    /// five sounds never played, the <c>VIEW_OF_SPIT</c> camera never cut, and Mosely held
-    /// the paper up through the whole conversation that followed.
+    /// the extension the asset was never found, so Gabriel drank in silence, five sounds
+    /// never played, and Mosely held the paper up through the whole conversation that
+    /// followed.
+    /// </para>
+    /// <para>
+    /// Opening the file was half of it. Its two lines and its cut to <c>VIEW_OF_SPIT</c>
+    /// are <c>[GK3]</c> nodes that the animation reader was then dropping — see
+    /// <see cref="Formats.Animation.AnimationDialogue"/>.
     /// </para>
     /// </remarks>
     public AnimationFile? Read(string name)

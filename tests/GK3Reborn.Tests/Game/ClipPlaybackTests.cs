@@ -957,4 +957,122 @@ public sealed class ClipPlaybackTests
         Assert.Equal(
             mark.Translation.X, sink.TransformOf(new ModelPlacement(0)).Translation.X, 2);
     }
+
+    /// <summary>
+    /// A moment: an animation that speaks and frames itself.
+    /// </summary>
+    /// <remarks>
+    /// ECOFFEEPOT.MOM, cut down to the three nodes this is about. The spit take in the
+    /// hotel dining room is the beat these were found through — see
+    /// <see cref="GK3Reborn.Formats.Animation.AnimationDialogue"/>.
+    /// </remarks>
+    private static SceneUpdate Moment(string? nodes = null)
+    {
+        var sink = new Sink();
+        sink.Add(Model());
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse(
+                "[ROOM_CAMERAS]\nA, angle={0,0}, pos={0,0,0}, Default", "T.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Placed:
+            [
+                new PlacedModel(
+                    "door", "DOOR", null, Model(), Matrix4x4.Identity,
+                    PlacedModelKind.Prop, new ModelPlacement(0)),
+            ]);
+
+        return new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
+        {
+            Animations = new AnimationLibrary(n =>
+                n.Equals("ECOFFEEPOT.MOM", StringComparison.OrdinalIgnoreCase)
+                    ? "[HEADER]\n141\n\n[ACTIONS]\n1\n0,door_Spit,0,0,0,0,0,0,0,0\n\n" +
+                      "[GK3]\n3\n" +
+                      (nodes ??
+                       "15,DIALOGUE,E174AY0W5Z5\n62,DIALOGUE,E174AY0W5Z6\n" +
+                       "59,CAMERA,VIEW_OF_SPIT\n")
+                    : null),
+
+            Clips = new ClipLibrary(n =>
+                n.Equals("door_Spit.ACT", StringComparison.OrdinalIgnoreCase)
+                    ? Clip("door", 141)
+                    : null)
+            { KeepVertices = true },
+        };
+    }
+
+    [Fact]
+    public void A_moment_speaks_and_frames_itself_on_the_frames_it_names()
+    {
+        // The dining room's spit take. Neither line is a call in DIN110A — both are nodes
+        // in the moment — so with these read past, Gabriel drank in silence, the camera
+        // stayed on the wide shot, and the ContinueDialogue the script makes afterwards
+        // continued a run that had never started.
+        SceneUpdate update = Moment();
+
+        List<string> said = [];
+        List<string> framed = [];
+
+        update.Line = spoken => said.Add(spoken.Plate);
+        update.Shot = shot => framed.Add(shot.Camera);
+
+        Assert.True(update.Play("ECOFFEEPOT") > 0);
+        Assert.Empty(said);
+
+        // Frame 15 at fifteen frames a second is a second in, and not before.
+        update.Advance(14 / 15.0);
+        Assert.Empty(said);
+
+        update.Advance(2 / 15.0);
+        Assert.Equal(["E174AY0W5Z5"], said);
+
+        // The camera is on the shot before the line spoken in it starts: frames 59 and 62.
+        update.Advance(60 / 15.0);
+        Assert.Equal(["E174AY0W5Z5", "E174AY0W5Z6"], said);
+        Assert.Equal(["VIEW_OF_SPIT"], framed);
+    }
+
+    [Fact]
+    public void A_moment_that_is_stopped_half_way_does_not_go_on_speaking()
+    {
+        SceneUpdate update = Moment();
+
+        List<string> said = [];
+        update.Line = spoken => said.Add(spoken.Plate);
+
+        update.Play("ECOFFEEPOT");
+        update.StopAnimating();
+        update.Advance(10);
+
+        Assert.Empty(said);
+    }
+
+    [Fact]
+    public void A_moment_changes_the_music_under_itself()
+    {
+        // EHANDSHAKE.MOM, the beat outside the Lady Howard's door: eleven seconds of
+        // greeting, and on the last two frames of it the hotel's daytime bed gives way to
+        // its evening one. Two nodes in the corpus reach the world this way; the other 79
+        // are inside lines of dialogue and reach the audio layer instead.
+        SceneUpdate update = Moment(
+            "665,StopAllSoundTracks\n666,PlaySoundTrack,LHEAmbEve\n0,CAMERA,HANDSHAKE\n");
+
+        List<string> music = [];
+
+        update.Music = change => music.Add(
+            change.Stop ? $"stop {change.Track ?? "all"}" : $"play {change.Track}");
+
+        update.Play("ECOFFEEPOT");
+        Assert.Empty(music);
+
+        // Frame 665 at fifteen frames a second is 44.3 seconds in.
+        update.Advance(44.0);
+        Assert.Empty(music);
+
+        update.Advance(0.5);
+        Assert.Equal(["stop all", "play LHEAmbEve"], music);
+    }
 }

@@ -112,6 +112,30 @@ public static class SceneScripting
 
         AttachCameras(api, scene);
         AttachGlances(api, scene, glances);
+
+        // What a moment does on its own. These are animation nodes rather than script
+        // calls — a beat like the dining room's spit take carries its own camera cuts and
+        // its own faces — so the world schedules them and hands them back here, where the
+        // camera and the moods are already known how to do.
+        if (world is not null)
+        {
+            world.Shot = shot => Cut(api, scene, shot.Camera, forced: false, gliding: shot.Glide);
+
+            world.Mood = mood =>
+            {
+                // A mood is worn until something takes it off; an expression is played and
+                // is over. The second is the animation named by the face's own three
+                // letters and the expression, which is what SetMood puts on and off again.
+                if (mood.Worn)
+                {
+                    Mood(api, scene, world, mood.Actor, mood.Name);
+                    return;
+                }
+
+                string model = Modelled(scene, mood.Actor);
+                world.Play((world.Faces?.CodeFor(model) ?? model) + mood.Name);
+            };
+        }
     }
 
     /// <summary>
@@ -339,8 +363,20 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         }
 
-        string name = arguments[0].AsString();
+        Cut(api, scene, arguments[0].AsString(), forced, gliding);
+        return SheepValue.FromInt(0);
+    }
 
+    /// <summary>Puts the view on a camera the scene names.</summary>
+    /// <remarks>
+    /// Split out of <see cref="CutTo"/> because a script is not the only thing that cuts:
+    /// an animation may carry a <c>CAMERA</c> node, and a moment frames itself entirely
+    /// that way. Same rules either way — an unknown name leaves the view where it was, and
+    /// an unforced cut is the player's to switch off.
+    /// </remarks>
+    private static void Cut(
+        Gk3SheepApi api, LoadedScene scene, string name, bool forced, bool gliding)
+    {
         if (scene.Definition.AnyCameraNamed(name) is null)
         {
             api.Diagnostics.Add(new Diagnostic(
@@ -349,7 +385,7 @@ public static class SceneScripting
                 scene.Name, null, "a room, cinematic or dialogue camera", name,
                 "The view stays where it was, as it does in the original."));
 
-            return SheepValue.FromInt(0);
+            return;
         }
 
         if (forced || api.State.CinematicsEnabled || api.State.ForcedCameraCuts)
@@ -357,8 +393,6 @@ public static class SceneScripting
             api.State.CameraGliding = gliding;
             api.State.CameraAngle = name;
         }
-
-        return SheepValue.FromInt(0);
     }
 
 
@@ -780,6 +814,24 @@ public static class SceneScripting
                 return SheepValue.FromInt(0);
             });
         }
+
+        // And what an animation does to the music. Seventy-nine of the corpus's 81
+        // soundtrack changes are written inside a line of dialogue's own YAK, which SceneAudio runs
+        // against the recording's clock; the other two are in a moment and arrive here.
+        // Both end at the same call, because both mean the same thing.
+        world.Music = change => audio.Cue(change);
+
+        // And what an *animation* says. A moment carries its lines as nodes of its own
+        // rather than as calls in the script that started it, so this is the only path by
+        // which fifty of the game's lines are ever spoken — among them both halves of
+        // "Mosely? Is that YOU?" / "No, it's my evil twin!" in the dining room.
+        //
+        // One line, no fidgets and no camera of its own: the moment frames itself with a
+        // CAMERA node, and cutting again here would fight it. The plate carries the
+        // language letter the file wrote it with, which is kept — the animation library
+        // resolves a name with or without one, and keeping it means a ContinueDialogue the
+        // script makes afterwards carries on from the same stem.
+        world.Line = spoken => audio.Speak(spoken.Plate, 1);
 
         // A yak names one line outright where a voice-over names a run of them.
         api.Register("StartYak", arguments =>

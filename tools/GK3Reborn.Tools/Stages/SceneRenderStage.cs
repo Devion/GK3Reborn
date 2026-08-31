@@ -1040,6 +1040,32 @@ public sealed class SceneRenderStage
             Animations = new AnimationLibrary(archives),
         };
 
+        // What a moment does on its own, reported rather than performed: there is no audio
+        // device here and no camera to cut. It is the only way to see a moment's [GK3]
+        // nodes without the game, and the dining room's two lines went missing behind
+        // exactly that blind spot.
+        update.Line = spoken => _log(
+            $"  frame {spoken.Frame}: says {spoken.Plate}" +
+            (update.Animations?.Read(spoken.Plate) is { Captions.Count: > 0 } line
+                ? $" — {line.Captions[0].Speaker}: {line.Captions[0].Text}"
+                : " — no such line"));
+
+        update.Shot = shot => _log(
+            $"  frame {shot.Frame}: {(shot.Glide ? "glides" : "cuts")} to {shot.Camera}" +
+            (scene.Definition.AnyCameraNamed(shot.Camera) is null
+                ? " — no such camera in this scene"
+                : string.Empty));
+
+        update.Mood = mood => _log(
+            $"  frame {mood.Frame}: {mood.Actor} " +
+            $"{(mood.Worn ? "wears" : "shows")} {mood.Name}");
+
+        update.Music = change => _log(
+            $"  frame {change.Frame}: " +
+            (change.Stop
+                ? $"stops {change.Track ?? "every soundtrack"}"
+                : $"plays {change.Track}{(change.Looping ? string.Empty : " once")}"));
+
         double length = update.Play(name);
 
         if (length <= 0)

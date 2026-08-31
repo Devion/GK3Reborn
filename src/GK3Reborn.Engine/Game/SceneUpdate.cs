@@ -157,6 +157,20 @@ public sealed class SceneUpdate
     private readonly List<Scheduled<AnimationSceneTexture>> _roomSwaps = [];
 
     private readonly List<Scheduled<AnimationSceneVisibility>> _roomShowings = [];
+
+    /// <summary>What animations are about to say, frame and film as they run.</summary>
+    /// <remarks>
+    /// The <em>moments</em>, and nothing else in the corpus, carry these: a scripted beat
+    /// that speaks its own lines, cuts its own camera and sets its own faces, because the
+    /// timing belongs to the animation rather than to the script that started it. Fifty
+    /// lines, eighteen cuts and twelve expressions across 36 files. See
+    /// <see cref="AnimationDialogue"/>.
+    /// </remarks>
+    private readonly List<Scheduled<AnimationDialogue>> _lines = [];
+
+    private readonly List<Scheduled<AnimationShot>> _shots = [];
+    private readonly List<Scheduled<AnimationMood>> _moods = [];
+    private readonly List<Scheduled<AnimationMusic>> _music = [];
     private readonly List<Turning> _actors = [];
     private readonly Dictionary<string, Walking> _walking =
         new(StringComparer.OrdinalIgnoreCase);
@@ -522,6 +536,50 @@ public sealed class SceneUpdate
 
         RevealRoom(animation.SceneVisibility.Where(v => v.Frame <= 0));
 
+        // And what it says, frames and puts on people's faces. A moment is the only kind
+        // of animation that carries these, and it is the reason it exists: the beat is a
+        // whole scripted exchange whose timing is the artist's rather than the story's.
+        //
+        // Without them the dining room's spit take played as mime — Gabriel drank, the
+        // camera stayed on the wide shot, and "Mosely? Is that YOU?" and the reply to it
+        // were never spoken, because neither line is a call in DIN110A. Both are nodes
+        // in ECOFFEEPOT.MOM, and the ContinueDialogue the script makes afterwards is a
+        // continuation *of them*, so the exchange lost its next line as well.
+        foreach (AnimationDialogue spoken in animation.Dialogue)
+        {
+            _lines.Add(new Scheduled<AnimationDialogue>(
+                spoken, spoken.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+        }
+
+        foreach (AnimationShot shot in animation.Shots)
+        {
+            _shots.Add(new Scheduled<AnimationShot>(
+                shot, shot.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+        }
+
+        foreach (AnimationMood mood in animation.Moods)
+        {
+            _moods.Add(new Scheduled<AnimationMood>(
+                mood, mood.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+        }
+
+        // And what it does to the music under it. Two nodes in the corpus reach here —
+        // EHANDSHAKE.MOM swaps the hotel's daytime bed for its evening one across frames
+        // 665 and 666 — where 79 more are inside lines of dialogue and reach SceneAudio.
+        foreach (AnimationMusic change in animation.Music)
+        {
+            _music.Add(new Scheduled<AnimationMusic>(
+                change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+        }
+
+        // Frame zero is now, as it is for the repaints and the reveals above. Eighteen of
+        // the corpus's fifty lines open their moment, and a line a frame late is a line
+        // that starts after the camera has already cut away from whoever says it.
+        Say(animation.Dialogue.Where(d => d.Frame <= 0));
+        Film(animation.Shots.Where(s => s.Frame <= 0));
+        Wear(animation.Moods.Where(m => m.Frame <= 0));
+        Score(animation.Music.Where(m => m.Frame <= 0));
+
         // Then what it shows and hides, for the same reason and one of its own: an
         // animation that brings somebody into the room does it here, and the clip that
         // opens the door in front of them is a separate line of the same file. Emilio
@@ -555,7 +613,11 @@ public sealed class SceneUpdate
                 animation.Textures.Count > 0 ||
                 animation.SceneTextures.Count > 0 ||
                 animation.SceneVisibility.Count > 0 ||
-                animation.Steps.Count > 0)
+                animation.Steps.Count > 0 ||
+                animation.Dialogue.Count > 0 ||
+                animation.Shots.Count > 0 ||
+                animation.Moods.Count > 0 ||
+                animation.Music.Count > 0)
             {
                 return animation.Duration;
             }
@@ -729,6 +791,128 @@ public sealed class SceneUpdate
     /// in the room it comes from, and says whether anything was heard.
     /// </remarks>
     public Func<AnimationSound, Vector3?, bool>? Sound { get; set; }
+
+    /// <summary>
+    /// What speaks a line an animation asks for, or null when there is no device.
+    /// </summary>
+    /// <remarks>
+    /// The same shape and the same reason as <see cref="Sound"/>: the world schedules the
+    /// node and something else knows how to say it. What it is handed is a licence plate,
+    /// usually with the language letter already on the front — the file writes it that way
+    /// and the animation library resolves a name either with or without one.
+    /// </remarks>
+    public Action<AnimationDialogue>? Line { get; set; }
+
+    /// <summary>What puts the view on a camera an animation names, or null in a tool.</summary>
+    public Action<AnimationShot>? Shot { get; set; }
+
+    /// <summary>What puts a mood or an expression on a face an animation names.</summary>
+    public Action<AnimationMood>? Mood { get; set; }
+
+    /// <summary>What starts and stops the soundtracks an animation names.</summary>
+    public Action<AnimationMusic>? Music { get; set; }
+
+    /// <summary>Speaks the lines that are due.</summary>
+    private void Say(IEnumerable<AnimationDialogue> due)
+    {
+        if (Line is null)
+        {
+            return;
+        }
+
+        foreach (AnimationDialogue spoken in due)
+        {
+            Line(spoken);
+        }
+    }
+
+    /// <summary>Cuts to the cameras that are due.</summary>
+    private void Film(IEnumerable<AnimationShot> due)
+    {
+        if (Shot is null)
+        {
+            return;
+        }
+
+        foreach (AnimationShot shot in due)
+        {
+            Shot(shot);
+        }
+    }
+
+    /// <summary>Puts on the moods and expressions that are due.</summary>
+    private void Wear(IEnumerable<AnimationMood> due)
+    {
+        if (Mood is null)
+        {
+            return;
+        }
+
+        foreach (AnimationMood mood in due)
+        {
+            Mood(mood);
+        }
+    }
+
+    /// <summary>Starts and stops the soundtracks that are due.</summary>
+    private void Score(IEnumerable<AnimationMusic> due)
+    {
+        if (Music is null)
+        {
+            return;
+        }
+
+        foreach (AnimationMusic change in due)
+        {
+            Music(change);
+        }
+    }
+
+    /// <summary>
+    /// Advances a schedule and says what it has reached, oldest frame first.
+    /// </summary>
+    /// <param name="schedule">The things waiting for their frame. Spent ones are dropped.</param>
+    /// <param name="seconds">How long since the last frame.</param>
+    /// <param name="frame">Which frame one of them is authored on.</param>
+    /// <typeparam name="T">What is due.</typeparam>
+    /// <remarks>
+    /// <para>
+    /// <b>Frame order, not list order.</b> A frame of the game is several frames of a
+    /// fifteen-a-second animation, so nodes authored one frame apart come due together —
+    /// and what they mean depends on which happens first. EHANDSHAKE.MOM stops every
+    /// soundtrack on frame 665 and starts the evening's on 666; performed the other way
+    /// round, the beat starts the new bed and then silences it.
+    /// </para>
+    /// <para>
+    /// The older schedules beside this one walk backwards so that a spent entry can be
+    /// removed as it is passed, which reverses them within a frame. It does not matter for
+    /// a repaint or a footfall, where the entries are independent of one another. It
+    /// matters for every one of these.
+    /// </para>
+    /// </remarks>
+    private static List<T> Due<T>(
+        List<Scheduled<T>> schedule, double seconds, Func<T, int> frame)
+        where T : struct
+    {
+        if (schedule.Count == 0)
+        {
+            return [];
+        }
+
+        List<T> due = [];
+
+        foreach (Scheduled<T> waiting in schedule)
+        {
+            if (waiting.Step(seconds) is { } what)
+            {
+                due.Add(what);
+            }
+        }
+
+        schedule.RemoveAll(s => s.Finished);
+
+        return due.Count > 1 ? [.. due.OrderBy(frame)] : due;
+    }
 
     /// <summary>Starts every behaviour script the scene named.</summary>
     /// <remarks>
@@ -2279,6 +2463,10 @@ public sealed class SceneUpdate
             _swaps.Clear();
             _roomSwaps.Clear();
             _roomShowings.Clear();
+            _lines.Clear();
+            _shots.Clear();
+            _moods.Clear();
+            _music.Clear();
             _cues.Clear();
             return;
         }
@@ -2323,6 +2511,13 @@ public sealed class SceneUpdate
         // `StopAnimation("disco_flashdance_a")` is the only thing that ever ends it.
         _roomSwaps.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
         _roomShowings.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
+
+        // And whatever it was about to say, frame or put on a face, for the same reason
+        // and by the same name. A moment that is cut short should not go on speaking.
+        _lines.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
+        _shots.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
+        _moods.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
+        _music.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
 
         // Whatever it does on its own is its own again. A hold outliving the clip that
         // asked for it leaves a character standing perfectly still for the rest of the
@@ -3349,6 +3544,17 @@ public sealed class SceneUpdate
                 _roomShowings.RemoveAt(i);
             }
         }
+
+        // What a moment frames, puts on faces, scores and says — in that order, and each
+        // of them in frame order rather than in the order the nodes happen to sit in the
+        // file. The camera holding the shot a line is spoken in has to be on it by the time
+        // the line starts, and a beat that swaps the bed under itself stops the old one
+        // before it starts the new: EHANDSHAKE.MOM does exactly that across frames 665 and
+        // 666, which land in the same frame of anything but a sixty-hertz clock.
+        Film(Due(_shots, seconds, s => s.Frame));
+        Wear(Due(_moods, seconds, m => m.Frame));
+        Score(Due(_music, seconds, m => m.Frame));
+        Say(Due(_lines, seconds, d => d.Frame));
 
         // What an animation shows and hides as it runs, on the frames it names. Same
         // clock as the sounds and for the same reason: a character is brought into the
