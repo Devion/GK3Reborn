@@ -32,8 +32,50 @@ public sealed class SceneAudio
     private readonly IAudioBackend _backend;
     private readonly Queue<string> _speaking = new();
 
+    /// <summary>A soundtrack the room is running, and the sound it has going.</summary>
+    /// <param name="program">The list being walked.</param>
+    /// <remarks>
+    /// A program that is not holding a handle to what it started cannot stop it, and a
+    /// sound nothing can stop is a sound that outlives its room: the theme of the room
+    /// just left, still playing under the theme of the room just entered. The reference
+    /// keeps the same handle for the same reason — <c>PlayingSoundtrack</c> holds the
+    /// sound its current node started, and the scene forces every one of them to stop
+    /// as it unloads.
+    /// </remarks>
+    private sealed class Playing(SoundtrackProgram program)
+    {
+        /// <summary>The list being walked.</summary>
+        public SoundtrackProgram Program { get; } = program;
+
+        /// <summary>The one-shots it has going, oldest first.</summary>
+        /// <remarks>
+        /// More than one at a time is ordinary: a node's sound is what times the next
+        /// step, and a step that decides to play something the moment the last sound was
+        /// due to end will overlap it by whatever the decode rounded off.
+        /// </remarks>
+        public List<AudioVoice> Voices { get; } = [];
+
+        /// <summary>Its looping bed, when it has reached one.</summary>
+        public AudioVoice Bed;
+
+        /// <summary>What the bed is, for saying what the room sounds like.</summary>
+        public string? BedName;
+
+        /// <summary>And where it is.</summary>
+        public AudioPlacement? BedAt;
+
+        /// <summary>A bed being decoded off the thread.</summary>
+        public Task<WavFile?>? Pending;
+
+        /// <summary>What that decode is, and where it goes when it arrives.</summary>
+        public string? Waiting;
+
+        /// <summary>Where the bed being decoded belongs.</summary>
+        public AudioPlacement? Where;
+    }
+
     /// <summary>The soundtracks the room is running, one program each.</summary>
-    private readonly List<SoundtrackProgram> _programs = [];
+    private readonly List<Playing> _programs = [];
 
     /// <summary>Sounds that move with something, and what they move with.</summary>
     private readonly List<(AudioVoice Voice, string Model)> _following = [];
@@ -51,7 +93,11 @@ public sealed class SceneAudio
     /// </remarks>
     private readonly Foundation.DeterministicRandom _chance = new(0x51A7C0DE51A7C0DE);
 
+    /// <summary>A bed started by name rather than by a soundtrack, and what it is.</summary>
     private AudioVoice _ambience;
+    private string? _looping;
+    private AudioPlacement? _loopingAt;
+
     private AudioVoice _line;
 
     /// <summary>Creates the scene's audio.</summary>
@@ -171,33 +217,55 @@ public sealed class SceneAudio
     /// </remarks>
     public bool Loop(string? name, AudioPlacement? at)
     {
-        _pending = null;
-        _waiting = null;
-        _where = null;
-
         if (_ambience.Exists)
         {
             _backend.Silence(_ambience);
             _ambience = AudioVoice.None;
         }
 
-        Ambience = null;
+        _looping = null;
+        _loopingAt = null;
 
-        if (name is null || _sounds.Read(name) is not { } sound)
+        if (name is not null && _sounds.Read(name) is { } sound)
         {
-            return false;
+            _ambience = _backend.Play(sound, AudioBus.Ambience, repeat: true, at);
+
+            if (_ambience.Exists)
+            {
+                _looping = name;
+                _loopingAt = at;
+            }
         }
 
-        _ambience = _backend.Play(sound, AudioBus.Ambience, repeat: true, at);
-        Ambience = _ambience.Exists ? name : null;
-        AmbienceAt = _ambience.Exists ? at : null;
+        Reported();
 
         return _ambience.Exists;
     }
 
-    private Task<WavFile?>? _pending;
-    private string? _waiting;
-    private AudioPlacement? _where;
+    /// <summary>Says which bed the room is to report as its own.</summary>
+    /// <remarks>
+    /// A room may have several going at once — 62 of the game's 493 timeblocks name more
+    /// than one looping soundtrack, and CSE's afternoon means its room tone and its
+    /// fountain to be heard together — so there is no single bed to hold in a field. The
+    /// most recent one is what gets reported, and the rest are running underneath it.
+    /// </remarks>
+    private void Reported()
+    {
+        for (int i = _programs.Count - 1; i >= 0; i--)
+        {
+            if (!_programs[i].Bed.Exists)
+            {
+                continue;
+            }
+
+            Ambience = _programs[i].BedName;
+            AmbienceAt = _programs[i].BedAt;
+            return;
+        }
+
+        Ambience = _looping;
+        AmbienceAt = _loopingAt;
+    }
 
     /// <summary>Where the ambience is in the room, or null when it plays at the head.</summary>
     public AudioPlacement? AmbienceAt { get; private set; }
@@ -235,22 +303,22 @@ public sealed class SceneAudio
         // tone and birdsong, and they are meant to be heard together.
         foreach (SoundtrackFile soundtrack in soundtracks)
         {
-            _programs.Add(new SoundtrackProgram(soundtrack, _chance));
+            _programs.Add(new Playing(new SoundtrackProgram(soundtrack, _chance)));
         }
 
         // One step of each, now, so that a room is not silent for the length of its first
         // wait — and so that the caller has something to report. Time zero rather than a
         // frame's worth: a wait of a second is a second after the room appears.
-        foreach (SoundtrackProgram program in _programs)
+        foreach (Playing playing in _programs)
         {
-            program.Advance(0, sound => Sound(program, sound));
+            playing.Program.Advance(0, sound => Sound(playing, sound));
         }
 
-        return Ambience ?? _waiting;
+        return Ambience ?? _programs.Find(p => p.Waiting is { Length: > 0 })?.Waiting;
     }
 
     /// <summary>Starts one sound of a soundtrack, and says how long it lasts.</summary>
-    /// <param name="program">The soundtrack it belongs to.</param>
+    /// <param name="playing">The soundtrack it belongs to.</param>
     /// <param name="sound">The sound, as the file describes it.</param>
     /// <returns>Its length in seconds, or zero when it could not be played.</returns>
     /// <remarks>
@@ -267,7 +335,7 @@ public sealed class SceneAudio
     /// minute, and waiting a frame for one would put it after the step that follows it.
     /// </para>
     /// </remarks>
-    private double Sound(SoundtrackProgram program, SoundtrackSound sound)
+    private double Sound(Playing playing, SoundtrackSound sound)
     {
         AudioPlacement? at = PlacementOf(sound);
 
@@ -278,10 +346,14 @@ public sealed class SceneAudio
                 return 0;
             }
 
-            _waiting = sound.Name;
-            _where = at;
-            AmbienceAt = at;
-            _pending = Task.Run(() => _sounds.Read(sound.Name));
+            // This soundtrack's own decode, not the room's: a room with a fountain and a
+            // room tone reaches two looping nodes, and one field for the pair meant the
+            // second overwrote the first before it had arrived. The fountain was never
+            // heard, and once it was — a soundtrack that waits before it loops — it was
+            // heard for ever, because the field that could have stopped it had moved on.
+            playing.Waiting = sound.Name;
+            playing.Where = at;
+            playing.Pending = Task.Run(() => _sounds.Read(sound.Name));
 
             return 0;
         }
@@ -291,12 +363,18 @@ public sealed class SceneAudio
             return 0;
         }
 
-        AudioVoice voice = _backend.Play(wav, Bus(program.Kind), repeat: false, at);
+        AudioVoice voice = _backend.Play(wav, Bus(playing.Program.Kind), repeat: false, at);
 
         if (!voice.Exists)
         {
             return 0;
         }
+
+        // Held, so that leaving the room can stop it. A theme is a minute long and a room
+        // is often left in the middle of one; on the Effects bus that was covered by the
+        // bus being stopped, but a soundtrack saying Music or Ambient is not on that bus
+        // and nothing else was holding it.
+        playing.Voices.Add(voice);
 
         float gain = Math.Clamp(sound.Volume / 100f, 0f, 1f);
 
@@ -529,12 +607,63 @@ public sealed class SceneAudio
     /// </remarks>
     public void Quiet() => _backend.StopBus(AudioBus.Effects);
 
-    /// <summary>Stops everything, for leaving a room.</summary>
+    /// <summary>Stops everything that is sounding, leaving the soundtracks running.</summary>
+    /// <remarks>
+    /// Every voice, whichever bus it is on, including the beds — but not the programs
+    /// that started them, which go on walking their lists and will play whatever their
+    /// next node says. A soundtrack holding at a looping node has nothing left to play,
+    /// so a room silenced this way stays silent; the reference behaves the same way, for
+    /// the same reason.
+    /// </remarks>
     public void Silence()
     {
         Hush();
         Loop(null);
         Quiet();
+
+        foreach (Playing playing in _programs)
+        {
+            Silence(playing);
+        }
+
+        Reported();
+    }
+
+    /// <summary>Stops everything one soundtrack has going, and forgets its decode.</summary>
+    /// <param name="playing">The soundtrack.</param>
+    private void Silence(Playing playing)
+    {
+        foreach (AudioVoice voice in playing.Voices)
+        {
+            _backend.Silence(voice);
+            Forget(voice);
+        }
+
+        playing.Voices.Clear();
+
+        if (playing.Bed.Exists)
+        {
+            _backend.Silence(playing.Bed);
+            Forget(playing.Bed);
+        }
+
+        playing.Bed = AudioVoice.None;
+        playing.BedName = null;
+        playing.BedAt = null;
+
+        // A bed still being decoded is dropped rather than started: the room it was going
+        // to sound like is the room being left.
+        playing.Pending = null;
+        playing.Waiting = null;
+        playing.Where = null;
+    }
+
+    /// <summary>Drops a stopped voice from the lists that would still be moving it.</summary>
+    /// <param name="voice">The voice that has just been silenced.</param>
+    private void Forget(AudioVoice voice)
+    {
+        _following.RemoveAll(f => f.Voice.Id == voice.Id);
+        _rising.RemoveAll(r => r.Voice.Id == voice.Id);
     }
 
     /// <summary>
@@ -555,21 +684,17 @@ public sealed class SceneAudio
         // A soundtrack says how its sound stops: play to the end, fade, or cut. Leaving
         // the room is the forced kind, so even "play to the end" stops — the reference
         // does the same, and a creak carried into the next room is a creak in the wrong
-        // room. The bed stops just below, for the same reason.
-        foreach (SoundtrackProgram program in _programs)
+        // room. Every sound each soundtrack has going, not just the one it is timing off
+        // and not just the ones on the effects bus: a theme is a minute of music on the
+        // music bus, and one left playing is heard under the next room's.
+        foreach (Playing playing in _programs)
         {
-            if (program.Sounding is { Loop: false } sounding)
-            {
-                Stop(sounding);
-            }
+            Silence(playing);
         }
 
         _programs.Clear();
         _following.Clear();
         _rising.Clear();
-
-        _pending = null;
-        _waiting = null;
 
         if (_ambience.Exists)
         {
@@ -577,6 +702,8 @@ public sealed class SceneAudio
         }
 
         _ambience = AudioVoice.None;
+        _looping = null;
+        _loopingAt = null;
         Ambience = null;
         AmbienceAt = null;
     }
@@ -586,44 +713,28 @@ public sealed class SceneAudio
     /// At its own level from the first sample. The room it replaced stopped when the player
     /// left it, so there is nothing underneath for this to come up over.
     /// </remarks>
-    private void Begin(string? name, AudioPlacement? at)
+    private void Begin(Playing playing, string? name, AudioPlacement? at)
     {
         if (name is null || _sounds.Read(name) is not { } sound)
         {
             return;
         }
 
-        _ambience = _backend.Play(sound, AudioBus.Ambience, repeat: true, at);
+        // On the bus its soundtrack asks for. A bed is usually ambience, but a looping
+        // soundtrack that says Music is music and belongs under that slider.
+        playing.Bed = _backend.Play(sound, Bus(playing.Program.Kind), repeat: true, at);
 
-        if (!_ambience.Exists)
+        if (!playing.Bed.Exists)
         {
             return;
         }
 
-        _backend.SetVoiceGain(_ambience, 1f);
+        _backend.SetVoiceGain(playing.Bed, 1f);
 
-        Ambience = name;
-        AmbienceAt = at;
-    }
+        playing.BedName = name;
+        playing.BedAt = at;
 
-    /// <summary>Stops a soundtrack's sound the way the soundtrack says to.</summary>
-    /// <param name="sound">The sound being stopped.</param>
-    /// <remarks>
-    /// Only the voices this still holds — the ones that follow something. Everything else
-    /// is a moment already over or nearly so, and the backend reclaims it.
-    /// </remarks>
-    private void Stop(SoundtrackSound sound)
-    {
-        for (int i = _following.Count - 1; i >= 0; i--)
-        {
-            if (!string.Equals(_following[i].Model, sound.Follow, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            _backend.Silence(_following[i].Voice);
-            _following.RemoveAt(i);
-        }
+        Reported();
     }
 
     /// <summary>Starts a soundtrack a script named, on top of the room's own.</summary>
@@ -640,20 +751,20 @@ public sealed class SceneAudio
     {
         ArgumentNullException.ThrowIfNull(track);
 
-        foreach (SoundtrackProgram running in _programs)
+        foreach (Playing running in _programs)
         {
-            if (running.Track.Name.Equals(track.Name, StringComparison.OrdinalIgnoreCase))
+            if (running.Program.Track.Name.Equals(track.Name, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
         }
 
-        var program = new SoundtrackProgram(track, _chance);
-        _programs.Add(program);
+        var playing = new Playing(new SoundtrackProgram(track, _chance));
+        _programs.Add(playing);
 
         // One step now, so a soundtrack started by a script is heard on the frame it was
         // asked for rather than on the next.
-        program.Advance(0, sound => Sound(program, sound));
+        playing.Program.Advance(0, sound => Sound(playing, sound));
 
         return true;
     }
@@ -662,8 +773,9 @@ public sealed class SceneAudio
     /// <param name="name">Which one, or null for all of them.</param>
     /// <returns>How many were stopped.</returns>
     /// <remarks>
-    /// The room's bed is left alone by name and stopped by "all", which is the difference
-    /// between a script ending the storm it started and a script asking for silence.
+    /// A soundtrack stops with everything it had going: its bed, if it had reached one,
+    /// and the sounds it has playing. Stopping the storm a script started should not
+    /// leave the last thunderclap ringing on into the room.
     /// </remarks>
     public int StopSoundtrack(string? name = null)
     {
@@ -672,28 +784,19 @@ public sealed class SceneAudio
         for (int i = _programs.Count - 1; i >= 0; i--)
         {
             if (name is { Length: > 0 } &&
-                !_programs[i].Track.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
-                !Path.GetFileNameWithoutExtension(_programs[i].Track.Name)
+                !_programs[i].Program.Track.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
+                !Path.GetFileNameWithoutExtension(_programs[i].Program.Track.Name)
                     .Equals(name, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (_programs[i].Sounding is { } sounding)
-            {
-                Stop(sounding);
-
-                // A looping sound is the room's bed, and stopping the soundtrack that owns
-                // it is what silences the room.
-                if (sounding.Loop)
-                {
-                    Loop(null);
-                }
-            }
-
+            Silence(_programs[i]);
             _programs.RemoveAt(i);
             stopped++;
         }
+
+        Reported();
 
         return stopped;
     }
@@ -706,7 +809,7 @@ public sealed class SceneAudio
     /// <see cref="Ambience"/> says what is sounding.
     /// </remarks>
     public IReadOnlyList<string> Running =>
-        [.. _programs.Select(p => p.Track.Name)];
+        [.. _programs.Select(p => p.Program.Track.Name)];
 
     /// <summary>Where a line is spoken from, or null when it belongs at the head.</summary>
     /// <param name="line">The line's animation, which names its speaker in its caption.</param>
@@ -816,6 +919,26 @@ public sealed class SceneAudio
         }
     }
 
+    /// <summary>Drops the soundtrack sounds that have finished on their own.</summary>
+    /// <remarks>
+    /// A soundtrack's sounds are held so that leaving the room can stop them, and a room
+    /// stood in for ten minutes starts a great many. The device is the clock here as it is
+    /// for dialogue: a sound is over when its source stops, and the handle goes then.
+    /// </remarks>
+    private void Spent()
+    {
+        foreach (Playing playing in _programs)
+        {
+            for (int i = playing.Voices.Count - 1; i >= 0; i--)
+            {
+                if (!_backend.IsPlaying(playing.Voices[i]))
+                {
+                    playing.Voices.RemoveAt(i);
+                }
+            }
+        }
+    }
+
     /// <summary>Starts the next line when the last one has finished.</summary>
     /// <remarks>
     /// Called once a frame. The device is the clock: a line is over when its source stops,
@@ -829,33 +952,39 @@ public sealed class SceneAudio
         // The room's own soundtracks, each a list being walked. Before the decode below
         // rather than after it, so a bed a program asks for this frame is picked up this
         // frame rather than the next.
-        foreach (SoundtrackProgram program in _programs)
+        foreach (Playing playing in _programs)
         {
-            program.Advance(seconds, sound => Sound(program, sound));
+            playing.Program.Advance(seconds, sound => Sound(playing, sound));
         }
 
         Following();
         Rising(seconds);
+        Spent();
 
         // A soundtrack is a five-minute MP3 and decoding one is a quarter of a second, which
         // used to sit between a room being ready and the player seeing it. It is decoded
         // beside the first frames instead and started on whichever one it is ready for. The
         // device work stays here, on the thread that owns the device.
-        if (_pending is { IsCompleted: true } finished)
+        foreach (Playing playing in _programs)
         {
-            string? name = _waiting;
+            if (playing.Pending is not { IsCompleted: true } finished)
+            {
+                continue;
+            }
 
-            _pending = null;
-            _waiting = null;
+            string? name = playing.Waiting;
+            AudioPlacement? at = playing.Where;
 
-            AudioPlacement? at = _where;
+            playing.Pending = null;
+            playing.Waiting = null;
+            playing.Where = null;
 
             if (finished.IsCompletedSuccessfully && finished.Result is not null)
             {
                 // A room's bed is a five-minute MP3 and takes a moment to decode, so the
                 // room has been standing silent for that moment. That is the cost of not
                 // carrying the last room's sound into this one.
-                Begin(name, at);
+                Begin(playing, name, at);
             }
         }
 

@@ -265,6 +265,92 @@ public sealed class AmbienceFadeTests
     }
 
     [Fact]
+    public void A_room_that_names_two_looping_soundtracks_plays_both_and_stops_both()
+    {
+        // CSE's afternoon names its room tone and its fountain, and means them together —
+        // 62 of the game's 493 timeblocks name more than one looping soundtrack. One field
+        // held the bed being decoded and one held the bed playing, so the second overwrote
+        // the first: the fountain was never heard, and a fountain that arrived later than
+        // the tone could never be stopped, because the field that owned it had moved on.
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, "RCAMBAFTNOON", "CSEFOUNTAIN");
+
+        audio.StartAmbience([Track("RCAMBAFTNOON"), Track("CSEFOUNTAIN")]);
+        Settle(audio, device, "RCAMBAFTNOON");
+        Settle(audio, device, "CSEFOUNTAIN");
+
+        Assert.Equal(2, device.Playing);
+
+        audio.Leave();
+
+        Assert.Contains(device.Voice("RCAMBAFTNOON"), device.Stopped);
+        Assert.Contains(device.Voice("CSEFOUNTAIN"), device.Stopped);
+        Assert.Equal(0, device.Playing);
+    }
+
+    [Fact]
+    public void A_theme_still_playing_when_the_room_is_left_stops_with_the_room()
+    {
+        // A soundtrack's one-shots go on the bus its SoundType names, and only the effects
+        // bus was stopped at a door. A theme is a minute of music on the music bus and a
+        // room is often left in the middle of one, so the room just left was still playing
+        // under the room just entered — and the next door added another.
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, "R25THEME1");
+
+        SoundtrackFile track = SoundtrackFile.Parse(
+            """
+            [SOUNDTRACK]
+            SoundType=Music
+
+            [SOUND]
+            Name=R25Theme1
+            Repeat=1
+            """,
+            "R25SNDTRK.STK",
+            new DiagnosticBag());
+
+        audio.StartAmbience([track]);
+
+        Assert.Equal(1, device.Playing);
+
+        audio.Leave();
+
+        Assert.Contains(device.Voice("R25THEME1"), device.Stopped);
+        Assert.Equal(0, device.Playing);
+    }
+
+    [Fact]
+    public void Stopping_a_soundtrack_stops_the_sound_it_had_going()
+    {
+        // StopSoundTrack is a script ending the storm it started, and the last thunderclap
+        // is part of the storm. Only the sounds that followed something were held, so
+        // anything else went on until it ran out.
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, "MOODY");
+
+        SoundtrackFile track = SoundtrackFile.Parse(
+            """
+            [SOUNDTRACK]
+            SoundType=Ambient
+
+            [SOUND]
+            Name=Moody
+            Repeat=1
+            """,
+            "STORM.STK",
+            new DiagnosticBag());
+
+        Assert.True(audio.Play(track));
+        Assert.Equal(1, device.Playing);
+
+        Assert.Equal(1, audio.StopSoundtrack("STORM"));
+
+        Assert.Contains(device.Voice("MOODY"), device.Stopped);
+        Assert.Equal(0, device.Playing);
+    }
+
+    [Fact]
     public void A_rooms_soundtrack_plays_its_moods_rather_than_one_sound_for_ever()
     {
         // R25's afternoon, as the game ships it: a wait, the room's theme once, then

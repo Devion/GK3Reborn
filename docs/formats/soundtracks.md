@@ -72,13 +72,22 @@ spelling.
 ## What plays
 
 Every sound the program reaches, where the file places it. See "Running one" below for how
-the list is walked; what follows here is what happens to the room's bed at a door.
+the list is walked; what follows here is what happens to it at a door.
 
-**`FadeOutMS` is used, and it is the artists' own number.** Leaving a room does not stop
-its bed; it starts it on its way out while the next room's comes up underneath, and how
-long that takes is what the outgoing sound's own soundtrack asks for — three seconds for
-R25's theme. A soundtrack that leaves the key out gets a second and a half, which is about
-how long walking through a door takes. See `SceneAudio.Leave`.
+**A soundtrack stops with its room, and so does everything it had going.** `SceneAudio`
+holds a handle to each sound a soundtrack starts and to its bed, and `SceneAudio.Leave`
+silences all of them — the reference does the same, forcing every one of the scene's
+soundtracks to stop as the scene unloads even where the file says "play to the end". A
+theme is a minute of music and a room is usually left in the middle of one; without the
+handle it went on playing under the next room, and each door added another. Only the
+effects bus was being stopped, which is not the bus a soundtrack saying `SoundType=Music`
+or `Ambient` plays on.
+
+**A room may have several beds and they are separate.** 62 of the game's 493 timeblocks
+name more than one looping soundtrack — CSE's afternoon means its room tone and its
+fountain together — so each running soundtrack owns its own decode and its own looping
+voice. One field for the pair meant the second overwrote the first: the fountain was never
+heard, and if it arrived later than the tone it could never be stopped.
 
 ## Running one
 

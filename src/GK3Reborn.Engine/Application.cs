@@ -1789,8 +1789,9 @@ public static class Application
             // say something itself, and cutting it off a moment later is how a scripted
             // arrival loses its own first line.
             //
-            // What the room sounded like is not stopped, only started on its way out, so
-            // the next room's bed comes up underneath it.
+            // What the room sounded like stops here too, all of it: its bed, its
+            // soundtracks and whatever they had playing. Nothing of a room is audible in
+            // the next one.
             room?.Leave();
 
             if (scene.Actions?.Find("SCENE", "ENTER") is { } entering)
