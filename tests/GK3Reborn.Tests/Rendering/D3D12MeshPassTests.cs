@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering;
+﻿using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Direct3D12;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Shaders;
@@ -78,12 +78,18 @@ public sealed class D3D12MeshPassTests
         Assert.True(pass.Signature.ParameterFor(MeshLayout.MaterialSet) >= 0);
         Assert.True(pass.Signature.PushConstantParameter >= 0);
 
-        // Nine views: the frame’s uniform buffer and three light buffers, then the five
-        // textures of a material. Five samplers, and only five, because the frame set has no
-        // texture in it — HLSL has no combined image sampler, so SPIRV-Cross splits each of
-        // the material’s five in two and the sampler half lands in a heap of its own.
-        Assert.Equal(9u, pass.Signature.ViewDescriptorCount);
-        Assert.Equal(5u, pass.Signature.SamplerDescriptorCount);
+        // Ten views: the frame’s uniform buffer, three light buffers and the reflection a
+        // mirror reads, then the five textures of a material. Six samplers — the material’s
+        // five and the frame’s one, because HLSL has no combined image sampler and
+        // SPIRV-Cross splits every one of them into a texture and a sampler at the same
+        // register index, the sampler half landing in a heap of its own.
+        Assert.Equal(10u, pass.Signature.ViewDescriptorCount);
+        Assert.Equal(6u, pass.Signature.SamplerDescriptorCount);
+
+        // And the frame set therefore has a sampler table of its own now, which the pass has
+        // to bind: a declared sampler nobody binds is not an error anywhere, it is a texture
+        // read with whatever sampler happened to be at that slot.
+        Assert.True(pass.Signature.SamplerParameterFor(MeshLayout.FrameSet) >= 0);
 
         Assert.DoesNotContain(
             context.DrainMessages(),
@@ -106,8 +112,8 @@ public sealed class D3D12MeshPassTests
 
         // One more than the raster variant: the acceleration structure, which is a shader
         // resource view whose dimension says what it is.
-        Assert.Equal(10u, pass.Signature.ViewDescriptorCount);
-        Assert.Equal(5u, pass.Signature.SamplerDescriptorCount);
+        Assert.Equal(11u, pass.Signature.ViewDescriptorCount);
+        Assert.Equal(6u, pass.Signature.SamplerDescriptorCount);
 
         Assert.DoesNotContain(
             context.DrainMessages(),

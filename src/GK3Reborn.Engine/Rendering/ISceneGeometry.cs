@@ -77,6 +77,22 @@ public interface ISceneGeometry : ISceneSink, IDisposable
     /// <summary>The names of the objects it smoothed.</summary>
     IReadOnlyList<string> Rounded { get; }
 
+    /// <summary>Whether a keyed card is given the thickness of the thing drawn on it.</summary>
+    /// <remarks>
+    /// Set before the room's textures are added: it gates the measurement as well as the
+    /// geometry, and the measurement happens as a texture is uploaded.
+    /// </remarks>
+    bool ThickenCutoutCards { get; set; }
+
+    /// <summary>Cards the thickening pass gave a shell.</summary>
+    int CardsThickened { get; }
+
+    /// <summary>Triangles those shells came to.</summary>
+    int CardTriangles { get; }
+
+    /// <summary>The thinnest and thickest of them, in world units.</summary>
+    (float Thinnest, float Thickest) CardThickness { get; }
+
     /// <summary>How a surface is shaded when nothing more specific applies.</summary>
     Materials.SurfaceFinishes Materials { get; set; }
 

@@ -683,11 +683,12 @@ public sealed class FrontEnd
         MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
         MenuItem.Toggle("terrain", "Reconstructed horizon", Settings.TerrainBackdrop),
         MenuItem.Toggle("rooms", "Rounded room objects", Settings.ImprovedSceneGeometry),
+        MenuItem.Toggle("rails", "Solid railings and fences", Settings.ThickCutoutCards),
 
         // The one thing on this page a player cannot see for themselves: the room standing
         // round them was built from whichever set was chosen when it loaded, and rebuilding
         // it here would mean reloading the scene underneath them.
-        MenuItem.Label("The last four take effect at the next door."),
+        MenuItem.Label("The last five take effect at the next door."),
         MenuItem.Button("back", "Back"),
     ];
 
@@ -1226,6 +1227,7 @@ public sealed class FrontEnd
             "trees" => Settings with { ModelledTrees = !Settings.ModelledTrees },
             "terrain" => Settings with { TerrainBackdrop = !Settings.TerrainBackdrop },
             "rooms" => Settings with { ImprovedSceneGeometry = !Settings.ImprovedSceneGeometry },
+            "rails" => Settings with { ThickCutoutCards = !Settings.ThickCutoutCards },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "freecamera" => Settings with { FreeCamera = !Settings.FreeCamera },

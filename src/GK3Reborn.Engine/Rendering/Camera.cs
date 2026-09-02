@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace GK3Reborn.Rendering;
 
@@ -81,7 +81,85 @@ public sealed class Camera
     public Vector2 Jitter { get; set; }
 
     /// <summary>The view matrix.</summary>
-    public Matrix4x4 View => Matrix4x4.CreateLookAtLeftHanded(Position, Target, Up);
+    public Matrix4x4 View => ViewOverride ?? Matrix4x4.CreateLookAtLeftHanded(Position, Target, Up);
+
+    /// <summary>A view matrix given outright, rather than derived from the three points.</summary>
+    /// <remarks>
+    /// <para>
+    /// Set by <see cref="Mirrored"/> and nothing else. <b>A mirrored camera cannot be
+    /// described by an eye, a target and an up vector</b>, and believing that it can is a
+    /// mistake that survives every plausibility check: reflecting the three and building an
+    /// ordinary look-at from them puts the camera in the right place, pointing the right way,
+    /// and produces the room seen in a mirror <em>and then flipped left to right again</em>.
+    /// </para>
+    /// <para>
+    /// The reason is that a look-at always builds a basis of one handedness — it takes the
+    /// cross product of two vectors it was given — while a reflection has a determinant of
+    /// minus one and its view matrix must therefore have the opposite handedness from the
+    /// camera it came from. The cross product quietly undoes exactly that, and the side axis
+    /// comes out negated.
+    /// </para>
+    /// <para>
+    /// What a reflection is, is the real view matrix with the reflection applied to the world
+    /// before it: a point should land where its image lands for the camera that is really
+    /// there. So that is what this holds.
+    /// </para>
+    /// </remarks>
+    public Matrix4x4? ViewOverride { get; init; }
+
+    /// <summary>This camera seen from the other side of a mirror.</summary>
+    /// <param name="plane">
+    /// The mirror's plane: <c>xyz</c> a unit normal out of the glass, <c>w</c> the offset.
+    /// </param>
+    /// <returns>The camera to render the room again from.</returns>
+    /// <remarks>
+    /// <para>
+    /// Everything about the camera reflects: where it stands, what it looks at, and which
+    /// way is up. The last of those is the one that is easy to leave out, and leaving it out
+    /// is invisible on a mirror hanging vertically on a wall and turns the reflection upside
+    /// down on any mirror that is not. Up is a direction, so it reflects without the
+    /// plane's offset; the other two are points and reflect with it.
+    /// </para>
+    /// <para>
+    /// <b>What comes out is wound the other way.</b> A reflection has a determinant of minus
+    /// one, so every triangle rendered through this camera faces the opposite way from the
+    /// same triangle rendered through the real one, and whatever draws it has to turn its
+    /// culling around to match. Nothing here can do that — a camera is a matrix and knows
+    /// nothing about a pipeline — so it is the caller's to remember, and a reflection
+    /// showing nothing but the insides of the room is what forgetting looks like.
+    /// </para>
+    /// <para>
+    /// The jitter is <em>not</em> copied. It belongs to a sequence of frames being
+    /// accumulated into one picture of the scene as the player sees it, and the reflection
+    /// is sampled by a shader rather than accumulated; carrying it over shakes the
+    /// reflection by half a pixel against the mirror holding it.
+    /// </para>
+    /// </remarks>
+    public Camera Mirrored(Vector4 plane)
+    {
+        Vector3 normal = new(plane.X, plane.Y, plane.Z);
+
+        // The reflection itself, as a matrix, in the row-vector convention the rest of this
+        // uses: a point times this is the point reflected through the plane.
+        var reflection = new Matrix4x4(
+            1f - (2f * normal.X * normal.X), -2f * normal.X * normal.Y, -2f * normal.X * normal.Z, 0f,
+            -2f * normal.Y * normal.X, 1f - (2f * normal.Y * normal.Y), -2f * normal.Y * normal.Z, 0f,
+            -2f * normal.Z * normal.X, -2f * normal.Z * normal.Y, 1f - (2f * normal.Z * normal.Z), 0f,
+            -2f * plane.W * normal.X, -2f * plane.W * normal.Y, -2f * plane.W * normal.Z, 1f);
+
+        return new Camera
+        {
+            Position = MirrorSurfaces.Reflect(plane, Position),
+            Target = MirrorSurfaces.Reflect(plane, Target),
+            Up = MirrorSurfaces.ReflectDirection(plane, Up),
+            ViewOverride = reflection * View,
+            FieldOfView = FieldOfView,
+            NearPlane = NearPlane,
+            FarPlane = FarPlane,
+            LightDirection = LightDirection,
+            Background = Background,
+        };
+    }
 
     /// <summary>Builds the projection matrix, including this frame's jitter.</summary>
     /// <param name="aspect">Width divided by height.</param>

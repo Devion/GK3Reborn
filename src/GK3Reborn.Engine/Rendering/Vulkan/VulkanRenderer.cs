@@ -181,6 +181,19 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private Image _litImage;
     private DeviceMemory _litMemory;
     private ImageView _litView;
+
+    /// <summary>The room as this frame's mirror sees it, if the room has one.</summary>
+    /// <remarks>
+    /// One image, not one per mirror: a frame reflects the one piece of glass it is about.
+    /// It is bound to every frame's descriptor set whether a room has a mirror or not,
+    /// because a shader's declared binding has to be a real descriptor whether the branch
+    /// that reads it runs or not.
+    /// </remarks>
+    private Image _mirrorImage;
+    private DeviceMemory _mirrorMemory;
+    private ImageView _mirrorView;
+    private Sampler _mirrorSampler;
+    private bool _mirrorSettled;
     private bool _litSettled;
 
     private Reflections? _reflections;
@@ -606,6 +619,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
             renderer.CreateGBuffer();
             renderer.CreateSceneTarget();
             renderer.CreateLitTarget();
+            renderer.CreateMirrorTarget();
             renderer.CreateUpscaleTarget();
             renderer.CreateCommandResources();
             renderer.CreateSynchronization();
@@ -1274,6 +1288,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
             DestroyGBuffer();
             DestroySceneTarget();
             DestroyLitTarget();
+            DestroyMirrorTarget();
             DestroyUpscaleTarget();
             _upscaler?.Dispose();
             _upscaler = null;
@@ -1286,6 +1301,13 @@ public sealed unsafe class VulkanRenderer : IRenderer
             _composite?.Dispose();
             _composite = null;
             _composed = false;
+
+            if (_mirrorSampler.Handle != 0)
+            {
+                _vk.DestroySampler(_device, _mirrorSampler, null);
+                _mirrorSampler = default;
+            }
+
             DestroySwapchain();
             _vk.DestroyDevice(_device, null);
         }
@@ -2032,6 +2054,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
         int width = (int)_renderExtent.Width;
         int height = (int)_renderExtent.Height;
+
+        RecordReflection(buffer, width, height);
 
         RenderingAttachmentInfo* attachments =
             stackalloc RenderingAttachmentInfo[(int)GBuffer.Targets];
@@ -2866,6 +2890,159 @@ public sealed unsafe class VulkanRenderer : IRenderer
             new Vector4(FadeColour, _fade));
     }
 
+
+    /// <summary>
+    /// Draws the room as this frame's mirror sees it, before the room itself is drawn.
+    /// </summary>
+    /// <param name="buffer">Command buffer to record into.</param>
+    /// <param name="width">Render width in pixels.</param>
+    /// <param name="height">Render height in pixels.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>It borrows the frame's own normal, motion and depth targets.</b> The pipeline
+    /// declares all three and a rendering scope has to bind every attachment its pipeline
+    /// writes, so a reflection cannot be drawn into a colour target alone — and it does not
+    /// need targets of its own, because the pass that follows clears and overwrites all
+    /// three. One extra image for the whole feature, and nothing downstream ever sees the
+    /// reflection's normals.
+    /// </para>
+    /// <para>
+    /// <b>Always the plain pipeline, whatever the tracing setting.</b> The traced pipeline
+    /// writes light rather than a picture and needs a compositing pass to become one; a
+    /// reflection drawn through it and sampled directly would be raw irradiance in a mirror.
+    /// What the glass shows is therefore lit by the rig without traced shadows even at High.
+    /// That is a real difference from the room around it and a small one at the size a
+    /// mirror is drawn; compositing the reflection as well would want a second set of every
+    /// deferred target.
+    /// </para>
+    /// <para>
+    /// No sky. The reflected camera stands behind the mirror, and the skybox is drawn
+    /// without regard to the clip plane, so it would paint over the whole reflection from
+    /// the far side of the wall the mirror hangs on.
+    /// </para>
+    /// </remarks>
+    private void RecordReflection(CommandBuffer buffer, int width, int height)
+    {
+        if (_scene is null || _camera is null || _mirrorView.Handle == 0 ||
+            _meshPipeline is null || _frames is null)
+        {
+            return;
+        }
+
+        if (_scene.ChooseMirror(_camera.Position) is not { } mirror)
+        {
+            // The image keeps whatever it last held, and nothing samples it: no surface in
+            // the room carries the mirror flag this frame. What it must not be is
+            // undefined, because a descriptor is read whether or not the branch behind it
+            // runs — hence the clear on the first frame after it is made.
+            if (!_mirrorSettled)
+            {
+                Transition(
+                    buffer, _mirrorImage, ImageLayout.Undefined,
+                    ImageLayout.TransferDstOptimal);
+
+                var black = new ClearColorValue(0f, 0f, 0f, 1f);
+                var whole = new ImageSubresourceRange
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LevelCount = 1,
+                    LayerCount = 1,
+                };
+
+                _vk.CmdClearColorImage(
+                    buffer, _mirrorImage, ImageLayout.TransferDstOptimal, in black, 1, in whole);
+
+                Transition(
+                    buffer, _mirrorImage, ImageLayout.TransferDstOptimal,
+                    ImageLayout.ShaderReadOnlyOptimal);
+
+                _mirrorSettled = true;
+            }
+
+            return;
+        }
+
+        RenderingAttachmentInfo* attachments =
+            stackalloc RenderingAttachmentInfo[(int)GBuffer.Targets];
+
+        Transition(
+            buffer, _mirrorImage, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
+
+        attachments[GBuffer.Colour] = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _mirrorView,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.Store,
+            ClearValue = new ClearValue(new ClearColorValue(0f, 0f, 0f, 1f)),
+        };
+
+        for (int i = 0; i < _extraViews.Length; i++)
+        {
+            Transition(
+                buffer, _extraImages[i], ImageLayout.Undefined,
+                ImageLayout.ColorAttachmentOptimal);
+
+            attachments[i + 1] = new RenderingAttachmentInfo
+            {
+                SType = StructureType.RenderingAttachmentInfo,
+                ImageView = _extraViews[i],
+                ImageLayout = ImageLayout.ColorAttachmentOptimal,
+                LoadOp = AttachmentLoadOp.Clear,
+                StoreOp = AttachmentStoreOp.DontCare,
+                ClearValue = new ClearValue(new ClearColorValue(0f, 0f, 0f, 0f)),
+            };
+        }
+
+        var depthAttachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _depthView,
+            ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.DontCare,
+            ClearValue = new ClearValue(depthStencil: new ClearDepthStencilValue(1f, 0)),
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = _renderExtent },
+            LayerCount = 1,
+            ColorAttachmentCount = GBuffer.Targets,
+            PColorAttachments = attachments,
+            PDepthAttachment = _depthView.Handle != 0 ? &depthAttachment : null,
+        };
+
+        TransitionDepth(buffer);
+        _vk.CmdBeginRendering(buffer, in rendering);
+
+        _frames.Seconds = (float)_wind.Elapsed.TotalSeconds;
+        _frames.EmissiveGain = _output.EmissiveGain;
+
+        // Not jittered. The jitter turns a sequence of frames into a denser sampling of one
+        // picture, and only the picture the player sees is accumulated; carried over, it
+        // shakes the reflection by half a pixel against the mirror holding it.
+        _frames.JitterPixels = Vector2.Zero;
+        _frames.MirrorPlane = mirror.Plane;
+
+        VulkanSceneDraw.Record(
+            _vk, buffer, _meshPipeline, _frames, _scene, _frame, width, height,
+            _camera.Mirrored(mirror.Plane), reflection: true);
+
+        _frames.MirrorPlane = Vector4.Zero;
+
+        _vk.CmdEndRendering(buffer);
+
+        Transition(
+            buffer, _mirrorImage, ImageLayout.ColorAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal);
+
+        _mirrorSettled = true;
+    }
+
+
     private void Transition(CommandBuffer buffer, Image image, ImageLayout from, ImageLayout to)
     {
         var barrier = new ImageMemoryBarrier
@@ -2936,6 +3113,28 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
             _rayTracedFrames = FrameUniformSet.Create(_context, _rayTracedPipeline, FramesInFlight);
         }
+
+        PointFramesAtMirror();
+    }
+
+    /// <summary>
+    /// Points every frame's descriptor set at the image a reflection is drawn into.
+    /// </summary>
+    /// <remarks>
+    /// Both sets, and every slot of both. The traced path draws the room and the plain path
+    /// draws the reflection, so the two never read this at the same time — but the binding
+    /// is declared by one shader source compiled for both, and a declared binding has to be
+    /// a real descriptor whether the branch that reads it runs or not.
+    /// </remarks>
+    private void PointFramesAtMirror()
+    {
+        if (_mirrorView.Handle == 0 || _mirrorSampler.Handle == 0)
+        {
+            return;
+        }
+
+        _frames?.SetReflection(_mirrorView, _mirrorSampler);
+        _rayTracedFrames?.SetReflection(_mirrorView, _mirrorSampler);
     }
 
     /// <summary>What the swapchain's format was when the passes that write it were built.</summary>
@@ -3195,6 +3394,111 @@ public sealed unsafe class VulkanRenderer : IRenderer
         }
 
         _litSettled = false;
+    }
+
+    /// <summary>Builds the target a mirror's reflection is drawn into.</summary>
+    /// <remarks>
+    /// The same format and the same size as the picture, because it <em>is</em> a picture of
+    /// the room: the same shading, the same lights, the same exposure, seen from the camera
+    /// reflected through the glass. The size has to match exactly — the glass reads it at
+    /// its own screen position, which is only the right texel if the two renders share a
+    /// grid.
+    /// </remarks>
+    private void CreateMirrorTarget()
+    {
+        var imageInfo = new ImageCreateInfo
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Format = GBuffer.LightFormat,
+            Extent = new Extent3D(_renderExtent.Width, _renderExtent.Height, 1),
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal,
+            // Transfer destination as well, for the one clear it needs before anything has
+            // ever been drawn into it: a room with no mirror in it still binds this image,
+            // and a bound descriptor may not point at undefined memory.
+            Usage = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit |
+                    ImageUsageFlags.TransferDstBit,
+            InitialLayout = ImageLayout.Undefined,
+        };
+
+        if (_vk.CreateImage(_device, in imageInfo, null, out _mirrorImage) != Result.Success)
+        {
+            throw new VulkanException("Could not create the mirror target.");
+        }
+
+        _vk.GetImageMemoryRequirements(_device, _mirrorImage, out MemoryRequirements requirements);
+
+        _mirrorMemory = AllocateDepthMemory(requirements);
+        _vk.BindImageMemory(_device, _mirrorImage, _mirrorMemory, 0);
+
+        var viewInfo = new ImageViewCreateInfo
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = _mirrorImage,
+            ViewType = ImageViewType.Type2D,
+            Format = GBuffer.LightFormat,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                LevelCount = 1,
+                LayerCount = 1,
+            },
+        };
+
+        if (_vk.CreateImageView(_device, in viewInfo, null, out _mirrorView) != Result.Success)
+        {
+            throw new VulkanException("Could not create the mirror target's view.");
+        }
+
+        if (_mirrorSampler.Handle == 0)
+        {
+            // Clamped, and linear. Clamped because the glass reads by screen position and a
+            // mirror at the edge of the frame reads a little past it; wrapping there puts
+            // the far side of the room into the near edge of the reflection.
+            var samplerInfo = new SamplerCreateInfo
+            {
+                SType = StructureType.SamplerCreateInfo,
+                MagFilter = Filter.Linear,
+                MinFilter = Filter.Linear,
+                AddressModeU = SamplerAddressMode.ClampToEdge,
+                AddressModeV = SamplerAddressMode.ClampToEdge,
+                AddressModeW = SamplerAddressMode.ClampToEdge,
+                MipmapMode = SamplerMipmapMode.Nearest,
+            };
+
+            _vk.CreateSampler(_device, in samplerInfo, null, out _mirrorSampler);
+        }
+
+        _mirrorSettled = false;
+    }
+
+    /// <summary>Gives up the mirror target.</summary>
+    private void DestroyMirrorTarget()
+    {
+        if (_mirrorView.Handle != 0)
+        {
+            _vk.DestroyImageView(_device, _mirrorView, null);
+            _mirrorView = default;
+        }
+
+        if (_mirrorImage.Handle != 0)
+        {
+            _vk.DestroyImage(_device, _mirrorImage, null);
+            _mirrorImage = default;
+        }
+
+        if (_mirrorMemory.Handle != 0)
+        {
+            _vk.FreeMemory(_device, _mirrorMemory, null);
+            _mirrorMemory = default;
+        }
+
+        // The sampler outlives a resize. It describes how to read an image and not which
+        // image, so nothing about it changes when the window does.
+        _mirrorSettled = false;
     }
 
     private void DestroyLitTarget()
@@ -3518,6 +3822,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
         DestroyGBuffer();
         DestroySceneTarget();
         DestroyLitTarget();
+        DestroyMirrorTarget();
         DestroyUpscaleTarget();
         DestroySwapchain();
         CreateSwapchain();
@@ -3525,6 +3830,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
         CreateGBuffer();
         CreateSceneTarget();
         CreateLitTarget();
+        CreateMirrorTarget();
+        PointFramesAtMirror();
         CreateUpscaleTarget();
 
         // A pipeline carries the format it writes into, so one built against an 8-bit sRGB

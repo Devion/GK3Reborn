@@ -193,6 +193,33 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <remarks>Zero for nearly every surface; see <see cref="CoplanarCards"/>.</remarks>
     public int CardsSeparated { get; private set; }
 
+    /// <summary>Whether a keyed card is given the thickness of the thing drawn on it.</summary>
+    /// <remarks>
+    /// Set by whoever loads the scene, from the player's own settings. Off, every card takes
+    /// the path it took before <see cref="CutoutCards"/> existed. It also gates the
+    /// measurement itself, which happens as textures are uploaded and so must be decided
+    /// before the first of them is.
+    /// </remarks>
+    public bool ThickenCutoutCards
+    {
+        get => _textures.MeasureCutouts;
+        set => _textures.MeasureCutouts = value;
+    }
+
+    /// <summary>How many of the room's cards were given a thickness.</summary>
+    public int CardsThickened { get; private set; }
+
+    /// <summary>How many triangles those cards came to, shell and all.</summary>
+    public int CardTriangles { get; private set; }
+
+    /// <summary>The thickest and thinnest any of them was given, in world units.</summary>
+    /// <remarks>
+    /// Reported because the thickness is measured rather than chosen, and a measurement that
+    /// has gone wrong shows up here as a room full of cards at the clamp — which a triangle
+    /// count cannot show and a screenshot of one rail cannot either.
+    /// </remarks>
+    public (float Thinnest, float Thickest) CardThickness { get; private set; }
+
     /// <summary>How many triangles the plan expected the cut to come to.</summary>
     public int ReliefExpected { get; private set; }
 
@@ -1453,6 +1480,20 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         EnhancedObjects = 0;
         EnhancedTriangles = 0;
+        CardsThickened = 0;
+        CardTriangles = 0;
+        CardThickness = (0f, 0f);
+
+        // The keyed cards, ahead of everything: a railing is one surface of an object that
+        // is otherwise a staircase, and both of the passes below claim whole objects. See
+        // ThickenCards.
+        if (ThickenCutoutCards)
+        {
+            ThickenCards(
+                scene, hiddenObjects, hiddenSurfaces, relief, apart, emitted, groups);
+
+            Timeline?.Stamp("room: thicken keyed cards");
+        }
 
         // Improved geometry, if any was built for this room and it matched. First, and
         // ahead of the rounding: an object somebody has modelled properly is a better
@@ -1819,6 +1860,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         List<Vector3> occluders,
         List<uint> occluderIndices)
     {
+        // What another pass emitted before this one ran, taken now because `emitted` grows
+        // as this loop claims objects and an alias to it would refuse everything.
+        //
+        // Only keyed cards get here first. A railing is one surface of a staircase object,
+        // ThickenCards has already given it a thickness, and the overlay's copy of it is
+        // the flat quad it always was — emitting both draws one through the other, exactly
+        // coincident, which is the depth fighting CoplanarCards exists to stop.
+        HashSet<int> claimed = [.. emitted];
+
         foreach (SceneObjectGeometry piece in enhanced.Objects)
         {
             string owner = piece.ObjectIndex >= 0 && piece.ObjectIndex < scene.ObjectNames.Count
@@ -1843,14 +1893,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             }
 
             EnhancedObjects++;
-            EnhancedTriangles += piece.Triangles.Count;
 
             foreach (SceneTriangle triangle in piece.Triangles)
             {
-                if (triangle.Surface < 0 || triangle.Surface >= scene.Surfaces.Count)
+                if (triangle.Surface < 0 ||
+                    triangle.Surface >= scene.Surfaces.Count ||
+                    claimed.Contains(triangle.Surface))
                 {
                     continue;
                 }
+
+                EnhancedTriangles++;
 
                 BspSurface surface = scene.Surfaces[triangle.Surface];
 
@@ -1917,6 +1970,169 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
+    /// <summary>
+    /// Gives the room's keyed cards the thickness of whatever is drawn on them.
+    /// </summary>
+    /// <param name="scene">The room.</param>
+    /// <param name="hiddenObjects">Objects that must not be drawn.</param>
+    /// <param name="hiddenSurfaces">Individual surfaces that must not be drawn.</param>
+    /// <param name="relief">What the floor is having cut into it, or null.</param>
+    /// <param name="apart">How far each surface is moved off one it coincides with.</param>
+    /// <param name="emitted">Receives every surface index this handled.</param>
+    /// <param name="groups">The batches being built.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>First, ahead of the improved geometry and the rounding.</b> A railing is a single
+    /// surface inside an object that is otherwise a staircase or a wall, and the other two
+    /// passes work on whole objects: whichever of them reached the object first would claim
+    /// the rail along with it and draw the flat card it has always drawn. Claiming the card
+    /// here and letting <see cref="Replace"/> skip what is claimed is the only ordering in
+    /// which a rail on an improved staircase gets both treatments.
+    /// </para>
+    /// <para>
+    /// The improved copy of such a card is the same flat quad in any case — a surface on one
+    /// plane has no edge to bevel and no curve to recover, so the Blender pass leaves it
+    /// exactly as it found it — which is why taking the card from the room's own polygons
+    /// here loses nothing.
+    /// </para>
+    /// <para>
+    /// No occluders. Every card this touches is keyed, and keyed geometry is kept out of the
+    /// acceleration structure whatever its shape: without an any-hit shader the holes in it
+    /// would cast a solid shadow. So a thickened rail casts exactly the shadow a flat one
+    /// did, which is none.
+    /// </para>
+    /// </remarks>
+    private void ThickenCards(
+        BspFile scene,
+        IReadOnlySet<string>? hiddenObjects,
+        IReadOnlySet<int>? hiddenSurfaces,
+        ReliefPlan? relief,
+        Vector3[] apart,
+        HashSet<int> emitted,
+        Dictionary<(string Texture, bool SelfLit, bool Displaced, string Object, bool Hidden),
+                   (List<MeshVertex> Vertices, List<uint> Indices)> groups)
+    {
+        // Gathered per surface rather than per polygon: a card is two triangles most of the
+        // time and twenty on a stair rail, and the shell has to see all of them at once to
+        // fit one map from its texture to the room.
+        Dictionary<int, (List<Vector3> Positions, List<Vector2> TexCoords, List<int> Indices)> cards
+            = [];
+
+        foreach (BspPolygon polygon in scene.Polygons)
+        {
+            if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= scene.Surfaces.Count)
+            {
+                continue;
+            }
+
+            BspSurface surface = scene.Surfaces[polygon.SurfaceIndex];
+
+            // A floor being cut into keeps its own geometry: the cut and the shell are two
+            // sets of triangles for one patch of floor, and drawing both puts it through
+            // itself. The same refusal Replace makes, for the same reason.
+            if (relief is not null && relief.Covers(surface, Deep(surface.TextureName)))
+            {
+                continue;
+            }
+
+            if (_textures.Cutout(surface.TextureName) is null)
+            {
+                continue;
+            }
+
+            if (!cards.TryGetValue(polygon.SurfaceIndex, out var card))
+            {
+                card = ([], [], []);
+                cards[polygon.SurfaceIndex] = card;
+            }
+
+            foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
+            {
+                foreach (ushort corner in (ReadOnlySpan<ushort>)[a, b, c])
+                {
+                    card.Indices.Add(card.Positions.Count);
+                    card.Positions.Add(scene.Vertices[corner]);
+                    card.TexCoords.Add(scene.TexCoordFor(corner));
+                }
+            }
+        }
+
+        if (cards.Count == 0)
+        {
+            return;
+        }
+
+        float thinnest = float.MaxValue;
+        float thickest = 0f;
+
+        // In surface order, so that a room builds the same way twice. A dictionary does not
+        // promise one and the vertex buffer it fills is compared byte for byte by the tests.
+        foreach (int index in cards.Keys.Order())
+        {
+            (List<Vector3> positions, List<Vector2> texCoords, List<int> indices) = cards[index];
+
+            BspSurface surface = scene.Surfaces[index];
+            CutoutMask mask = _textures.Cutout(surface.TextureName)!;
+
+            if (CutoutCards.Thicken(positions, texCoords, indices, mask) is not { } shell)
+            {
+                continue;
+            }
+
+            string owner = surface.ObjectIndex >= 0 && surface.ObjectIndex < scene.ObjectNames.Count
+                ? scene.ObjectNames[surface.ObjectIndex]
+                : string.Empty;
+
+            bool hidden =
+                (hiddenObjects is { Count: > 0 } &&
+                 owner.Length > 0 &&
+                 hiddenObjects.Contains(owner)) ||
+                (hiddenSurfaces is { Count: > 0 } && hiddenSurfaces.Contains(index));
+
+            Vector4 region = _lightmapRegions is not null && index < _lightmapRegions.Count
+                ? _lightmapRegions[index]
+                : Vector4.Zero;
+
+            (string, bool, bool, string, bool) key =
+                (surface.TextureName.ToUpperInvariant(), surface.IsSelfLit, false, owner, hidden);
+
+            if (!groups.TryGetValue(key, out (List<MeshVertex> Vertices, List<uint> Indices) group))
+            {
+                group = ([], []);
+                groups[key] = group;
+            }
+
+            Vector3 shift = index < apart.Length ? apart[index] : Vector3.Zero;
+
+            foreach (CardTriangle triangle in shell.Triangles)
+            {
+                foreach (CurvedCorner corner in
+                         (ReadOnlySpan<CurvedCorner>)[triangle.A, triangle.B, triangle.C])
+                {
+                    group.Indices.Add((uint)group.Vertices.Count);
+                    group.Vertices.Add(new MeshVertex(
+                        corner.Position + shift,
+                        corner.Normal,
+                        corner.TexCoord,
+                        Lightmap(corner.TexCoord, surface, region)));
+
+                    if (!hidden)
+                    {
+                        Grow(corner.Position + shift);
+                    }
+                }
+            }
+
+            emitted.Add(index);
+            CardsThickened++;
+            CardTriangles += shell.Triangles.Count;
+            thinnest = Math.Min(thinnest, shell.Thickness);
+            thickest = Math.Max(thickest, shell.Thickness);
+        }
+
+        CardThickness = CardsThickened > 0 ? (thinnest, thickest) : (0f, 0f);
+    }
+
     /// <summary>Whether an object is one whose silhouette should be a curve.</summary>
     private static bool IsRound(string owner) =>
         owner.Length > 0 &&
@@ -1976,6 +2192,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             ? scene.ObjectNames[objectIndex]
             : string.Empty;
 
+        // What another pass emitted before this one ran. A lantern is a rounded object and
+        // RC1LANTERNSCROLL is a keyed card on it, so the object's own surfaces are not all
+        // still this pass's to draw: the card has a thickness now, and rounding it again
+        // here would draw the flat one through the middle of it. Snapshotted because the
+        // set grows below. See ThickenCards.
+        HashSet<int> claimed = [.. roundedOff];
+
         // Every triangle of every surface the object owns, with its surface remembered.
         List<(Vector3, Vector3, Vector3, Vector2, Vector2, Vector2, int)> raw = [];
         List<int> surfaces = [];
@@ -1984,7 +2207,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             if (polygon.SurfaceIndex < 0 ||
                 polygon.SurfaceIndex >= scene.Surfaces.Count ||
-                scene.Surfaces[polygon.SurfaceIndex].ObjectIndex != objectIndex)
+                scene.Surfaces[polygon.SurfaceIndex].ObjectIndex != objectIndex ||
+                claimed.Contains(polygon.SurfaceIndex))
             {
                 continue;
             }
@@ -2232,6 +2456,88 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
+    /// <summary>The mirror this frame is about, once <see cref="ChooseMirror"/> has run.</summary>
+    public MirrorSurface? Mirror { get; private set; }
+
+    /// <summary>
+    /// Decides which piece of glass in the room the frame's reflection is rendered for.
+    /// </summary>
+    /// <param name="eye">Where the camera is.</param>
+    /// <returns>The mirror, or null if the room has none facing the camera.</returns>
+    /// <remarks>
+    /// <para>
+    /// Called before <see cref="Draws"/> and remembered, because the two have to agree: the
+    /// batch that carries the mirror flag is the batch the reflection was rendered for, and
+    /// any other mirror in the room keeps the picture painted on it. A second mirror would
+    /// be a second pass over the whole room for a reflection nobody is looking at.
+    /// </para>
+    /// <para>
+    /// <b>The material marks a slab and the geometry picks the glass out of it.</b>
+    /// <c>MIRRORL.MOD</c> is a box whose front, back, sides, top and bottom all carry
+    /// <c>MIRRORLEFT1</c>, so every one of those is a candidate and only one of them is a
+    /// mirror. What separates them is flatness and the way the vertices' own normals point;
+    /// see <see cref="MirrorSurfaces"/>.
+    /// </para>
+    /// </remarks>
+    public MirrorSurface? ChooseMirror(Vector3 eye)
+    {
+        List<MirrorSurface>? found = null;
+        List<int>? owners = null;
+
+        for (int index = 0; index < _batches.Count; index++)
+        {
+            Batch batch = _batches[index];
+
+            if (batch.Material is null || batch.Hidden || !Materials.Of(batch.Drawn).Mirror)
+            {
+                continue;
+            }
+
+            if (MirrorSurfaces.Fit(batch.Shape, batch.Transform) is not { } glass)
+            {
+                continue;
+            }
+
+            (found ??= []).Add(glass);
+            (owners ??= []).Add(index);
+        }
+
+        if (found is null)
+        {
+            Mirror = null;
+            _mirrorBatch = -1;
+
+            return null;
+        }
+
+        MirrorSurface? chosen = MirrorSurfaces.Facing(found, eye, Mirror);
+        int owner = chosen is { } picked ? owners![found.IndexOf(picked)] : -1;
+
+        // Said once, when it changes. Which piece of a mirror's slab the geometry decided
+        // was the glass is the one thing about this that can be wrong while everything
+        // reports success: a reflection rendered about the back of the box, or about one of
+        // its edges, is a mirror full of the inside of a wall and nothing anywhere says so.
+        if (owner != _mirrorBatch)
+        {
+            Log.Info(chosen is { } glass
+                ? string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"Mirror: {_batches[owner].Drawn}, {found.Count} candidate surface(s), " +
+                    $"reflecting about ({glass.Plane.X:0.##}, {glass.Plane.Y:0.##}, " +
+                    $"{glass.Plane.Z:0.##}) at ({glass.Center.X:0.#}, {glass.Center.Y:0.#}, " +
+                    $"{glass.Center.Z:0.#}), {glass.Radius:0.#} units across")
+                : $"Mirror: none of {found.Count} candidate surface(s) faces the camera");
+        }
+
+        Mirror = chosen;
+        _mirrorBatch = owner;
+
+        return chosen;
+    }
+
+    /// <summary>Which batch <see cref="ChooseMirror"/> settled on, or -1.</summary>
+    private int _mirrorBatch = -1;
+
     /// <summary>Works out what every loaded batch needs drawn, and with what.</summary>
     /// <param name="previousSeconds">
     /// The wind's clock as it stood a frame ago, so that a leaf reports its own movement to
@@ -2253,12 +2559,20 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     public IEnumerable<SceneDraw> Draws(float previousSeconds = 0f)
     {
-        foreach (Batch batch in _batches)
+        for (int index = 0; index < _batches.Count; index++)
         {
+            Batch batch = _batches[index];
+
             if (batch.Material is null || batch.Hidden)
             {
                 continue;
             }
+
+            // The one piece of glass this frame's reflection was rendered for, and not
+            // every surface whose texture happens to be a mirror's. A mirror's own slab
+            // carries the same texture on its back and its edges, and a room may hold more
+            // than one mirror; both draw the picture painted on them, as they always have.
+            bool isMirror = index == _mirrorBatch;
 
             var constants = new DrawConstants(
                 batch.Transform,
@@ -2267,10 +2581,20 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     _lightmap is not null && batch.UseLightmap ? 1f : 0f,
                     LightmapMultiplier,
 
-                    // Two flags in one number: 1 for self-lit, 2 for a model standing in
-                    // the room. The second is what lets a shadow ray leaving a character
-                    // skip characters — see RayTracingScene.MaskFor.
-                    (batch.SelfLit ? 1f : 0f) + (batch.IsModel ? 2f : 0f),
+                    // Three flags in one number: 1 for self-lit, 2 for a model standing in
+                    // the room, 4 for a mirror. The second is what lets a shadow ray
+                    // leaving a character skip characters — see RayTracingScene.MaskFor;
+                    // the third takes a surface away from the screen-space reflection pass,
+                    // which cannot answer a mirror facing the player because what such a
+                    // mirror shows is behind the camera and therefore not in the frame.
+                    //
+                    // <b>They are bits and must be read as bits.</b> The shader tested the
+                    // second with `>= 1.5`, which a 4 also passes: adding a flag above an
+                    // existing one silently turns every mirror in the game into a
+                    // character as far as the shadow rays are concerned.
+                    (batch.SelfLit ? 1f : 0f) +
+                    (batch.IsModel ? 2f : 0f) +
+                    (isMirror ? 4f : 0f),
 
                     // How deep this surface's height map goes, and zero where it has none —
                     // which is what keeps the level map bound in its place from shifting
@@ -2295,9 +2619,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
                 // Nothing at all for everything that is not a leaf, which switches the
                 // whole of the sway off in the vertex shader on its first line.
+                //
+                // The fourth slot is a lodger and says so: it is how much of a mirror's
+                // texture is drawn frame rather than glass. GK3's mirrors carry their
+                // ornate silver frames in the texture itself, so a reflection covering the
+                // whole card paints the frame out. It rides here because nothing else in
+                // the block has a free slot and the two sets — surfaces that sway and
+                // surfaces that reflect — have nothing in common; a leaf's own w stays
+                // zero, and a mirror does not sway.
                 batch.Foliage
                     ? new Vector4(LeafSway, WindSpeed, previousSeconds, 0f)
-                    : Vector4.Zero,
+                    : new Vector4(
+                        0f, 0f, 0f,
+                        isMirror ? Materials.Of(batch.Drawn).MirrorInset : 0f),
 
                 // The skin under the coat. The shells over it are below, and a surface with
                 // no coat is told so with a zero depth in y rather than by being left out,
@@ -2628,6 +2962,21 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// putting the face back is asking for the model's own picture again.
         /// </remarks>
         public string? Painted { get; init; }
+
+        /// <summary>The picture actually on this batch right now.</summary>
+        /// <remarks>
+        /// <b>Which is not always <see cref="TextureName"/>.</b> It matters wherever what
+        /// is asked of the material is a fact about the picture rather than about the
+        /// surface it is filed under — and mirrors are the case where the difference is the
+        /// whole feature. TE4's two mirrors are <c>MIRRORLEFT1</c> and <c>MIRRORRIGHT1</c>
+        /// at rest and are mirrors; the moment the story steps Gabriel up to one, an
+        /// <c>[MTEXTURES]</c> line repaints it with <c>MIRRORGABEBAD</c> — a jaundiced,
+        /// hollow-eyed Gabriel that is not his reflection at all and is the puzzle. Asking
+        /// the original name whether this is a mirror answers yes right through that, and
+        /// the reflection paints the story out.
+        /// </remarks>
+        public string Drawn =>
+            Painted is { Length: > 0 } picture ? picture : TextureName;
 
         /// <summary>Whether it is kept out of the picture.</summary>
         /// <remarks>

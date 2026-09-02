@@ -1170,6 +1170,7 @@ public static class Application
                         $"Surface finishes: {finishes.Count} textures measured, " +
                         $"{finishes.Reflective} smooth enough to reflect, " +
                         $"{finishes.Metallic} metal" +
+                        (finishes.Mirrors > 0 ? $", {finishes.Mirrors} mirrors" : string.Empty) +
                         (finishes.Corrected > 0
                             ? $", {finishes.Corrected} corrected by hand"
                             : string.Empty));
@@ -1186,6 +1187,14 @@ public static class Application
             {
                 geometry.RoundLevels = levels;
             }
+
+            // Whether a railing, a fence or a chain gets the thickness of what is drawn on
+            // it. Set here rather than at the room, because it gates the measurement too
+            // and that happens as the room's textures are uploaded. A switch for the same
+            // reason the others have one: so the same rail can be photographed both ways.
+            geometry.ThickenCutoutCards =
+                settings.ThickCutoutCards &&
+                !args.Contains("--no-thick-cards", StringComparer.OrdinalIgnoreCase);
 
             // How many triangles a room's floor may be cut into. A switch because the right
             // number is a judgement about a picture: it buys the cell size, and whether a
@@ -1518,6 +1527,17 @@ public static class Application
                 Log.Info(
                     $"Rounded: {geometry.RoundedTriangles} triangles from " +
                     $"{string.Join(", ", geometry.Rounded.Order(StringComparer.OrdinalIgnoreCase))}");
+            }
+
+            // What the railings cost, and that they happened. Silent when it declines, in
+            // exactly the way the rounding is: the rail is still there and still drawn.
+            if (geometry.CardsThickened > 0)
+            {
+                Log.Info(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Railings: {geometry.CardsThickened} keyed cards thickened to " +
+                    $"{geometry.CardThickness.Thinnest:0.##}-{geometry.CardThickness.Thickest:0.##} " +
+                    $"units, {geometry.CardTriangles} triangles"));
             }
 
             // The floor, which is how an actor knows what height to walk at. Reported

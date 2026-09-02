@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Rendering;
@@ -149,7 +149,12 @@ public sealed class D3D12GeometryDeviceTests
             // room reaches. They need not be per material anyway: which sampler each of the
             // five textures wants is a property of what the texture is, and that is the same
             // for every material in the game.
-            Assert.Equal(D3D12GeometryDevice.TexturesPerMaterial, device.SamplerDescriptorsUsed);
+            //
+            // Six rather than five, and the sixth is not a material's: it is the frame's own,
+            // for the reflection a mirror reads. What this test is about is that the number
+            // does not move with the number of materials, and it does not.
+            Assert.Equal(
+                D3D12GeometryDevice.TexturesPerMaterial + 1, device.SamplerDescriptorsUsed);
         }
     }
 

@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering.Geometry;
+﻿using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Shaders;
 using Silk.NET.Direct3D12;
 using Silk.NET.DXGI;
@@ -173,6 +173,17 @@ public sealed unsafe class D3D12MeshPass : IDisposable
 
         list->SetGraphicsRootDescriptorTable(
             (uint)_pipeline.Signature.ParameterFor(MeshLayout.FrameSet), frame);
+
+        // The frame set's own one sampler: how a mirror reads the reflection drawn for it.
+        // A combined image sampler is a texture and a sampler in Direct3D and they land in
+        // different heaps, so declaring one in set 0 gives set 0 a sampler table — bound
+        // here or the shader samples with whatever happens to be at that slot.
+        int frameSamplers = _pipeline.Signature.SamplerParameterFor(MeshLayout.FrameSet);
+        if (frameSamplers >= 0)
+        {
+            list->SetGraphicsRootDescriptorTable(
+                (uint)frameSamplers, geometry.ReflectionSamplerTable);
+        }
 
         // One run of samplers for every material in the game; see D3D12GeometryDevice.
         int samplers = _pipeline.Signature.SamplerParameterFor(MeshLayout.MaterialSet);

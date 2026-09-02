@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering.Geometry;
 using Silk.NET.Direct3D12;
@@ -255,6 +255,16 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     /// <summary>Where the one shared run of samplers starts, for a draw to bind.</summary>
     internal GpuDescriptorHandle SamplerTable => _samplers.Gpu(0);
 
+    /// <summary>Where the frame set's own one sampler is, for a draw to bind beside it.</summary>
+    /// <remarks>
+    /// The reflection a mirror reads is a combined image sampler like every other texture,
+    /// and Direct3D has no such object: SPIRV-Cross splits it into a texture and a sampler at
+    /// the same register index, so set 0 has a sampler table of its own with exactly one
+    /// entry in it. Clamped, because the glass reads by screen position and a mirror at the
+    /// edge of the frame reads a little past it.
+    /// </remarks>
+    internal GpuDescriptorHandle ReflectionSamplerTable => _samplers.Gpu(TexturesPerMaterial);
+
     /// <summary>Takes a run of slots in the one shader-visible view heap.</summary>
     /// <param name="count">How many, which must be contiguous.</param>
     /// <returns>The index of the first.</returns>
@@ -313,8 +323,13 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
                 MaterialCapacity * TexturesPerMaterial,
                 shaderVisible: true);
 
+            // One more than a material's run: the extra is the frame's own, which is how a
+            // mirror reads the reflection drawn for it. See ReflectionSamplerTable.
             samplers = D3D12DescriptorHeap.Create(
-                context.Device, DescriptorHeapType.Sampler, TexturesPerMaterial, shaderVisible: true);
+                context.Device,
+                DescriptorHeapType.Sampler,
+                TexturesPerMaterial + 1,
+                shaderVisible: true);
 
             shared = D3D12Samplers.Create(context);
 
@@ -537,7 +552,7 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     /// </remarks>
     private void WriteSamplers()
     {
-        uint first = _samplers.Allocate(TexturesPerMaterial);
+        uint first = _samplers.Allocate(TexturesPerMaterial + 1);
 
         for (uint i = 0; i < TexturesPerMaterial; i++)
         {
@@ -546,5 +561,10 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
                 i is 1 or 4 ? SamplerAddressing.Clamp : SamplerAddressing.Repeat,
                 _samplers.Cpu(first + i));
         }
+
+        // And one more, immediately after, for the frame's own table: how a mirror reads the
+        // reflection drawn for it. See ReflectionSamplerTable.
+        _shared.CopyInto(
+            _context, SamplerAddressing.Clamp, _samplers.Cpu(first + TexturesPerMaterial));
     }
 }

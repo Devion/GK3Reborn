@@ -241,7 +241,7 @@ public sealed unsafe class MeshPipeline : IDisposable
 
     private void CreateDescriptorLayouts()
     {
-        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[5];
+        DescriptorSetLayoutBinding* frameBindings = stackalloc DescriptorSetLayoutBinding[6];
         frameBindings[0] = new DescriptorSetLayoutBinding
         {
             Binding = 0,
@@ -276,9 +276,22 @@ public sealed unsafe class MeshPipeline : IDisposable
             StageFlags = ShaderStageFlags.FragmentBit,
         };
 
-        // Last, so that the count can leave it off on a device that cannot trace. A
-        // binding is not added by writing to it — the count is what the driver reads.
+        // The room as a mirror sees it, drawn a moment ago from the reflected camera. Set 0
+        // because there is one of these for the whole frame; a device with no mirror in the
+        // room still binds it, as every other always-bound texture in this renderer is.
         frameBindings[4] = new DescriptorSetLayoutBinding
+        {
+            Binding = 5,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        // Last in the array, so that the count can leave it off on a device that cannot
+        // trace. A binding is not added by writing to it — the count is what the driver
+        // reads, which is why its binding number is 4 while it sits at index 5: the array's
+        // order is what the count truncates, and the numbers are free to be in any order.
+        frameBindings[5] = new DescriptorSetLayoutBinding
         {
             Binding = 4,
             DescriptorType = DescriptorType.AccelerationStructureKhr,
@@ -289,7 +302,7 @@ public sealed unsafe class MeshPipeline : IDisposable
         var frameInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = RayTracing ? 5u : 4u,
+            BindingCount = RayTracing ? 6u : 5u,
             PBindings = frameBindings,
         };
 

@@ -82,6 +82,17 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// </remarks>
     public Vector2 JitterPixels { get; set; }
 
+    /// <summary>
+    /// The mirror this set's passes reflect about, or zero for the pass that draws the room.
+    /// </summary>
+    /// <remarks>
+    /// Set on the reflection pass's own uniform set and left at zero on the frame's. The two
+    /// passes are recorded into one command buffer and read their constants at draw time,
+    /// not at record time, so they cannot share a buffer: whichever was written last would
+    /// be what both of them saw.
+    /// </remarks>
+    public Vector4 MirrorPlane { get; set; }
+
     /// <summary>How far above white a surface that carries its own light may go.</summary>
     /// <remarks>
     /// One in SDR, which is the picture the game has always drawn. See
@@ -111,7 +122,17 @@ public sealed unsafe class FrameUniformSet : IDisposable
     private float? _wasAt;
 
     /// <summary>How many frames it covers.</summary>
-    public int Count => _sets.Length;
+    public int Count => _sets.Length / PassesPerFrame;
+
+    /// <summary>How many passes of one frame read constants of their own.</summary>
+    /// <remarks>
+    /// Two: the room as the player sees it, and the room as this frame's mirror sees it.
+    /// They are recorded into one command buffer and read their constants when the GPU
+    /// reaches the draw rather than when it is recorded, so they cannot share a buffer —
+    /// whichever was written last is what both of them would see, and what that looks like
+    /// is the room drawn twice from inside the mirror.
+    /// </remarks>
+    public const int PassesPerFrame = 2;
 
     /// <summary>Creates the set.</summary>
     /// <param name="context">Device context.</param>
@@ -129,32 +150,39 @@ public sealed unsafe class FrameUniformSet : IDisposable
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frames);
 
-        DescriptorPoolSize* sizes = stackalloc DescriptorPoolSize[3];
+        DescriptorPoolSize* sizes = stackalloc DescriptorPoolSize[4];
         sizes[0] = new DescriptorPoolSize
         {
             Type = DescriptorType.UniformBuffer,
-            DescriptorCount = (uint)frames,
+            DescriptorCount = (uint)(frames * PassesPerFrame),
         };
 
         // Three storage buffers a frame: the rig, and the two halves of the light grid.
         sizes[1] = new DescriptorPoolSize
         {
             Type = DescriptorType.StorageBuffer,
-            DescriptorCount = (uint)(frames * 3),
+            DescriptorCount = (uint)(frames * PassesPerFrame * 3),
         };
 
+        // One reflection a frame: the room as a mirror sees it.
         sizes[2] = new DescriptorPoolSize
         {
+            Type = DescriptorType.CombinedImageSampler,
+            DescriptorCount = (uint)(frames * PassesPerFrame),
+        };
+
+        sizes[3] = new DescriptorPoolSize
+        {
             Type = DescriptorType.AccelerationStructureKhr,
-            DescriptorCount = (uint)frames,
+            DescriptorCount = (uint)(frames * PassesPerFrame),
         };
 
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
-            PoolSizeCount = pipeline.RayTracing ? 3u : 2u,
+            PoolSizeCount = pipeline.RayTracing ? 4u : 3u,
             PPoolSizes = sizes,
-            MaxSets = (uint)frames,
+            MaxSets = (uint)(frames * PassesPerFrame),
         };
 
         if (context.Api.CreateDescriptorPool(context.Device, in poolInfo, null, out DescriptorPool pool)
@@ -163,8 +191,9 @@ public sealed unsafe class FrameUniformSet : IDisposable
             throw new VulkanException("Could not create the frame descriptor pool.");
         }
 
-        var buffers = new VulkanBuffer[frames];
-        var sets = new DescriptorSet[frames];
+        int slots = frames * PassesPerFrame;
+        var buffers = new VulkanBuffer[slots];
+        var sets = new DescriptorSet[slots];
 
         // Allocated once outside the loop: a stackalloc inside one grows the frame with
         // every iteration.
@@ -188,7 +217,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
         VulkanBuffer reaching = VulkanBuffer.CreateHostVisible(
             context, reachingSize, BufferUsageFlags.StorageBufferBit);
 
-        for (int i = 0; i < frames; i++)
+        for (int i = 0; i < slots; i++)
         {
             buffers[i] = VulkanBuffer.CreateHostVisible(
                 context, bufferSize, BufferUsageFlags.UniformBufferBit);
@@ -278,6 +307,46 @@ public sealed unsafe class FrameUniformSet : IDisposable
         created.SetLights([]);
 
         return created;
+    }
+
+    /// <summary>Points every frame's set at the image the reflection is drawn into.</summary>
+    /// <param name="view">The reflection's image view.</param>
+    /// <param name="sampler">How to read it.</param>
+    /// <remarks>
+    /// <para>
+    /// Written when the target is made and again whenever the window changes size, in the
+    /// same place and for the same reason as everything else that is sized to the frame.
+    /// </para>
+    /// <para>
+    /// <b>Every set is written, including on a frame with no mirror in the room.</b> A
+    /// descriptor a shader declares has to be a real descriptor whether the branch that
+    /// reads it runs or not; Vulkan does not require the branch to be taken, it requires the
+    /// binding to exist.
+    /// </para>
+    /// </remarks>
+    public void SetReflection(ImageView view, Sampler sampler)
+    {
+        var imageInfo = new DescriptorImageInfo
+        {
+            ImageView = view,
+            Sampler = sampler,
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+        };
+
+        foreach (DescriptorSet set in _sets)
+        {
+            var write = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = set,
+                DstBinding = 5,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &imageInfo,
+            };
+
+            _context.Api.UpdateDescriptorSets(_context.Device, 1, in write, 0, null);
+        }
     }
 
     /// <summary>Uploads the lights a scene was authored with.</summary>
@@ -438,6 +507,11 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// <param name="aspect">Viewport width divided by height.</param>
     /// <param name="width">Viewport width in pixels, for the motion vectors.</param>
     /// <param name="height">Viewport height in pixels, for the motion vectors.</param>
+    /// <param name="reflection">
+    /// Whether this is a mirror's pass rather than the frame's. It takes the second of the
+    /// frame's two constant buffers — see <see cref="PassesPerFrame"/> — and leaves the
+    /// motion history to the frame.
+    /// </param>
     public void Bind(
         CommandBuffer command,
         MeshPipeline pipeline,
@@ -445,12 +519,13 @@ public sealed unsafe class FrameUniformSet : IDisposable
         Camera camera,
         float aspect,
         float width = 0,
-        float height = 0)
+        float height = 0,
+        bool reflection = false)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(camera);
 
-        int index = frame % _sets.Length;
+        int index = ((frame % Count) * PassesPerFrame) + (reflection ? 1 : 0);
 
         RayTracingSettings settings = _rayTracing
             ? Settings
@@ -467,12 +542,20 @@ public sealed unsafe class FrameUniformSet : IDisposable
         // moved, because there was nothing to move from.
         Matrix4x4 previous = _previousViewProjection ?? steady;
 
-        _previousViewProjection = steady;
+        // <b>The reflection does not advance the history.</b> Two passes of one frame call
+        // this, and the history belongs to the frame: letting the mirrored camera write it
+        // hands the next frame's motion vectors the view from behind a mirror, which reads
+        // as the whole screen having moved at once. Nothing is lost by it — the reflection's
+        // own motion target is overwritten by the pass that follows it.
+        if (!reflection)
+        {
+            _previousViewProjection = steady;
 
-        // The same argument for the clock as for the matrix above: on the first frame there
-        // is no earlier one, and its own value is the honest answer.
-        PreviousSeconds = _wasAt ?? Seconds;
-        _wasAt = Seconds;
+            // The same argument for the clock as for the matrix above: on the first frame
+            // there is no earlier one, and its own value is the honest answer.
+            PreviousSeconds = _wasAt ?? Seconds;
+            _wasAt = Seconds;
+        }
 
         var uniforms = new FrameUniforms(
             viewProjection,
@@ -502,7 +585,12 @@ public sealed unsafe class FrameUniformSet : IDisposable
             // The jitter the projection above was built with, so the fragment stage can
             // take it back out of the motion vectors, and how far above white a surface
             // that carries its own light may go.
-            new Vector4(JitterPixels.X, JitterPixels.Y, EmissiveGain, 0f));
+            new Vector4(JitterPixels.X, JitterPixels.Y, EmissiveGain, 0f),
+
+            // The mirror this pass reflects about, and zero in the pass that draws the room
+            // as the player sees it. See FrameUniforms.MirrorPlane: zero is not a plane, so
+            // an ordinary pass clips nothing without a branch and without a second shader.
+            MirrorPlane);
 
         _buffers[index].Write<FrameUniforms>([uniforms]);
 

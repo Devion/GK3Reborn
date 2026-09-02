@@ -63,6 +63,12 @@ public static class MeshShaders
             // xy this frame's jitter in pixels, z how much brighter a self-lit surface is
             // drawn, w unused
             vec4 exposure;
+
+            // The mirror this pass is reflecting about — xyz a unit normal out of the
+            // glass, w the offset — and zero in the pass that draws the room as the player
+            // sees it. Zero is not a plane: every point is at distance zero from it, so the
+            // clip below passes everywhere and the ordinary pass costs no branch.
+            vec4 mirrorPlane;
         } frame;
 
         layout(push_constant) uniform Draw
@@ -93,6 +99,12 @@ public static class MeshShaders
             // wanted beside the other two: it is what lets a swaying leaf report its own
             // movement to the temporal filter instead of reporting none, and a leaf that
             // claims to have been still is a leaf the filter smears.
+            //
+            // w is a lodger and unrelated to the other three: how much of a mirror's
+            // texture is drawn frame rather than glass. GK3's mirrors carry their ornate
+            // silver frames in the texture, so the reflection has to stop short of the
+            // edge. It rides here because the block has no other free slot and the two
+            // sets have nothing in common — a mirror does not sway, and a leaf's w is zero.
             vec4 wind;
 
             // Which shell of a coat this draw is: x how far up the fur it stands, zero at
@@ -248,6 +260,22 @@ public static class MeshShaders
         #ifdef RAY_TRACING
         layout(set = 0, binding = 4) uniform accelerationStructureEXT scene;
         #endif
+
+        // The room as the mirror sees it, rendered a moment ago from the camera reflected
+        // through the mirror's plane, at exactly the size of this frame.
+        //
+        // <b>It is sampled by screen position and by nothing else.</b> Reflection fixes the
+        // mirror's plane pointwise, so a point on the glass has the same clip position under
+        // the mirrored view matrix as under the real one and therefore lands on the same
+        // pixel in both renders. That is the whole of the mapping: no matrix, no second set
+        // of texture coordinates, and nothing per-mirror in this shader beyond the flag and
+        // the inset.
+        //
+        // Set 0 rather than set 1 because there is one of these for the frame and not one
+        // for each surface. Its binding number is above the acceleration structure's while
+        // sitting below it in the layout array, so that the count can still leave the
+        // structure off on a device that cannot trace; see MeshPipeline.
+        layout(set = 0, binding = 5) uniform sampler2D mirrorReflection;
 
         layout(set = 1, binding = 0) uniform sampler2D baseColor;
         layout(set = 1, binding = 1) uniform sampler2D lightmapTexture;
@@ -530,6 +558,27 @@ public static class MeshShaders
 
         // GGX, the microfacet distribution everything modern uses. The specular highlight's
         // shape: narrow and bright on something smooth, broad and dim on something rough.
+        // Whether a texture coordinate lands on a mirror's glass rather than on the frame
+        // drawn around it. GK3's mirrors are not cards of pure reflection: MIRRORLEFT1,
+        // MIRRORRIGHT1 and TE4MIRROR all carry the ornate silver frame in the texture, in a
+        // border about a twelfth of the way in, and reflecting the whole card paints it out.
+        //
+        // The coordinate is wrapped first. A mirror is drawn once over its own card, but
+        // GK3 stores v running from -1 to 0 rather than 0 to 1 across most of the corpus,
+        // and an unwrapped test against an inset calls the whole surface frame.
+        bool InsideGlass(vec2 coord, float inset)
+        {
+            if (inset <= 0.0)
+            {
+                return true;
+            }
+
+            vec2 within = fract(coord);
+
+            return all(greaterThan(within, vec2(inset))) &&
+                   all(lessThan(within, vec2(1.0 - inset)));
+        }
+
         float Distribution(float nDotH, float roughness)
         {
             // Squared once for perceptual roughness, which is what an artist and a texture
@@ -992,13 +1041,44 @@ public static class MeshShaders
 
         void main()
         {
+            // The reflection pass, and the two things it has to refuse.
+            //
+            // Everything behind the glass. The reflected camera stands on the far side of
+            // the mirror, so the wall the mirror hangs on is between it and the room; drawn,
+            // it fills the whole reflection with the inside of a wall. This is the cheap
+            // half of an oblique near plane and does the same job — the expensive half buys
+            // depth precision that a reflection sampled once does not need.
+            //
+            // And the mirror itself. From behind a mirror there is no mirror to see, and
+            // this is also what stops the glass reading an image of itself out of a target
+            // that has not been drawn yet.
+            if (frame.mirrorPlane.xyz != vec3(0.0))
+            {
+                if (dot(frame.mirrorPlane.xyz, inWorld) + frame.mirrorPlane.w < 0.0 ||
+                    mod(floor(draw.shading.z * 0.25), 2.0) > 0.5)
+                {
+                    discard;
+                }
+            }
+
             vec3 geometric = normalize(inNormal);
             vec3 toEye = normalize(frame.cameraPosition.xyz - inWorld);
 
             // A character or a prop rather than the room. It decides which instances a
             // ray leaving this pixel may hit, and nothing else: the lighting itself is the
             // same for both, deliberately.
-            bool isModel = draw.shading.z >= 1.5;
+            //
+            // Read as a bit and not as a magnitude. This was `>= 1.5`, which is the same
+            // answer only while 2 is the highest flag in the word; the mirror bit is 4, and
+            // a magnitude test turns every mirror in the game into a character as far as
+            // the shadow rays are concerned.
+            bool isModel = mod(floor(draw.shading.z * 0.5), 2.0) > 0.5;
+
+            // A mirror: a surface whose reflection is meant to be rendered rather than
+            // painted on it. GK3 has a handful and every one is a photograph of a
+            // reflection on a card — the temple's two mirrors carry a blurred picture of
+            // their own room, the bathroom's hand mirror is a flat grey oval.
+            bool isMirror = mod(floor(draw.shading.z * 0.25), 2.0) > 0.5;
 
             // One frame for both the march and the normal, built from the coordinate the
             // fragment arrived with.
@@ -1112,9 +1192,21 @@ public static class MeshShaders
             // skip characters, because GK3's people are a stack of overlapping shells and
             // a ray leaving the shirt hits the arm inside it. Whoever reads this channel
             // for a roughness takes its absolute value; see RayTracingScene.MaskFor.
-            outNormalTarget = vec4(
-                normal,
-                isModel ? -surface.roughness : surface.roughness);
+            //
+            // <b>A mirror reports itself matte.</b> Not because it is — it is the smoothest
+            // thing in the game — but because the pass that reads this channel is a
+            // screen-space march, and a mirror on a wall facing the player shows what is
+            // behind the camera, which is the one thing a screen-space march cannot fetch.
+            // Left smooth, `MIRRORLEFT1` at roughness 0.08 is marched every frame, finds
+            // almost nothing, and smears what it does find over a texture that already has
+            // a reflection painted on it. The glass belongs to the planar pass; the frame
+            // around it, which is drawn from the same texture, is ordinary silverwork and
+            // keeps the roughness it measured.
+            float reported = isMirror && InsideGlass(uv, draw.wind.w)
+                ? 1.0
+                : surface.roughness;
+
+            outNormalTarget = vec4(normal, isModel ? -reported : reported);
             outMotion = vec2(0.0);
 
             #ifdef RAY_TRACING
@@ -1147,6 +1239,21 @@ public static class MeshShaders
             // painted view through a window. The original binds a white lightmap and a
             // multiplier of one for these, which comes out as the texture untouched, and
             // no amount of ray tracing should dim something that is its own light source.
+            // The glass, which shows the room reflected and not the picture painted on it.
+            // Beside the self-lit return and for the same reason: what is written here is
+            // finished light, and running it through the rig would light a reflection that
+            // arrived already lit.
+            //
+            // The frame around the glass is not this. It is drawn from the same texture and
+            // falls through to ordinary shading, which is what keeps the artists' silverwork
+            // on a mirror whose middle the renderer has taken over.
+            if (isMirror && InsideGlass(uv, draw.wind.w))
+            {
+                outColor = vec4(
+                    texture(mirrorReflection, gl_FragCoord.xy / frame.tuning.zw).rgb, 0.0);
+                return;
+            }
+
             if (mod(draw.shading.z, 2.0) > 0.5)
             {
                 // Alpha says how much occlusion applies to this pixel: none, here. A bulb

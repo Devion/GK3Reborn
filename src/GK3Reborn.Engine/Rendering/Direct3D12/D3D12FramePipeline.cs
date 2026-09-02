@@ -59,6 +59,10 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private D3D12Texture[] _gbuffer = [];
     private D3D12Texture? _depth;
     private D3D12Texture? _lit;
+
+    /// <summary>The room as this frame's mirror sees it, if the room has one.</summary>
+    private D3D12Texture? _mirror;
+
     private D3D12Texture? _empty;
     private D3D12Texture? _upscaled;
     private D3D12SkyboxPass? _skybox;
@@ -362,6 +366,106 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         return (renderWidth, renderHeight);
     }
 
+
+    /// <summary>
+    /// Draws the room as this frame's mirror sees it, before the room itself is drawn.
+    /// </summary>
+    /// <param name="list">Command list to record into.</param>
+    /// <param name="scene">What to draw, or null for an empty frame.</param>
+    /// <param name="camera">Where the room is seen from.</param>
+    /// <param name="width">Render width in pixels.</param>
+    /// <param name="height">Render height in pixels.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>It borrows the frame's own normal, motion and depth targets.</b> The pipeline
+    /// declares all of them and a draw has to bind every target its pipeline writes, so a
+    /// reflection cannot be drawn into a colour target alone — and it does not need targets
+    /// of its own, because the pass that follows clears and overwrites all of them. One
+    /// extra image for the whole feature, and nothing downstream ever sees the reflection's
+    /// normals.
+    /// </para>
+    /// <para>
+    /// No sky, and no compositing. The reflected camera stands behind the mirror and the sky
+    /// is drawn without regard to the clip plane, so it would paint over the reflection from
+    /// the far side of the wall the mirror hangs on; and what the glass shows is sampled
+    /// directly, so it is the mesh pass's own picture rather than a traced one finished by a
+    /// later pass. The reflection is therefore lit by the rig without traced shadows even at
+    /// High — a real difference from the room around it, and a small one at the size a
+    /// mirror is drawn.
+    /// </para>
+    /// </remarks>
+    private void RecordReflection(
+        ID3D12GraphicsCommandList4* list,
+        SceneGeometry? scene,
+        Camera camera,
+        int width,
+        int height)
+    {
+        if (scene is null || _mirror is null || _targets is null || _depths is null)
+        {
+            return;
+        }
+
+        if (scene.ChooseMirror(camera.Position) is not { } mirror)
+        {
+            // Nothing in the room is a mirror this frame, so nothing will sample the
+            // target — but it is still a descriptor the mesh pass binds, and a resource a
+            // bound descriptor names has to be in a state the shader could read it from
+            // whether or not the branch behind it runs. It comes back zeroed, being a
+            // committed resource, so a black reflection is the worst it can ever be.
+            _mirror.Transition(list, ResourceStates.PixelShaderResource);
+            _frames.MirrorPlane = Vector4.Zero;
+
+            return;
+        }
+
+        _mirror.Transition(list, ResourceStates.RenderTarget);
+
+        float* nothing = stackalloc float[4] { 0f, 0f, 0f, 1f };
+        CpuDescriptorHandle mirrorTarget = _targets.Cpu(Slots.Mirror);
+        list->ClearRenderTargetView(mirrorTarget, nothing, 0, (Silk.NET.Maths.Box2D<int>*)null);
+
+        var colours = new CpuDescriptorHandle[_gbuffer.Length];
+        colours[0] = mirrorTarget;
+
+        for (int i = 1; i < _gbuffer.Length; i++)
+        {
+            _gbuffer[i].Transition(list, ResourceStates.RenderTarget);
+            colours[i] = _targets.Cpu((uint)i);
+            list->ClearRenderTargetView(colours[i], nothing, 0, (Silk.NET.Maths.Box2D<int>*)null);
+        }
+
+        _depth!.Transition(list, ResourceStates.DepthWrite);
+        CpuDescriptorHandle depth = _depths.Cpu(0);
+        list->ClearDepthStencilView(
+            depth, ClearFlags.Depth, 1f, 0, 0, (Silk.NET.Maths.Box2D<int>*)null);
+
+        fixed (CpuDescriptorHandle* first = colours)
+        {
+            list->OMSetRenderTargets((uint)colours.Length, first, false, &depth);
+        }
+
+        // Not jittered. The jitter turns a sequence of frames into a denser sampling of one
+        // picture, and only the picture the player sees is accumulated; carried over, it
+        // shakes the reflection by half a pixel against the mirror holding it.
+        Vector2 jitter = camera.Jitter;
+        camera.Jitter = Vector2.Zero;
+
+        Camera mirrored = camera.Mirrored(mirror.Plane);
+
+        _frames.MirrorPlane = mirror.Plane;
+        _frames.Write(
+            0, mirrored, (float)width / Math.Max(1, height), width, height, reflection: true);
+
+        camera.Jitter = jitter;
+        _frames.MirrorPlane = Vector4.Zero;
+
+        _mesh.Begin(list, _geometry, _frames.Table(0, reflection: true), width, height);
+        _mesh.Record(list, _geometry, scene.Draws(_frames.PreviousSeconds));
+
+        _mirror.Transition(list, ResourceStates.PixelShaderResource);
+    }
+
     /// <summary>Records the room, the tracing and the composite.</summary>
     /// <param name="list">Command list to record into.</param>
     /// <param name="scene">What to draw, already finished, or null for an empty frame.</param>
@@ -384,6 +488,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
 
         int width = _width;
         int height = _height;
+
+        RecordReflection(list, scene, camera, width, height);
 
         // --- the room, into the G-buffer ---
         var colours = new CpuDescriptorHandle[_gbuffer.Length];
@@ -792,6 +898,12 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _lit = D3D12Texture.CreateRenderTarget(
             _context, GBufferFormats.Light, width, height, opaque);
 
+        // The reflection. The same format and the same size as the picture, because it is a
+        // picture of the room — the glass reads it at its own screen position, which is only
+        // the right texel if the two renders share a grid.
+        _mirror = D3D12Texture.CreateRenderTarget(
+            _context, GBufferFormats.Light, width, height, (0f, 0f, 0f, 1f));
+
         // One texel of nothing, bound wherever a pass reads a target that does not exist yet.
         // Both APIs require every declared binding to point at something valid even when the
         // shader multiplies what it reads by zero.
@@ -802,11 +914,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             linear: true);
 
         _targets = D3D12DescriptorHeap.Create(
-            _context.Device, DescriptorHeapType.Rtv, GBufferFormats.Targets + 1);
+            _context.Device, DescriptorHeapType.Rtv, Slots.Count);
 
         _depths = D3D12DescriptorHeap.Create(_context.Device, DescriptorHeapType.Dsv, 1);
 
-        for (uint i = 0; i < GBufferFormats.Targets + 1; i++)
+        for (uint i = 0; i < Slots.Count; i++)
         {
             _targets.Allocate();
         }
@@ -819,6 +931,14 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
 
         _context.Device->CreateRenderTargetView(
             _lit.Handle, (RenderTargetViewDesc*)null, _targets.Cpu(Slots.Lit));
+
+        _context.Device->CreateRenderTargetView(
+            _mirror.Handle, (RenderTargetViewDesc*)null, _targets.Cpu(Slots.Mirror));
+
+        // And every frame's set is pointed at it. A binding a shader declares must be a real
+        // descriptor whether the branch that reads it runs or not, so this is written for a
+        // room with no mirror in it as readily as for one with.
+        _frames.SetReflection(_mirror);
 
         _depths.Allocate();
 
@@ -1122,6 +1242,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _depth?.Dispose();
         _upscaled?.Dispose();
         _lit?.Dispose();
+        _mirror?.Dispose();
         _empty?.Dispose();
         _targets?.Dispose();
         _depths?.Dispose();
@@ -1132,6 +1253,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _depth = null;
         _upscaled = null;
         _lit = null;
+        _mirror = null;
         _empty = null;
         _targets = null;
         _depths = null;
@@ -1143,5 +1265,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     {
         /// <summary>After the G-buffer, whose targets take the first four.</summary>
         internal const uint Lit = GBufferFormats.Targets;
+
+        /// <summary>And after that, the one a mirror's reflection is drawn into.</summary>
+        internal const uint Mirror = GBufferFormats.Targets + 1;
+
+        /// <summary>How many render-target views one frame needs in all.</summary>
+        internal const uint Count = GBufferFormats.Targets + 2;
     }
 }

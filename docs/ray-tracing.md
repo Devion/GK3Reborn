@@ -118,7 +118,8 @@ dark. The surfaces are marked in the data: bit 16 of a BSP surface's flags is th
 light fittings, bit 8 the surfaces the bake did not light at all, and bit 64 the
 translucent shadow decals. None of the three occludes.
 
-**Reflections.** Nothing yet.
+**Reflections.** Screen-space, from AMD's SSSR, plus a planar pass for the mirrors — which
+a screen-space march cannot reach. See [Reflections](#reflections) below.
 
 ## The acceleration structure
 
@@ -649,3 +650,123 @@ which is drawn straight onto the screen after the copy so that it never appears 
 
 Measured on the church floor, reflections change it by a mean of 0.47 of an eight-bit step
 — visible as the pews mirrored under them, and nothing like a mirror.
+
+### Mirrors are not this pass, and were being marched by it
+
+A mirror on a wall facing the player shows what is **behind the camera**, which is the one
+thing a screen-space march cannot fetch. It was marching them anyway: the material pass
+calls `MIRRORLEFT1` glass at roughness 0.08, well under the 0.6 threshold, so every frame
+the marcher walked a surface that already has a reflection painted on it, found almost
+nothing, and added the little it did find on top. `SurfaceFinish.Mirror` now takes those
+surfaces out of `Reflects`, and the mesh pass reports their glass as matte in the normal
+target's alpha so the compute pass skips them. RC1 goes from 1,103 reflective textures to
+1,100.
+
+What replaces it is a planar pass: before the room is drawn, the room is drawn again from
+the camera reflected through the mirror's plane, into a target of its own, and the glass
+reads it.
+
+### The mapping is free
+
+**A point on the mirror's plane lands on the same pixel in both renders.** Reflection fixes
+the plane pointwise, so for a point on it the mirrored view matrix and the real one agree
+exactly. The glass therefore reads the reflection at `gl_FragCoord.xy / viewport` and needs
+no matrix, no second set of texture coordinates and nothing per-mirror in the shader beyond
+the flag and the inset. It is also the property that would break silently — a reflection
+that slides across the mirror as the camera moves — so there is a test for it.
+
+### What it costs
+
+One image the size of the picture, and one more pass over the room when a mirror faces the
+camera. Nothing when none does: `ChooseMirror` finds no glass, no batch carries the flag,
+and the pass returns before it clears anything.
+
+It borrows the frame's own normal, motion and depth targets rather than having its own. The
+mesh pipeline declares all of them and a pass must bind every target its pipeline writes, so
+the reflection cannot be drawn into a colour target alone — and it needs no others, because
+the pass that follows clears and overwrites all three.
+
+**One mirror a frame, the biggest on screen.** A second would be a second pass over the room
+for a reflection nobody is looking at. TE4 is the room with more than one, and its cameras
+are placed at one mirror at a time, which is what makes the rule agree with the one the
+player means. The other mirrors keep the picture painted on them, as does the back and the
+edges of the chosen mirror's own slab.
+
+**Always the raster pipeline, whatever the tracing setting.** The traced pipeline writes
+light rather than a picture and needs the compositing pass to become one; sampled directly
+it would be raw irradiance in a mirror. So the glass is lit by the rig without traced
+shadows even at High — a real difference from the room around it, and a small one at the
+size a mirror is drawn.
+
+### Three things that were each invisible
+
+**A mirrored camera is not a look-at from the reflected points.** Reflecting the eye, the
+target and the up vector and building an ordinary look-at puts the camera in exactly the
+right place pointing exactly the right way, and is wrong: a look-at always builds a basis of
+one handedness, from a cross product, while a reflection has a determinant of minus one and
+its view matrix must have the opposite handedness from the camera it came from. The cross
+product undoes precisely that and the side axis comes out negated. What the reflection
+actually is, is the real view matrix with the reflection applied to the world before it. The
+symptom was a mirror full of the wall behind it and then, with the clip disabled, a mirror
+full of nothing.
+
+**The clip is what makes it a mirror rather than a hole.** The reflected camera stands behind
+the glass, so the wall the mirror hangs on is between it and the room. Fragments behind the
+plane are discarded — the cheap half of an oblique near plane, doing the same job, since the
+expensive half buys depth precision a reflection sampled once does not need. The mirror
+itself is discarded in the same test: from behind a mirror there is no mirror to see, and it
+is also what stops the glass reading an image of itself out of a target not yet drawn.
+
+**Zero is not a plane.** The ordinary pass carries a zero normal, so every point is at
+distance zero and the clip passes everywhere — no branch, no second shader variant.
+
+### The two passes cannot share a constant buffer
+
+They are recorded into one command list and read their constants when the GPU reaches the
+draw, not when it is recorded, so whichever was written last is what both would see. Each
+frame's uniform ring is therefore twice as long, one slot for the room and one for its
+mirror. The reflection does not advance the motion history: it belongs to the frame, and
+letting the mirrored camera write it hands the next frame's motion vectors the view from
+behind a mirror. Nothing is lost — the reflection's own motion target is overwritten by the
+pass that follows it.
+
+### And the culling was already right
+
+A reflection reverses winding, so a reflected pass normally needs its cull mode turned
+around and therefore a second pipeline object in both backends. Neither backend culls
+anything: GK3's geometry is not wound consistently — a card is routinely two quads facing
+opposite ways — and the mesh pass has always drawn both sides. The one thing that would have
+cost a pipeline variant costs nothing.
+
+### Which surfaces, and the two that must never be
+
+GK3 has three mirrors that are pictures of a reflection and can be given a real one:
+`MIRRORLEFT1` and `MIRRORRIGHT1`, the temple's two mirrors at rest, and `TE4MIRROR`, the
+same frame with an empty interior. All three carry the **ornate silver frame in the
+texture**, so a reflection covering the whole card paints the frame out. The inset is
+measured rather than guessed: differencing `MIRRORLEFT1` against `MIRRORRIGHT1` leaves only
+the texels showing the room — columns 12 to 115, rows 9 to 119 of 128 — so the border is
+nine to twelve texels and `mirrorInset: 0.09` is inside it on every edge.
+
+`MIRRORGABEBAD` and `MIRRORGABEGOOD` are **not reflections and must never be given one**.
+`GABTE4TOMIRRORL` frame 25 puts `MirrorGabeBad` on the left mirror — a jaundiced,
+hollow-eyed Gabriel that is not his reflection at all — and `GABTE4TOMIRRORR` frame 33 puts
+the true image on the right. Which mirror shows which is the puzzle, and `TE4.sheep` glides
+the camera to `Left_Close` for a close-up of it before setting Gabriel's mood to
+`Surprised`. A rendered reflection shows the real Gabriel in both and deletes the puzzle.
+They are refused by name in the edits file, with the reason, rather than left to a
+judgement about roughness.
+
+**That refusal works because the flag follows the picture, not the surface.** Those images
+arrive by `[MTEXTURES]` repaint over the same surface the reflection would occupy, and a
+repainted batch keeps its original `TextureName` — so asking the original name whether this
+is a mirror answers yes right through the story beat. `Batch.Drawn` is what is asked
+instead. It also means the reflection turns itself off and on at exactly the right moments
+with nothing scripting it: live while the mirror is at rest, and out of the way the instant
+the story puts an image in it.
+
+B31's hand mirror is left out for now. Its glass is the oval inside `MIRRORFRNT` — the
+handle and rim are drawn on the same card — so masking it needs a shape and not the
+rectangular inset the framed mirrors want. `MIRRORTEX`, the flat grey at roughness 0.22
+that looks like the obvious candidate, is the slab's **edge**: 49 of its 89 vertices are on
+the underside and the rest on the top face.

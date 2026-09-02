@@ -299,6 +299,19 @@ public sealed record Settings
     public bool ImprovedSceneGeometry { get; init; } = true;
 
     /// <summary>
+    /// Whether a railing, a fence or a chain is given the thickness of the thing drawn on
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="ImprovedSceneGeometry"/> because it works on different data
+    /// and can fail on its own: that one replaces whole objects with geometry somebody
+    /// modelled outside the engine, and this one reads the holes a texture's colour key cuts
+    /// and builds a rim around them at load. Off, every keyed card is the single flat quad
+    /// it shipped as. See <see cref="Rendering.CutoutCards"/>.
+    /// </remarks>
+    public bool ThickCutoutCards { get; init; } = true;
+
+    /// <summary>
     /// How many times a character's head is subdivided, or zero to draw it as authored.
     /// </summary>
     /// <remarks>

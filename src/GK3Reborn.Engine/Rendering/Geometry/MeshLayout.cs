@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering.Shaders;
+﻿using GK3Reborn.Rendering.Shaders;
 
 namespace GK3Reborn.Rendering.Geometry;
 
@@ -64,6 +64,18 @@ public static class MeshLayout
             new(FrameSet, 1, ShaderBindingKind.ReadOnlyStorageBuffer, ShaderStages.Fragment),
             new(FrameSet, 2, ShaderBindingKind.ReadOnlyStorageBuffer, ShaderStages.Fragment),
             new(FrameSet, 3, ShaderBindingKind.ReadOnlyStorageBuffer, ShaderStages.Fragment),
+
+            // The room as this frame's mirror sees it, drawn a moment ago from the camera
+            // reflected through the glass. Set 0 because there is one of these for the whole
+            // frame and not one for each surface, and bound on every device and in every
+            // room: a binding a shader declares has to be a real descriptor whether the
+            // branch that reads it runs or not.
+            //
+            // Numbered above the acceleration structure while being declared before it, so
+            // that the structure stays the thing a device without tracing simply does not
+            // get. The numbers do not have to be in order; what has to be in order is which
+            // one is left off the end.
+            new(FrameSet, 5, ShaderBindingKind.CombinedImageSampler, ShaderStages.Fragment),
         ];
 
         // Last, and left out entirely on a device that cannot trace. Declaring a binding

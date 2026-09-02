@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 
 namespace GK3Reborn.Rendering.Geometry;
@@ -48,6 +48,23 @@ namespace GK3Reborn.Rendering.Geometry;
 /// brightness at all. See <see cref="OutputPlan"/>.
 /// </para>
 /// </param>
+/// <param name="MirrorPlane">
+/// The mirror this pass is reflecting about — <c>xyz</c> a unit normal out of the glass,
+/// <c>w</c> the offset — and <b>zero in every pass that is not the reflection</b>.
+/// <para>
+/// It is the whole of what makes the reflection pass different from the ordinary one, and
+/// it does two things. It clips: the reflected camera stands behind the mirror, so the wall
+/// the mirror hangs on is between it and the room and would otherwise fill the reflection
+/// with the inside of a wall. And it tells the mirror itself not to draw, because from
+/// behind a mirror there is no mirror to see — which is also what stops the glass reading
+/// an image of itself that does not exist yet.
+/// </para>
+/// <para>
+/// Zero is not a plane. A normal of zero puts every point at distance <c>w</c> from it,
+/// which is zero as well, so the test passes everywhere and the ordinary pass clips nothing
+/// — no branch and no second shader.
+/// </para>
+/// </param>
 /// <remarks>
 /// One uniform buffer a frame, bound once and read by every pass. Neutral because both
 /// backends want the same numbers in the same order: a Vulkan uniform buffer and a Direct3D
@@ -64,4 +81,5 @@ public readonly record struct FrameUniforms(
     Vector4 GridOrigin,
     Vector4 GridCounts,
     Vector4 Ambient,
-    Vector4 Exposure);
+    Vector4 Exposure,
+    Vector4 MirrorPlane);

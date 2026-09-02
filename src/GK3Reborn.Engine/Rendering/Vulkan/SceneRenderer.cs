@@ -146,7 +146,12 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
                 rayTracedFrames = FrameUniformSet.Create(context, rayTraced, 1);
             }
 
-            return new SceneRenderer(context, compiler, pipeline, frames, rayTraced, rayTracedFrames);
+            var renderer = new SceneRenderer(
+                context, compiler, pipeline, frames, rayTraced, rayTracedFrames);
+
+            renderer.BindPlaceholderReflection();
+
+            return renderer;
         }
         catch
         {
@@ -364,6 +369,16 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     public void Dispose()
     {
         _context.Api.DeviceWaitIdle(_context.Device);
+
+        if (_placeholderSampler.Handle != 0)
+        {
+            _context.Api.DestroySampler(_context.Device, _placeholderSampler, null);
+            _placeholderSampler = default;
+        }
+
+        Destroy(_placeholder);
+        _placeholder = default;
+
         _rayTracedFrames?.Dispose();
         _rayTraced?.Dispose();
         _frames.Dispose();
@@ -606,6 +621,50 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         }
     }
 
+    /// <summary>Gives the reflection binding something real to point at.</summary>
+    /// <remarks>
+    /// <para>
+    /// A single black texel. <b>Nothing here ever samples it</b> — the mirror flag is only
+    /// given to a surface once <see cref="SceneGeometry.ChooseMirror"/> has run, and only
+    /// the windowed renderer runs it, so a mirror photographed through this path draws the
+    /// picture painted on it exactly as it always has.
+    /// </para>
+    /// <para>
+    /// It exists because a binding a shader declares must be a real descriptor whether or
+    /// not the branch that reads it runs. Leaving it unwritten is not "a texture nobody
+    /// looks at"; it is a descriptor set the validation layers reject and a driver may do
+    /// anything with.
+    /// </para>
+    /// </remarks>
+    private void BindPlaceholderReflection()
+    {
+        _placeholder = CreateTarget(
+            1, 1, ColorFormat,
+            ImageUsageFlags.SampledBit | ImageUsageFlags.ColorAttachmentBit,
+            ImageAspectFlags.ColorBit);
+
+        var samplerInfo = new SamplerCreateInfo
+        {
+            SType = StructureType.SamplerCreateInfo,
+            MagFilter = Filter.Nearest,
+            MinFilter = Filter.Nearest,
+            AddressModeU = SamplerAddressMode.ClampToEdge,
+            AddressModeV = SamplerAddressMode.ClampToEdge,
+            AddressModeW = SamplerAddressMode.ClampToEdge,
+        };
+
+        _context.Api.CreateSampler(_context.Device, in samplerInfo, null, out _placeholderSampler);
+
+        _frames.SetReflection(_placeholder.View, _placeholderSampler);
+        _rayTracedFrames?.SetReflection(_placeholder.View, _placeholderSampler);
+    }
+
+    /// <summary>The one texel the reflection binding points at here.</summary>
+    private Target _placeholder;
+
+    /// <summary>How it is read, which nothing ever does.</summary>
+    private Sampler _placeholderSampler;
+
     private Target CreateTarget(
         int width, int height, Format format, ImageUsageFlags usage, ImageAspectFlags aspect)
     {
@@ -761,6 +820,11 @@ public static unsafe class VulkanSceneDraw
     /// <param name="width">Target width.</param>
     /// <param name="height">Target height.</param>
     /// <param name="camera">Where to look from.</param>
+    /// <param name="reflection">
+    /// Whether this is the mirror's pass rather than the frame's. It takes the second of the
+    /// frame's two constant buffers, so that the two passes recorded into one command buffer
+    /// do not read each other's camera, and leaves the motion history to the frame.
+    /// </param>
     public static void Record(
         Vk vk,
         CommandBuffer command,
@@ -770,7 +834,8 @@ public static unsafe class VulkanSceneDraw
         int frame,
         int width,
         int height,
-        Camera camera)
+        Camera camera,
+        bool reflection = false)
     {
         ArgumentNullException.ThrowIfNull(vk);
         ArgumentNullException.ThrowIfNull(pipeline);
@@ -784,7 +849,8 @@ public static unsafe class VulkanSceneDraw
         vk.CmdSetScissor(command, 0, 1, in scissor);
         vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, pipeline.Handle);
 
-        frames.Bind(command, pipeline, frame, camera, (float)width / height, width, height);
+        frames.Bind(
+            command, pipeline, frame, camera, (float)width / height, width, height, reflection);
         MeshPipeline.Record(vk, command, pipeline, geometry.Draws(frames.PreviousSeconds));
     }
 }

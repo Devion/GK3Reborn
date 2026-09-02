@@ -139,6 +139,8 @@ public static class CommandLine
           --flat-heads          The same as --heads 0.
           --round N             How far the round things are rounded.
           --relief N            The displacement budget; 0 displaces nothing.
+          --no-thick-cards      Draw every railing, fence and chain as the flat card it
+                                shipped as, rather than giving it a thickness.
           --flat                Colour textures only: no normal maps, no relief.
           --font NAME           Draw the interface with one of the game's own font sheets,
                                 such as F_CAPTION_D_20.

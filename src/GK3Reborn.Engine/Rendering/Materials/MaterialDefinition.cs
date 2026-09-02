@@ -37,6 +37,12 @@ public sealed record MaterialPatch
     /// <summary>Whether the height map becomes geometry, or null to keep.</summary>
     public bool? Displaced { get; init; }
 
+    /// <summary>Whether the surface is a mirror, or null to keep.</summary>
+    public bool? Mirror { get; init; }
+
+    /// <summary>How much of each edge is drawn frame rather than glass, or null to keep.</summary>
+    public float? MirrorInset { get; init; }
+
     /// <summary>New emissive color, or null to keep.</summary>
     public Vector3? Emissive { get; init; }
 
@@ -188,6 +194,63 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
     /// </remarks>
     public bool Displaced { get; init; }
 
+    /// <summary>
+    /// Whether this surface is a mirror, and its reflection is to be rendered rather than
+    /// taken from the texture.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off everywhere by default and set by hand, because it is a fact about what a surface
+    /// <em>is</em> and no classifier can reach it. GK3 has a handful of mirrors and every
+    /// one of them is a picture of a reflection painted onto a card: the temple's two
+    /// mirrors carry a blurred photograph of their own room, and the bathroom's hand mirror
+    /// is a flat grey oval. Roughness says how sharp a reflection would be if there were
+    /// one; this says there is supposed to be one at all.
+    /// </para>
+    /// <para>
+    /// <b>It is not a synonym for smooth.</b> The material pass already calls
+    /// <c>MIRRORLEFT1</c> glass at roughness 0.08, which is what makes the screen-space
+    /// pass march it — and a screen-space march cannot answer a mirror, because a mirror
+    /// facing the player reflects what is behind the camera and none of that is in the
+    /// frame. Marking a surface here is what stops that march and hands the surface to the
+    /// planar pass instead.
+    /// </para>
+    /// <para>
+    /// <b>Never set it on a mirror that is telling the story.</b> TE4's
+    /// <c>MIRRORGABEBAD</c> is not Gabriel's reflection: it is a jaundiced, hollow-eyed
+    /// Gabriel, and which of the two mirrors shows it is the puzzle. Those images arrive by
+    /// <c>[MTEXTURES]</c> swap over the same surface a real reflection would occupy, so
+    /// they are excluded by name in <see cref="MirrorInset"/>'s own set rather than left to
+    /// a judgement about roughness.
+    /// </para>
+    /// </remarks>
+    public bool Mirror { get; init; }
+
+    /// <summary>
+    /// How much of the texture, as a share of each edge, is frame rather than glass.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one number a mirror in this corpus needs beyond the flag. GK3's mirrors are not
+    /// cards of pure reflection: <c>MIRRORLEFT1</c>, <c>MIRRORRIGHT1</c> and
+    /// <c>TE4MIRROR</c> all carry the ornate silver frame <em>in the texture</em>, in a
+    /// border about a twelfth of the way in. Reflect the whole card and the frame goes with
+    /// it; reflect the inset and the artists' frame is still drawn from the texture that
+    /// has always held it.
+    /// </para>
+    /// <para>
+    /// Measured rather than guessed. Differencing <c>MIRRORLEFT1</c> against
+    /// <c>MIRRORRIGHT1</c> leaves exactly the texels that differ, which are exactly the
+    /// ones showing the room: columns 12 to 115 and rows 9 to 119 of 128, so the border is
+    /// nine to twelve texels and 0.09 is inside it on every edge.
+    /// </para>
+    /// <para>
+    /// Zero for a mirror with no frame drawn on it, which is what the bathroom's flat grey
+    /// <c>MIRRORTEX</c> is.
+    /// </para>
+    /// </remarks>
+    public float MirrorInset { get; init; }
+
     /// <summary>Linear emissive color. Zero for non-emissive surfaces.</summary>
     public Vector3 Emissive { get; init; }
 
@@ -273,6 +336,8 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
                 : patch.HeightTexture.Length > 0 ? patch.HeightTexture : null,
             HeightDepth = patch.HeightDepth ?? HeightDepth,
             Displaced = patch.Displaced ?? Displaced,
+            Mirror = patch.Mirror ?? Mirror,
+            MirrorInset = patch.MirrorInset ?? MirrorInset,
             Emissive = patch.Emissive ?? Emissive,
             AlphaCutoff = patch.AlphaCutoff ?? AlphaCutoff,
             DoubleSided = patch.DoubleSided ?? DoubleSided,

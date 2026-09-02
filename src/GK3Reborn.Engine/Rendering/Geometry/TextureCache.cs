@@ -39,6 +39,17 @@ public sealed class TextureCache : IDisposable
 
     private readonly HashSet<string> _keyed = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>What the holes in a keyed texture say about the shape drawn on it.</summary>
+    /// <remarks>
+    /// Kept only for the textures that measure as a lattice of bars — some sixty of the
+    /// eight hundred keyed ones in the game, and a handful in any room — because the mask is
+    /// the only thing that knows where a railing's silhouette is once the picture is on the
+    /// device. A 128-square mask is sixteen kilobytes; the ones that are nobody's railing
+    /// are never built. See <see cref="CutoutMask"/>.
+    /// </remarks>
+    private readonly Dictionary<string, CutoutMask> _cutouts =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, IGeometryTexture> _normals =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -165,6 +176,26 @@ public sealed class TextureCache : IDisposable
     /// </remarks>
     public IReadOnlySet<string> Keyed => _keyed;
 
+    /// <summary>
+    /// Whether keyed textures are measured for the lattice of bars that may be drawn on
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// Set before any texture is added, from the setting that gates the whole treatment.
+    /// Off, nothing is measured and nothing is kept, and a room is built exactly as it was
+    /// before any of this existed.
+    /// </remarks>
+    public bool MeasureCutouts { get; set; }
+
+    /// <summary>What the holes in a texture measured as, if it is a lattice of bars.</summary>
+    /// <param name="name">The texture's name.</param>
+    /// <returns>The mask, or null for every texture that is nobody's railing.</returns>
+    public CutoutMask? Cutout(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _cutouts.GetValueOrDefault(name);
+    }
+
     /// <summary>Whether a texture is already here.</summary>
     /// <param name="name">Its name.</param>
     /// <returns>True when nothing needs reading, decoding or uploading.</returns>
@@ -194,6 +225,15 @@ public sealed class TextureCache : IDisposable
         if (keyed.HasAlpha)
         {
             _keyed.Add(name);
+
+            // Measured here because this is the last place the texels exist as numbers: the
+            // next line hands them to the device and they are a picture from then on.
+            if (MeasureCutouts &&
+                !CutoutCards.Leaves.Contains(name) &&
+                CutoutMask.Measure(keyed) is { } cutout)
+            {
+                _cutouts[name] = cutout;
+            }
         }
 
         _textures[name] = _device.CreateTexture(keyed);
@@ -204,9 +244,21 @@ public sealed class TextureCache : IDisposable
     /// <param name="name">Its name, matched without regard to case.</param>
     /// <param name="image">The compressed levels.</param>
     /// <remarks>
+    /// <para>
     /// No keying. <see cref="TextureKeying"/> works on texels, and these are blocks; the
     /// loader is what decides that a texture needing a colour key takes the decoded path
     /// instead. Only three of the 324 textures in the pilot set do.
+    /// </para>
+    /// <para>
+    /// <b>A packed texture may still carry a cutout, and it arrives here rather than
+    /// above.</b> The packer leaves out only the keyed textures whose enhanced replacement
+    /// did <em>not</em> carry the key across as alpha; the ones that did are packed, as BC7
+    /// with a real alpha channel, so a railing installed with the content packs comes down
+    /// this path and not the decoded one. Measuring only there is why this pass did nothing
+    /// at all in a shipped build while every render made without the packs showed it
+    /// working — the exact shape of failure the rest of this codebase keeps a note about.
+    /// So the largest level is expanded, once, to be measured. See <see cref="CutoutMask"/>.
+    /// </para>
     /// </remarks>
     public void Add(string name, CompressedImage image)
     {
@@ -218,8 +270,79 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
+        if (MeasureCutouts && MayCutOut(image.Format) && !CutoutCards.Leaves.Contains(name))
+        {
+            Measure(name, image);
+        }
+
         _textures[name] = _device.CreateTexture(image);
         DeviceBytes += image.Blocks.Length;
+    }
+
+    /// <summary>Whether a block format has an alpha channel a cutout could live in.</summary>
+    /// <remarks>
+    /// BC5 is two channels and BC4 one, and neither is ever a base colour: they are the
+    /// normal and height maps, which never come here.
+    /// </remarks>
+    private static bool MayCutOut(BlockFormat format) =>
+        format is BlockFormat.Bc7Srgb or BlockFormat.Bc7Unorm;
+
+    /// <summary>
+    /// Expands one level of a packed texture and measures the holes in it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not the largest level.</b> A shipped base colour is up to 2,048 square, and
+    /// expanding that costs some forty milliseconds and sixteen megabytes to answer a
+    /// question about a silhouette that was drawn at 128 — every texel above
+    /// <see cref="CutoutMask.ReferenceTexels"/> was invented by an upscaler. Measuring the
+    /// smallest level that still carries the outline costs about a millisecond and gives
+    /// the same answer; taking level zero instead put a second and a quarter on a room's
+    /// load, which is what found this.
+    /// </remarks>
+    private void Measure(string name, CompressedImage image)
+    {
+        if (!BlockDecoder.CanDecode(image.Format) || image.Mips < 1)
+        {
+            return;
+        }
+
+        int level = 0;
+
+        while (level + 1 < image.Mips)
+        {
+            (_, _, int wide, int tall) = image.Level(level);
+
+            if (Math.Max(wide, tall) <= CutoutMask.ReferenceTexels)
+            {
+                break;
+            }
+
+            level++;
+        }
+
+        (_, _, int width, int height) = image.Level(level);
+
+        if (width < 4 || height < 4)
+        {
+            return;
+        }
+
+        byte[] pixels = new byte[BlockDecoder.DecodedLength(width, height)];
+
+        try
+        {
+            BlockDecoder.DecodeLevel(image, level, pixels);
+        }
+        catch (NotSupportedException)
+        {
+            return;
+        }
+
+        if (CutoutMask.Measure(
+                new DecodedImage(width, height, pixels, HasAlpha: true, name)) is { } cutout)
+        {
+            _cutouts[name] = cutout;
+        }
     }
 
     /// <summary>Uploads a block-compressed normal map, or keeps the one already here.</summary>

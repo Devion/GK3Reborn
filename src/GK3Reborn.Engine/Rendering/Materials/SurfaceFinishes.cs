@@ -34,7 +34,8 @@ namespace GK3Reborn.Rendering.Materials;
 public sealed class SurfaceFinishes
 {
     /// <summary>What a surface nobody has measured is assumed to be.</summary>
-    public static readonly SurfaceFinish Matte = new(1f, 0.5f, 0f, 1f, 0f, false, false, false, 0, 0f, 0f);
+    public static readonly SurfaceFinish Matte =
+        new(1f, 0.5f, 0f, 1f, 0f, false, false, false, 0, 0f, 0f, false, 0f);
 
     /// <summary>The deepest relief a height field may claim, in world units.</summary>
     /// <remarks>
@@ -107,6 +108,32 @@ public sealed class SurfaceFinishes
             foreach (SurfaceFinish finish in _finishes.Values)
             {
                 if (finish.Reflects)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    /// <summary>How many of those are mirrors.</summary>
+    /// <remarks>
+    /// Reported because it is a set of five names set by hand, and the whole of what makes
+    /// a mirror a mirror. A rename in the material library, a stale edits file, an edit
+    /// that landed on a texture the baseline no longer has — every one of those looks
+    /// exactly like the mirrors having been left alone, which is what they looked like
+    /// before any of this existed.
+    /// </remarks>
+    public int Mirrors
+    {
+        get
+        {
+            int count = 0;
+
+            foreach (SurfaceFinish finish in _finishes.Values)
+            {
+                if (finish.Mirror)
                 {
                     count++;
                 }
@@ -277,7 +304,9 @@ public sealed class SurfaceFinishes
                 material.Displaced,
                 Math.Clamp(material.Shells, 0, MaximumShells),
                 Math.Clamp(material.ShellDepth, 0f, MaximumFur),
-                Math.Clamp(material.ShellDensity, 1f, 4096f));
+                Math.Clamp(material.ShellDensity, 1f, 4096f),
+                material.Mirror,
+                Math.Clamp(material.MirrorInset, 0f, 0.45f));
         }
 
         return new SurfaceFinishes(finishes);
@@ -333,6 +362,18 @@ public sealed class SurfaceFinishes
 /// </param>
 /// <param name="ShellDepth">How far the outermost shell stands off, in world units.</param>
 /// <param name="ShellDensity">How many strands stand across one turn of the texture.</param>
+/// <param name="Mirror">
+/// Whether this surface's reflection is rendered rather than painted on it. See
+/// <see cref="MaterialDefinition.Mirror"/>: it is set by hand, it is not a synonym for
+/// smooth, and it is what takes a surface away from the screen-space pass — which cannot
+/// answer a mirror facing the player, because what such a mirror shows is behind the camera
+/// and therefore not in the frame it marches.
+/// </param>
+/// <param name="MirrorInset">
+/// How much of each edge of the texture is frame rather than glass, as a share of the edge.
+/// GK3's mirrors carry their ornate frames in the texture, so a reflection that covers the
+/// whole card paints over the frame. See <see cref="MaterialDefinition.MirrorInset"/>.
+/// </param>
 /// <remarks>
 /// <b>An authored finish beats a generated map.</b> Where a surface has an ORM map, the map
 /// is normally the answer — it is a measurement of that surface and the library's value is
@@ -352,7 +393,9 @@ public readonly record struct SurfaceFinish(
     bool Displaced = false,
     int Shells = 0,
     float ShellDepth = 0f,
-    float ShellDensity = 0f)
+    float ShellDensity = 0f,
+    bool Mirror = false,
+    float MirrorInset = 0f)
 {
     /// <summary>Whether anything grows on this surface.</summary>
     public bool Furred => Shells > 0 && ShellDepth > 0f;
@@ -369,11 +412,20 @@ public readonly record struct SurfaceFinish(
 
     /// <summary>Whether this is smooth enough for a reflection to be worth tracing.</summary>
     /// <remarks>
+    /// <para>
     /// Past this the cone a reflection would be gathered over is wide enough that what
     /// comes back is the ambient term the surface already has, arrived at far more
     /// expensively.
+    /// </para>
+    /// <para>
+    /// <b>A mirror is excluded however smooth it is</b>, which is the opposite of what the
+    /// roughness alone would say. The screen-space march can only return what is already on
+    /// screen, and a mirror on a wall facing the player shows what is behind the camera; the
+    /// march finds nothing and smears the little it does find over a texture that already
+    /// has a reflection painted on it. Those surfaces belong to the planar pass.
+    /// </para>
     /// </remarks>
-    public bool Reflects => Roughness <= Roughest;
+    public bool Reflects => Roughness <= Roughest && !Mirror;
 
     /// <summary>The roughest surface still worth tracing a reflection from.</summary>
     public const float Roughest = 0.6f;

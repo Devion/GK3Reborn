@@ -362,12 +362,14 @@ look like the pass failing and are not:
 - **A balcony gets a bevel and nothing else.** `rc1balcony_1` is six plane orientations over
   58 triangles: a box. There is no curve in it to recover and no baluster to find. Making
   one nicer means modelling one.
-- **A flat card cannot be given thickness.** Some roofs, fascias and steps are a single
-  plane — `rc1_roofsidez` is one plane over 18 triangles and 949 units across — and a
+- **An opaque flat card cannot be given thickness.** Some roofs, fascias and steps are a
+  single plane — `rc1_roofsidez` is one plane over 18 triangles and 949 units across — and a
   solid roof edge would have to be extruded to *some* side. Which side is not in the data:
   extrude the wrong way and the roof lifts off its walls or pushes through them. That
   decision belongs to somebody looking at the room, so those objects are classified `flat`
-  and left alone.
+  and left alone. **A keyed card is the exception**, and `cutout-cards.md` is that pass: the
+  colour key states where the silhouette is, so a railing can be given a rim and shelled
+  symmetrically about its own plane, which is what makes the question of sides go away.
 - **A box with a wooden texture is still a box.** `mop_crate3` looks like a stave tub and
   measures as four right angles: no edge on it is in the curve band at any threshold. The
   name lies, the picture lies, and the geometry is the only one of the three that cannot.

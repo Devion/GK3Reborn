@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering.Geometry;
@@ -41,11 +41,23 @@ public sealed unsafe class D3D12FrameSet : IDisposable
 {
     /// <summary>How many descriptors one frame's set takes.</summary>
     /// <remarks>
-    /// The constant buffer, the rig, the cells, the lights that reach them, and the
-    /// acceleration structure. Five whether or not the last is filled: a table is a run of
-    /// slots, and leaving a hole in it would mean two table shapes to bind.
+    /// The constant buffer, the rig, the cells, the lights that reach them, the acceleration
+    /// structure and the reflection a mirror reads. Six whether or not the structure is
+    /// filled: a table is a run of slots, and leaving a hole in it would mean two table
+    /// shapes to bind.
     /// </remarks>
-    private const uint DescriptorsPerFrame = 5;
+    private const uint DescriptorsPerFrame = 6;
+
+    /// <summary>
+    /// Where in one frame's run the reflection's view goes, which the tracing setting moves.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not a constant.</b> The root signature's ranges come from the layout, and the
+    /// layout leaves the acceleration structure out entirely on a device that cannot trace —
+    /// so the reflection is the fifth descriptor of the table there and the sixth here. The
+    /// heap always reserves six; only which slot the shader will look in moves.
+    /// </remarks>
+    private uint ReflectionSlot => _rayTracing ? 5u : 4u;
 
     private readonly D3D12Context _context;
     private readonly D3D12GeometryDevice _geometry;
@@ -97,7 +109,24 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     public float PreviousSeconds { get; private set; }
 
     /// <summary>How many frames of sets there are.</summary>
-    public int Count => _uniforms.Length;
+    public int Count => _uniforms.Length / PassesPerFrame;
+
+    /// <summary>How many passes of one frame read constants of their own.</summary>
+    /// <remarks>
+    /// Two: the room as the player sees it, and the room as this frame's mirror sees it.
+    /// They are recorded into one command list and read their constants when the GPU
+    /// reaches the draw rather than when it is recorded, so they cannot share a buffer —
+    /// whichever was written last is what both of them would see, and what that looks like
+    /// is the room drawn twice from inside the mirror.
+    /// </remarks>
+    public const int PassesPerFrame = 2;
+
+    /// <summary>Which slot one pass of one frame uses.</summary>
+    /// <param name="frame">Which frame in flight.</param>
+    /// <param name="reflection">Whether this is the mirror's pass rather than the frame's.</param>
+    /// <returns>The slot.</returns>
+    private int SlotFor(int frame, bool reflection) =>
+        ((frame % Count) * PassesPerFrame) + (reflection ? 1 : 0);
 
     /// <summary>Creates the sets.</summary>
     /// <param name="context">The device.</param>
@@ -114,14 +143,15 @@ public sealed unsafe class D3D12FrameSet : IDisposable
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frames);
 
         {
-            uint first = geometry.AllocateViews((uint)frames * DescriptorsPerFrame);
+            int slots = frames * PassesPerFrame;
+            uint first = geometry.AllocateViews((uint)slots * DescriptorsPerFrame);
 
-            var uniforms = new D3D12Buffer[frames];
-            var rig = new D3D12Buffer[frames];
-            var cells = new D3D12Buffer[frames];
-            var reaching = new D3D12Buffer[frames];
+            var uniforms = new D3D12Buffer[slots];
+            var rig = new D3D12Buffer[slots];
+            var cells = new D3D12Buffer[slots];
+            var reaching = new D3D12Buffer[slots];
 
-            for (int i = 0; i < frames; i++)
+            for (int i = 0; i < slots; i++)
             {
                 uniforms[i] = D3D12Buffer.CreateHostVisible(
                     context, (ulong)Marshal.SizeOf<FrameUniforms>(), forConstants: true);
@@ -152,8 +182,13 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// <summary>Where one frame's descriptors start, for a draw to bind.</summary>
     /// <param name="frame">Which frame in flight.</param>
     /// <returns>The handle.</returns>
-    public GpuDescriptorHandle Table(int frame) =>
-        _geometry.ViewGpu(_first + ((uint)(frame % Count) * DescriptorsPerFrame));
+    /// <param name="reflection">
+    /// Whether this is a mirror's pass rather than the frame's. It takes the second of the
+    /// frame's two slots — see <see cref="PassesPerFrame"/> — and leaves the motion history
+    /// to the frame.
+    /// </param>
+    public GpuDescriptorHandle Table(int frame, bool reflection = false) =>
+        _geometry.ViewGpu(_first + ((uint)SlotFor(frame, reflection) * DescriptorsPerFrame));
 
     /// <summary>Points the ray-tracing paths at the scene they trace against.</summary>
     /// <param name="scene">The acceleration structure.</param>
@@ -173,10 +208,31 @@ public sealed unsafe class D3D12FrameSet : IDisposable
 
         _scene = scene;
 
-        for (int i = 0; i < Count; i++)
+        for (int i = 0; i < _uniforms.Length; i++)
         {
             direct.Structure.Describe(
                 _context, _geometry.ViewCpu(_first + ((uint)i * DescriptorsPerFrame) + 4));
+        }
+    }
+
+    /// <summary>Points every frame's set at the picture a mirror reads.</summary>
+    /// <param name="reflection">The target the reflection is drawn into.</param>
+    /// <remarks>
+    /// Written into every frame's set rather than one, for the same reason the acceleration
+    /// structure is: a set is bound by whichever frame is being recorded, and the image does
+    /// not change between them. Rewritten when the window changes size, because the target
+    /// is remade at the new size and the old descriptor names an image that is gone.
+    /// </remarks>
+    public void SetReflection(D3D12Texture reflection)
+    {
+        ArgumentNullException.ThrowIfNull(reflection);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        for (int i = 0; i < _uniforms.Length; i++)
+        {
+            reflection.Describe(
+                _context,
+                _geometry.ViewCpu(_first + ((uint)i * DescriptorsPerFrame) + ReflectionSlot));
         }
     }
 
@@ -188,7 +244,7 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// binding of its own rather than through the frame table, so it needs the buffer rather
     /// than a descriptor of it.
     /// </remarks>
-    public D3D12Buffer Rig(int frame) => _rig[frame];
+    public D3D12Buffer Rig(int frame) => _rig[SlotFor(frame, reflection: false)];
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
@@ -232,7 +288,7 @@ public sealed unsafe class D3D12FrameSet : IDisposable
         GridOrigin = new Vector4(grid.Origin, grid.Cell);
         GridCounts = new Vector4(grid.Counts.X, grid.Counts.Y, grid.Counts.Z, packed.Length);
 
-        for (int i = 0; i < Count; i++)
+        for (int i = 0; i < _uniforms.Length; i++)
         {
             _rig[i].Write<byte>(bytes);
             _cells[i].Write<int>(grid.Offsets);
@@ -258,13 +314,19 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// <param name="aspect">Width divided by height.</param>
     /// <param name="width">Viewport width in pixels.</param>
     /// <param name="height">Viewport height in pixels.</param>
+    /// <param name="reflection">
+    /// Whether this is a mirror's pass rather than the frame's. It takes the second of the
+    /// frame's two slots — see <see cref="PassesPerFrame"/> — and leaves the motion history
+    /// to the frame.
+    /// </param>
     /// <remarks>
     /// The same numbers the Vulkan path writes, in the same order, because it is the same
     /// shader reading them. The projection carries a Y flip for Vulkan's clip space and the
     /// translation to HLSL takes it back out, so what goes in here is the matrix the Vulkan
     /// path would use rather than one built for Direct3D. See <c>HlslTranspiler</c>.
     /// </remarks>
-    public void Write(int frame, Camera camera, float aspect, int width, int height)
+    public void Write(
+        int frame, Camera camera, float aspect, int width, int height, bool reflection = false)
     {
         ArgumentNullException.ThrowIfNull(camera);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -283,10 +345,19 @@ public sealed unsafe class D3D12FrameSet : IDisposable
         // matrix is the whole screen moving at once. Its own is the honest answer: nothing
         // moved, because there was nothing to move from.
         Matrix4x4 previous = _previousViewProjection ?? steady;
-        _previousViewProjection = steady;
 
-        PreviousSeconds = _wasAt ?? Seconds;
-        _wasAt = Seconds;
+        // <b>The reflection does not advance the history.</b> Two passes of one frame call
+        // this, and the history belongs to the frame: letting the mirrored camera write it
+        // hands the next frame's motion vectors the view from behind a mirror, which reads
+        // as the whole screen having moved at once. Nothing is lost by it — the reflection's
+        // own motion target is overwritten by the pass that follows it.
+        if (!reflection)
+        {
+            _previousViewProjection = steady;
+
+            PreviousSeconds = _wasAt ?? Seconds;
+            _wasAt = Seconds;
+        }
 
         var uniforms = new FrameUniforms(
             viewProjection,
@@ -313,10 +384,25 @@ public sealed unsafe class D3D12FrameSet : IDisposable
             // The jitter the projection above was built with, so the fragment stage can take
             // it back out of the motion vectors, and how far above white a surface that
             // carries its own light may go.
-            new Vector4(JitterPixels.X, JitterPixels.Y, EmissiveGain, 0f));
+            new Vector4(JitterPixels.X, JitterPixels.Y, EmissiveGain, 0f),
 
-        _uniforms[frame % Count].Write<FrameUniforms>([uniforms]);
+            // The mirror this pass reflects about, and zero in the pass that draws the room
+            // as the player sees it. See FrameUniforms.MirrorPlane.
+            MirrorPlane);
+
+        _uniforms[SlotFor(frame, reflection)].Write<FrameUniforms>([uniforms]);
     }
+
+    /// <summary>
+    /// The mirror this set's pass reflects about, or zero for the pass that draws the room.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="FrameUniforms.MirrorPlane"/>. The reflection is drawn from its own
+    /// constant buffer rather than this one being rewritten between the two passes: both are
+    /// recorded into one command list and read their constants when the GPU reaches the
+    /// draw, so a shared buffer would hand both of them whichever was written last.
+    /// </remarks>
+    public Vector4 MirrorPlane { get; set; }
 
     /// <inheritdoc/>
     public void Dispose()

@@ -167,6 +167,7 @@ public static class Program
                 options.Relief,
                 options.Trees,
                 options.Improved,
+                options.ThickCards,
                 options.Wind,
                 options.Packs,
                 options.Backend,
@@ -746,6 +747,9 @@ public static class Program
               --no-relief          render-scene leaves the floor flat, drawing its
                                    height map with the shader alone. What the room
                                    looked like before displacement, for comparison.
+              --no-thick-cards     render-scene leaves every railing, fence and chain
+                                   the flat card it shipped as, rather than giving it
+                                   the thickness of what is drawn on it.
               --no-improved-geometry
                                    render-scene draws every room as it shipped, with
                                    1999's infinitely sharp edges, rather than from
@@ -892,6 +896,16 @@ public static class Program
         /// </remarks>
         public bool Improved { get; init; } = true;
 
+        /// <summary>
+        /// Whether render-scene gives a keyed card the thickness of what is drawn on it.
+        /// </summary>
+        /// <remarks>
+        /// The A/B for railings, fences and chains, and the only way to see the pass at all:
+        /// its whole effect is a silhouette that survives being looked at from the side, so
+        /// two renders of the same rail from the same oblique angle are what show it.
+        /// </remarks>
+        public bool ThickCards { get; init; } = true;
+
         /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
         public bool Trees { get; init; } = true;
 
@@ -934,6 +948,7 @@ public static class Program
             bool relief = true;
             bool trees = true;
             bool improved = true;
+            bool thickCards = true;
             bool expandBlocks = false;
             string? tool = null;
             string? enhanced = null;
@@ -964,6 +979,9 @@ public static class Program
                         break;
                     case "--no-improved-geometry":
                         improved = false;
+                        break;
+                    case "--no-thick-cards":
+                        thickCards = false;
                         break;
                     case "--no-trees":
                         trees = false;
@@ -1107,6 +1125,7 @@ public static class Program
                 Relief = relief,
                 Trees = trees,
                 Improved = improved,
+                ThickCards = thickCards,
                 ExpandBlocks = expandBlocks,
                 Tool = tool,
                 Enhanced = enhanced,

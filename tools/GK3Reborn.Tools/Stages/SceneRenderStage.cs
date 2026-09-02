@@ -75,6 +75,7 @@ public sealed class SceneRenderStage
     /// <param name="relief">Whether the floor's height map is cut into the geometry.</param>
     /// <param name="trees">Whether foliage cards are grown into modelled trees.</param>
     /// <param name="improved">Whether a room's objects are drawn from improved geometry.</param>
+    /// <param name="thickCards">Whether a keyed card is given a thickness.</param>
     /// <param name="wind">
     /// Where to stop the wind's clock, in seconds. Zero is a still afternoon, which is what
     /// keeps two renders of one room the same picture; any other value is for looking at
@@ -108,6 +109,7 @@ public sealed class SceneRenderStage
         bool relief,
         bool trees,
         bool improved,
+        bool thickCards,
         float wind,
         string? packs,
         string? backend,
@@ -169,6 +171,11 @@ public sealed class SceneRenderStage
         // Off is what the room looked like before a floor could be displaced, which is the
         // only way to compare the two: everything else about the frame is identical.
         geometry.Relief = relief ? ReliefSettings.Default : ReliefSettings.Off;
+
+        // Set before the room's textures are read, because it gates the measurement as well
+        // as the geometry and the measurement happens as a texture is uploaded. Off is the
+        // flat 1999 card, which is the only thing to compare a thickened one against.
+        geometry.ThickenCutoutCards = thickCards;
 
         SceneRequest request = SceneRequest.For(sceneName, timeblock);
 
@@ -367,6 +374,18 @@ public sealed class SceneRenderStage
         {
             _log($"cards: {geometry.CardsSeparated} coincident surfaces moved apart so they " +
                  "can be told apart by depth");
+        }
+
+        // Reported with the thickness range, because the thickness is measured rather than
+        // chosen: a room whose rails all came out at the clamp is a measurement that has
+        // gone wrong, and neither a triangle count nor one screenshot would say so.
+        if (geometry.CardsThickened > 0)
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"railings: {geometry.CardsThickened} keyed cards given a thickness of " +
+                $"{geometry.CardThickness.Thinnest:0.##}-{geometry.CardThickness.Thickest:0.##} " +
+                $"units, {geometry.CardTriangles} triangles"));
         }
 
         _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches" +
