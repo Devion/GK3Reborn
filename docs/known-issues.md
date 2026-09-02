@@ -221,6 +221,75 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Montreaux arrived twice in the attic, and everybody acted before they got there — fixed 2026-09-02
+
+**Reported:** "CS3 — odd bug, when opening the wardrobe first, then opening the chest, it
+triggers the timer, if grace then hides in the wardrobe everything seems to play twice, I
+had to select 'hide' twice on the wardrobe, all voice overs after play twice." And, while
+the first fix was being checked: "he ran straight for the wardrobe before moving to the
+window as he is called", and "clothes are being shoved away BEFORE grace is at the
+wardrobe".
+
+Two separate faults in the same scene, both of them about waiting.
+
+**A game timer fired in the middle of an action.** `CS3212P.NVC` opens the trunk with
+`wait CallSheep("cs3212p","TrunkOpenFirst"); SetGameTimer("SCENE","TIMER_EXP",20000)`;
+`SCENE:TIMER_EXP` walks Montreaux up the stairs and sets `MONTREAUX:TIMER_EXP` for nine or
+eleven seconds; and `MONTREAUX:TIMER_EXP` runs `MnOnTheWay2`, his arrival. Both timer rules
+are guarded by `CAUGHT_BY_MONTREAUX_1={GetNounVerbCountInt(n$, v$)==0}`.
+
+Hiding in the wardrobe is meant to cancel them. `HideWardrobe$` spends several seconds on a
+walk and three clips, *then* raises both counts so the pending timer's rule stops applying,
+*then* calls `MnOnTheWay2` itself. The counts go up last, so a timer that fires during those
+seconds still finds its rule applying — and Montreaux arrived once from the timer and again
+from the wardrobe, with every line after it heard twice.
+
+`GameTimers::Update` fires one only
+`if(secondsRemaining <= 0.0f && !gActionManager.IsActionPlaying())`. A timer that comes due
+while something is playing stays on the list and is offered again on the next frame that
+finds the story free. `GameTimers.Advance` handed back everything that had run out and the
+room performed all of it, whatever else was going on.
+
+Coming due and being performed are two things now: `Advance` moves the clock for every timer
+and `TakeDue` hands back one at a time, and `SceneUpdate` takes them only while `Occupied` is
+false, asking again between each — which is the reference's own loop, where executing one
+makes `IsActionPlaying` true for the next.
+
+**`Occupied` was also under-reporting.** It is `ActionManager::IsActionPlaying`, one signal
+covering every action however it was asked for, and the part of it that watches the scripts
+an action started (`SceneUpdate._quiet`) was armed only by the room's own trigger rectangles.
+A clicked action whose script was still running read as nothing happening at all — and
+`WARDROBE:HIDE` is a single `wait CallSheep(...)`, so it had no stated seconds either. Every
+action arms it now, through `Gk3SheepApi.Starts`, which `ActionRunner.Run` calls as it
+begins. This also gives the camera and the click-swallowing the same reach the reference
+gives them: the story keeps both for as long as an action's script is running.
+
+**`WalkToAnimation` was not waitable.** It is `WAITABLE` in the reference
+(`SheepAPI_Scene.cpp`) and was missing from the recorded table in `Gk3SheepApi`, so the
+machine never counted a wait on it; and `SecondsFor` priced it as a walk to a *place* of that
+name, found none, and answered zero. Either alone is enough to make `wait WalkToAnimation(…)`
+no wait at all.
+
+It is written `wait WalkToAnimation(who, clip); StartMoveAnimation(clip);` — go and stand
+where the clip begins, then play it — **165 times across the corpus**, nine of them in
+`NotGraceCaught$`. Every one played its clip the moment the walk set off. Grace pushed the
+robes aside from across the attic, and Montreaux acted out his arrival, his call and his
+walk to the window all at once from the top of the stairs.
+
+It is in the table now and priced through `WalksToAnimationStart`, which is the same question
+the walk itself asks.
+
+Reproducing them:
+
+    GK3Reborn.exe --scene CS3 --do TRUNK:OPEN --frames 6000
+    GK3Reborn.exe --scene CS3 --did WARDROBE:HIDE --frames 4000         --run '@30 CallSheep("cs3212p","MnOnTheWay2")'
+
+The first now logs `SCENE:TIMER_EXP [CAUGHT_BY_MONTREAUX_1] ran` once at twenty seconds and
+`Montreaux:TIMER_EXP` once, held until `MonUp$` was over. The second walks Montreaux to the
+wardrobe, plays `MonCs3StrtToOpnWard`, then walks him to the window — where before it played
+every clip in the same breath. `MonCs3OpnWindo` still warns that
+`cs3_wndwfrm_opn01_MonCs3OpnWindo` is not in the archives, which is a separate content gap.
+
 ### Talking to the old lady in the wine cellar skipped her scene entirely — fixed 2026-09-02
 
 **Reported:** "Check if there is any cutscene missing on CS6 scene when talking to the old

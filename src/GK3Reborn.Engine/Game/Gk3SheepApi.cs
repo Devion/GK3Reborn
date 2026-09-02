@@ -245,6 +245,17 @@ public sealed class Gk3SheepApi : ISheepApi
     /// </remarks>
     public double ActionSeconds { get; set; }
 
+    /// <summary>Told as an action begins, before anything of it has happened.</summary>
+    /// <remarks>
+    /// The other half of <see cref="ActionSeconds"/>, for the part of an action that has no
+    /// length: the room notes what its scheduler was already holding, and anything the
+    /// action goes on to start is by subtraction the action still running. Called for every
+    /// action however it was asked for — a click, a rectangle on the floor, a timer coming
+    /// due — because the reference's <c>IsActionPlaying</c> does not care which. Null for a
+    /// host with no scheduler behind it, which is every tool.
+    /// </remarks>
+    public Action? Starts { get; set; }
+
     /// <summary>How long a movie runs, asked before it is played.</summary>
     /// <remarks>
     /// A hook rather than a library lookup, because the length lives in the movie's own
@@ -383,7 +394,18 @@ public sealed class Gk3SheepApi : ISheepApi
 
             // A walk is as long as the route is, which is not known until it is found —
             // so this asks for one rather than guessing from the distance.
-            "WALKTO" or "WALKTOANIMATION" => Length(arguments, Approaching.Walk),
+            "WALKTO" => Length(arguments, Approaching.Walk),
+
+            // And this one's second argument is an animation rather than a place, so the
+            // ordinary walk cannot price it: it goes looking for a spot of that name,
+            // finds none and answers nothing at all. Asked the right way it is the same
+            // question — how long to get to where the clip begins.
+            "WALKTOANIMATION" => WalksToAnimationStart is { } toStart
+                ? toStart(
+                    arguments.Count > 1 && first is { Length: > 0 } ? first : State.Ego,
+                    arguments.Count > 1 ? arguments[1].AsString() : first,
+                    false)
+                : 0,
             "WALKTOSEEMODEL" => Length(arguments, Approaching.WalkToSee),
             "TURNTOMODEL" or "TURNTO" => Length(arguments, Approaching.Turn),
 
@@ -1027,6 +1049,14 @@ public sealed class Gk3SheepApi : ISheepApi
             ("ContinueDialogueNoFidgets", true),
             ("StartVoiceOver", true),
             ("WalkTo", true),
+
+            // Waitable in the reference like the other two, and left out of this list
+            // alone. A wait the machine does not know is a wait at all is no wait: the
+            // script carried straight on and played the clip it had just sent somebody to
+            // the start of, so Grace pushed the robes aside from across the attic and
+            // Montreaux played the whole of his arrival where he stood. 165 calls, and
+            // every one of them a walk with its own scene running over the top of it.
+            ("WalkToAnimation", true),
             ("WalkToSeeModel", true),
             ("WalkerBoundaryBlockRegion", false),
             ("WalkerBoundaryUnblockRegion", false),

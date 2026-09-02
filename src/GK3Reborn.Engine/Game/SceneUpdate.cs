@@ -3515,7 +3515,14 @@ public sealed class SceneUpdate
         // that an action which sets one is not a frame late in doing it.
         StepLater(seconds, happened);
 
-        foreach (GameTimer timer in _api.State.Timers.Advance(seconds))
+        // The clock moves for every timer whatever else is happening; what waits on the
+        // story being free is performing one. Taken one at a time and with the story asked
+        // again between them, because performing one is the story becoming busy — which is
+        // the whole of GameTimers::Update's own rule. See GameTimers for what firing one
+        // into the middle of an action does to CS3's attic.
+        _api.State.Timers.Advance(seconds);
+
+        while (!Occupied && _api.State.Timers.TakeDue() is { } timer)
         {
             happened.Add(Fire(timer));
         }
@@ -3804,10 +3811,6 @@ public sealed class SceneUpdate
                 continue;
             }
 
-            // Before it runs, so that what its script starts counts as outstanding and
-            // what the room was already running does not.
-            _quiet = _scripts?.Count ?? 0;
-
             happened.Add(Fire(trigger.Noun, Walked));
             return;
         }
@@ -3939,16 +3942,42 @@ public sealed class SceneUpdate
     /// <summary>The verb a trigger's noun is looked up with.</summary>
     private const string Walked = "WALK";
 
-    /// <summary>How many scripts were waiting before the room last started an action.</summary>
+    /// <summary>How many scripts were waiting before the last action started.</summary>
     /// <remarks>
-    /// Minus one until it has. A room's own background scripts sit in the scheduler for as
+    /// Minus one until one has. A room's own background scripts sit in the scheduler for as
     /// long as the room stands — the dining room and the third-floor hall each keep two
     /// parked permanently — so "any script is waiting" is not a usable answer to whether
-    /// something is happening. The number of them when the room last acted is, because what
-    /// an action starts is on top of that and what it started going away is the action
-    /// being over.
+    /// something is happening. The number of them when an action last started is, because
+    /// what that action starts is on top of that and what it started going away is the
+    /// action being over.
     /// </remarks>
     private int _quiet = -1;
+
+    /// <summary>Notes what was already running, before an action adds to it.</summary>
+    /// <remarks>
+    /// <para>
+    /// Called as every action begins, whoever asked for it. <c>IsActionPlaying</c> is one
+    /// signal in the original and covers the lot: a click, a rectangle on the floor, a timer
+    /// coming due. Armed only from the room's own two, it answered "nothing is happening"
+    /// through the whole of a clicked action whose script was still running — which is a
+    /// timer firing over the top of it, a trigger going off underneath it, and the camera
+    /// handed back to the player mid-scene.
+    /// </para>
+    /// <para>
+    /// An action starting while an earlier one's scripts are still parked leaves the mark
+    /// where it is. Moving it up would count those as the room being quiet again and lose
+    /// the first action, and the first action is the one still speaking.
+    /// </para>
+    /// </remarks>
+    public void Starting()
+    {
+        int waiting = _scripts?.Count ?? 0;
+
+        if (_quiet < 0 || waiting <= _quiet)
+        {
+            _quiet = waiting;
+        }
+    }
 
 
     /// <summary>

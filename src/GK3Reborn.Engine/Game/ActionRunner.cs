@@ -142,6 +142,11 @@ public sealed class ActionRunner
             return new ActionOutcome(action.Noun, action.Verb, action.Case, statements, Ran: false);
         }
 
+        // Something is happening from here, and it is happening before the approach walk
+        // rather than after it. Whoever is keeping track is told now so that what this goes
+        // on to start counts as this action and what was already running does not.
+        _api.Starts?.Invoke();
+
         // What the script means when it says "this thing" — see Gk3SheepApi.ActingOn.
         _api.ActingOn = action.Noun;
 

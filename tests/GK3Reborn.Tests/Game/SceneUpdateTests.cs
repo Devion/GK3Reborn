@@ -9,6 +9,7 @@ using GK3Reborn.Game;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Rendering;
+using GK3Reborn.Sheep;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -564,6 +565,143 @@ public sealed class SceneUpdateTests
 
         Assert.Single(update.Advance(0.6));
         Assert.True(state.GetFlag("rang"));
+    }
+
+    [Fact]
+    public void A_timer_that_comes_due_inside_an_action_waits_for_it()
+    {
+        // GameTimers::Update fires one only if(secondsRemaining <= 0 && !IsActionPlaying()).
+        // Without the second half a timer goes off over the top of whatever is playing.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var resolver = new ActionResolver(api);
+
+        resolver.Add(NvcFile.Parse(
+            """
+            DOOR,  OPEN, ALL, script={wait SetTimerSeconds(1.0); SetFlag("opened");}
+            PHONE, RING, ALL, script={SetFlag("rang");}
+            """,
+            "test.nvc",
+            new DiagnosticBag()));
+
+        var update = new SceneUpdate(
+            Scene(), api, new Glances(), new Watcher(), resolver, new ActionRunner(api));
+
+        new ActionRunner(api).Run(resolver.Find("DOOR", "OPEN")!);
+        state.Timers.Set("PHONE", "RING", 0.25);
+
+        // Halfway through the door, and well past when the phone ran out.
+        update.Advance(0.5);
+
+        Assert.False(state.GetFlag("rang"), "the phone rang over the top of the door");
+        Assert.Equal(1, state.Timers.Count);
+
+        // And it is still there to ring once the door is over, rather than having been
+        // dropped on the frame it could not be performed.
+        update.Advance(1.0);
+
+        Assert.True(state.GetFlag("rang"));
+        Assert.Equal(0, state.Timers.Count);
+    }
+
+    [Fact]
+    public void A_timer_waits_for_an_action_that_is_waiting_on_a_script()
+    {
+        // CS3's attic, which is how this was reported. Grace hides in the wardrobe; the
+        // action's own script is `wait CallSheep(...)`, and the function it calls spends
+        // several seconds on animations before raising the count that makes the pending
+        // Montreaux timer's rule stop applying. Fire the timer during those seconds and its
+        // rule still holds, so Montreaux's arrival plays once from the timer and again from
+        // the wardrobe — and every line after it is heard twice.
+        //
+        // The action's length is not a number of seconds here: it is another script. So
+        // what has to count as the story being busy is the script still parked in the
+        // scheduler, which is the half of it a click never armed.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+
+        host.Scheduler = scheduler;
+
+        var resolver = new ActionResolver(api);
+
+        resolver.Add(NvcFile.Parse(
+            """
+            WARDROBE,  HIDE,      ALL,               script={wait CallSheep("CS3212P", "HideWardrobe$");}
+            MONTREAUX, TIMER_EXP, NOT_YET_ARRIVED,   script={IncNounVerbCount("MONTREAUX", "TIMER_EXP"); SetFlag("arrived");}
+
+            [LOGIC]
+            NOT_YET_ARRIVED = {GetNounVerbCount("MONTREAUX", "TIMER_EXP") == 0}
+            """,
+            "test.nvc",
+            new DiagnosticBag()));
+
+        // The hiding, in the shape the real one has: time spent before the counts are
+        // raised, and the arrival run by the script itself at the end of it.
+        host.Add(SheepCompiler.Compile(
+            """
+            code
+            {
+                HideWardrobe$()
+                {
+                    wait SetTimerSeconds(2.0);
+                    IncNounVerbCount("MONTREAUX", "TIMER_EXP");
+                    SetFlag("arrived");
+                }
+            }
+            """,
+            "CS3212P.SHP",
+            Signatures(
+                ("SetTimerSeconds", SheepSignatures.Void, [SheepSignatures.Float]),
+                ("IncNounVerbCount",
+                    SheepSignatures.Void, [SheepSignatures.String, SheepSignatures.String]),
+                ("SetFlag", SheepSignatures.Void, [SheepSignatures.String]))));
+
+        var update = new SceneUpdate(
+            Scene(),
+            api,
+            new Glances(),
+            new Watcher(),
+            resolver,
+            new ActionRunner(api),
+            scheduler);
+
+        // What the room does for the clock-bearing hooks an action needs. Only the one
+        // this is about: the rest of the scene wiring wants a standing scene.
+        api.Starts = update.Starting;
+        api.DefersUntil = update.Until;
+
+        // Montreaux is half a second off and the hiding takes two, so the timer runs out
+        // squarely inside the action — which is the whole of the case.
+        state.Timers.Set("MONTREAUX", "TIMER_EXP", 0.5);
+        new ActionRunner(api).Run(resolver.Find("WARDROBE", "HIDE")!);
+
+        Assert.True(update.Occupied, "hiding is the story being busy");
+
+        for (int frame = 0; frame < 60 * 4; frame++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        // Once, by the script, and never by the timer: by the time the room was free again
+        // the count was up and the timer's rule no longer applied.
+        Assert.Equal(1, state.GetNounVerbCount("MONTREAUX", "TIMER_EXP"));
+        Assert.Equal(0, state.Timers.Count);
+        Assert.True(state.GetFlag("arrived"));
+    }
+
+    private static SheepSignatures Signatures(
+        params (string Name, sbyte Returns, sbyte[] Args)[] functions)
+    {
+        var catalogue = new SheepSignatures();
+
+        foreach ((string name, sbyte returns, sbyte[] args) in functions)
+        {
+            catalogue.Add(new SheepImport(name, returns, args));
+        }
+
+        return catalogue;
     }
 
     [Fact]

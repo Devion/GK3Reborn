@@ -1330,7 +1330,17 @@ public sealed class SceneRenderStage
             return;
         }
 
-        IReadOnlyList<GameTimer> due = api.State.Timers.Advance(seconds);
+        // Everything that ran out, because nothing here is an action a timer could be
+        // waiting behind: the room's rule is one at a time and only while the story is
+        // free, and a stage with no update loop is never anything but free.
+        api.State.Timers.Advance(seconds);
+
+        List<GameTimer> due = [];
+
+        while (api.State.Timers.TakeDue() is { } timer)
+        {
+            due.Add(timer);
+        }
 
         _log(string.Create(
             CultureInfo.InvariantCulture,

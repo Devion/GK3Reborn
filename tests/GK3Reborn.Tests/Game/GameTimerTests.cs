@@ -1,4 +1,4 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using GK3Reborn.Sheep;
 using Xunit;
 
@@ -20,10 +20,18 @@ public sealed class GameTimerTests
         var timers = new GameTimers();
         timers.Set("PHONE", "RING", 60);
 
-        Assert.Empty(timers.Advance(59));
+        timers.Advance(59);
+
+        Assert.Null(timers.TakeDue());
         Assert.Equal(1, timers.Count);
 
-        GameTimer due = Assert.Single(timers.Advance(1));
+        timers.Advance(1);
+
+        GameTimer? taken = timers.TakeDue();
+
+        Assert.NotNull(taken);
+
+        GameTimer due = taken.Value;
 
         Assert.Equal("PHONE", due.Noun);
         Assert.Equal("RING", due.Verb);
@@ -33,17 +41,45 @@ public sealed class GameTimerTests
     [Fact]
     public void A_long_step_cannot_lose_a_timer()
     {
-        // Everything due comes back together rather than one per call.
+        // Everything that ran out in one step is still there to be taken, one at a time.
         var timers = new GameTimers();
         timers.Set("PHONE", "RING", 10);
         timers.Set("KETTLE", "BOIL", 20);
         timers.Set("CLOCK", "CHIME", 3600);
 
-        Assert.Equal(
-            [("PHONE", "RING"), ("KETTLE", "BOIL")],
-            timers.Advance(60).Select(t => (t.Noun, t.Verb)));
+        timers.Advance(60);
+
+        Assert.Equal([("PHONE", "RING"), ("KETTLE", "BOIL")], Drain(timers));
+        Assert.Equal(1, timers.Count);
+    }
+
+    [Fact]
+    public void A_timer_that_came_due_waits_rather_than_being_lost()
+    {
+        // What the caller does while the story is busy: let the clock move and take
+        // nothing. The timer is still there on the frame that finds the story free, which
+        // is GameTimers::Update's own rule and the whole of the CS3 attic fix.
+        var timers = new GameTimers();
+        timers.Set("MONTREAUX", "TIMER_EXP", 9);
+
+        for (int frame = 0; frame < 100; frame++)
+        {
+            timers.Advance(1);
+        }
 
         Assert.Equal(1, timers.Count);
+
+        GameTimer? taken = timers.TakeDue();
+
+        Assert.NotNull(taken);
+
+        GameTimer due = taken.Value;
+
+        Assert.Equal("MONTREAUX", due.Noun);
+
+        // And held at nought however long it waited, so that two runs which spent a
+        // different number of frames busy are still the same piece of state.
+        Assert.Equal(0, due.SecondsRemaining);
     }
 
     [Fact]
@@ -55,7 +91,9 @@ public sealed class GameTimerTests
         timers.Set("SECOND", "DO", 5);
         timers.Set("THIRD", "DO", 5);
 
-        Assert.Equal(["FIRST", "SECOND", "THIRD"], timers.Advance(5).Select(t => t.Noun));
+        timers.Advance(5);
+
+        Assert.Equal(["FIRST", "SECOND", "THIRD"], Drain(timers).Select(t => t.Noun));
     }
 
     [Fact]
@@ -69,7 +107,20 @@ public sealed class GameTimerTests
         timers.Set("WINDOW", "OPEN", -5);
 
         Assert.Equal(2, timers.Count);
-        Assert.Equal(["DOOR", "WINDOW"], timers.Advance(0).Select(t => t.Noun));
+        Assert.Equal(["DOOR", "WINDOW"], Drain(timers).Select(t => t.Noun));
+    }
+
+    /// <summary>Takes everything that has come due, for a caller that is never busy.</summary>
+    private static List<(string Noun, string Verb)> Drain(GameTimers timers)
+    {
+        List<(string, string)> due = [];
+
+        while (timers.TakeDue() is { } timer)
+        {
+            due.Add((timer.Noun, timer.Verb));
+        }
+
+        return due;
     }
 
     [Fact]
@@ -99,6 +150,7 @@ public sealed class GameTimerTests
         Assert.NotEqual(before, state.ComputeHash());
 
         state.Timers.Advance(60);
+        state.Timers.TakeDue();
         Assert.Equal(before, state.ComputeHash());
     }
 
@@ -124,7 +176,13 @@ public sealed class GameTimerTests
         // The story moves on before the timer comes due.
         state.IncrementNounVerbCount("DOOR", "KNOCK");
 
-        GameTimer due = Assert.Single(state.Timers.Advance(5));
+        state.Timers.Advance(5);
+
+        GameTimer? taken = state.Timers.TakeDue();
+
+        Assert.NotNull(taken);
+
+        GameTimer due = taken.Value;
         var runner = new ActionRunner(api);
         runner.Run(resolver.Find(due.Noun, due.Verb)!);
 

@@ -247,8 +247,39 @@ public sealed class Gk3SheepApiTests
         Assert.True(api.IsWaitable("StartAnimation"));
         Assert.True(api.IsWaitable("ContinueDialogue"));
 
+        // The whole walking family, because this one was left out and nothing noticed. A
+        // wait the machine does not know is a wait at all is no wait, and the 165 calls
+        // written `wait WalkToAnimation(who, clip); StartMoveAnimation(clip);` played the
+        // clip the moment the walk set off — CS3's attic, where Grace pushed the robes
+        // aside from across the room and Montreaux acted out his arrival on the stairs.
+        Assert.True(api.IsWaitable("WalkToAnimation"));
+        Assert.True(api.IsWaitable("WalkToSeeModel"));
+
         Assert.False(api.IsWaitable("SetFlag"));
         Assert.False(api.IsWaitable("CutToCameraAngle"));
+    }
+
+    [Fact]
+    public void A_walk_to_an_animations_start_is_priced_by_the_walk_it_actually_makes()
+    {
+        // The second argument is a clip, not a place, so the ordinary walk cannot price it:
+        // it goes looking for a spot of that name, finds none and answers nothing at all.
+        // A wait of nothing is a script that plays the clip while the actor is still
+        // crossing the room, which is what CS3's attic looked like.
+        var api = new Gk3SheepApi(new GameState());
+
+        api.Walks = (_, _, _, _, _) => 0;
+        api.WalksToAnimationStart = (actor, animation, _) =>
+            actor == "GRACE" && animation == "GraCs3WrdbOpen" ? 3.5 : 0;
+
+        Assert.Equal(
+            3.5,
+            api.SecondsFor("WalkToAnimation", [Str("GRACE"), Str("GraCs3WrdbOpen")]),
+            3);
+
+        // And a room with nowhere to walk to still answers, rather than throwing.
+        Assert.Equal(0, new Gk3SheepApi(new GameState()).SecondsFor(
+            "WalkToAnimation", [Str("GRACE"), Str("GraCs3WrdbOpen")]), 3);
     }
 
     [Fact]

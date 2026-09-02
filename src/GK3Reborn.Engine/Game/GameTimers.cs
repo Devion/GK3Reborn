@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace GK3Reborn.Game;
 
@@ -31,9 +31,21 @@ public readonly record struct GameTimer(string Noun, string Verb, double Seconds
 /// to the story rather than to the scene.
 /// </para>
 /// <para>
-/// Nothing here runs anything. <see cref="Advance"/> hands back what has come due and the
-/// caller performs it, because performing needs a resolver and a runner and the story's
-/// state has no business knowing about either.
+/// Nothing here runs anything. <see cref="Advance"/> lets the clock move and
+/// <see cref="TakeDue"/> hands back what has come due, one at a time, for the caller to
+/// perform — because performing needs a resolver and a runner and the story's state has no
+/// business knowing about either.
+/// </para>
+/// <para>
+/// <b>Coming due and being performed are two things.</b> <c>GameTimers::Update</c> fires a
+/// timer only <c>if(secondsRemaining &lt;= 0.0f &amp;&amp; !gActionManager.IsActionPlaying())</c>: one
+/// that comes due in the middle of an action stays on the list and is offered again on the
+/// next frame that finds the story free. That wait is not a nicety. CS3's attic sets a
+/// timer for Montreaux climbing the stairs and then, when the player hides in the wardrobe,
+/// runs a script that spends several seconds walking Grace across the room before it raises
+/// the counts that make the timer's rule stop applying. Fire the timer in the middle of that
+/// walk and its rule still applies, so Montreaux's arrival plays once from the timer and
+/// again from the wardrobe, and every line after it is heard twice.
 /// </para>
 /// </remarks>
 public sealed class GameTimers
@@ -65,41 +77,49 @@ public sealed class GameTimers
         _timers.Add(new GameTimer(noun, verb, Math.Max(0, seconds)));
     }
 
-    /// <summary>Lets time pass, and says what has come due.</summary>
+    /// <summary>Lets time pass.</summary>
     /// <param name="seconds">How much time.</param>
-    /// <returns>The actions to perform, in the order they were asked for.</returns>
     /// <remarks>
-    /// Everything due in one step comes back together rather than one per call, so a long
-    /// step cannot lose a timer. The original will not fire one while another action is
-    /// playing and lets it wait for the next tick; nothing here runs two things at once, so
-    /// there is nothing yet for a timer to wait behind.
+    /// Every timer counts down, whatever else the story is doing, because the original's
+    /// does: an action playing delays a timer being <em>performed</em> and never delays it
+    /// coming due. What has run out is held at zero rather than going further negative, so
+    /// that a timer waiting behind a long action is the same piece of state however many
+    /// frames it waited — which is what the differential harness compares runs on.
     /// </remarks>
-    public IReadOnlyList<GameTimer> Advance(double seconds)
+    public void Advance(double seconds)
     {
-        List<GameTimer> due = [];
-
-        for (int i = _timers.Count - 1; i >= 0; i--)
+        for (int i = 0; i < _timers.Count; i++)
         {
-            GameTimer timer = _timers[i] with
+            _timers[i] = _timers[i] with
             {
-                SecondsRemaining = _timers[i].SecondsRemaining - Math.Max(0, seconds),
+                SecondsRemaining = Math.Max(
+                    0, _timers[i].SecondsRemaining - Math.Max(0, seconds)),
             };
+        }
+    }
 
-            if (timer.SecondsRemaining <= 0)
+    /// <summary>Takes the next action that has come due, if the caller can perform one.</summary>
+    /// <returns>The action to perform, or null when nothing has come due.</returns>
+    /// <remarks>
+    /// One at a time, because performing one is the story becoming busy and a caller that
+    /// took them all at once could not notice. The oldest first, so that two timers set in
+    /// the same breath fire in the order the story asked for them.
+    /// </remarks>
+    public GameTimer? TakeDue()
+    {
+        for (int i = 0; i < _timers.Count; i++)
+        {
+            if (_timers[i].SecondsRemaining > 0)
             {
-                _timers.RemoveAt(i);
-                due.Add(timer);
+                continue;
             }
-            else
-            {
-                _timers[i] = timer;
-            }
+
+            GameTimer due = _timers[i];
+            _timers.RemoveAt(i);
+            return due;
         }
 
-        // Walked backwards so removal is cheap; handed back forwards so the order two runs
-        // fire in is the order the story asked for them.
-        due.Reverse();
-        return due;
+        return null;
     }
 
     /// <summary>Forgets everything waiting.</summary>

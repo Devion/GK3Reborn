@@ -1854,6 +1854,11 @@ public static class SceneScripting
         // seconds. Both are the room saying it has a clock; a tool leaves them null.
         api.DefersUntil = world.Until;
 
+        // And what makes an action that waits on a script count as the story being busy for
+        // as long as that script runs. The room is where the scheduler is, so the room is
+        // the only thing that can tell.
+        api.Starts = world.Starting;
+
         api.Register("StartAnimation", a => SheepValue.FromInt(
             (int)world.Play(Name(a, 0))));
 
