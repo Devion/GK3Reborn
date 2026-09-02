@@ -1196,6 +1196,13 @@ public static class Application
                 settings.ThickCutoutCards &&
                 !args.Contains("--no-thick-cards", StringComparer.OrdinalIgnoreCase);
 
+            // And whether it stops the sun. Its own switch, because it is its own thing:
+            // the thickness is geometry anybody can see and the shadow is an instance in
+            // the acceleration structure, and a picture that shows one going wrong shows
+            // nothing about the other.
+            geometry.CardShadows =
+                !args.Contains("--no-card-shadows", StringComparer.OrdinalIgnoreCase);
+
             // How many triangles a room's floor may be cut into. A switch because the right
             // number is a judgement about a picture: it buys the cell size, and whether a
             // cobble reads as a cobble or as a patch of ground is decided by how many cells
@@ -1538,6 +1545,14 @@ public static class Application
                     $"Railings: {geometry.CardsThickened} keyed cards thickened to " +
                     $"{geometry.CardThickness.Thinnest:0.##}-{geometry.CardThickness.Thickest:0.##} " +
                     $"units, {geometry.CardTriangles} triangles"));
+
+                if (geometry.CardShadowTriangles > 0)
+                {
+                    Log.Info(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Railing shadows: {geometry.CardShadowTriangles} opaque triangles " +
+                        $"traced against"));
+                }
             }
 
             // The floor, which is how an actor knows what height to walk at. Reported

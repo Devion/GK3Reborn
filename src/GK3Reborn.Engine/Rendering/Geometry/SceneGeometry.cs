@@ -206,11 +206,29 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         set => _textures.MeasureCutouts = value;
     }
 
+    /// <summary>Whether a thickened card is also given a shadow to cast.</summary>
+    /// <remarks>
+    /// Separate from <see cref="ThickenCutoutCards"/> and not implied by it, because the two
+    /// go wrong in unrelated ways and the comparison that tells them apart is worth being
+    /// able to make: thickening is geometry anybody can see, shadowing is an instance in the
+    /// acceleration structure carrying its own mask. A railing that looks right and shades
+    /// the wall behind it wrongly is this, and a railing that looks flat is the other.
+    /// </remarks>
+    public bool CardShadows { get; set; } = true;
+
     /// <summary>How many of the room's cards were given a thickness.</summary>
     public int CardsThickened { get; private set; }
 
     /// <summary>How many triangles those cards came to, shell and all.</summary>
     public int CardTriangles { get; private set; }
+
+    /// <summary>How many triangles their shadows are traced against.</summary>
+    /// <remarks>
+    /// Not a subset of <see cref="CardTriangles"/> and not comparable to it: those are drawn
+    /// and these are not, and the merge that builds these means a card whose shell is two
+    /// thousand triangles routinely casts its shadow with forty.
+    /// </remarks>
+    public int CardShadowTriangles { get; private set; }
 
     /// <summary>The thickest and thinnest any of them was given, in world units.</summary>
     /// <remarks>
@@ -1482,6 +1500,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         EnhancedTriangles = 0;
         CardsThickened = 0;
         CardTriangles = 0;
+        CardShadowTriangles = 0;
         CardThickness = (0f, 0f);
 
         // The keyed cards, ahead of everything: a railing is one surface of an object that
@@ -2018,6 +2037,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         Dictionary<int, (List<Vector3> Positions, List<Vector2> TexCoords, List<int> Indices)> cards
             = [];
 
+        // Kept apart from the room's occluders, because they end up in a different instance
+        // of the acceleration structure carrying a different mask.
+        List<Vector3> cardOccluders = [];
+        List<uint> cardIndices = [];
+
         foreach (BspPolygon polygon in scene.Polygons)
         {
             if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= scene.Surfaces.Count)
@@ -2123,6 +2147,28 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 }
             }
 
+            // And what the sun is stopped by, which is a different set of triangles from
+            // what is drawn — see ThickCard.Occluders. The same three refusals the room's
+            // own surfaces make, less the one about keyed textures: answering that is
+            // exactly what these triangles are for.
+            if (CardShadows &&
+                !hidden &&
+                surface.CastsShadows &&
+                Materials.Of(surface.TextureName).Occludes)
+            {
+                for (int corner = 0; corner + 2 < shell.Occluders.Count; corner += 3)
+                {
+                    Occlude(
+                        cardOccluders,
+                        cardIndices,
+                        shell.Occluders[corner] + shift,
+                        shell.Occluders[corner + 1] + shift,
+                        shell.Occluders[corner + 2] + shift);
+                }
+
+                CardShadowTriangles += shell.Occluders.Count / 3;
+            }
+
             emitted.Add(index);
             CardsThickened++;
             CardTriangles += shell.Triangles.Count;
@@ -2131,6 +2177,20 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
 
         CardThickness = CardsThickened > 0 ? (thinnest, thickest) : (0f, 0f);
+
+        // Its own part, and therefore its own instance and its own mask. Not the room's:
+        // the composite credits the room's occlusion against the 1999 bake and cancels it
+        // out exactly, because a shadow the bake already holds must not be laid down twice.
+        // These the bake does not hold — the artists baked a keyed card as a keyed card, or
+        // as nothing — so they belong with the light the bake could not account for, which
+        // is the half a character's shadow is spent from. See TracedWorld.CardPart.
+        if (_device.SupportsRayTracing && cardIndices.Count > 0)
+        {
+            _traceable.Add(new TraceableMesh([.. cardOccluders], [.. cardIndices])
+            {
+                Part = TracedWorld.CardPart,
+            });
+        }
     }
 
     /// <summary>Whether an object is one whose silhouette should be a curve.</summary>

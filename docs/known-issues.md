@@ -221,6 +221,54 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### A railing built in 3D still cast no shadow — fixed 2026-09-02
+
+**Reported:** "the 3d'ify of 2d sprites doesn't seem to affect light/shadows? so a fence that
+is now build in 3d doesn't seem to cast any shadows on the ground?" Correct, and it had been
+true by design since the thickening pass was written.
+
+**Two causes, and only the first is the obvious one.**
+
+**Keyed geometry is not in the acceleration structure at all.** `SceneGeometry` refuses it in
+both places that record an occluder, and the trace stages ask for `gl_RayFlagsOpaqueEXT` with
+no any-hit shader behind it, so a keyed triangle in the structure would cast the shadow of its
+whole quad — a railing would shade a wall like a sheet of plywood. Thickening a card changed
+neither half of that: it gave the rail sides to be seen from and nothing for the sun to be
+stopped by, so it went on casting exactly what a flat card cast.
+
+**And a room occluder would have cancelled itself out.** The composite credits the room's own
+occlusion against the 1999 bake — `residual` rises by exactly what `arrived` loses — because
+the artists' lightmap already holds every shadow the room casts on itself. So even in the
+structure, a fence given `WorldMask` darkens a baked floor by nothing. This is the same fact
+that made characters cast no shadow until 2026-08-22, arriving from the other direction.
+
+**The fix does the alpha test at load rather than per hit.** The mask is already decoded and
+already measured — the rim is built from it — so the drawn texels are merged into as few
+rectangles as cover them and each becomes two opaque triangles lying on the card's own plane.
+That copy is traced and never drawn; the keyed shell is drawn and never traced. They go in a
+part of their own carrying `TracedWorld.UnbakedMask`, traced with the models, because a 1999
+bake cast no alpha-tested rays either and a keyed card is in the lightmap as its whole quad or
+as nothing, never as a fence — there is nothing there to double-count.
+
+Measured, RC1 at `SIGN_POST`, 112P, `--rt high`: 5.7% of the frame changes and the deepest
+shadow is 208 of 255 — the hotel's wrought-iron sign now lies across the brickwork behind it
+and across the board hanging under it. Identical through Direct3D 12 and Vulkan. The lobby
+stairs are where the mask choice shows: the room's mask changes 0.06% of that frame against
+0.16%, and reaches ten steps of an eight-bit channel against thirty-four.
+
+Costs nothing worth naming. 24,840 occluder triangles in RC1 against 350,000 already traced,
+58,310 in MCB at the worst; RC1's thickening pass measures 101 ms against 99 without them, and
+400 frames of RC1 at High present at 123 fps against 124. The merge walks the same grid the
+rim already walks.
+
+`--no-card-shadows` on both the host and `render-scene` is the A/B, kept separate from
+`--no-thick-cards` because what is drawn and what is traced are two different sets of
+triangles and a picture only tells you which one to go and read if you can switch them apart.
+
+**Still casting nothing:** windows, and `RC1RAIL` — the balustrade painted on an opaque card,
+which has no silhouette in its alpha for any of this to measure. See
+[cutout-cards.md](cutout-cards.md#the-shadow-added-2026-09-02).
+
 ### A moment spoke none of its own lines — fixed 2026-08-31
 
 **Reported** from the hotel dining room on day one: "Mosely?  Is that YOU?" and the reply to

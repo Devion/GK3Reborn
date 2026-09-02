@@ -365,6 +365,258 @@ public sealed class RayTracingTests
         return MeanLuminance(renderer.Render(geometry, 200, 200, Overlooking()));
     }
 
+    /// <summary>A keyed texture of upright bars: a fence, in miniature.</summary>
+    /// <remarks>
+    /// Four texels drawn and four keyed away, so exactly half the light through it should
+    /// arrive. That is the number these tests are about, and it is why the pattern is this
+    /// coarse: a fence whose shadow is a smooth grey is a fence whose shadow could be
+    /// anything.
+    /// </remarks>
+    private static DecodedImage Bars()
+    {
+        const int Size = 64;
+        byte[] pixels = new byte[Size * Size * 4];
+
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
+            {
+                int at = ((y * Size) + x) * 4;
+
+                pixels[at] = 200;
+                pixels[at + 1] = 200;
+                pixels[at + 2] = 200;
+                pixels[at + 3] = x % 8 < 4 ? (byte)255 : (byte)0;
+            }
+        }
+
+        return new DecodedImage(Size, Size, pixels, HasAlpha: true, "bars");
+    }
+
+    /// <summary>A floor with a keyed fence of the room's own standing across the light.</summary>
+    /// <param name="half">Half the floor's width.</param>
+    /// <param name="height">How tall the fence stands.</param>
+    /// <remarks>
+    /// <para>
+    /// The same shape as <see cref="ShadedRoom"/> and a different question. That wall is
+    /// opaque and has always cast a shadow; this one is a picture of a fence on a quad with
+    /// the gaps keyed out, which is what most of GK3's railings, fences, chains and window
+    /// mullions are — and keyed geometry was kept out of the acceleration structure
+    /// altogether, because there is no any-hit shader to tell a baluster from the gap beside
+    /// it and a keyed triangle in the structure would cast the shadow of its whole quad.
+    /// </para>
+    /// <para>
+    /// The texture is tiled eight times along the fence, which is what keeps the bars thin
+    /// in the room rather than merely thin in the drawing. That distinction is the
+    /// measurement the whole pass turns on, and a card that failed it would be left flat and
+    /// take these tests with it.
+    /// </para>
+    /// </remarks>
+    private static BspFile FencedRoom(float half, float height) => BspFile.FromParts(
+        "fenced",
+        ["floor", "fence"],
+        [
+            new BspSurface
+            {
+                ObjectIndex = 0,
+                TextureName = "white",
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            },
+            new BspSurface
+            {
+                ObjectIndex = 1,
+                TextureName = "bars",
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            },
+        ],
+        [
+            new BspPolygon { VertexIndexOffset = 0, VertexIndexCount = 4, SurfaceIndex = 0 },
+            new BspPolygon { VertexIndexOffset = 4, VertexIndexCount = 4, SurfaceIndex = 1 },
+        ],
+        [
+            new(-half, 0, -half), new(-half, 0, half), new(half, 0, half), new(half, 0, -half),
+            new(-half, 0, 0), new(half, 0, 0), new(half, height, 0), new(-half, height, 0),
+        ],
+        [
+            new(0, 0), new(0, 1), new(1, 1), new(1, 0),
+            new(0, 0), new(8, 0), new(8, 1), new(0, 1),
+        ],
+        [0, 1, 2, 3, 4, 5, 6, 7]);
+
+    /// <summary>Renders the floor with a keyed fence standing on it.</summary>
+    /// <param name="renderer">The renderer.</param>
+    /// <param name="fence">Whether to stand the fence in the room at all.</param>
+    /// <param name="shadows">Whether the fence is given a silhouette to cast.</param>
+    /// <param name="baked">Whether the room carries a 1999-style lightmap.</param>
+    /// <remarks>
+    /// Both switches, because the two failures they separate look nothing alike in the code
+    /// and identical in a picture. With <paramref name="shadows"/> off the fence is still
+    /// thickened and still drawn; only the opaque copy the rays are pointed at is missing,
+    /// which is exactly the state every build before this one was in.
+    /// </remarks>
+    private static DecodedImage Fenced(
+        SceneRenderer renderer, bool fence, bool shadows = true, bool baked = false)
+    {
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        // Before the textures, not after: it gates the measurement as well as the geometry,
+        // and the measurement happens as a texture is uploaded.
+        geometry.ThickenCutoutCards = true;
+        geometry.CardShadows = shadows;
+
+        geometry.AddTexture("white", White());
+        geometry.AddTexture("bars", Bars());
+
+        if (baked)
+        {
+            geometry.AddScene(
+                fence ? FencedRoom(400f, 60f) : FloorScene(400f), Baked(fence ? 2 : 1));
+        }
+        else
+        {
+            geometry.AddScene(fence ? FencedRoom(400f, 60f) : FloorScene(400f));
+        }
+
+        renderer.SetLights([SideLight()]);
+        renderer.Quality = RayTracingQuality.High;
+
+        return renderer.Render(geometry, 200, 200, Overlooking());
+    }
+
+    /// <summary>How bright one half of the picture came out, split across the fence.</summary>
+    /// <param name="image">The render.</param>
+    /// <param name="beyond">
+    /// True for the half the fence stands between and the light, false for the half the
+    /// light shines on directly.
+    /// </param>
+    /// <remarks>
+    /// <see cref="Overlooking"/> looks straight down with +Z up the screen and the light
+    /// stands at negative z, so the shadow falls across the top half of the picture and the
+    /// bottom half is the control: the same floor, the same bake, the same rig, and nothing
+    /// between it and the lamp.
+    /// </remarks>
+    private static float HalfLuminance(DecodedImage image, bool beyond)
+    {
+        int rows = image.Height / 2;
+        int from = beyond ? 0 : rows;
+        double total = 0;
+
+        for (int y = from; y < from + rows; y++)
+        {
+            for (int x = 0; x < image.Width; x++)
+            {
+                int at = ((y * image.Width) + x) * 4;
+
+                total += (0.2126 * image.Pixels[at]) +
+                         (0.7152 * image.Pixels[at + 1]) +
+                         (0.0722 * image.Pixels[at + 2]);
+            }
+        }
+
+        return (float)(total / (rows * image.Width));
+    }
+
+    [Fact]
+    public void A_keyed_fence_shadows_the_floor_beyond_it_and_not_the_floor_in_front()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        DecodedImage cast = Fenced(renderer, fence: true);
+        DecodedImage flat = Fenced(renderer, fence: true, shadows: false);
+
+        float beyond = HalfLuminance(cast, beyond: true);
+        float front = HalfLuminance(cast, beyond: false);
+
+        // It never used to cast anything. A keyed card is left out of the acceleration
+        // structure whatever shape it is given, so giving a railing sides to be seen from
+        // left it with nothing for the sun to be stopped by, and the pass that made GK3's
+        // fences solid changed no pixel of any shadow in the game.
+        Assert.True(
+            beyond < front * 0.95f,
+            $"the floor beyond the fence came out at {beyond:F2} against {front:F2} in front");
+
+        // And in the right place, which is what the halves settle. Without this the test
+        // would pass on a fence that darkened the whole room — an occluder built at the
+        // wrong scale, or on the wrong plane, does exactly that — and half the ways this
+        // can go wrong make a room dimmer rather than a shadow wrong.
+        float castBeyond = HalfLuminance(flat, beyond: true) - beyond;
+        float castInFront = HalfLuminance(flat, beyond: false) - front;
+
+        Assert.True(
+            castBeyond > 10f * Math.Abs(castInFront),
+            $"the fence took {castBeyond:F2} off the far half and {castInFront:F2} off the " +
+            "near one, which is not a shadow lying in one direction");
+
+        // Not zero in front, and it should not be: the same triangles are in the structure
+        // for the occlusion rays, so the floor at the foot of the fence gains the ambient
+        // shading of something standing on it. That is a fence's contact shadow and it is
+        // wanted; it is simply not the cast shadow this is about, and it is two orders of
+        // magnitude smaller.
+        Assert.True(
+            Math.Abs(castInFront) < 0.01f * front,
+            $"the near half moved by {castInFront:F2} of {front:F2}, which is more than " +
+            "contact shading and means light is being taken where nothing stands");
+    }
+
+    [Fact]
+    public void The_same_fence_casts_nothing_when_its_shadow_is_switched_off()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        float shadowed = MeanLuminance(Fenced(renderer, fence: true));
+        float unshadowed = MeanLuminance(Fenced(renderer, fence: true, shadows: false));
+
+        // The A/B, and the half of it that pins the cause. The fence is thickened and drawn
+        // identically in both, and edge-on to a camera looking straight down it hides almost
+        // none of the floor: what separates the two renders is the opaque copy of the
+        // silhouette in the structure, and it can be nothing else.
+        Assert.True(
+            shadowed < unshadowed,
+            $"the fence's shadow left the floor at {shadowed:F2}, against {unshadowed:F2} " +
+            "with the same fence casting nothing");
+    }
+
+    [Fact]
+    public void A_baked_room_still_shows_the_fence_s_shadow()
+    {
+        Assert.SkipUnless(HasRayTracing(), "no ray tracing device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+
+        float shadowed = MeanLuminance(Fenced(renderer, fence: true, baked: true));
+        float unshadowed =
+            MeanLuminance(Fenced(renderer, fence: true, shadows: false, baked: true));
+
+        // A bake is what the composite spends a shadow against, and the tests above have
+        // none: the fence's shadow surviving one is a separate claim, and this is it.
+        //
+        // <b>It does not settle which half of the structure the cards belong in, and it was
+        // written expecting to.</b> The composite credits the room's own occlusion against
+        // the lightmap and the two cancel exactly — block a light with room geometry and
+        // `residual` rises by what `arrived` lost — but only where the bake is at least as
+        // bright as the rig, because `residual` is clamped at nothing. This rig outruns any
+        // bake that leaves the floor short of white, so both masks pass here. What settles
+        // it is the corpus: on the lobby stairs, whose lightmap is the whole of the light in
+        // the room, the room's mask leaves 0.06% of the frame changed against 0.16%, and a
+        // shadow ten steps of an eight-bit channel deep against thirty-four. See
+        // TracedWorld.UnbakedMask and docs/ray-tracing.md.
+        Assert.True(
+            shadowed < unshadowed * 0.98f,
+            $"with a bake in the room the fence's shadow left the floor at {shadowed:F2} " +
+            $"against {unshadowed:F2}, which is the bake refilling it as fast as it is cast");
+    }
+
     [Fact]
     public void A_device_that_reports_ray_tracing_builds_an_acceleration_structure()
     {

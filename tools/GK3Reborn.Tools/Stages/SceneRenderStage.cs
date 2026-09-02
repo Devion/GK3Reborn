@@ -76,6 +76,7 @@ public sealed class SceneRenderStage
     /// <param name="trees">Whether foliage cards are grown into modelled trees.</param>
     /// <param name="improved">Whether a room's objects are drawn from improved geometry.</param>
     /// <param name="thickCards">Whether a keyed card is given a thickness.</param>
+    /// <param name="cardShadows">Whether that card also stops a shadow ray.</param>
     /// <param name="wind">
     /// Where to stop the wind's clock, in seconds. Zero is a still afternoon, which is what
     /// keeps two renders of one room the same picture; any other value is for looking at
@@ -110,6 +111,7 @@ public sealed class SceneRenderStage
         bool trees,
         bool improved,
         bool thickCards,
+        bool cardShadows,
         float wind,
         string? packs,
         string? backend,
@@ -176,6 +178,11 @@ public sealed class SceneRenderStage
         // as the geometry and the measurement happens as a texture is uploaded. Off is the
         // flat 1999 card, which is the only thing to compare a thickened one against.
         geometry.ThickenCutoutCards = thickCards;
+
+        // And whether the silhouette it measured is also given to the rays. Separately,
+        // because the two failures look nothing alike and only one of them is in the
+        // picture's geometry.
+        geometry.CardShadows = cardShadows;
 
         SceneRequest request = SceneRequest.For(sceneName, timeblock);
 
@@ -386,6 +393,15 @@ public sealed class SceneRenderStage
                 $"railings: {geometry.CardsThickened} keyed cards given a thickness of " +
                 $"{geometry.CardThickness.Thinnest:0.##}-{geometry.CardThickness.Thickest:0.##} " +
                 $"units, {geometry.CardTriangles} triangles"));
+
+            // And what the sun is stopped by, which is a different and much smaller set:
+            // the shell is drawn and cannot be traced, and the occluders are traced and
+            // never drawn. Reported apart from the shell for that reason — a ratio that
+            // moves says the merge changed, and a zero says the cards are back to letting
+            // the light through.
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"railing shadows: {geometry.CardShadowTriangles} opaque triangles traced"));
         }
 
         _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches" +

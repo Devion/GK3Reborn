@@ -19,8 +19,22 @@ public readonly record struct CardTriangle(CurvedCorner A, CurvedCorner B, Curve
 /// <param name="Triangles">The shell: a front face, a back face, and a rim joining them.</param>
 /// <param name="Thickness">How far apart the two faces were put, in scene units.</param>
 /// <param name="RimQuads">How many rim quads the silhouette earned.</param>
+/// <param name="Occluders">
+/// The same silhouette as opaque triangles for a shadow ray, three vertices to a triangle.
+/// </param>
+/// <remarks>
+/// <b>The shell and the occluders are two renderings of one outline and neither is the
+/// other.</b> What is drawn is a keyed quad either side of the plane with a rim between
+/// them, and a ray cannot be pointed at that: the acceleration structure has no any-hit
+/// shader, so a keyed triangle in it casts the shadow of its whole quad. What is traced is
+/// therefore a second, opaque, patch-by-patch copy of the drawn texels, lying flat on the
+/// plane the card always occupied. It is never drawn and the shell is never traced.
+/// </remarks>
 public sealed record ThickCard(
-    IReadOnlyList<CardTriangle> Triangles, float Thickness, int RimQuads);
+    IReadOnlyList<CardTriangle> Triangles,
+    float Thickness,
+    int RimQuads,
+    IReadOnlyList<Vector3> Occluders);
 
 /// <summary>
 /// What a keyed texture's holes say about the shape drawn on it.

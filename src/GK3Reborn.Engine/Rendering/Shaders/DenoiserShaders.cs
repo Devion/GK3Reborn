@@ -184,10 +184,23 @@ public static class DenoiserShaders
             bitangent = cross(normal, tangent);
         }
 
-        // The two halves of the acceleration structure. See RayTracingScene.MaskFor.
+        // The halves of the acceleration structure. See RayTracingScene.MaskFor.
         const uint kRoomOnly = 0x01u;
         const uint kModelsOnly = 0x02u;
         const uint kEverything = 0xFFu;
+
+        // The room's keyed cards — railings, fences, chains — as the opaque silhouettes
+        // CutoutCards builds for them at load. Room geometry, and deliberately not in
+        // kRoomOnly: the composite cancels the room's own shadowing against the 1999 bake,
+        // and the bake does not contain these. See TracedWorld.UnbakedMask.
+        const uint kCards = 0x04u;
+
+        // Everything the room holds that does not move, for a ray that is only avoiding the
+        // shell stack a character is made of.
+        const uint kStatic = kRoomOnly | kCards;
+
+        // And everything the bake did not account for, which is what the composite spends.
+        const uint kUnbaked = kModelsOnly | kCards;
 
         // What an *occlusion* ray leaving this pixel is allowed to hit.
         //
@@ -206,7 +219,7 @@ public static class DenoiserShaders
         // holds from one a character is casting now.
         uint OcclusionMaskFor(float roughness)
         {
-            return roughness < 0.0 ? kRoomOnly : kEverything;
+            return roughness < 0.0 ? kStatic : kEverything;
         }
 
         bool Occluded(vec3 origin, vec3 direction, float reach, uint mask, uint flags, float from)
@@ -486,12 +499,24 @@ public static class DenoiserShaders
                     // are about one ray, so answering for that ray is the whole of the fix:
                     // where the room let it through nothing changes, and where the room
                     // stopped it the models are not asked.
+                    // The cards ride with the models rather than with the room, because
+                    // what this fraction means is "light the bake could not know about"
+                    // and a keyed card's shadow is exactly that: a 1999 bake cast no
+                    // alpha-tested rays either, so a fence is in the lightmap as its whole
+                    // quad or as nothing, and never as a fence. Traced in the room's half
+                    // it would be cancelled against a bake that does not hold it and no
+                    // railing would darken a wall by one step of an eight-bit channel.
+                    //
+                    // kSkipShells is a ray flag and the cards' instance disables face
+                    // culling outright, so a character's own shells stay skipped and the
+                    // fence between them and the sun still stops it. See
+                    // TracedWorld.FacesBothWays.
                     clearCount += (!room || (onModel
                         ? ShadowRay(
                             position, normal, vec2(pixel), i, samples,
-                            kModelsOnly, kSkipShells, kSelfBias)
+                            kUnbaked, kSkipShells, kSelfBias)
                         : ShadowRay(
-                            position, normal, vec2(pixel), i, samples, kModelsOnly)))
+                            position, normal, vec2(pixel), i, samples, kUnbaked)))
                         ? 1 : 0;
 
                     openCount +=

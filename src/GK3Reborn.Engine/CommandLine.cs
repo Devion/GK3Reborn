@@ -1,4 +1,4 @@
-namespace GK3Reborn;
+﻿namespace GK3Reborn;
 
 /// <summary>
 /// What can be typed after the executable's name, and what each thing means.
@@ -141,6 +141,8 @@ public static class CommandLine
           --relief N            The displacement budget; 0 displaces nothing.
           --no-thick-cards      Draw every railing, fence and chain as the flat card it
                                 shipped as, rather than giving it a thickness.
+          --no-card-shadows     Keep the thickness but let the light through, as builds
+                                before this one did.
           --flat                Colour textures only: no normal maps, no relief.
           --font NAME           Draw the interface with one of the game's own font sheets,
                                 such as F_CAPTION_D_20.

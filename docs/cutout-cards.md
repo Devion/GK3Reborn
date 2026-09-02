@@ -1,4 +1,4 @@
-# Railings, fences and chains
+﻿# Railings, fences and chains
 
 Gabriel Knight 3 draws a railing as a picture of one on a single quad, with the gaps between
 the balusters cut out of the magenta colour key. From in front it is convincing; from
@@ -188,11 +188,80 @@ Lightmap coordinates come free, because the engine derives them from the texture
 and the surface's own mapping rather than storing them per vertex — so a new rim vertex is
 lit like the card it belongs to, and the room's bake is untouched.
 
-**No occluders.** Every card this touches is keyed, and keyed geometry is kept out of the
-ray-tracing acceleration structure whatever its shape: without an any-hit shader the holes in
-it would cast a solid shadow. So a thickened rail casts exactly the shadow a flat one did,
-which is none. Giving railings real traced shadows is a separate job and wants the any-hit
-path first.
+## The shadow, added 2026-09-02
+
+**For its first day this pass changed no shadow in the game, and that was by design.** Every
+card it touches is keyed; the acceleration structure is built with every triangle opaque and
+there is no any-hit shader to ask whether a hit landed on a baluster or on the gap beside it,
+so keyed geometry was kept out of it altogether — a railing in the structure would have cast
+the shadow of a wall. Giving a rail sides to be seen from therefore left it with nothing for
+the sun to be stopped by, and it went on casting exactly what a flat card cast, which is
+nothing.
+
+**The alpha test the missing shader would do per hit is done at load instead.** The mask is
+already decoded and already measured — it is what the rim is built from — so the drawn texels
+are merged into as few rectangles as cover them and each becomes two opaque triangles. What a
+ray hits is then the bars and not the gaps, which is the whole of the question, and it costs
+no shader and no pipeline. `CutoutCards.Shadow` builds them; `ThickCard.Occluders` carries
+them; `SceneGeometry.ThickenCards` puts them in the structure.
+
+The shell and the occluders are two renderings of one outline and neither is the other. The
+shell is drawn and never traced; the occluders are traced and never drawn.
+
+- **On the plane, not at either face.** The shell straddles the plane by half a thickness
+  each way and the occluder lies flat on it, where the card has always been. Two planes would
+  double the cost to widen a shadow by the width of a baluster against a sun tens of thousands
+  of units away, and one plane between the two faces cannot shadow either of them: a shadow
+  ray leaves a face along its own normal, away from the plane behind it.
+- **Greedy rectangles, not a quad per texel.** A baluster forty texels tall and four across
+  is one rectangle. Over the corpus the merge is worth about thirty to one, and it is what
+  makes this affordable: a card whose shell is two thousand triangles casts its shadow with
+  forty.
+- **Over budget it coarsens, and coarsens downwards.** `MostShadowQuads` is 2,000, which
+  nothing but Montségur's razor wire and the lobby's stair rail ever reaches. Past it the
+  grid is halved keeping a cell three of whose four texels were drawn — not a majority, which
+  is what `CutoutMask` takes when it is measuring how wide a bar is drawn. A chain-link fence
+  is exactly half drawn, so a majority makes every one of its cells solid and the fence casts
+  the shadow of a wall; rounding down loses a thin bar instead, and a bar that goes missing
+  casts what it cast before this, which is nothing.
+
+### It is not the room's own occlusion, and that is the half that is easy to get wrong
+
+The composite credits the room's occlusion against the 1999 bake and the two cancel exactly:
+block a light with room geometry and `residual` rises by what `arrived` lost. That is right
+for a wall, because the artists' lightmap already holds its shadow. It is wrong for a railing.
+**A 1999 bake cast no alpha-tested rays either**, so a keyed card is in the lightmap as its
+whole quad or as nothing, and never as a fence — there is nothing there to double-count. The
+occluders therefore carry `TracedWorld.UnbakedMask` in a part of their own and are traced with
+the models, in the half of the shadow term the composite spends rather than the half it
+subtracts.
+
+Measured, on the lobby stairs, whose lightmap is the whole of the light in the room: the
+room's mask changes 0.06% of the frame and the deepest shadow is ten steps of an eight-bit
+channel; the unbaked mask changes 0.16% and reaches thirty-four. Outdoors on RC1 the two are
+much closer — 156 against 208 — because the rig outruns the bake there and `residual` is
+clamped at nothing for most of the frame.
+
+The occluders' instance also disables face culling. They are single-sided patches wound
+whichever way the artist wound the card they were fitted to, and the ray that most needs to
+hit one is a shadow ray leaving a character, which asks for back faces to be culled so that a
+person's own shells do not shadow them. An instance flag overrides a ray flag, so the shells
+stay skipped and the fence still stops the light.
+
+### What it costs
+
+| | RC1 | MCB | LBY | POU | CHU | RC2 | CS3 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| occluder triangles | 24,840 | 58,310 | 22,382 | 21,240 | 7,644 | 13,180 | 4,232 |
+
+Against 350,000 traced triangles in RC1, and it is the only room where the pass is a
+measurable share of the structure. **Load time and frame time are both inside the noise**:
+RC1's thickening pass measures 101 ms with the occluders and 99 ms without, MCB 278 against
+281, and 400 frames of RC1 at High present at 123 fps against 124. The merge walks the same
+grid the rim already walks, so the geometry is very nearly free once the mask exists.
+
+Both backends agree exactly. RC1 at `SIGN_POST`, 112P, High: 5.712% of the frame changed and
+a deepest shadow of 208, through Direct3D 12 and through Vulkan alike.
 
 ## Settings and switches
 
@@ -201,6 +270,12 @@ path first.
 | Game | Video → Solid railings and fences | `Settings.ThickCutoutCards`, on by default |
 | `GK3Reborn.exe` | `--no-thick-cards` | Every card as the flat quad it shipped as |
 | `render-scene` | `--no-thick-cards` | The same, for comparison shots |
+| `GK3Reborn.exe` | `--no-card-shadows` | Keep the thickness, let the light through |
+| `render-scene` | `--no-card-shadows` | The same: the A/B for the shadow alone |
+
+The two switches are separate on purpose. What is drawn and what is traced are two different
+sets of triangles built from one silhouette, so a picture in which a fence looks right and
+shades wrongly says which of the two to go and read.
 
 The setting takes effect at the next door, like the trees and the improved geometry, and for
 the same reason: it also gates the measurement, which happens as a room's textures are
@@ -217,5 +292,9 @@ uploaded.
   axis-aligned in texture space — `RC1IRONFENCE`'s finials, `LBYSTRRAIL01`'s scrollwork. At a
   texel to a step and six millimetres to a texel this is below what the picture on the same
   card can show, but it is what a traced contour would have improved.
-- **It changes no lighting and no shadow.** New geometry is lit by the room's existing bake
-  through the surface's own lightmap mapping, and casts nothing, as above.
+- **It changes no lighting.** New geometry is lit by the room's existing bake through the
+  surface's own lightmap mapping. What it does now change is the shadow; see above.
+- **A card's shadow is as coarse as its silhouette.** The occluders are whole texels, so a
+  diagonal casts the same staircase it draws, and a card coarsened by the budget casts an
+  edge stepped by two texels rather than one. At the distance GK3 puts a fence from the wall
+  behind it, that is softer than the penumbra already on it.

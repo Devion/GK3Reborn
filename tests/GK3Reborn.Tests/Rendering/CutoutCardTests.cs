@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering;
 using Xunit;
@@ -407,6 +407,112 @@ public sealed class CutoutCardTests
                 shell.RimQuads <= CutoutCards.MostRimQuads,
                 $"{shell.RimQuads} rim quads is over the budget of {CutoutCards.MostRimQuads}");
         }
+    }
+
+    /// <summary>How much room the occluder triangles cover, in square units.</summary>
+    private static float OccluderArea(ThickCard shell)
+    {
+        float total = 0f;
+
+        for (int at = 0; at + 2 < shell.Occluders.Count; at += 3)
+        {
+            total += 0.5f * Vector3.Cross(
+                shell.Occluders[at + 1] - shell.Occluders[at],
+                shell.Occluders[at + 2] - shell.Occluders[at]).Length();
+        }
+
+        return total;
+    }
+
+    /// <summary>What share of a mask's texels are drawn.</summary>
+    private static float DrawnShare(CutoutMask mask) =>
+        mask.Opaque.Count(drawn => drawn) / (float)mask.Opaque.Length;
+
+    [Fact]
+    public void A_thickened_card_is_given_the_silhouette_to_cast_as_opaque_triangles()
+    {
+        CutoutMask mask = CutoutMask.Measure(Railing())!;
+        (Vector3[] positions, Vector2[] texCoords, int[] indices) = Card(64f, 64f);
+
+        ThickCard shell = CutoutCards.Thicken(positions, texCoords, indices, mask)!;
+
+        // The whole point of them. The shell itself cannot be traced: it is keyed, the
+        // acceleration structure runs no any-hit shader, and a keyed triangle in it casts
+        // the shadow of its whole quad — which is why keyed geometry was kept out
+        // altogether and why a thickened railing went on casting no shadow at all.
+        Assert.NotEmpty(shell.Occluders);
+        Assert.Equal(0, shell.Occluders.Count % 3);
+
+        // And they are the drawn texels and not the card: a texel is one unit here, so the
+        // area they cover is the number of texels the key left. Exact rather than
+        // approximate, because the patches are whole texels and the merge neither overlaps
+        // them nor leaves a gap.
+        Assert.Equal(DrawnShare(mask) * 64f * 64f, OccluderArea(shell), 1);
+    }
+
+    [Fact]
+    public void The_shadow_is_cast_from_the_plane_the_card_was_always_on()
+    {
+        CutoutMask mask = CutoutMask.Measure(Railing())!;
+        (Vector3[] positions, Vector2[] texCoords, int[] indices) = Card(64f, 64f, z: 25f);
+
+        ThickCard shell = CutoutCards.Thicken(positions, texCoords, indices, mask)!;
+
+        // Not at either face of the shell. Two planes would double the cost to widen a
+        // shadow by the width of a baluster, and a plane between the two faces cannot
+        // shadow either of them: a shadow ray leaves a face along its own normal, away from
+        // the plane behind it.
+        Assert.All(shell.Occluders, corner => Assert.Equal(25f, corner.Z, 3));
+    }
+
+    [Fact]
+    public void The_shadow_is_merged_into_far_fewer_quads_than_it_has_texels()
+    {
+        CutoutMask mask = CutoutMask.Measure(Railing())!;
+        (Vector3[] positions, Vector2[] texCoords, int[] indices) = Card(64f, 64f);
+
+        ThickCard shell = CutoutCards.Thicken(positions, texCoords, indices, mask)!;
+
+        // A quad per drawn texel would be sixteen hundred of them. The greedy merge finds
+        // each baluster as a single rectangle, which is the answer anybody would draw by
+        // hand, and it is what makes this affordable at all.
+        int quads = shell.Occluders.Count / 6;
+
+        Assert.True(
+            quads < 40,
+            $"{quads} quads for a railing whose bars should merge into about a dozen");
+    }
+
+    [Fact]
+    public void A_lattice_too_fine_to_afford_keeps_its_holes()
+    {
+        // A chain-link fence is about half drawn, so a coarsening that rounds a
+        // half-covered cell up makes every cell solid and the fence casts the shadow of a
+        // wall — worse than the nothing it cast before. This is the pattern that would do
+        // it: a texel on, a texel off, at a resolution no budget can mesh one quad at a
+        // time.
+        CutoutMask mask = CutoutMask.Measure(
+            Picture(256, 256, (x, y) => ((x / 2) + (y / 2)) % 2 == 0))!;
+
+        (Vector3[] positions, Vector2[] texCoords, int[] indices) = Card(256f, 256f);
+        ThickCard? shell = CutoutCards.Thicken(positions, texCoords, indices, mask);
+
+        if (shell is null)
+        {
+            return;
+        }
+
+        Assert.True(
+            shell.Occluders.Count / 6 <= CutoutCards.MostShadowQuads,
+            $"{shell.Occluders.Count / 6} quads is over the budget of " +
+            $"{CutoutCards.MostShadowQuads}");
+
+        // Reduced downwards, never upwards. Half of this card is a hole and the shadow it
+        // casts may cover less of the ground than that but never more.
+        Assert.True(
+            OccluderArea(shell) <= DrawnShare(mask) * 256f * 256f * 1.02f,
+            $"{OccluderArea(shell):F0} square units of shadow from " +
+            $"{DrawnShare(mask) * 256f * 256f:F0} square units of drawing");
     }
 
     [Fact]

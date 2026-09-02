@@ -84,11 +84,18 @@ public interface ISceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     bool ThickenCutoutCards { get; set; }
 
+    /// <summary>Whether a thickened card also casts a traced shadow.</summary>
+    /// <remarks>Set before the room is added; it decides what goes into the structure.</remarks>
+    bool CardShadows { get; set; }
+
     /// <summary>Cards the thickening pass gave a shell.</summary>
     int CardsThickened { get; }
 
     /// <summary>Triangles those shells came to.</summary>
     int CardTriangles { get; }
+
+    /// <summary>Triangles their shadows are traced against, which are not the same ones.</summary>
+    int CardShadowTriangles { get; }
 
     /// <summary>The thinnest and thickest of them, in world units.</summary>
     (float Thinnest, float Thickest) CardThickness { get; }

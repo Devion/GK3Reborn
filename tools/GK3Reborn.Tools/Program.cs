@@ -168,6 +168,7 @@ public static class Program
                 options.Trees,
                 options.Improved,
                 options.ThickCards,
+                options.CardShadows,
                 options.Wind,
                 options.Packs,
                 options.Backend,
@@ -750,6 +751,9 @@ public static class Program
               --no-thick-cards     render-scene leaves every railing, fence and chain
                                    the flat card it shipped as, rather than giving it
                                    the thickness of what is drawn on it.
+              --no-card-shadows    render-scene keeps the thickness but lets the sun
+                                   straight through it, as builds before the card
+                                   occluders did. The A/B for the shadow alone.
               --no-improved-geometry
                                    render-scene draws every room as it shipped, with
                                    1999's infinitely sharp edges, rather than from
@@ -906,6 +910,17 @@ public static class Program
         /// </remarks>
         public bool ThickCards { get; init; } = true;
 
+        /// <summary>
+        /// Whether render-scene lets a thickened card stop a shadow ray.
+        /// </summary>
+        /// <remarks>
+        /// The other half of the same A/B, and it has to be separable: what is drawn and
+        /// what is traced are two different sets of triangles built from one silhouette, so
+        /// a picture in which a fence looks right and shades wrongly says which of the two
+        /// to go and read.
+        /// </remarks>
+        public bool CardShadows { get; init; } = true;
+
         /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
         public bool Trees { get; init; } = true;
 
@@ -949,6 +964,7 @@ public static class Program
             bool trees = true;
             bool improved = true;
             bool thickCards = true;
+            bool cardShadows = true;
             bool expandBlocks = false;
             string? tool = null;
             string? enhanced = null;
@@ -982,6 +998,9 @@ public static class Program
                         break;
                     case "--no-thick-cards":
                         thickCards = false;
+                        break;
+                    case "--no-card-shadows":
+                        cardShadows = false;
                         break;
                     case "--no-trees":
                         trees = false;
@@ -1126,6 +1145,7 @@ public static class Program
                 Trees = trees,
                 Improved = improved,
                 ThickCards = thickCards,
+                CardShadows = cardShadows,
                 ExpandBlocks = expandBlocks,
                 Tool = tool,
                 Enhanced = enhanced,

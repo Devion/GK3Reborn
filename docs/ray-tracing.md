@@ -105,10 +105,28 @@ read greyer than the bake's cream. Light probes are the fix and nothing here has
 one.
 
 **Alpha-tested geometry.** Windows, railings and foliage are keyed on magenta and
-are left out of the acceleration structure entirely, so they cast no shadow.
-Including them would need an any-hit shader to decide per hit whether a texel is a
-hole, and therefore a full ray-tracing pipeline. A missing shadow under a window
-reads as bright; a solid rectangle of shadow from a pane of glass reads as a bug.
+are left out of the acceleration structure entirely: including them as they are
+would need an any-hit shader to decide per hit whether a texel is a hole, and
+therefore a full ray-tracing pipeline. A missing shadow under a window reads as
+bright; a solid rectangle of shadow from a pane of glass reads as a bug.
+
+**The railings and fences are the exception, since 2026-09-02**, and they get
+round it rather than solving it. The thickening pass has already decoded and
+measured their alpha, so the test the missing shader would do per hit is done once
+at load instead: the drawn texels are merged into rectangles and each becomes two
+*opaque* triangles lying on the card's own plane. The card is still keyed and still
+out of the structure; what is in it is a second, opaque, never-drawn copy of the
+silhouette. See [cutout-cards.md](cutout-cards.md#the-shadow-added-2026-09-02).
+Windows and foliage still cast nothing — a pane of glass has no silhouette to
+build, and the trees are replaced by modelled geometry that is already opaque.
+
+These occluders are **not** in the room's half of the structure. The composite
+credits room occlusion against the bake and the two cancel; a 1999 bake cast no
+alpha-tested rays either, so a keyed card's shadow is not in the lightmap to be
+double-counted. They carry `TracedWorld.UnbakedMask`, in a part of their own, and
+are traced with the models. Measured on the lobby stairs, whose lightmap is the
+whole of the light in the room: the room's mask changes 0.06% of the frame against
+0.16%, and reaches ten steps of an eight-bit channel against thirty-four.
 
 **Light fittings.** Also left out, and for a related reason. The rig puts its
 emitters where the bulb is — inside the shade, behind the pane, under the sconce —
@@ -123,15 +141,29 @@ a screen-space march cannot reach. See [Reflections](#reflections) below.
 
 ## The acceleration structure
 
-One bottom-level structure over every opaque triangle in world space, and one
-top-level structure holding a single untransformed instance of it.
+One bottom-level structure per *part*, and one top-level structure holding an
+instance of each. Part zero is the room, built once in world space and never moved.
+Parts one upwards are the models placed in it, each built in the model's own space
+and placed by its instance transform — which is what makes a walking character a
+rewritten transform rather than ten thousand rewritten vertices, and what `Move`
+and `SetTraced` are called with.
 
-Per-object instances with their own transforms would be the general answer, and
-GK3 does not need it: the largest scene is under thirty thousand triangles and
-nothing moves once a scene is loaded. Instancing would cost several hundred more
-device allocations, of which drivers guarantee only a few thousand in total. Moving
-props will need instances and a rebuild policy; neither exists yet, and adding
-them before anything moves would be guessing at the requirements.
+Part -1 is the room's keyed cards, added 2026-09-02. It is the room's own geometry
+and never moves, so it needs no number in the placement sequence; it is a part of
+its own only because it must carry a different instance mask and a different facing
+rule from the rest of the room. See below and
+[cutout-cards.md](cutout-cards.md#the-shadow-added-2026-09-02).
+
+`TracedWorld` is the one statement of what each part carries, because both backends
+read it and a backend that disagreed would not fail — the trace stages would go on
+asking for the room and be handed the characters as well, which reads as a
+character standing in their own shadow rather than as a mask nobody set.
+
+| part | mask | faces both ways | posable |
+|---|---|---|---|
+| 0, the room | `WorldMask` 0x01 | yes — a BSP has no consistent winding | no |
+| 1…, a model | `ModelMask` 0x02 | no — the winding is what lets a character shadow itself | yes |
+| -1, keyed cards | `UnbakedMask` 0x04 | yes | no |
 
 The structure is built whenever the device supports it, including at quality None,
 because Vulkan requires every statically used binding to be valid whether its

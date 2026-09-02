@@ -163,10 +163,13 @@ public sealed unsafe class RayTracingScene : IDisposable
 
                 scene._instanceOf[part] = scene._parts.Count;
 
-                // Everything but the room may be posed, and posing rewrites vertices, so
-                // those parts keep their vertices where the host can write them.
+                // Only a model may be posed, and posing rewrites vertices, so those parts
+                // keep their vertices where the host can write them. The room does not, and
+                // neither do its card occluders. See TracedWorld.Posable.
                 scene._parts.Add(scene.BuildBottomLevel(
-                    [.. positions], CollectionsMarshal.AsSpan(indices), part != 0));
+                    [.. positions],
+                    CollectionsMarshal.AsSpan(indices),
+                    TracedWorld.Posable(part)));
 
                 scene._instances.Add(new AccelerationStructureInstanceKHR
                 {

@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -106,6 +106,29 @@ public static class CutoutCards
     /// chain-link fence, which is the single card in the corpus that most needs this.
     /// </remarks>
     public const int MostRimQuads = 800;
+
+    /// <summary>Most occluder quads one surface's shadow may be built from.</summary>
+    /// <remarks>
+    /// <para>
+    /// The rim's budget buys facets nobody can see; this one buys a shadow nobody can
+    /// resolve, and the two are reduced in opposite ways. A rim over budget drops its
+    /// shortest runs, which leaves gaps as small as the facets they replace. A shadow that
+    /// dropped its smallest patches would be a fence casting a shadow with holes in the
+    /// bars, so this one <em>coarsens</em> instead: the grid is halved and meshed again.
+    /// See <see cref="Coarsen"/> for which way that rounds, which is the part that matters.
+    /// </para>
+    /// <para>
+    /// <b>Two thousand, because a cap this pass reaches is a cap that is doing harm.</b>
+    /// Measured against an uncapped build on Montsegur's razor wire — the worst card in the
+    /// corpus, 114,000 triangles uncapped — six hundred quads changed 0.19% of the frame
+    /// and two thousand changes 0.06%, against a whole effect that is 0.34% of that frame.
+    /// So six hundred was throwing away a third of the shadow it had just built and two
+    /// thousand throws away a tenth, for 58,000 triangles against 114,000. Everywhere else
+    /// in the corpus it never fires at all: RC1, POU, CHU, RC2 and CS3 come out at exactly
+    /// their uncapped counts.
+    /// </para>
+    /// </remarks>
+    public const int MostShadowQuads = 2000;
 
     /// <summary>Largest texel grid one card may be measured over.</summary>
     /// <remarks>
@@ -229,11 +252,16 @@ public static class CutoutCards
 
         plane = Vector3.Normalize(plane);
 
-        List<RimRun>? rim = Rim(texCoords, indices, mask, unitsPerTexel);
+        if (Outline(texCoords, indices, mask) is not { } outline)
+        {
+            return null;
+        }
+
+        List<RimRun> rim = Rim(outline, mask, unitsPerTexel);
 
         // No rim, no thickening. A shell with no sides is two parallel cutouts a thickness
         // apart, and that reads worse than the card it replaced.
-        if (rim is null || rim.Count == 0)
+        if (rim.Count == 0)
         {
             return null;
         }
@@ -247,7 +275,8 @@ public static class CutoutCards
             Wall(run, mask, origin, across, down, plane, thickness, triangles);
         }
 
-        return new ThickCard(triangles, thickness, rim.Count);
+        return new ThickCard(
+            triangles, thickness, rim.Count, Shadow(outline, mask, origin, across, down));
     }
 
     /// <summary>
@@ -312,7 +341,7 @@ public static class CutoutCards
         bool Vertical, int Line, int From, int Length, int Side);
 
     /// <summary>
-    /// Finds the silhouette, as merged runs of texel edges.
+    /// Finds the silhouette: which texels of the card the artist actually painted.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -329,11 +358,10 @@ public static class CutoutCards
     /// other 45% of the outline belongs to a rail that is not there.
     /// </para>
     /// </remarks>
-    private static List<RimRun>? Rim(
+    private static Silhouette? Outline(
         IReadOnlyList<Vector2> texCoords,
         IReadOnlyList<int> indices,
-        CutoutMask mask,
-        float unitsPerTexel)
+        CutoutMask mask)
     {
         float minU = float.MaxValue, maxU = float.MinValue;
         float minV = float.MaxValue, maxV = float.MinValue;
@@ -382,12 +410,37 @@ public static class CutoutCards
             }
         }
 
+        return new Silhouette(solid, x0, y0, width, height);
+    }
+
+    /// <summary>
+    /// The texels of one card that are drawn rather than keyed away.
+    /// </summary>
+    /// <param name="Solid">Row-major, true where the card covers a texel the texture paints.</param>
+    /// <param name="X0">Where the grid starts in the texture's own numbering, in texels.</param>
+    /// <param name="Y0">The same, down.</param>
+    /// <param name="Width">Texels across, spanning every tile the card covers.</param>
+    /// <param name="Height">Texels down.</param>
+    /// <remarks>
+    /// Measured once and read twice — the rim walks its edges, the shadow fills its
+    /// interior — because it is the expensive part: a chain tiling a sixteen-texel texture
+    /// down a terrace is a grid of two million, and it was worth walking once.
+    /// </remarks>
+    private readonly record struct Silhouette(
+        bool[] Solid, int X0, int Y0, int Width, int Height);
+
+    /// <summary>
+    /// Finds the silhouette's edges, as merged runs of texel edges.
+    /// </summary>
+    private static List<RimRun> Rim(Silhouette outline, CutoutMask mask, float unitsPerTexel)
+    {
+        (bool[] solid, int x0, int y0, int width, int height) = outline;
+
         // A budget reduces the treatment: the shortest run worth keeping is raised until the
         // rim fits, so what a card loses is its stipple and never its bars. See MostRimQuads.
         //
         // Extracted once and then filtered, rather than re-extracted at each length. The
-        // walk is over every texel of every tile the card covers — a chain tiling a 16-texel
-        // texture down a terrace is a grid of two million — and doing it nine times to
+        // walk is over every texel of every tile the card covers, and doing it nine times to
         // answer a question about a list cost a tenth of a second on the rooms that tile
         // most.
         float shortest = Math.Max(mask.FeatureTexels, ShortestRunUnits / unitsPerTexel);
@@ -416,6 +469,227 @@ public static class CutoutCards
             Line = run.Line + (run.Vertical ? x0 : y0),
             From = run.From + (run.Vertical ? y0 : x0),
         });
+    }
+
+    /// <summary>
+    /// The silhouette again, as opaque triangles a shadow ray can be pointed at.
+    /// </summary>
+    /// <param name="outline">Which texels the card paints.</param>
+    /// <param name="mask">The texture they are texels of.</param>
+    /// <param name="origin">The affine fit's origin; see <see cref="Fit"/>.</param>
+    /// <param name="across">Where u goes.</param>
+    /// <param name="down">Where v goes.</param>
+    /// <returns>Triangle corners in world space, three to a triangle.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the drawn geometry cannot be traced instead.</b> A card is keyed, the
+    /// structure is built with every triangle opaque and there is no any-hit shader to ask
+    /// whether a hit landed on a baluster or on the gap beside it, so putting the shell into
+    /// it would have a railing cast the shadow of a wall. That is why keyed geometry was
+    /// left out altogether, and why a thickened rail went on casting no shadow at all: the
+    /// pass gave it sides to be seen from, and nothing for the sun to be stopped by.
+    /// </para>
+    /// <para>
+    /// The alpha is already decoded and already measured — it is what the rim was built from
+    /// — so the test the missing shader would do per hit is done here instead, once, at
+    /// load: the drawn texels are merged into as few rectangles as cover them and each
+    /// becomes two opaque triangles. What a ray then hits is the bars and not the gaps,
+    /// which is the whole of the question, and it costs no shader and no pipeline.
+    /// </para>
+    /// <para>
+    /// <b>On the plane, not at either face.</b> The shell straddles the plane by half a
+    /// thickness each way and the occluder lies flat on it, which is where the card has
+    /// always been. Two planes would double the cost to widen a shadow by the width of a
+    /// baluster — 0.3 to 4 units against a sun tens of thousands away — and one plane
+    /// between the two faces cannot shadow either of them: a ray leaves a face along its
+    /// own normal, away from the plane behind it.
+    /// </para>
+    /// <para>
+    /// Greedy rectangles rather than a quad per texel. A baluster forty texels tall and
+    /// four across is one rectangle, and it is the same merging the rim does along one
+    /// dimension — this is the two-dimensional case of it. Measured over the corpus the
+    /// merge is worth about thirty to one.
+    /// </para>
+    /// </remarks>
+    private static List<Vector3> Shadow(
+        Silhouette outline, CutoutMask mask, Vector3 origin, Vector3 across, Vector3 down)
+    {
+        bool[] solid = outline.Solid;
+        int width = outline.Width;
+        int height = outline.Height;
+        int step = 1;
+
+        List<(int X, int Y, int W, int H)> patches = Patches(solid, width, height);
+
+        // Over budget the grid is coarsened rather than the patches thinned, so what a
+        // fence loses is the crispness of its shadow's edge and never a bar out of the
+        // middle of it. See MostShadowQuads.
+        for (int attempt = 0; patches.Count > MostShadowQuads && attempt < 4; attempt++)
+        {
+            int wide = width;
+            int tall = height;
+
+            if (wide < 2 || tall < 2)
+            {
+                break;
+            }
+
+            solid = Coarsen(solid, ref wide, ref tall);
+            width = wide;
+            height = tall;
+            step *= 2;
+
+            patches = Patches(solid, width, height);
+        }
+
+        var corners = new List<Vector3>(patches.Count * 6);
+
+        foreach ((int x, int y, int w, int h) in patches)
+        {
+            // Back into the texture's own numbering: the grid started at (X0, Y0) in fine
+            // texels and a coarsened cell is `step` of them square. The same offset the rim
+            // puts back on its runs, and the same trap — a card whose coordinates do not
+            // start at the texture's origin is moved bodily by whole tiles without it.
+            float u0 = (outline.X0 + (x * step)) / (float)mask.Width;
+            float u1 = (outline.X0 + ((x + w) * step)) / (float)mask.Width;
+            float v0 = (outline.Y0 + (y * step)) / (float)mask.Height;
+            float v1 = (outline.Y0 + ((y + h) * step)) / (float)mask.Height;
+
+            Vector3 a = origin + (across * u0) + (down * v0);
+            Vector3 b = origin + (across * u1) + (down * v0);
+            Vector3 c = origin + (across * u1) + (down * v1);
+            Vector3 d = origin + (across * u0) + (down * v1);
+
+            corners.Add(a);
+            corners.Add(b);
+            corners.Add(c);
+            corners.Add(a);
+            corners.Add(c);
+            corners.Add(d);
+        }
+
+        return corners;
+    }
+
+    /// <summary>
+    /// Merges the drawn texels into as few axis-aligned rectangles as cover them.
+    /// </summary>
+    /// <remarks>
+    /// The usual greedy mesh: take the first texel nothing has claimed, run right while the
+    /// row allows, then run down while whole rows of that width allow, and claim the block.
+    /// It is not the smallest possible set of rectangles — finding that is a much harder
+    /// problem and buys nothing here — but on a lattice of bars, which is what every card
+    /// this touches is, it finds each bar as one rectangle, which is the answer anybody
+    /// would draw by hand.
+    /// </remarks>
+    private static List<(int X, int Y, int W, int H)> Patches(
+        bool[] solid, int width, int height)
+    {
+        var found = new List<(int, int, int, int)>();
+        bool[] taken = new bool[solid.Length];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int at = (y * width) + x;
+
+                if (!solid[at] || taken[at])
+                {
+                    continue;
+                }
+
+                int w = 1;
+
+                while (x + w < width && solid[at + w] && !taken[at + w])
+                {
+                    w++;
+                }
+
+                int h = 1;
+
+                while (y + h < height)
+                {
+                    int row = ((y + h) * width) + x;
+                    bool whole = true;
+
+                    for (int i = 0; i < w; i++)
+                    {
+                        if (!solid[row + i] || taken[row + i])
+                        {
+                            whole = false;
+                            break;
+                        }
+                    }
+
+                    if (!whole)
+                    {
+                        break;
+                    }
+
+                    h++;
+                }
+
+                for (int j = 0; j < h; j++)
+                {
+                    int row = ((y + j) * width) + x;
+
+                    for (int i = 0; i < w; i++)
+                    {
+                        taken[row + i] = true;
+                    }
+                }
+
+                found.Add((x, y, w, h));
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Halves the silhouette, keeping a cell three of its four agreed was drawn.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three and not two, which is where this parts company with
+    /// <see cref="CutoutMask"/>.</b> That one is measuring how wide a bar is drawn and takes
+    /// a majority; this one is deciding what stops the sun, and the two errors are not
+    /// worth the same. A rule that rounds a half-covered cell up turns a lattice into a
+    /// sheet — a chain-link fence is exactly half drawn, so a majority makes every one of
+    /// its cells solid and the fence casts the shadow of a wall, which is the single
+    /// artefact this whole approach exists to avoid. Rounding down loses a thin bar
+    /// instead, and a bar that goes missing casts what it cast before this: nothing.
+    /// </para>
+    /// <para>
+    /// It costs nothing measurably, because <see cref="MostShadowQuads"/> is set where this
+    /// hardly ever runs: over the corpus the two rules differ by 0.1% of the triangles, and
+    /// on the frame that shows the most, by no pixels a threshold of two can find.
+    /// </para>
+    /// </remarks>
+    private static bool[] Coarsen(bool[] solid, ref int width, ref int height)
+    {
+        int half = Math.Max(1, width / 2);
+        int down = Math.Max(1, height / 2);
+        bool[] smaller = new bool[half * down];
+
+        for (int y = 0; y < down; y++)
+        {
+            for (int x = 0; x < half; x++)
+            {
+                int at = (y * 2 * width) + (x * 2);
+
+                int drawn = (solid[at] ? 1 : 0) +
+                            (solid[at + 1] ? 1 : 0) +
+                            (solid[at + width] ? 1 : 0) +
+                            (solid[at + width + 1] ? 1 : 0);
+
+                smaller[(y * half) + x] = drawn >= 3;
+            }
+        }
+
+        width = half;
+        height = down;
+
+        return smaller;
     }
 
     /// <summary>Which texels of the grid the card's triangles actually cover.</summary>
