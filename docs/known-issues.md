@@ -221,6 +221,41 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### A timeblock's closing film played over the next room, which ran behind it — fixed 2026-09-02
+
+**Reported:** "At the chateau when the cutscene plays between grace/mosely/buthane, the
+screen shifts to 'DAY 2', it starts with an intro video BUT the in-game cutscene of grace
+entering gabriel's hotel room plays behind the video."
+
+Exactly right, and it was every timeblock that has a closing film — four of the sixteen:
+`202AEND`, `205PEND`, `207AEND` and `212PEND`. The reported one is 212P, the Château de
+Serres block, handing over to Gabriel's hotel room at two in the afternoon, whose
+`SCENE:ENTER BEG_DAY2_2PM` is Grace letting herself in.
+
+**The film was started and never waited for.** `movies.Play(was + "end")` opens it and
+returns its length; nothing after that advanced a single frame of it. So the timeblock card
+drew over a film that had not begun — which is why the card appeared *first* — the next room
+was then built and entered with the film still queued, and from that room's first frame the
+main loop found `movies.Playing` and drew it over the top. The room behind it ran normally
+the whole time: `SceneUpdate.Advance` is not gated on a movie, so Grace let herself in where
+nobody could see her and the scene was over before the film was.
+
+**The fix watches the film out where it is started**, using the loop the opening films
+already had — now `Application.Watch`, shared by both — so the order is the film, then the
+card, then the room. Escape or Enter ends it at once and holding the mouse button for six
+tenths of a second does too, which are the ways out the original offers; the hint says so
+over the first six seconds.
+
+A run with `--frames` passes the film over rather than sitting through thirty-nine seconds
+of it, the same courtesy the opening films already had — and it *stops* it rather than
+leaving it, because leaving it is the fault above.
+
+**The room is deliberately still not frozen while a movie plays**, and that is not an
+oversight to tidy up later: a script's `wait PlayFullScreenMovie(...)` is released by the
+clock `SceneUpdate.Advance` runs down, so a room that stopped updating during a movie would
+never let a waited one finish. Anything that wants a film to have the screen to itself has to
+own the frame loop for its duration, which is what `Watch` does.
+
 ### A railing built in 3D still cast no shadow — fixed 2026-09-02
 
 **Reported:** "the 3d'ify of 2d sprites doesn't seem to affect light/shadows? so a fence that

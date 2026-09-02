@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering.Shaders;
+﻿using GK3Reborn.Rendering.Shaders;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
 using Silk.NET.DXGI;
@@ -79,6 +79,11 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     /// </param>
     /// <param name="cull">Which faces are discarded.</param>
     /// <param name="blend">Whether the colour target is blended over rather than replaced.</param>
+    /// <param name="premultiplied">
+    /// Whether the fragment's colour already carries its own alpha, so the source factor is
+    /// one rather than the alpha. What lets one blend both cover and add: see
+    /// <see cref="Shaders.ParticleShaders"/>. Meaningless unless <paramref name="blend"/>.
+    /// </param>
     /// <param name="vertexEntryPoint">Entry point of the vertex shader in its own source.</param>
     /// <param name="fragmentEntryPoint">Entry point of the fragment shader in its own source.</param>
     /// <returns>The pipeline.</returns>
@@ -100,6 +105,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         bool depthEqual = false,
         CullMode cull = CullMode.Back,
         bool blend = false,
+        bool premultiplied = false,
         string vertexEntryPoint = "main",
         string fragmentEntryPoint = "main")
     {
@@ -178,7 +184,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
                         NumElements = (uint)attributes.Count,
                     },
                     RasterizerState = Rasterizer(cull),
-                    BlendState = Blender(blend, colorFormats.Count),
+                    BlendState = Blender(blend, premultiplied, colorFormats.Count),
                     DepthStencilState = DepthStencil(
                         depthFormat != Format.FormatUnknown, depthWrite, depthTest, depthEqual),
                 };
@@ -323,7 +329,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         ConservativeRaster = ConservativeRasterizationMode.Off,
     };
 
-    private static BlendDesc Blender(bool blend, int targets)
+    private static BlendDesc Blender(bool blend, bool premultiplied, int targets)
     {
         var description = new BlendDesc
         {
@@ -338,7 +344,10 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         {
             BlendEnable = blend,
             LogicOpEnable = false,
-            SrcBlend = Blend.SrcAlpha,
+            // One where the colour already carries its own alpha, which is what lets a
+            // fragment choose between covering what is behind it and adding to it by what
+            // it writes in the alpha channel alone.
+            SrcBlend = premultiplied ? Blend.One : Blend.SrcAlpha,
             DestBlend = Blend.InvSrcAlpha,
             BlendOp = BlendOp.Add,
 

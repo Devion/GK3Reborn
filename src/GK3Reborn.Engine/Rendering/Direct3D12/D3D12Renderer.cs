@@ -359,6 +359,10 @@ public sealed unsafe class D3D12Renderer : IRenderer
         IReadOnlyList<Formats.Scenes.AuthoredLight> lights, SceneExtent scene = default) =>
         _pipeline.Frames.SetLights(lights, scene);
 
+    /// <inheritdoc/>
+    public void SetParticles(IReadOnlyList<Particle> particles) =>
+        _pipeline.SetParticles(particles);
+
     /// <summary>Says that whatever a temporal pass remembers is worthless.</summary>
     public void ResetHistory() => _pipeline.Reset = true;
 

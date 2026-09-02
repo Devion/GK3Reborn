@@ -14,6 +14,31 @@ public enum AuthoredLightKind
 }
 
 /// <summary>
+/// How a light moves, when what it stands for is a fire.
+/// </summary>
+/// <param name="Swing">
+/// How far the light's intensity moves either side of <paramref name="Bias"/>, as a
+/// fraction of it. Zero for everything that is not a flame, which is nearly every light in
+/// the game.
+/// </param>
+/// <param name="Bias">
+/// What the light settles at. One for a light the artists placed by a fire, whose
+/// brightness is theirs and only wavers around it; <b>nought</b> for a light synthesized
+/// for a fire they gave none, which then contributes the waver and nothing else — it adds
+/// no light on average, so a room's exposure is exactly what it always was.
+/// </param>
+/// <param name="Rate">The base frequency of the flicker, in hertz.</param>
+/// <param name="Seed">
+/// Nought to one, spreading each flame's rate a quarter either side of
+/// <paramref name="Rate"/> so that two candles on one table never pulse together.
+/// </param>
+/// <remarks>
+/// Not from the scene file: no 1999 light flickers, and this is decided by which lights
+/// stand in a fire. See <see cref="Game.FlameLighting"/>.
+/// </remarks>
+public readonly record struct FlameFlicker(float Swing, float Bias, float Rate, float Seed);
+
+/// <summary>
 /// One light as the original artists placed it.
 /// </summary>
 /// <param name="Name">The light's name, from its section header.</param>
@@ -42,7 +67,11 @@ public sealed record AuthoredLight(
     bool UsesAttenuation,
     bool CastsShadows,
     float Intensity,
-    float Radius);
+    float Radius)
+{
+    /// <summary>How it wavers, when it is a fire. Null for a light that stands still.</summary>
+    public FlameFlicker? Flicker { get; init; }
+}
 
 /// <summary>
 /// Reader for scene assets: the geometry, skybox, model list and lights of a scene at one

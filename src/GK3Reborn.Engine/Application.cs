@@ -1444,14 +1444,36 @@ public static class Application
             timeline?.Stamp("upload to device (Finish)");
             fade.Tick();
 
+            // The room's open flames, and the lights that stand in them. Nine of the
+            // corpus's rooms have a fire in them and the other seventy-two get an empty
+            // list and an unchanged rig. See Game.FlameLighting.
+            IReadOnlyList<Game.Flame> fires = Game.Flames.In(scene.Models, api.Animations);
+            IReadOnlyList<Formats.Scenes.AuthoredLight> burning =
+                Game.FlameLighting.Rig(scene.Lights, fires);
+
             // With the geometry's extent, so the rig can tell a lamp that decays from the
             // scene's key light — placed tens of thousands of units away with the two
             // hundred unit range 3ds Max left in the file and its attenuation switched off.
             // Honouring that range does not dim the sun, it deletes it. See
             // GpuLight.IsDistantKey.
             renderer.SetLights(
-                scene.Lights, new SceneExtent(geometry.Minimum, geometry.Maximum));
+                burning, new SceneExtent(geometry.Minimum, geometry.Maximum));
             timeline?.Stamp("light rig");
+
+            if (fires.Count > 0)
+            {
+                int wavering = burning.Count(l => l.Flicker is { Bias: > 0.5f });
+                int lit = burning.Count - scene.Lights.Count;
+
+                string added = lit > 0
+                    ? string.Create(CultureInfo.InvariantCulture, $" and {lit} lit that had none")
+                    : string.Empty;
+
+                Log.Info(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Fire: {fires.Count} open flame(s), {wavering} of the artists' lights " +
+                    $"wavering with them{added}"));
+            }
 
             if (scene.Sun is { } sun)
             {
@@ -1561,12 +1583,29 @@ public static class Application
             // at and looks fine until the first ramp.
             if (args.Contains("--lights", StringComparer.OrdinalIgnoreCase))
             {
-                foreach (Formats.Scenes.AuthoredLight light in scene.Lights)
+                foreach (Game.Flame flame in fires)
                 {
+                    string drawn = flame.Visible ? string.Empty : ", not yet drawn";
+
                     Log.Info(string.Create(
                         CultureInfo.InvariantCulture,
-                        $"  light r={light.Radius:F1} i={light.Intensity:F2} " +
-                        $"reach={light.AttenuationEnd:F0}"));
+                        $"  flame {flame.Model} at {flame.Position.X:F0},{flame.Position.Y:F0}," +
+                        $"{flame.Position.Z:F0} {flame.Height:F1} tall, " +
+                        $"swings {flame.Swing * 100:F0}% at {flame.Rate:F1} Hz{drawn}"));
+                }
+
+                foreach (Formats.Scenes.AuthoredLight light in burning)
+                {
+                    string wavers = light.Flicker is { } flicker
+                        ? string.Create(
+                            CultureInfo.InvariantCulture,
+                            $" flickers {flicker.Swing * 100:F0}% about {flicker.Bias:F0}")
+                        : string.Empty;
+
+                    Log.Info(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  light {light.Name} r={light.Radius:F1} i={light.Intensity:F2} " +
+                        $"reach={light.AttenuationEnd:F0}{wavers}"));
                 }
             }
 
@@ -1704,6 +1743,11 @@ public static class Application
                         ? [.. asset.Lights.Where(l => !Game.Sunlight.IsAuthoredSun(
                                l, geometry.Minimum, geometry.Maximum)), daylight]
                         : asset.Lights;
+
+                    // And with the fires, which the swap would otherwise put out: the bar's
+                    // fireplace burns under both of RL2's assets and a rig laid in without
+                    // this one is the same room with the fire turned to a photograph.
+                    rig = Game.FlameLighting.Rig(rig, fires);
 
                     renderer.SetLights(rig, extent);
 
@@ -2002,6 +2046,47 @@ public static class Application
                 {
                     Log.Info(
                         string.Create(CultureInfo.InvariantCulture, $"Closing film: {was}end, {showing:F1}s"));
+
+                    // And watched to the end, or until the player stops it. **Starting it
+                    // and carrying on was the bug.** Nothing advanced a frame of the film
+                    // here, so the card below drew over a film that had not begun; the next
+                    // room then loaded with it still playing, and from the first frame of
+                    // that room the film was drawn over a scene that was running behind it.
+                    //
+                    // 212P is the case it was reported from. The Château de Serres block
+                    // ends on 212PEND, and the room it hands over to is Gabriel's at two in
+                    // the afternoon, whose SCENE:ENTER is Grace letting herself in. She did
+                    // it behind the picture, and by the time the film was over the scene it
+                    // opens on had played itself out.
+                    if (frameLimit > 0)
+                    {
+                        // A run photographing something is not watching a film, and
+                        // 212PEND is thirty-nine seconds long. Stopped rather than left
+                        // playing, because leaving it is the fault above. The opening films
+                        // are passed over for the same reason.
+                        movies.Stop();
+                        Log.Info($"Closing film: {was}end passed over");
+                    }
+                    else
+                    {
+                        double waited = 0;
+                        bool pressed = false;
+
+                        bool cut = Watch(
+                            window,
+                            renderer,
+                            movies,
+                            pages,
+                            Stopwatch.StartNew(),
+                            ref waited,
+                            ref pressed,
+                            SayForFilm);
+
+                        if (cut)
+                        {
+                            Log.Info($"Closing film: {was}end skipped");
+                        }
+                    }
                 }
 
                 // And then say so. Before the next room is built, which is where the
@@ -2742,6 +2827,13 @@ public static class Application
         ArgumentNullException.ThrowIfNull(verbIcons);
 
         string here = scene.Name;
+
+        // What rises off the room's fires. Found again here rather than handed in — the
+        // parameter list above is long enough — and it is a walk over models the scene has
+        // already parsed. Empty in the seventy-two rooms with no fire in them.
+        var smoke = new Game.FlameParticles(Game.Flames.In(scene.Models, api.Animations));
+
+        smoke.Follow(scene.Models);
 
         int cameraIndex = Math.Max(
             0,
@@ -3969,6 +4061,14 @@ public static class Application
 
             window.EndFrame();
 
+            // The room's smoke and embers, moved on and handed over sorted for the eye they
+            // are about to be seen by. Before SetScene so the two describe one instant.
+            if (smoke.Emitters > 0)
+            {
+                smoke.Advance(delta, view.Position);
+                renderer.SetParticles(smoke.Facing(view.Position));
+            }
+
             renderer.SetScene(geometry, view);
 
             // The other half of the transition, one frame at a time. A no-op once the
@@ -4561,14 +4661,6 @@ public static class Application
         MenuPage? hint,
         IReadOnlyList<string> films)
     {
-        // Long enough not to fire on a click, short enough that nobody wonders whether it
-        // is working — and it says so on screen while it counts.
-        const double HoldToSkip = 0.6;
-
-        // How long the way out stays on screen at the start of each film. Said and then
-        // out of the way: it is over the opening of the game.
-        const double SayFor = 6.0;
-
         var stopwatch = Stopwatch.StartNew();
         double held = 0;
 
@@ -4586,70 +4678,8 @@ public static class Application
             Log.Info(string.Create(
                 CultureInfo.InvariantCulture, $"Intro: {name}, {movies.Seconds:F1}s"));
 
-            double began = stopwatch.Elapsed.TotalSeconds;
-            double previous = began;
-            bool skipped = false;
-
-            while (!window.IsClosing && movies.Playing)
-            {
-                window.PumpEvents();
-
-                double now = stopwatch.Elapsed.TotalSeconds;
-                double delta = Math.Min(0.1, now - previous);
-                previous = now;
-
-                bool down = window.IsHeld(Platform.PointerButton.Primary);
-
-                if (!down)
-                {
-                    spent = false;
-                }
-
-                held = down && !spent ? held + delta : 0;
-
-                if (window.WasPressed(Platform.EditKey.Escape) ||
-                    window.WasPressed(Platform.EditKey.Enter) ||
-                    held >= HoldToSkip)
-                {
-                    movies.Stop();
-
-                    skipped = true;
-                    spent = down;
-                    held = 0;
-                }
-                else
-                {
-                    movies.Advance(delta);
-                }
-
-                if (hint is not null && (held > 0 || now - began < SayFor))
-                {
-                    hint.Skipping(
-                        "Hold the mouse button or press Enter to skip",
-                        (float)(held / HoldToSkip),
-                        window.FramebufferWidth,
-                        window.FramebufferHeight);
-
-                    renderer.SetOverlay(hint.Overlay);
-                }
-                else
-                {
-                    renderer.SetOverlay(null);
-                }
-
-                renderer.SetMovieFrame(movies.Frame);
-
-                window.EndFrame();
-                renderer.DrawFrame(0f, 0f, 0f);
-            }
-
-            renderer.SetMovieFrame(null);
-            renderer.SetOverlay(null);
-
-            foreach (Diagnostic diagnostic in movies.Diagnostics.Items)
-            {
-                Log.Report(diagnostic);
-            }
+            bool skipped = Watch(
+                window, renderer, movies, hint, stopwatch, ref held, ref spent, SayForFilm);
 
             if (window.IsClosing)
             {
@@ -4663,6 +4693,137 @@ public static class Application
                 Log.Info($"Intro: {name} skipped");
             }
         }
+    }
+
+    /// <summary>How long a press has to be held to skip a film.</summary>
+    /// <remarks>
+    /// Long enough not to fire on a click, short enough that nobody wonders whether it is
+    /// working — and it says so on screen while it counts.
+    /// </remarks>
+    private const double HoldToSkipFilm = 0.6;
+
+    /// <summary>How long the way out stays on screen at the start of a film.</summary>
+    /// <remarks>
+    /// Said and then out of the way. It is drawn over the film, and a film is the one thing
+    /// in this game nobody wants a line of interface across.
+    /// </remarks>
+    private const double SayForFilm = 6.0;
+
+    /// <summary>
+    /// Watches a film that has already been started, until it ends or the player stops it.
+    /// </summary>
+    /// <param name="window">The window, which is where the keyboard and the frames are.</param>
+    /// <param name="renderer">What draws it.</param>
+    /// <param name="movies">The player, with a film already playing.</param>
+    /// <param name="hint">Where to say how to skip, or null to say nothing.</param>
+    /// <param name="stopwatch">A clock that is already running.</param>
+    /// <param name="held">
+    /// How long the skip has been held for. Carried in and out so that one long press
+    /// cannot clear a whole sequence of films.
+    /// </param>
+    /// <param name="spent">Whether the press that skipped the last film is still down.</param>
+    /// <param name="sayFor">How long the way out stays on screen at the start.</param>
+    /// <returns>True when the player stopped it early.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A film has the screen and the frame loop to itself.</b> Nothing else advances
+    /// while one runs, which is the whole reason this is a loop rather than a flag.
+    /// </para>
+    /// <para>
+    /// It is what the film closing a timeblock was missing. That one was started and never
+    /// waited for, so the title card drew over it without advancing a frame of it and the
+    /// next room then loaded with it still playing — which left the film on screen while
+    /// the room behind it ran its <c>SCENE:ENTER</c>. Day one's ended with Grace letting
+    /// herself into Gabriel's hotel room behind the picture, and by the time the film was
+    /// over the scene it opens on had played itself out.
+    /// </para>
+    /// <para>
+    /// Two ways out, and they are the ones the original offers: Escape or Enter at once, or
+    /// the mouse button held down. A click on its own is not one of them, because a player
+    /// clicking through dialogue into a film would lose it.
+    /// </para>
+    /// </remarks>
+    private static bool Watch(
+        Platform.SilkGameWindow window,
+        Rendering.IRenderer renderer,
+        Game.MoviePlayer movies,
+        MenuPage? hint,
+        Stopwatch stopwatch,
+        ref double held,
+        ref bool spent,
+        double sayFor)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(movies);
+        ArgumentNullException.ThrowIfNull(stopwatch);
+
+        double began = stopwatch.Elapsed.TotalSeconds;
+        double previous = began;
+        bool skipped = false;
+
+        while (!window.IsClosing && movies.Playing)
+        {
+            window.PumpEvents();
+
+            double now = stopwatch.Elapsed.TotalSeconds;
+            double delta = Math.Min(0.1, now - previous);
+            previous = now;
+
+            bool down = window.IsHeld(Platform.PointerButton.Primary);
+
+            if (!down)
+            {
+                spent = false;
+            }
+
+            held = down && !spent ? held + delta : 0;
+
+            if (window.WasPressed(Platform.EditKey.Escape) ||
+                window.WasPressed(Platform.EditKey.Enter) ||
+                held >= HoldToSkipFilm)
+            {
+                movies.Stop();
+
+                skipped = true;
+                spent = down;
+                held = 0;
+            }
+            else
+            {
+                movies.Advance(delta);
+            }
+
+            if (hint is not null && (held > 0 || now - began < sayFor))
+            {
+                hint.Skipping(
+                    "Hold the mouse button or press Enter to skip",
+                    (float)(held / HoldToSkipFilm),
+                    window.FramebufferWidth,
+                    window.FramebufferHeight);
+
+                renderer.SetOverlay(hint.Overlay);
+            }
+            else
+            {
+                renderer.SetOverlay(null);
+            }
+
+            renderer.SetMovieFrame(movies.Frame);
+
+            window.EndFrame();
+            renderer.DrawFrame(0f, 0f, 0f);
+        }
+
+        renderer.SetMovieFrame(null);
+        renderer.SetOverlay(null);
+
+        foreach (Diagnostic diagnostic in movies.Diagnostics.Items)
+        {
+            Log.Report(diagnostic);
+        }
+
+        return skipped;
     }
 
     /// <summary>

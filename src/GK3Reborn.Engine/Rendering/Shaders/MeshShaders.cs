@@ -36,6 +36,10 @@ public static class MeshShaders
 
             // cosine of the lit core, cosine of the outer edge, spot flag, emitter radius
             vec4 cone;
+
+            // how far a flame swings, what it settles at, how fast, and its own spread;
+            // (0, 1, 0, 0) for every light that stands still
+            vec4 flicker;
         };
 
         layout(set = 0, binding = 0) uniform Frame
@@ -699,6 +703,38 @@ public static class MeshShaders
             return (diffuse + specular) * nDotL;
         }
 
+        // Where a flame's light stands at this instant, as a multiplier on its intensity.
+        //
+        // Four sines whose rates share no common multiple, so the sum does not repeat
+        // inside any time anybody stands in the room and reads as a fire rather than as a
+        // pulse. Their amplitudes total one, which is what holds the swing to exactly what
+        // the light asked for.
+        //
+        // **It is the light's bias at t = 0**, because every term is a sine of a phase that
+        // starts at nought. So a still frame rendered at the start of the clock is the
+        // picture this renderer has always drawn: one for a light the artists placed, and
+        // nought for a light synthesized for a fire they left dark, which then contributes
+        // nothing at all. Two flames are told apart by *rate* rather than by phase for that
+        // reason — an offset in the phase would move the first frame, and comparing frames
+        // is how everything in this project is checked.
+        float Flicker(Light light)
+        {
+            if (light.flicker.x <= 0.0)
+            {
+                return light.flicker.y;
+            }
+
+            float t = frame.tuning.y * light.flicker.z *
+                      (0.75 + (0.5 * light.flicker.w)) * 6.2831853;
+
+            float wave = (0.50 * sin(t)) +
+                         (0.27 * sin(t * 2.37)) +
+                         (0.15 * sin(t * 5.11)) +
+                         (0.08 * sin(t * 9.73));
+
+            return light.flicker.y + (light.flicker.x * wave);
+        }
+
         // Which lights reach a point, as a range into the grid's index list.
         //
         // Clamped rather than refused at the edges. A character standing a hair outside the
@@ -720,11 +756,18 @@ public static class MeshShaders
         // The rig the artists authored, evaluated directly. Falloff is linear between the
         // light's start and end distances: that is what 3ds Max's linear decay did and what
         // these numbers were tuned against, and inverse-square would darken every room.
+        //
+        // `wobble` comes back as the part of that total a fire is responsible for moving:
+        // the sum over the flames of what each contributes *away from* where it settles.
+        // It is what lets a room that is lit by its 1999 bake still show a fire — the bake
+        // holds the fire's average light and cannot move, so the movement is added on top
+        // of it. Zero in a room with no fire in it, and zero for every steady light.
         vec3 EvaluateRig(
             Surface surface, vec3 position, vec3 normal, vec3 toEye,
-            int shadowed, int shadowSamples)
+            int shadowed, int shadowSamples, out vec3 wobble)
         {
             vec3 total = vec3(0.0);
+            wobble = vec3(0.0);
             int traced = 0;
 
             // The lights that reach where this fragment is, rather than every light in the
@@ -805,10 +848,25 @@ public static class MeshShaders
                 }
                 #endif
 
-                total += contribution * visibility;
+                // How much of its own brightness this light is showing now. One for the
+                // 99.7% of the corpus's lights that stand still, and the arithmetic below
+                // is then exactly what it was before fires moved.
+                float flicker = Flicker(light);
+
+                total += contribution * flicker * visibility;
+
+                // The same term measured from where the light settles rather than from
+                // zero. For a light the artists put in a flame that is its swing about
+                // their own brightness; for one synthesized for a fire they left dark it
+                // is the whole of it, because such a light settles at nothing. Both come
+                // out as contribution * swing * wave, which is why one line does both.
+                wobble += contribution * (flicker - light.flicker.y) * visibility;
             }
 
-            return total;
+            // A fire below its average takes light away, and where a room is bright with
+            // little else it can take away more than there is. Nothing in the picture is
+            // negative light.
+            return max(total, vec3(0.0));
         }
 
         // A tangent frame, built from the screen-space derivatives of position and texture
@@ -1290,13 +1348,26 @@ public static class MeshShaders
                 // tinted and its diffuse does not exist — which is exactly the distinction
                 // multiplying afterwards would throw away. The fallback has no rig to shade
                 // against and stays the Lambert it always was.
+                vec3 wobble = vec3(0.0);
+
                 vec3 direct = rig.counts.x > 0.5
-                    ? EvaluateRig(surface, inWorld, normal, toEye, 0, 1)
+                    ? EvaluateRig(surface, inWorld, normal, toEye, 0, 1, wobble)
                     : albedo *
                       (vec3(0.35) + (0.65 * max(dot(normal, -frame.lightDirection.xyz), 0.0)));
 
+                // The bake, and the part of it a fire is moving. This is the only branch
+                // that needs saying twice: it is the one where the lightmap *replaces* the
+                // rig rather than standing beside it, so a room lit entirely by its 1999
+                // bake would otherwise have a fire in it that lit nothing. The two
+                // branches below add the rig in full and already carry the flicker.
+                //
+                // Clamped, because a fire below its average takes light away and a wall
+                // the artists left almost black has none to give.
                 outColor = vec4(
-                    mix((albedo * ambient) + direct, albedo * baked, useLightmap), 1.0);
+                    mix((albedo * ambient) + direct,
+                        max((albedo * baked) + wobble, vec3(0.0)),
+                        useLightmap),
+                    1.0);
 
                 return;
             }
@@ -1364,15 +1435,20 @@ public static class MeshShaders
                 albedo * mix(ambient * shaped, baked, lit), lit > 0.5 ? 1.0 : 0.5);
 
             // The rig's light, and in the spare channel how much of the indirect term above
-            // a moving thing may not touch.
-            outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1), share);
+            // a moving thing may not touch. A fire's movement is already in here, because
+            // this term is the rig itself rather than a bake standing in for it.
+            vec3 unused = vec3(0.0);
+
+            outDirect = vec4(EvaluateRig(surface, inWorld, normal, toEye, 0, 1, unused), share);
             #else
             // Indirect light. There is no gathered bounce, so the bake stands in for it,
             // scaled down because it also contains the direct light computed afresh.
             vec3 indirect = mix(ambient, baked * useLightmap, bakedWeight * useLightmap);
+            vec3 unused = vec3(0.0);
 
             outColor = vec4(
-                (albedo * indirect) + EvaluateRig(surface, inWorld, normal, toEye, 0, 1), 1.0);
+                (albedo * indirect) + EvaluateRig(surface, inWorld, normal, toEye, 0, 1, unused),
+                1.0);
             #endif
         }
         """;

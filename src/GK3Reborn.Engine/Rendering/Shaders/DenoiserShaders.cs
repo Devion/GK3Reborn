@@ -97,6 +97,11 @@ public static class DenoiserShaders
             vec4 colorAndIntensity;
             vec4 directionAndEnd;
             vec4 cone;
+
+            // The flicker, which this pass reads only the *bias* of: see Contribution.
+            // Declared in full because the struct has to match the one the rig was packed
+            // with byte for byte — this and the raster pass read the same buffer.
+            vec4 flicker;
         };
 
         layout(set = 0, binding = 0) uniform texture2D depthTarget;
@@ -318,8 +323,15 @@ public static class DenoiserShaders
                 cone = smoothstep(light.cone.y, light.cone.x, aligned);
             }
 
+            // Where the light settles, not where it stands this instant. Two reasons, and
+            // both are about the estimate rather than about fire: a weight that moved with
+            // the flicker would make a pixel trace towards a different light from one frame
+            // to the next, which the temporal filter reads as noise; and a light
+            // synthesized for a fire the artists left dark settles at *nothing*, so its
+            // bias is nought and it is correctly never worth a ray — it is a modulation of
+            // the bake, and a bake casts no shadows to sample.
             vec3 colour = light.colorAndIntensity.rgb * light.colorAndIntensity.w *
-                          attenuation * cone * lambert;
+                          light.flicker.y * attenuation * cone * lambert;
 
             return max(colour.r, max(colour.g, colour.b));
         }

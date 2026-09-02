@@ -12,10 +12,16 @@ namespace GK3Reborn.Rendering.Geometry;
 /// <param name="DirectionAndEnd">Direction it points, and where falloff reaches zero.</param>
 /// <param name="Cone">
 /// Cosine of the fully lit half-angle, cosine of the outer half-angle, whether it is a
-/// spot, and an unused fourth component.
+/// spot, and the emitter's radius.
+/// </param>
+/// <param name="Flicker">
+/// How far this light's brightness swings, what it settles at, how fast, and a number of
+/// its own that spreads it against its neighbours. <c>(0, 1, 0, 0)</c> for a light that
+/// stands still, which multiplies it by exactly one for ever. See
+/// <see cref="Formats.Scenes.FlameFlicker"/>.
 /// </param>
 /// <remarks>
-/// Packed as four <c>float4</c>s so the layout is the same on both sides without any
+/// Packed as five <c>float4</c>s so the layout is the same on both sides without any
 /// padding rules to get wrong. Cone angles are converted to cosines here rather than in
 /// the shader, because they are constant for the life of the scene and the shader would
 /// otherwise recompute them per pixel per light.
@@ -25,7 +31,8 @@ public readonly record struct GpuLight(
     Vector4 PositionAndStart,
     Vector4 ColorAndIntensity,
     Vector4 DirectionAndEnd,
-    Vector4 Cone)
+    Vector4 Cone,
+    Vector4 Flicker)
 {
     /// <summary>
     /// The range given to a light that declares no attenuation.
@@ -113,8 +120,24 @@ public readonly record struct GpuLight(
                 MathF.Cos(hot),
                 MathF.Cos(falloff),
                 (spot ? 1f : 0f) + (directional ? 2f : 0f),
-                MathF.Max(light.Radius, 0.01f)));
+                MathF.Max(light.Radius, 0.01f)),
+
+            // A fire, or a light that stands still. The steady form is (0, 1, 0, 0), whose
+            // multiplier is one at every instant — so a rig with no fire in it is shaded
+            // by arithmetic that cannot change what it used to draw.
+            light.Flicker is { } flicker
+                ? new Vector4(flicker.Swing, flicker.Bias, flicker.Rate, flicker.Seed)
+                : Steady);
     }
+
+    /// <summary>The flicker of a light that does not flicker.</summary>
+    /// <remarks>
+    /// No swing and a bias of one, so <c>bias + swing * wave</c> is one whatever the clock
+    /// says. Named rather than written out because it is the value nearly every light in
+    /// the game has and the shader's formula only reads as safe if this is visibly the
+    /// identity.
+    /// </remarks>
+    public static Vector4 Steady => new(0f, 1f, 0f, 0f);
 
     /// <summary>How far a light actually reaches.</summary>
     /// <param name="light">The light as the scene asset declares it.</param>

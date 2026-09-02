@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering.Geometry;
 
@@ -39,6 +39,14 @@ public interface IOffscreenRenderer : IDisposable
 
     /// <summary>How the room's lights are divided up, once it has been given some.</summary>
     SceneLightGrid? LightGrid { get; }
+
+    /// <summary>Gives the room its smoke and embers.</summary>
+    /// <param name="particles">The particles, furthest from the eye first.</param>
+    /// <remarks>
+    /// Empty unless a caller sets it, so a headless render draws a room whose fires are
+    /// standing still — which is what two versions of this engine are compared with.
+    /// </remarks>
+    void SetParticles(IReadOnlyList<Particle> particles);
 
     /// <summary>Somewhere to put a scene, on this renderer's device.</summary>
     /// <returns>Empty geometry.</returns>

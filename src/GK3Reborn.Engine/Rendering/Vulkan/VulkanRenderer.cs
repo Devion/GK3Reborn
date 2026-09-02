@@ -197,6 +197,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private bool _litSettled;
 
     private Reflections? _reflections;
+    private ParticlePipeline? _particlePipeline;
+    private IReadOnlyList<Particle> _particles = [];
 
     private readonly Image[] _extraImages = new Image[GBuffer.Targets - 1];
     private readonly DeviceMemory[] _extraMemory = new DeviceMemory[GBuffer.Targets - 1];
@@ -1296,6 +1298,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
             _outputPipeline = null;
             _reflections?.Dispose();
             _reflections = null;
+            _particlePipeline?.Dispose();
+            _particlePipeline = null;
             _denoiser?.Dispose();
             _denoiser = null;
             _composite?.Dispose();
@@ -2258,6 +2262,10 @@ public sealed unsafe class VulkanRenderer : IRenderer
                 ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
         }
 
+        // The room's smoke and embers, over the finished picture and under everything that
+        // is not in the room: the movie, the interface and the fade all come later.
+        RecordParticles(buffer);
+
         _litSettled = true;
 
         ImageView picture = Upscale(buffer) ? _upscaledView : _litView;
@@ -2869,6 +2877,118 @@ public sealed unsafe class VulkanRenderer : IRenderer
             ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
     }
 
+    /// <summary>Gives the room its smoke and embers.</summary>
+    /// <param name="particles">The particles, furthest from the eye first.</param>
+    /// <remarks>
+    /// Set every frame by whoever is running the room; empty is the ordinary state of a
+    /// room with no fire in it, and the pass then records nothing at all.
+    /// </remarks>
+    public void SetParticles(IReadOnlyList<Particle> particles)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        _particles = particles;
+    }
+
+    /// <summary>
+    /// Draws the room's smoke and embers over the picture, in a scope of their own.
+    /// </summary>
+    /// <param name="buffer">Command buffer being recorded.</param>
+    /// <remarks>
+    /// <para>
+    /// After the picture is finished and before anything is upscaled or presented. Both
+    /// paths through the room leave the lit target readable by a shader and the depth
+    /// alongside it, so this is the one point in the frame where the state is the same
+    /// whether the room was traced or not.
+    /// </para>
+    /// <para>
+    /// <b>It is drawn at render resolution, and so has no motion vectors.</b> The
+    /// G-buffer's motion target was written by the room and read by the denoiser long
+    /// before this, and a smoke sprite has no surface to report the movement of. A
+    /// temporal upscaler therefore sees the particles as pixels that changed without
+    /// moving, which it smears rather than resolves. It is the reason the pass is here and
+    /// not later: later means after the upscale, where there is no depth at the right size
+    /// to test against and every fire in the game would burn through the wall in front of
+    /// it. Trails behind a spark are the smaller of the two faults.
+    /// </para>
+    /// </remarks>
+    private void RecordParticles(CommandBuffer buffer)
+    {
+        if (_particles.Count == 0 || _particlePipeline is null || _camera is null ||
+            _litImage.Handle == 0 || _depthImage.Handle == 0)
+        {
+            return;
+        }
+
+        _particlePipeline.Prepare(_particles);
+
+        if (_particlePipeline.Count == 0)
+        {
+            return;
+        }
+
+        int width = (int)_renderExtent.Width;
+        int height = (int)_renderExtent.Height;
+
+        Transition(
+            buffer, _litImage, ImageLayout.ShaderReadOnlyOptimal,
+            ImageLayout.ColorAttachmentOptimal);
+
+        _context!.Transition(
+            buffer, _depthImage, ImageLayout.ShaderReadOnlyOptimal,
+            ImageLayout.DepthStencilAttachmentOptimal, ImageAspectFlags.DepthBit);
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _litView,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+
+            // Loaded rather than cleared: the picture is already in it.
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var depthAttachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _depthView,
+            ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = _renderExtent },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+            PDepthAttachment = &depthAttachment,
+        };
+
+        _vk.CmdBeginRendering(buffer, in rendering);
+
+        _particlePipeline.Record(
+            buffer,
+            width,
+            height,
+            Shaders.ParticleShaders.Describe(
+                _camera,
+                _camera.View * _camera.Projection((float)width / height),
+                _output.EmissiveGain));
+
+        _vk.CmdEndRendering(buffer);
+
+        Transition(
+            buffer, _litImage, ImageLayout.ColorAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal);
+
+        _context.Transition(
+            buffer, _depthImage, ImageLayout.DepthStencilAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
+    }
+
     /// <summary>Draws the fade over whatever the frame ended up as.</summary>
     /// <param name="buffer">Command buffer being recorded.</param>
     /// <remarks>
@@ -3098,6 +3218,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
             _context, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler);
 
         _frames = FrameUniformSet.Create(_context, _meshPipeline, FramesInFlight);
+
+        // The one blended pass in the renderer, over the same lit target the room is drawn
+        // into and tested against the same depth. See ParticlePipeline.
+        _particlePipeline = ParticlePipeline.Create(
+            _context, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler);
 
         RebuildForFormat();
 

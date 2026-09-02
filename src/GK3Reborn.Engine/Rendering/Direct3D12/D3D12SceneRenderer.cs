@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Shaders;
 using GK3Reborn.Rendering.Upscaling;
@@ -177,6 +177,10 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
     public void SetLights(
         IReadOnlyList<Formats.Scenes.AuthoredLight> lights, SceneExtent scene = default) =>
         _pipeline.Frames.SetLights(lights, scene);
+
+    /// <inheritdoc/>
+    public void SetParticles(IReadOnlyList<Particle> particles) =>
+        _pipeline.SetParticles(particles);
 
     /// <summary>Draws a scene and returns the picture.</summary>
     /// <param name="geometry">What to draw, already finished.</param>

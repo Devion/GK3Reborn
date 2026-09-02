@@ -308,6 +308,25 @@ public sealed class SceneCheckStage
             }
         }
 
+        // The room's open flames, and what they do to its light. Only where the models have
+        // actually been read: a composed scene knows a fire is named and not what it is
+        // painted with, and being painted with fire is the whole of what a flame is.
+        if (deep && loaded.Models.Count > 0 &&
+            Flames.In(loaded.Models, tally.Api.Animations) is { Count: > 0 } fires)
+        {
+            tally.Fires[loaded.Name] = Math.Max(tally.Fires.GetValueOrDefault(loaded.Name), fires.Count);
+
+            IReadOnlyList<AuthoredLight> burning = FlameLighting.Rig(loaded.Lights, fires);
+
+            tally.FlameLights[loaded.Name] = Math.Max(
+                tally.FlameLights.GetValueOrDefault(loaded.Name),
+                burning.Count(l => l.Flicker is { Bias: > 0.5f }));
+
+            tally.FlamesLit[loaded.Name] = Math.Max(
+                tally.FlamesLit.GetValueOrDefault(loaded.Name),
+                burning.Count - loaded.Lights.Count);
+        }
+
         if (loaded.Ambient.Count > 0)
         {
             tally.Soundtracks++;
@@ -486,6 +505,18 @@ public sealed class SceneCheckStage
         _log($"  {tally.Soundtracks} name a soundtrack: {tally.SoundtracksRead.Count} distinct " +
              $"files read, {tally.SoundtrackSteps} steps, {tally.Sounds.Count} distinct sounds");
 
+        if (tally.Fires.Count > 0)
+        {
+            _log($"  {tally.Fires.Count} rooms have an open flame in them, " +
+                 $"{tally.Fires.Values.Sum()} flames between them, " +
+                 $"{tally.FlameLights.Values.Sum()} of the artists' lights wavering with one and " +
+                 $"{tally.FlamesLit.Values.Sum()} fires lit that had no light of their own: " +
+                 string.Join(
+                     ", ",
+                     tally.Fires.OrderBy(p => p.Key, StringComparer.Ordinal)
+                         .Select(p => $"{p.Key} x{p.Value}")));
+        }
+
         if (tally.NoGeometry.Count > 0)
         {
             _log($"  {tally.NoGeometry.Values.Sum()} have no geometry at that point in the " +
@@ -607,6 +638,15 @@ public sealed class SceneCheckStage
         public long WalkableTexels { get; set; }
 
         public int Soundtracks { get; set; }
+
+        /// <summary>How many open flames each room that has any burns.</summary>
+        public Dictionary<string, int> Fires { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>How many of each room's own lights waver with a fire.</summary>
+        public Dictionary<string, int> FlameLights { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>How many fires each room had to have a light synthesized for.</summary>
+        public Dictionary<string, int> FlamesLit { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Trigger rectangles across the corpus.</summary>
         public int Triggers { get; set; }

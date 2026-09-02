@@ -96,6 +96,15 @@ public interface IRenderer : IDisposable
     /// <summary>What the scene's lights came to on a grid, or null if there is no scene.</summary>
     SceneLightGrid? LightGrid { get; }
 
+    /// <summary>Gives the room its smoke and embers.</summary>
+    /// <param name="particles">The particles, furthest from the eye first.</param>
+    /// <remarks>
+    /// Set every frame, because they move every frame. An empty list is the ordinary state
+    /// of a room with no fire in it and records nothing at all. The order is the caller's:
+    /// smoke is blended over what is behind it. See <see cref="Game.FlameParticles"/>.
+    /// </remarks>
+    void SetParticles(IReadOnlyList<Particle> particles);
+
     // --- how much of it -----------------------------------------------------------------
 
     /// <summary>Whether this renderer can trace rays at all.</summary>

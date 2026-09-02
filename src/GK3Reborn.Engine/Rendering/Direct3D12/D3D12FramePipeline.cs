@@ -58,6 +58,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private D3D12DescriptorHeap? _depths;
     private D3D12Texture[] _gbuffer = [];
     private D3D12Texture? _depth;
+    private D3D12ParticlePass? _particlePass;
+    private IReadOnlyList<Particle> _particles = [];
     private D3D12Texture? _lit;
 
     /// <summary>The room as this frame's mirror sees it, if the room has one.</summary>
@@ -541,6 +543,9 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             finished = Compose(list, scene, camera, width, height);
         }
 
+        // --- the room's smoke and embers, over the finished picture ---
+        RecordParticles(list, finished, camera, width, height);
+
         // --- the upscale, where one was asked for ---
         int shownWidth = _displayWidth;
         int shownHeight = _displayHeight;
@@ -635,6 +640,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _composite.Dispose();
         _mesh.Dispose();
         _frames.Dispose();
+        _particlePass?.Dispose();
+        _particlePass = null;
         _compiler.Dispose();
         _geometry.Dispose();
     }
@@ -698,6 +705,66 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
                 _terrain = null;
             }
         }
+    }
+
+    /// <summary>Gives the room its smoke and embers.</summary>
+    /// <param name="particles">The particles, furthest from the eye first.</param>
+    public void SetParticles(IReadOnlyList<Particle> particles)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        _particles = particles;
+    }
+
+    /// <summary>
+    /// Draws the room's smoke and embers over the picture it has just made.
+    /// </summary>
+    /// <param name="list">Command list to record into.</param>
+    /// <param name="finished">The picture, whichever target it ended up in.</param>
+    /// <param name="camera">Where the frame was looked at from.</param>
+    /// <param name="width">Render width.</param>
+    /// <param name="height">Its height.</param>
+    /// <remarks>
+    /// After the picture and before the upscale. The Vulkan renderer says why it goes here
+    /// and what it costs a temporal upscaler; see <c>VulkanRenderer.RecordParticles</c>.
+    /// </remarks>
+    private void RecordParticles(
+        ID3D12GraphicsCommandList4* list,
+        D3D12Texture finished,
+        Camera camera,
+        int width,
+        int height)
+    {
+        if (_particles.Count == 0 || _targets is null || _depths is null || _depth is null)
+        {
+            return;
+        }
+
+        _particlePass ??= D3D12ParticlePass.Create(
+            _context, _compiler, GBufferFormats.Light, GBufferFormats.Depth, frames: 1);
+
+        _particlePass.Prepare(_particles, 0);
+
+        if (_particlePass.Count == 0)
+        {
+            return;
+        }
+
+        finished.Transition(list, ResourceStates.RenderTarget);
+
+        // Read rather than written, the same as the painted sky above: a sprite is tested
+        // against the room and adds nothing to it.
+        _depth.Transition(list, ResourceStates.DepthRead);
+
+        _particlePass.Record(
+            list,
+            _targets.Cpu(_rayTracing ? Slots.Lit : 0),
+            _depths.Cpu(0),
+            width,
+            height,
+            ParticleShaders.Describe(
+                camera,
+                camera.View * camera.Projection((float)width / Math.Max(1, height)),
+                _frames.EmissiveGain));
     }
 
     private D3D12Texture Compose(

@@ -58,6 +58,8 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     private readonly FrameUniformSet? _rayTracedFrames;
 
     private bool _warnedAboutDeferred;
+    private ParticlePipeline? _particlePipeline;
+    private IReadOnlyList<Particle> _particles = [];
 
     private SceneRenderer(
         VulkanContext context,
@@ -195,6 +197,19 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     /// </remarks>
     public float Seconds { get; set; }
 
+    /// <summary>Gives the room its smoke and embers.</summary>
+    /// <param name="particles">The particles, furthest from the eye first.</param>
+    /// <remarks>
+    /// Empty unless a caller sets it, so a headless render draws a room with its fires
+    /// standing still — which is what two versions of this engine are compared with. See
+    /// <see cref="Game.FlameParticles"/> for what fills it.
+    /// </remarks>
+    public void SetParticles(IReadOnlyList<Particle> particles)
+    {
+        ArgumentNullException.ThrowIfNull(particles);
+        _particles = particles;
+    }
+
     /// <summary>Renders geometry and returns the image.</summary>
     /// <param name="geometry">What to draw.</param>
     /// <param name="width">Image width.</param>
@@ -329,7 +344,7 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
 
             VulkanSceneDraw.Begin(
                 _context.Api, command, colors, depth.View, width, height, camera.Background,
-                keepDepth: tracing);
+                keepDepth: tracing || _particles.Count > 0);
 
             VulkanSceneDraw.Record(
                 _context.Api, command, pipeline, frames, geometry, 0, width, height, camera);
@@ -342,6 +357,10 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
                     command, denoiser!, reflections!, composite!, geometry, frames, camera,
                     scene, normal, motion, direct, depth, lit, picture.View, width, height);
             }
+
+            // Over the finished picture and under nothing: smoke is the last thing in the
+            // room and the only blended thing in the renderer.
+            RecordParticles(command, picture.View, depth, camera, width, height, tracing);
 
             _context.Transition(
                 command, picture.Image, ImageLayout.ColorAttachmentOptimal,
@@ -365,10 +384,98 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         }
     }
 
+    /// <summary>Draws the room's smoke and embers over the picture it has just made.</summary>
+    /// <param name="command">Command buffer to record into.</param>
+    /// <param name="picture">The finished picture.</param>
+    /// <param name="depth">The depth the room left, which the sprites are tested against.</param>
+    /// <param name="camera">Where the frame was looked at from.</param>
+    /// <param name="width">Target width.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="tracing">
+    /// Whether the compositing pass ran, which is what decides the layout the depth target
+    /// is currently in.
+    /// </param>
+    private void RecordParticles(
+        CommandBuffer command,
+        ImageView picture,
+        Target depth,
+        Camera camera,
+        int width,
+        int height,
+        bool tracing)
+    {
+        if (_particles.Count == 0)
+        {
+            return;
+        }
+
+        _particlePipeline ??= ParticlePipeline.Create(
+            _context, ColorFormat, DepthFormat, _compiler);
+
+        _particlePipeline.Prepare(_particles);
+
+        if (_particlePipeline.Count == 0)
+        {
+            return;
+        }
+
+        // The compositing pass leaves the depth readable by a shader; the plain path leaves
+        // it where the room wrote it. Either way it has to be an attachment again to be
+        // tested against, and it is never written here.
+        if (tracing)
+        {
+            _context.Transition(
+                command, depth.Image, ImageLayout.ShaderReadOnlyOptimal,
+                ImageLayout.DepthStencilAttachmentOptimal, ImageAspectFlags.DepthBit);
+        }
+
+        var colour = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = picture,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+
+            // Loaded rather than cleared: the picture is already in it.
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var depthAttachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = depth.View,
+            ImageLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &colour,
+            PDepthAttachment = &depthAttachment,
+        };
+
+        _context.Api.CmdBeginRendering(command, in rendering);
+
+        _particlePipeline.Record(
+            command, width, height,
+            Shaders.ParticleShaders.Describe(
+                camera, camera.View * camera.Projection((float)width / height)));
+
+        _context.Api.CmdEndRendering(command);
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {
         _context.Api.DeviceWaitIdle(_context.Device);
+
+        _particlePipeline?.Dispose();
+        _particlePipeline = null;
 
         if (_placeholderSampler.Handle != 0)
         {
