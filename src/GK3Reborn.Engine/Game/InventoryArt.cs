@@ -1,4 +1,4 @@
-using GK3Reborn.Content;
+﻿using GK3Reborn.Content;
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Ini;
@@ -95,6 +95,21 @@ public sealed class InventoryArt
     public IReadOnlyList<string> IconNames(string item) =>
         StemOf(item) is { } stem ? [stem + "9.BMP", stem + "_9.BMP"] : [];
 
+    /// <summary>What an item's close-up may be called, in the order to try.</summary>
+    /// <param name="item">The item.</param>
+    /// <returns>The file names, or nothing when the file does not name the item.</returns>
+    /// <remarks>
+    /// <c>6</c> is the picture of the thing itself rather than an icon of it — the book of
+    /// the immortals is 606 by 314 and readable, where its <c>9</c> is a 94-pixel square
+    /// that could be any piece of paper in the game. Most stems take the number straight,
+    /// a handful spell it <c>6_ALPHA</c>, and <c>MOSELYPRINT_6_ALPHA.BMP</c> alone puts an
+    /// underscore in first. G-Engine tries the three in this order and so does this.
+    /// </remarks>
+    public IReadOnlyList<string> CloseUpNames(string item) =>
+        StemOf(item) is { } stem
+            ? [stem + "6.BMP", stem + "6_ALPHA.BMP", stem + "_6_ALPHA.BMP"]
+            : [];
+
     /// <summary>What the transparency for a picture is called.</summary>
     /// <param name="icon">The picture's file name.</param>
     /// <returns>The mask's file name.</returns>
@@ -146,6 +161,45 @@ public sealed class InventoryArt
             {
                 // A picture that will not decode is an item drawn by its name, which is
                 // what an item with no picture at all gets.
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>An item's close-up picture, the size it was painted at.</summary>
+    /// <param name="archives">Where the art is.</param>
+    /// <param name="item">The item.</param>
+    /// <returns>The picture, or null when the item has none.</returns>
+    /// <remarks>
+    /// <para>
+    /// No transparency is applied. The close-ups are whole pictures with their own
+    /// backgrounds — a book open on a table, a passport lying flat — and there is no
+    /// <c>6_OP</c> anywhere in the game to cut one out with.
+    /// </para>
+    /// <para>
+    /// A null here is ordinary: an item nobody drew a close-up of is shown by its list
+    /// picture instead, which is what the screen did for every item before this existed.
+    /// </para>
+    /// </remarks>
+    public DecodedImage? CloseUp(GameArchives archives, string item)
+    {
+        ArgumentNullException.ThrowIfNull(archives);
+
+        foreach (string name in CloseUpNames(item))
+        {
+            if (archives.Read(name) is not { } bytes)
+            {
+                continue;
+            }
+
+            try
+            {
+                return BitmapDecoder.Decode(bytes, name);
+            }
+            catch (FormatParseException)
+            {
                 return null;
             }
         }

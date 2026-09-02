@@ -111,6 +111,18 @@ public sealed class SceneInteraction
     /// <summary>What the last click did, for whoever wants to say so.</summary>
     public ActionOutcome? Last { get; private set; }
 
+    /// <summary>Asks what a ray meets, for something that is not the pointer.</summary>
+    /// <param name="ray">Where from and which way.</param>
+    /// <param name="ignoring">What it passes straight through, by name.</param>
+    /// <returns>The nearest thing it met, or null.</returns>
+    /// <remarks>
+    /// The room's own picker rather than a second one: a mechanism firing five rays a
+    /// frame should not carry its own copy of every triangle in the room.
+    /// </remarks>
+    public Interaction.ScenePick? Cast(
+        Rendering.Ray ray, IReadOnlySet<string>? ignoring = null) =>
+        _picker.Pick(ray, ignoring);
+
     /// <summary>Asks what is under a point on the screen.</summary>
     /// <param name="camera">The view.</param>
     /// <param name="x">Pixels from the left.</param>

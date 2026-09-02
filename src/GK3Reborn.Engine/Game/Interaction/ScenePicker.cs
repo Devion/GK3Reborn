@@ -192,14 +192,29 @@ public sealed class ScenePicker
 
     /// <summary>Casts a ray into the scene.</summary>
     /// <param name="ray">Where from and which way.</param>
+    /// <param name="ignoring">
+    /// Things the ray passes straight through, by name, or null to meet everything.
+    /// </param>
     /// <returns>The nearest thing it met, or null if it met nothing.</returns>
-    public ScenePick? Pick(Ray ray)
+    /// <remarks>
+    /// <b>What is doing the casting is not always the pointer.</b> CS2's five beams each
+    /// ask how far they reach, and the first thing every one of them would otherwise meet
+    /// is another beam — so the pair that cross would each stop the other an inch out of
+    /// the head. That is what the ignore list is for, and it is the same list the
+    /// reference passes to its own raycast.
+    /// </remarks>
+    public ScenePick? Pick(Ray ray, IReadOnlySet<string>? ignoring = null)
     {
         ScenePick? nearest = null;
         float best = float.MaxValue;
 
         foreach (Target target in _targets)
         {
+            if (ignoring is { Count: > 0 } skip && skip.Contains(target.Name))
+            {
+                continue;
+            }
+
             // What is not drawn is not there to be clicked. A scene hides models it means
             // to show later — the moped waiting for its scripted ride past RC1 — and a ray
             // that meets one picks up a noun for something invisible, which reads as the

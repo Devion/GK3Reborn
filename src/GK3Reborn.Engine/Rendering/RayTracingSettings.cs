@@ -66,12 +66,20 @@ public readonly record struct RayTracingSettings(
     /// ambient floor did.
     /// </para>
     /// <para>
-    /// Where the bake is gone it is doing a great deal more, because it is now the only
-    /// thing standing in for light that has bounced. Measured on <c>RC1</c> and <c>LBY</c>:
-    /// the rig alone lands about a third below the bake, and this is what closes it. It is
-    /// modulated by traced ambient occlusion at those tiers, which is what keeps it from
-    /// reading as the flat wash a constant would be — a corner still darkens, it just
-    /// darkens because a ray said so rather than because a lightmap was painted that way.
+    /// Where the bake is gone it is doing more, because it is the only thing standing in
+    /// for light that has bounced. It is modulated by traced ambient occlusion at those
+    /// tiers, which is what keeps it from reading as the flat wash a constant would be — a
+    /// corner still darkens, it just darkens because a ray said so rather than because a
+    /// lightmap was painted that way.
+    /// </para>
+    /// <para>
+    /// <b>Tried lower and put back, 2026-09-03.</b> A flat lift is the obvious suspect when
+    /// a room that ought to be dark is not — CS3's attic, where Grace remarks she cannot
+    /// read — and halving it does darken every room. It also halves the traced ambient
+    /// occlusion, because occlusion multiplies <em>this</em> term and nothing else: the
+    /// corner test went from 2.9% of darkening to 1.5%. Trading the one traced effect that
+    /// shapes a corner for a uniformly darker picture is the wrong way round, so the
+    /// over-lighting is answered where it comes from instead — see <c>Game.RigBalance</c>.
     /// </para>
     /// </remarks>
     public Vector3 Ambient => UsesBake

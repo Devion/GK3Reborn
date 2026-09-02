@@ -79,6 +79,38 @@ public sealed class ActionCaseTests
     }
 
     [Fact]
+    public void Who_the_player_is_decides_which_of_a_pair_of_lines_is_theirs()
+    {
+        // INV_23ALL.NVC as it ships: the same rule written twice, Gabriel's above Grace's,
+        // both ending in IsCurrentEgo. Reported from the chateau on the second afternoon —
+        // clicking SCANNER answered in Gabriel's voice while playing Grace, because the
+        // scene had never told the game whose day it was.
+        const string ScannerRules = """
+            [ACTIONS]
+            ANY_OBJECT, SCANNER, GABE_ALL_INV,  script={StartVoiceOver("10LXW7XPG1",1);}
+            ANY_OBJECT, SCANNER, GRACE_ALL_INV, script={StartVoiceOver("10LXW7XDG1",1);}
+
+            [LOGIC]
+            GABE_ALL_INV={IsCurrentEgo("Gabriel") && IsTopLayerInventory()}
+            GRACE_ALL_INV={IsCurrentEgo("Grace") && IsTopLayerInventory()}
+            """;
+
+        static string? Said(string ego)
+        {
+            var state = new GameState { Ego = ego };
+
+            // The rules ask whether the inventory is what the player is looking at, which
+            // is the whole reason these lines are only reachable from the close-up.
+            state.Screens.Show(new GK3Reborn.UI.Screen(GK3Reborn.UI.ScreenKind.InventoryInspect, "IMMORTAL_1"));
+
+            return Resolver(state, ScannerRules).Find("IMMORTAL_1", "SCANNER", ego)?.Script;
+        }
+
+        Assert.Contains("10LXW7XPG1", Said("GABRIEL"), StringComparison.Ordinal);
+        Assert.Contains("10LXW7XDG1", Said("GRACE"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Easter_eggs_are_off()
     {
         ActionResolver resolver = Resolver(new GameState(), "STATUE, LOOK, EGG, script={}");

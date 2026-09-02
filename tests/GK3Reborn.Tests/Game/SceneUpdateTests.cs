@@ -173,6 +173,10 @@ public sealed class SceneUpdateTests
             return true;
         }
 
+        public void SetSelfLit(ModelPlacement placement, bool selfLit)
+        {
+        }
+
         public void SetVisible(ModelPlacement placement, bool visible) =>
             Visible[placement.Id] = visible;
 

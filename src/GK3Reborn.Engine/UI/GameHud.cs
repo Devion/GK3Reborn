@@ -48,6 +48,14 @@ namespace GK3Reborn.UI;
 /// player who has played the game before is already looking for. Null when nothing has
 /// been loaded, and a verb may answer with nothing — three of the 287 name no picture.
 /// </param>
+/// <param name="Gps">
+/// What the handheld GPS is showing, when Grace has one out and switched on. Null in every
+/// room but the three that lend her one.
+/// </param>
+/// <param name="Pictures">
+/// The game's own art by file name, for the one piece of the interface that is a picture
+/// rather than a drawing.
+/// </param>
 public readonly record struct HudState(
     string? Noun,
     IReadOnlyList<string> Verbs,
@@ -67,7 +75,9 @@ public readonly record struct HudState(
     IReadOnlyList<string>? Items = null,
     IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null,
     Func<string, ItemIcon>? Icons = null,
-    Func<string, bool, ItemIcon>? VerbIcons = null);
+    Func<string, bool, ItemIcon>? VerbIcons = null,
+    Game.Mechanisms.GpsReading? Gps = null,
+    Func<string, ItemIcon>? Pictures = null);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -186,6 +196,7 @@ public sealed class GameHud
         _buttons.Clear();
 
         Where(state, width);
+        Gps(state, height);
         Hotspots(state, width, height);
         // The bar of what the player is carrying used to live along the foot of the screen.
         // It is gone: the right-click menu already says which of your things a noun will
@@ -214,6 +225,85 @@ public sealed class GameHud
             Terminal(console, width, height);
         }
     }
+
+    /// <summary>
+    /// The handheld GPS, when Grace has switched it on.
+    /// </summary>
+    /// <param name="state">What the game is doing.</param>
+    /// <param name="height">Window height, which is what decides how big it is drawn.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The picture is the device.</b> <c>GPSLER_L.BMP</c> is the whole handheld — bezel,
+    /// green contour screen, and the words <c>LNG:</c> and <c>LAT:</c> printed on its face —
+    /// so all this adds is the cross showing where Grace is standing and the two readings
+    /// beside the labels the artists left room for. Everything is placed in the picture's own
+    /// 222 by 332 pixels and scaled by one number, so the parts cannot drift apart.
+    /// </para>
+    /// <para>
+    /// <b>Over the room, not in front of it.</b> The original's is the same: the player walks
+    /// about with it up, watching the numbers change, which is how the cave is found. Top
+    /// left, where nothing else in this interface goes.
+    /// </para>
+    /// </remarks>
+    private void Gps(HudState state, int height)
+    {
+        if (state.Gps is not { } reading ||
+            state.Pictures?.Invoke(reading.Map) is not { Drawn: true } device)
+        {
+            return;
+        }
+
+        // A third of the window's height, which is about what the original's takes on its
+        // 480 lines. Grown where it has to be: the two readings are lettered in the
+        // interface's own face rather than in the bitmap font the original shipped for
+        // them, so the device is made big enough that they fit the space its artists left
+        // between the printed labels and the right-hand edge.
+        float room = MathF.Max(1f, device.Width - reading.Reading.X - 8f);
+        float scale = MathF.Max(
+            height / 3.2f / device.Height,
+            Math.Max(
+                Overlay.Measure(reading.Latitude),
+                Overlay.Measure(reading.Longitude)) / room);
+
+        // Under the top bar rather than over it: the bar says where the player is and what
+        // they have scored, and the device is up for as long as they are walking about
+        // with it.
+        float margin = 8 * Scale;
+        float top = Overlay.LineHeight + (10f * Scale) + margin;
+
+        Overlay.Picture(
+            device.Picture,
+            margin,
+            top,
+            device.Width * scale,
+            device.Height * scale,
+            Vector4.One);
+
+        // Where Grace is, as a cross the width of the screen and a box around the middle of
+        // it — the original draws the same three pieces out of three tiny bitmaps.
+        float x = margin + (reading.Across * scale);
+        float y = top + (reading.Down * scale);
+        float box = 10 * scale;
+
+        Overlay.Rect(x, top + (10 * scale), 1, 205 * scale, Reticle);
+        Overlay.Rect(margin + (11 * scale), y, 205 * scale, 1, Reticle);
+        Overlay.Rect(x - box, y - box, box * 2, 1, Reticle);
+        Overlay.Rect(x - box, y + box, box * 2, 1, Reticle);
+        Overlay.Rect(x - box, y - box, 1, box * 2, Reticle);
+        Overlay.Rect(x + box, y - box, 1, box * 2, Reticle);
+
+        // And the two readings, beside the labels printed on the device itself.
+        float text = margin + (reading.Reading.X * scale);
+
+        Overlay.Text(reading.Longitude, text, top + (reading.Reading.Longitude * scale), Screen);
+        Overlay.Text(reading.Latitude, text, top + (reading.Reading.Latitude * scale), Screen);
+    }
+
+    /// <summary>The cross on the GPS screen: dark, because the screen behind it is green.</summary>
+    private static readonly Vector4 Reticle = new(0.05f, 0.16f, 0.07f, 0.85f);
+
+    /// <summary>And what is written on it, in the same ink.</summary>
+    private static readonly Vector4 Screen = new(0.04f, 0.13f, 0.06f, 1f);
 
     /// <summary>
     /// The developer console.

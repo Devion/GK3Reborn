@@ -120,6 +120,10 @@ public sealed class HeldPropTests
 
         public bool SwapLightmaps(GK3Reborn.Formats.Lightmaps.MulFile lightmaps) => true;
 
+        public void SetSelfLit(ModelPlacement placement, bool selfLit)
+        {
+        }
+
         public void SetVisible(ModelPlacement placement, bool visible) =>
             _inner.SetVisible(placement, visible);
 

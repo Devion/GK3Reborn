@@ -143,6 +143,15 @@ public static class CommandLine
                                 shipped as, rather than giving it a thickness.
           --no-card-shadows     Keep the thickness but let the light through, as builds
                                 before this one did.
+          --no-sun              Leave out the synthesized sun, which stands in for the
+                                artists' scenekey in any room whose asset names a sky.
+          --no-emissive         Leave the room's glowing things unlit, as builds before
+                                this one did: a lamp shade drawn bright and lighting
+                                nothing.
+          --emissive-list       Say what in this room glows and how big it is, which is
+                                what decides the light it is given.
+          --daylight-list       Say which of the room's objects are windows, which is where
+                                its daylight is put when the artists left it out of reach.
           --flat                Colour textures only: no normal maps, no relief.
           --font NAME           Draw the interface with one of the game's own font sheets,
                                 such as F_CAPTION_D_20.

@@ -669,7 +669,7 @@ public static class SceneScripting
     /// where a footprint does not: an actor looking at a ceiling fan looks up at it, and
     /// one told to look at the floor of a wardrobe looks down.
     /// </remarks>
-    private static (Vector3 Minimum, Vector3 Maximum)? Bounds(LoadedScene scene, string name)
+    internal static (Vector3 Minimum, Vector3 Maximum)? Bounds(LoadedScene scene, string name)
     {
         Vector3 minimum = new(float.MaxValue);
         Vector3 maximum = new(float.MinValue);

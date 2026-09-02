@@ -86,6 +86,16 @@ public sealed class SceneDefinition
     public IReadOnlyList<string> CameraBounds() =>
         Join(_general?.CameraBounds(), _specific?.CameraBounds());
 
+    /// <summary>The mechanism the room needs code for, if it declares one.</summary>
+    /// <returns>The name, timeblock file first; null where neither file declares one.</returns>
+    /// <remarks>
+    /// The timeblock's answer wins, because it is the more specific file and because two of
+    /// the eleven declarations are made there rather than in the location's own file —
+    /// <c>BEC312P</c> and <c>LER307A</c> both name the coordinate device only on the
+    /// afternoon Grace is carrying one.
+    /// </remarks>
+    public string? Mechanism() => Later(_specific?.Mechanism(), _general?.Mechanism());
+
     /// <summary>The models the scene places.</summary>
     /// <returns>The models, general file first.</returns>
     public IReadOnlyList<SceneModel> Models() => MergeModels();
@@ -112,6 +122,31 @@ public sealed class SceneDefinition
     /// </para>
     /// </remarks>
     public IReadOnlyList<SceneActor> Actors() => MergeActors();
+
+    /// <summary>
+    /// Who the player is in this room, as the scene's own files say.
+    /// </summary>
+    /// <returns>The ego's noun — <c>GRACE</c>, <c>GABRIEL</c> — or null when neither file names one.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>This is where ego comes from, not the timeblock.</b> A SIF's cast list marks one
+    /// actor <c>ego</c>: <c>CS2.SIF</c> says <c>model=gra, noun=GRACE, ..., ego</c>, and
+    /// on the second afternoon the chateau is hers. Nothing else in the data states it —
+    /// there is no table of "day two at noon is Grace" — so a game that never read this
+    /// flag was Gabriel everywhere, and every rule written <c>GRACE_ALL</c> resolved to
+    /// its <c>GABE_ALL</c> twin instead. Reported: scanning anything in Grace's timeblock
+    /// answered in Gabriel's voice, because <c>ANY_OBJECT, SCANNER, GABE_ALL_INV</c> is
+    /// the line above <c>GRACE_ALL_INV</c> in <c>INV_23ALL.NVC</c> and both were on offer.
+    /// </para>
+    /// <para>
+    /// The noun rather than the model. Scripts ask <c>IsCurrentEgo("Grace")</c> and the
+    /// model is called <c>gra</c>; the noun is the name the rest of the game deals in.
+    /// The merge has already decided which of the two files wins — see
+    /// <see cref="Actors"/> — so whoever is marked here is the one who will be in the room.
+    /// </para>
+    /// </remarks>
+    public string? EgoNoun() =>
+        Actors().LastOrDefault(a => a.IsEgo) is { Noun: { Length: > 0 } noun } ? noun : null;
 
     /// <summary>The spots the scene defines.</summary>
     public IReadOnlyList<ScenePosition> Positions() =>

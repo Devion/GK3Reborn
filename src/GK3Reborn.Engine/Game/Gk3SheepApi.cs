@@ -331,6 +331,17 @@ public sealed class Gk3SheepApi : ISheepApi
     public Func<string, bool, double>? Plays { get; set; }
 
     /// <summary>
+    /// The machinery the room the player is in has of its own, when it has any.
+    /// </summary>
+    /// <remarks>
+    /// Set by the launcher for the eleven scenes that declare one. It sits on the host
+    /// rather than on the room because two things need it and they are on opposite sides
+    /// of the VM: <c>CallSceneFunction</c> performs a call, and the wait block around that
+    /// call has to be priced before it is made.
+    /// </remarks>
+    public Mechanisms.SceneMechanism? Mechanism { get; set; }
+
+    /// <summary>
     /// The animations, for the calls whose length is a frame count.
     /// </summary>
     /// <remarks>
@@ -408,6 +419,12 @@ public sealed class Gk3SheepApi : ISheepApi
                 : 0,
             "WALKTOSEEMODEL" => Length(arguments, Approaching.WalkToSee),
             "TURNTOMODEL" or "TURNTO" => Length(arguments, Approaching.Turn),
+
+            // A room's own machinery says how long it will take before it is asked to do
+            // it — the reference passes a completion callback, where this has to answer up
+            // front. Turning a laser head is as long as Grace's hands take, and she has a
+            // different clip for every angle she can leave one at.
+            "CALLSCENEFUNCTION" => Mechanism?.Seconds(first) ?? 0,
 
             // A movie is as long as the movie is, which only whatever plays it knows.
             // Answering nothing would have a script speak over its own cutscene.

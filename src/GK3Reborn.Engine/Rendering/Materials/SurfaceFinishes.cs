@@ -306,7 +306,13 @@ public sealed class SurfaceFinishes
                 Math.Clamp(material.ShellDepth, 0f, MaximumFur),
                 Math.Clamp(material.ShellDensity, 1f, 4096f),
                 material.Mirror,
-                Math.Clamp(material.MirrorInset, 0f, 0.45f));
+                Math.Clamp(material.MirrorInset, 0f, 0.45f))
+            {
+                Emission = System.Numerics.Vector3.Clamp(
+                    material.Emissive,
+                    System.Numerics.Vector3.Zero,
+                    new System.Numerics.Vector3(8f)),
+            };
         }
 
         return new SurfaceFinishes(finishes);
@@ -397,6 +403,17 @@ public readonly record struct SurfaceFinish(
     bool Mirror = false,
     float MirrorInset = 0f)
 {
+    /// <summary>
+    /// What colour this surface gives off, and how much of it.
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="Emits"/> says a surface is a light; this says what light.</b> The flag
+    /// alone was enough while the only thing it fed was <see cref="Occludes"/> — an emissive
+    /// surface does not stop a ray — but a room lit <em>by</em> its lamp shades needs the
+    /// colour and the strength as well. See <c>Game.EmissiveLighting</c>.
+    /// </remarks>
+    public System.Numerics.Vector3 Emission { get; init; }
+
     /// <summary>Whether anything grows on this surface.</summary>
     public bool Furred => Shells > 0 && ShellDepth > 0f;
 

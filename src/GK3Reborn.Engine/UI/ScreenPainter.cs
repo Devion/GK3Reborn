@@ -49,6 +49,14 @@ namespace GK3Reborn.UI;
 /// The game's own picture of an item, by item name. Null when nothing has been loaded, and
 /// an item may answer with nothing, so both are ordinary.
 /// </param>
+/// <param name="CloseUps">
+/// The bigger picture the artists painted of an item — the readable one. Only the close-up
+/// screen wants it, and an item may have none, in which case the list picture stands in.
+/// </param>
+/// <param name="VerbIcons">
+/// The picture belonging to a verb, resting or picked out. The close-up's buttons draw
+/// these beside the word, which is how a returning player reads them at a glance.
+/// </param>
 public readonly record struct ScreenView(
     Screen Screen,
     IReadOnlyList<string> Inventory,
@@ -64,7 +72,9 @@ public readonly record struct ScreenView(
     IReadOnlyList<string>? Verbs = null,
     IReadOnlyList<JournalDay>? Journal = null,
     int Prints = -1,
-    Func<string, ItemIcon>? Icons = null);
+    Func<string, ItemIcon>? Icons = null,
+    Func<string, ItemIcon>? CloseUps = null,
+    Func<string, bool, ItemIcon>? VerbIcons = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -163,6 +173,17 @@ public sealed class ScreenPainter
             return;
         }
 
+        // Nor is a thing held up close a page. It is one picture, as large as the window
+        // will carry it, and the original gave it the whole screen for the same reason:
+        // the picture *is* the content — two pages of a book meant to be read — and a
+        // 94-pixel thumbnail in a dialog box is not a close-up of anything.
+        if (view.Screen.Kind == ScreenKind.InventoryInspect)
+        {
+            Inspect(view, width, height, unit);
+
+            return;
+        }
+
         // The room stays visible behind everything but the driving map, which is the one
         // screen where the player is somewhere else entirely. Drawn with the body below,
         // because how much of the window the body takes decides where it goes.
@@ -170,8 +191,7 @@ public sealed class ScreenPainter
         // everything the player owns and wants the room — and one item held up to the light
         // is not. Asked for: a close-up of a single thing filling the screen reads as a
         // modal error box rather than as looking at something.
-        bool page = view.Screen.Kind is not
-            (ScreenKind.InventoryInspect or ScreenKind.Fingerprint);
+        bool page = view.Screen.Kind != ScreenKind.Fingerprint;
 
         float margin = 40f * unit;
 
@@ -190,10 +210,6 @@ public sealed class ScreenPainter
         {
             case ScreenKind.Inventory:
                 Inventory(view, body, top, unit);
-                break;
-
-            case ScreenKind.InventoryInspect:
-                Inspect(view, body, top, unit);
                 break;
 
             case ScreenKind.Binoculars:
@@ -691,75 +707,234 @@ public sealed class ScreenPainter
     }
 
     /// <summary>
-    /// One thing, close up, and what can be done to it.
+    /// One thing, close up: the picture the artists painted of it, and what can be done to it.
     /// </summary>
+    /// <param name="view">What to draw.</param>
+    /// <param name="width">Window width in pixels.</param>
+    /// <param name="height">Window height.</param>
+    /// <param name="unit">The interface's scale.</param>
     /// <remarks>
-    /// The verbs are the point. An item's own actions — look at it, think about it, read
-    /// it, scan it into Sidney — are written in <c>INV_ALL.NVC</c> and every one of them is
-    /// guarded by <c>ALL_INV</c>, which asks whether the inventory is on top. So this is
-    /// the only place they can be reached, and a close-up with nothing on it but the item's
-    /// name was a screen with 619 actions behind it and no way to any of them.
+    /// <para>
+    /// <b>The picture is the point.</b> Every item has two pictures in the archives: a
+    /// 94-pixel square for lists, and a <c>6</c> that is the thing itself painted at the
+    /// size it is meant to be looked at — the book of the immortals is 606 by 314 and its
+    /// two pages are meant to be read. Drawing the list square here made a close-up that
+    /// showed nothing, and made every multi-page document in the game illegible.
+    /// </para>
+    /// <para>
+    /// <b>The verbs are the other point.</b> An item's own actions — look at it, think
+    /// about it, read it, scan it into Sidney — are written in <c>INV_ALL.NVC</c> and
+    /// every one of them is guarded by <c>ALL_INV</c>, which asks whether the inventory is
+    /// on top. So this is the only place they can be reached.
+    /// </para>
+    /// <para>
+    /// <b>Turning a page is a verb, so it is drawn as one — beside the page.</b> The book,
+    /// the church pamphlet and the panels of Le Serpent Rouge all page through each other
+    /// with <c>TURN_LEFT</c> and <c>TURN_RIGHT</c>, whose scripts un-inspect one item and
+    /// inspect the next. Left in the row of verbs they read as two more things to do to a
+    /// book; pulled out to arrows either side of it they read as what they are.
+    /// <c>INSPECT_UNDO</c> goes the other way and is dropped: it is the way out, and the
+    /// way out is already in the same corner it occupies on every other screen.
+    /// </para>
+    /// <para>
+    /// The whole window rather than a panel in the middle of it. Reported: a close-up
+    /// drawn as a card read as a modal error box rather than as looking at something, and
+    /// carried a line telling the player to right-click in the room — which is a thing
+    /// this screen has never let them do, because it takes the click itself.
+    /// </para>
     /// </remarks>
-    private void Inspect(ScreenView view, Vector4 body, float top, float unit)
+    private void Inspect(ScreenView view, int width, int height, float unit)
     {
         string subject = view.Screen.Subject ?? view.Held ?? string.Empty;
 
-        // Larger here than in the list. This is the screen for one thing, and the picture
-        // is the fastest way of saying which thing it is.
-        ItemIcon icon = view.Icons?.Invoke(subject) ?? default;
-        float art = icon.Drawn ? 72 * unit : 0;
+        // Not a dim over the room. The player is looking at one thing, and this is the one
+        // screen in the interface where what is behind it is nothing but a distraction.
+        Overlay.Rect(0, 0, width, height, Backdrop);
 
-        if (icon.Drawn)
+        float margin = 28f * unit;
+        float row = Overlay.LineHeight + (14 * unit);
+
+        // The name, and the way out, in the corners they occupy on every other screen.
+        Overlay.Text(Pretty(subject), margin, margin, Accent);
+
+        const string close = "CLOSE";
+        float closeWidth = Overlay.Measure(close) + (20 * unit);
+        var closeAt = new Vector4(
+            width - margin - closeWidth, margin - (6 * unit), closeWidth, row);
+
+        Overlay.Rect(closeAt.X, closeAt.Y, closeAt.Z, closeAt.W, PanelLit);
+        Overlay.Text(close, closeAt.X + (10 * unit), margin, Ink);
+        _hits.Add(("close", closeAt));
+
+        IReadOnlyList<string> offered = view.Verbs ?? [];
+
+        // What can be done to it, minus the two kinds of verb this screen draws itself.
+        List<string> verbs = [.. offered.Where(v => !IsPaging(v) && !IsTheWayOut(v))];
+
+        bool back = offered.Any(v => v.Equals(TurnLeft, StringComparison.OrdinalIgnoreCase));
+        bool forward = offered.Any(v => v.Equals(TurnRight, StringComparison.OrdinalIgnoreCase));
+
+        float top = margin + row + (10 * unit);
+        float bottom = height - margin - (verbs.Count > 0 ? row + (12 * unit) : 0);
+
+        // The arrows take a gutter either side, so the page is never drawn under one.
+        float gutter = back || forward ? 56 * unit : 0;
+
+        var frame = new Vector4(
+            margin + gutter,
+            top,
+            MathF.Max(row, width - ((margin + gutter) * 2)),
+            MathF.Max(row, bottom - top));
+
+        // The close-up where the item has one; the list picture where it has not, which is
+        // most of what a player carries and is still better than a bare name.
+        ItemIcon art = view.CloseUps?.Invoke(subject) ?? default;
+
+        if (!art.Drawn)
         {
-            Vector4 at = icon.Fit(body.X + (16 * unit), top, art);
-
-            Overlay.Picture(icon.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+            art = view.Icons?.Invoke(subject) ?? default;
         }
 
-        Overlay.Text(
-            Pretty(subject),
-            body.X + (20 * unit) + art,
-            art > 0 ? top + ((art - Overlay.LineHeight) / 2) : top,
-            Ink);
+        if (art.Drawn)
+        {
+            Vector4 at = Fitted(art, frame);
 
-        float y = top + MathF.Max(Overlay.LineHeight * 2, art + (10 * unit));
-
-        if (view.Verbs is not { Count: > 0 } verbs)
+            Overlay.Picture(art.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+        }
+        else
         {
             Overlay.Text(
-                "Nothing to do with it here. Right-click in the room to use it on something.",
-                body.X + (20 * unit),
-                y,
+                "Nobody painted a picture of this one.",
+                frame.X,
+                frame.Y + ((frame.W - Overlay.LineHeight) / 2),
                 Dim);
+        }
 
+        // Either side of the page, level with the middle of it, and only where the item's
+        // own rules offer the verb: page one of a two-page book has a right arrow, no left.
+        if (back)
+        {
+            Arrow(TurnLeft, "<", margin, frame, unit);
+        }
+
+        if (forward)
+        {
+            Arrow(TurnRight, ">", width - margin - (44 * unit), frame, unit);
+        }
+
+        if (verbs.Count == 0)
+        {
             return;
         }
 
-        float row = Overlay.LineHeight + (12 * unit);
-        float width = Math.Min(body.Z - (40 * unit), 320f * unit);
+        // A row along the foot rather than a column down the side: the picture wants the
+        // middle of the window, and three or four words fit across it comfortably.
+        float y = height - margin - row;
+        float spacing = 8 * unit;
+        float total = 0;
+
+        List<float> widths = [];
 
         foreach (string verb in verbs)
         {
-            if (y + row > body.Y + body.W - row)
+            float button = Overlay.Measure(Pretty(verb)) + (24 * unit) +
+                (view.VerbIcons?.Invoke(verb, false).Drawn == true ? row : 0);
+
+            widths.Add(button);
+            total += button + spacing;
+        }
+
+        float x = MathF.Max(margin, (width - (total - spacing)) / 2f);
+
+        for (int i = 0; i < verbs.Count; i++)
+        {
+            if (x + widths[i] > width - margin)
             {
                 break;
             }
 
-            var bounds = new Vector4(body.X + (16 * unit), y, width, row);
+            var bounds = new Vector4(x, y, widths[i], row);
+            bool over = Inside(_pointer, bounds);
 
-            Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, Panel);
-            Overlay.Rect(bounds.X, bounds.Y, 2 * unit, bounds.W, Rule);
-            Overlay.Text(Pretty(verb), bounds.X + (12 * unit), y + (6 * unit), Ink);
+            Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, over ? PanelLit : Panel);
+            Overlay.Rect(bounds.X, bounds.Y, bounds.Z, 1, Rule);
 
-            _hits.Add(("verb:" + verb, bounds));
-            y += row + (4 * unit);
+            float text = bounds.X + (12 * unit);
+
+            if (view.VerbIcons?.Invoke(verbs[i], over) is { Drawn: true } picture)
+            {
+                Vector4 into = picture.Fit(
+                    bounds.X + (4 * unit), bounds.Y + (2 * unit), row - (4 * unit));
+
+                Overlay.Picture(picture.Picture, into.X, into.Y, into.Z, into.W, Vector4.One);
+                text += row - (8 * unit);
+            }
+
+            Overlay.Text(Pretty(verbs[i]), text, y + (7 * unit), over ? Accent : Ink);
+
+            _hits.Add(("verb:" + verbs[i], bounds));
+            x += widths[i] + spacing;
         }
+    }
 
+    /// <summary>What the room is covered with while one thing is held up to the light.</summary>
+    private static readonly Vector4 Backdrop = new(0.03f, 0.03f, 0.04f, 0.98f);
+
+    /// <summary>The verb that goes back a page.</summary>
+    private const string TurnLeft = "TURN_LEFT";
+
+    /// <summary>The verb that goes on a page.</summary>
+    private const string TurnRight = "TURN_RIGHT";
+
+    /// <summary>Whether a verb turns a page rather than doing something to the thing.</summary>
+    private static bool IsPaging(string verb) =>
+        verb.Equals(TurnLeft, StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals(TurnRight, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a verb only closes the close-up, which the chrome already does.</summary>
+    private static bool IsTheWayOut(string verb) =>
+        verb.Equals("INSPECT_UNDO", StringComparison.OrdinalIgnoreCase) ||
+        verb.Equals("INSPECT", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>One of the page arrows either side of a document.</summary>
+    private void Arrow(string verb, string mark, float x, Vector4 frame, float unit)
+    {
+        float side = 44 * unit;
+        var bounds = new Vector4(x, frame.Y + ((frame.W - side) / 2f), side, side);
+
+        bool over = Inside(_pointer, bounds);
+
+        Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, over ? PanelLit : Panel);
         Overlay.Text(
-            "Right-click in the room to use it on something.",
-            body.X + (20 * unit),
-            body.Y + body.W - Overlay.LineHeight - (12 * unit),
-            Dim);
+            mark,
+            bounds.X + ((side - Overlay.Measure(mark)) / 2f),
+            bounds.Y + ((side - Overlay.LineHeight) / 2f),
+            over ? Accent : Ink);
+
+        _hits.Add(("verb:" + verb, bounds));
+    }
+
+    /// <summary>Where a picture goes to fill a rectangle without changing shape.</summary>
+    /// <param name="art">The picture and the shape it was painted at.</param>
+    /// <param name="frame">The rectangle to fill.</param>
+    /// <returns>Where to draw it, centred in the frame.</returns>
+    /// <remarks>
+    /// Unlike <see cref="ItemIcon.Fit"/>, which fits a square and never grows a picture:
+    /// this one grows it. The close-ups were painted for a 640-pixel screen, and drawn at
+    /// their own size on a modern one they are a postage stamp in the middle of it — which
+    /// is exactly the complaint this screen exists to answer.
+    /// </remarks>
+    private static Vector4 Fitted(ItemIcon art, Vector4 frame)
+    {
+        float scale = MathF.Min(frame.Z / art.Width, frame.W / art.Height);
+        float wide = art.Width * scale;
+        float tall = art.Height * scale;
+
+        return new Vector4(
+            MathF.Round(frame.X + ((frame.Z - wide) / 2f)),
+            MathF.Round(frame.Y + ((frame.W - tall) / 2f)),
+            MathF.Round(wide),
+            MathF.Round(tall));
     }
 
     /// <summary>

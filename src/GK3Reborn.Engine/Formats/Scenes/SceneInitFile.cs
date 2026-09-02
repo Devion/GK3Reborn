@@ -338,6 +338,31 @@ public sealed class SceneInitFile
             .Select(l => l.Value("floor"))
             .LastOrDefault(v => !string.IsNullOrEmpty(v));
 
+    /// <summary>
+    /// The mechanism this room needs code for, if it needs any.
+    /// </summary>
+    /// <returns>The name the file gives it, or null where the room is only data.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>custom=Laser</c>, <c>custom=Angels</c>, <c>custom=Chess</c>. GK3 is very nearly
+    /// data-driven and this is the file admitting where it is not: eleven scenes declare a
+    /// mechanism, and each names something the shipped executable implemented in code —
+    /// five rotating laser heads, a giant chessboard, a swinging pendulum. Their scripts
+    /// reach it through <c>CallSceneFunction</c>, which sends a word to whatever the room
+    /// declared here.
+    /// </para>
+    /// <para>
+    /// The reference engine keys the same table off the <em>location</em> instead. Reading
+    /// the declaration is the same answer for every room that has one and is what the file
+    /// is for; it also leaves room for the four scenes whose code is a patch for a data bug
+    /// rather than a mechanism, which declare nothing and are keyed by location.
+    /// </para>
+    /// </remarks>
+    public string? Mechanism() =>
+        _document.LinesOf("GENERAL", Applies(includeConditional: true))
+            .Select(l => l.Value("custom"))
+            .LastOrDefault(v => !string.IsNullOrEmpty(v));
+
     /// <summary>The models that fence the camera in.</summary>
     /// <returns>Their names, in the order the file declares them; empty when it declares none.</returns>
     /// <remarks>

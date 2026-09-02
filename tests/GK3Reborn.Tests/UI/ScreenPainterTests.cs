@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Sidney;
 using GK3Reborn.Rendering;
@@ -222,6 +222,104 @@ public sealed class ScreenPainterTests
 
         Assert.Equal(["PARCHMENT_1"], asked);
         Assert.NotNull(Middle(painter, "verb:LOOK"));
+    }
+
+    [Fact]
+    public void A_close_up_prefers_the_picture_painted_to_be_looked_at()
+    {
+        // Two pictures exist for every item: a 94-pixel square for lists and a "6" that is
+        // the thing itself. Drawing the square here made the book of the immortals a
+        // thumbnail nobody could read, which is the whole complaint this screen answers.
+        ScreenPainter painter = Painter();
+        List<string> lists = [];
+        List<string> closeUps = [];
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.InventoryInspect, "IMMORTAL_1"),
+                [],
+                null,
+                Verbs: ["LOOK"],
+                Icons: item =>
+                {
+                    lists.Add(item);
+
+                    return new ItemIcon(1, 94, 94);
+                },
+                CloseUps: item =>
+                {
+                    closeUps.Add(item);
+
+                    return new ItemIcon(2, 606, 314);
+                }),
+            Width,
+            Height);
+
+        Assert.Equal(["IMMORTAL_1"], closeUps);
+        Assert.Empty(lists);
+    }
+
+    [Fact]
+    public void An_item_with_no_close_up_falls_back_to_its_list_picture()
+    {
+        ScreenPainter painter = Painter();
+        List<string> lists = [];
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.InventoryInspect, "CANDY"),
+                [],
+                null,
+                Verbs: ["LOOK"],
+                Icons: item =>
+                {
+                    lists.Add(item);
+
+                    return new ItemIcon(1, 94, 94);
+                },
+                CloseUps: _ => default),
+            Width,
+            Height);
+
+        Assert.Equal(["CANDY"], lists);
+    }
+
+    [Fact]
+    public void Turning_a_page_is_an_arrow_beside_the_page_and_not_a_verb_under_it()
+    {
+        // The book, the pamphlet and Le Serpent Rouge all page through each other with
+        // TURN_LEFT and TURN_RIGHT, whose scripts un-inspect one item and inspect the
+        // next. Among the verbs they read as two more things to do to a book.
+        ScreenPainter painter = Painter();
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.InventoryInspect, "IMMORTAL_1"),
+                [],
+                null,
+                Verbs: ["LOOK", "TURN_RIGHT", "INSPECT_UNDO"],
+                CloseUps: _ => new ItemIcon(2, 606, 314)),
+            Width,
+            Height);
+
+        Vector4? forward = Extent(painter, "verb:TURN_RIGHT");
+        Vector4? look = Extent(painter, "verb:LOOK");
+
+        Assert.NotNull(forward);
+        Assert.NotNull(look);
+
+        // The arrow is up the side of the page; the verbs are along the foot of the window.
+        Assert.True(
+            forward.Value.Y + forward.Value.W < look.Value.Y,
+            "the page arrow is drawn among the verbs rather than beside the page");
+
+        // Only where the item's own rules offer it: page one of a two-page book has no
+        // left arrow, and drawing one would page it to nowhere.
+        Assert.Null(Middle(painter, "verb:TURN_LEFT"));
+
+        // And the way out is the way out on every other screen, not a verb of its own.
+        Assert.Null(Middle(painter, "verb:INSPECT_UNDO"));
+        Assert.NotNull(Middle(painter, "close"));
     }
 
     [Fact]

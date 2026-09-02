@@ -240,6 +240,22 @@ public sealed class HeadlessSceneSink : ISceneSink
         }
     }
 
+    /// <summary>How many models something has made their own light source.</summary>
+    public int SelfLitCount { get; private set; }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Counted, like everything else here. Whether a beam of light is shaded by the room it
+    /// crosses is a question about drawing, and this does not draw.
+    /// </remarks>
+    public void SetSelfLit(ModelPlacement placement, bool selfLit)
+    {
+        if (selfLit)
+        {
+            SelfLitCount++;
+        }
+    }
+
     /// <inheritdoc/>
     /// <remarks>
     /// Nothing to do: this counts what a scene contains rather than drawing it, and an

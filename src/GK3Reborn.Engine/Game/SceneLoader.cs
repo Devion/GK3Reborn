@@ -476,6 +476,18 @@ public sealed class SceneLoader
     /// </remarks>
     public Actors.CharacterLibrary? Characters { get; set; }
 
+    /// <summary>
+    /// Whether the synthesized sun is left out of every room.
+    /// </summary>
+    /// <remarks>
+    /// <c>--no-sun</c>. For measuring what it contributes: it is added to any room whose
+    /// scene asset names a sky, which includes interiors with a window, and telling how
+    /// much of a room's brightness is the sun and how much is its own rig is otherwise
+    /// guesswork. Static because it is a property of the run rather than of a loader, in
+    /// the same way <c>VulkanPortability.ForceHostExpansion</c> is.
+    /// </remarks>
+    public static bool NoSun { get; set; }
+
     private Actors.CharacterLibrary? _cast;
 
     /// <summary>The cast, read from the archives if the caller did not supply it.</summary>
@@ -548,6 +560,7 @@ public sealed class SceneLoader
 
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
         Timeline?.Stamp("scene files (.SIF)");
+        BecomeEgo(init, request, _log);
         Progress?.Invoke();
 
         SceneAssetFile? asset = ReadAsset(scene, timeblock, init, diagnostics);
@@ -693,7 +706,7 @@ public sealed class SceneLoader
         // not evidence about where the sun is.
         Vector3 centre = (geometry.Minimum + geometry.Maximum) / 2f;
 
-        AuthoredLight? sun = asset is { Skybox.IsEmpty: false }
+        AuthoredLight? sun = !NoSun && asset is { Skybox.IsEmpty: false }
             ? Sunlight.For(
                 Daylight(request, timeblock, asset),
                 centre,
@@ -863,6 +876,8 @@ public sealed class SceneLoader
         {
             return null;
         }
+
+        BecomeEgo(init, request, _log);
 
         return new LoadedScene(
             request.Scene,
@@ -1851,6 +1866,42 @@ public sealed class SceneLoader
 
         _standing.Add((site.Foot, site.Radius));
         return (grown, Foliage.Standing(site, chosen));
+    }
+
+    /// <summary>
+    /// Makes the player whoever the scene says they are.
+    /// </summary>
+    /// <param name="init">The scene's two initialisation files, already merged.</param>
+    /// <param name="request">Which scene, and where the story is.</param>
+    /// <param name="log">Where a change of ego is reported, if anywhere.</param>
+    /// <remarks>
+    /// <para>
+    /// Before anything is placed, drawn or run, because the room's own composition asks:
+    /// SIF conditions and action cases both ask who the player is, and answering with
+    /// yesterday's ego builds the wrong room. The original does the same and says why —
+    /// see <c>Scene::Load</c>, "it's generally important that we know who our ego will be
+    /// as soon as possible".
+    /// </para>
+    /// <para>
+    /// <b>A scene that names nobody changes nobody.</b> Sidney's own screens, the driving
+    /// map and a handful of cutscene rooms have no cast at all, and walking into one is
+    /// not the player becoming nobody.
+    /// </para>
+    /// </remarks>
+    private static void BecomeEgo(SceneDefinition init, SceneRequest request, Action<string>? log)
+    {
+        if (request.State is not { } state || init.EgoNoun() is not { Length: > 0 } noun)
+        {
+            return;
+        }
+
+        if (string.Equals(state.Ego, noun, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        log?.Invoke($"ego: {request.Scene} is {noun}'s, not {state.Ego}'s");
+        state.Ego = noun;
     }
 
     /// <summary>Puts the scene's actors where the scene says they stand.</summary>

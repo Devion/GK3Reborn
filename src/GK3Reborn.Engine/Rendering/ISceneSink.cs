@@ -187,6 +187,25 @@ public interface ISceneSink
     /// </remarks>
     void SetVisible(ModelPlacement placement, bool visible);
 
+    /// <summary>Makes a standing model its own light source, or stops.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="selfLit">Whether it is drawn at full brightness and never shaded.</param>
+    /// <remarks>
+    /// <para>
+    /// The room's own geometry carries this as a flag on each surface — bit 8 of a BSP
+    /// surface, which the 1999 renderer answered with a white lightmap and a multiplier of
+    /// one. A model has no such flag anywhere in the data, and one thing in the game needs
+    /// it: CS2's laser beams are light, and light is not shaded by the room it crosses.
+    /// </para>
+    /// <para>
+    /// Not derived from the material library's emissive field, deliberately. Sixty-nine
+    /// textures carry one and a classifier put it on most of them — including a tyre-track
+    /// shadow decal — so flipping every model with an emissive texture to full brightness
+    /// would light up a good deal of the game that is not lit.
+    /// </para>
+    /// </remarks>
+    void SetSelfLit(ModelPlacement placement, bool selfLit);
+
     /// <summary>Paints one of a standing model's textures with something else.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
     /// <param name="texture">The texture the model was built with, such as <c>GAB_FACE</c>.</param>

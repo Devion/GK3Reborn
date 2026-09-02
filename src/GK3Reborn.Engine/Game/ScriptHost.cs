@@ -299,13 +299,28 @@ public sealed class ScriptHost
 
         _api.Register("CallSceneFunction", arguments =>
         {
-            // Scene functions live in the script named after the current location.
-            if (arguments.Count < 1 || _api.State.Location.Length == 0)
+            if (arguments.Count < 1)
             {
                 return SheepValue.FromInt(0);
             }
 
-            return Nested(_api.State.Location, arguments[0].AsString());
+            string function = arguments[0].AsString();
+
+            // The room's own machinery first. Every one of the corpus's 43 calls names one
+            // of these and none names a Sheep function, so this is the only branch the
+            // shipped game ever takes — see Mechanisms.SceneMechanism for why the fallback
+            // below silently did nothing for all of them.
+            if (_api.Mechanism?.Perform(function) == true)
+            {
+                return SheepValue.FromInt(0);
+            }
+
+            // Otherwise, a function in the script named after the current location. Nothing
+            // shipped uses it; it is kept because it is the reading the name suggests and
+            // costs nothing when there is no such function.
+            return _api.State.Location.Length == 0
+                ? SheepValue.FromInt(0)
+                : Nested(_api.State.Location, function);
         }, waitable: true);
     }
 

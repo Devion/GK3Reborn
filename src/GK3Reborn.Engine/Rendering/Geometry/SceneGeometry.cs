@@ -685,6 +685,173 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         return new ModelPlacement(_placements.Count - 1);
     }
 
+    /// <summary>
+    /// The parts of the room that give off light, one entry per object.
+    /// </summary>
+    /// <returns>
+    /// Every object at least one of whose batches is painted with a texture the material
+    /// library calls emissive.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The library, and not the room's own self-lit flag.</b> A BSP surface's bit 8
+    /// means the 1999 bake never lit it, which covers two very different things: the lamp
+    /// shades, and the <em>painted views</em> — the van parked outside the hotel window,
+    /// the grass beyond it, the dining room seen through a doorway. The second kind are
+    /// pictures of somewhere else hung on a wall, and a light at the middle of one is a
+    /// lamp standing in the middle of the lobby. The library asks a different question —
+    /// is this picture bright enough to be giving off light — and only that one is a light.
+    /// </para>
+    /// <para>
+    /// Models as well as room geometry, which is where this differs from anything the
+    /// content pipeline could have written down: a room's lamps are as often props as
+    /// geometry, and which props are standing depends on the point in the story.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<EmissiveSurface> Emitters()
+    {
+        var found = new List<EmissiveSurface>();
+
+        foreach ((string owner, List<int> batches) in _sceneObjects)
+        {
+            if (Gather(owner, batches) is { } emitter)
+            {
+                found.Add(emitter);
+            }
+        }
+
+        for (int i = 0; i < _placements.Count; i++)
+        {
+            List<int> batches = [.. _placements[i].Values.SelectMany(b => b)];
+
+            if (batches.Count > 0 &&
+                Gather(_placed.Count > i ? _placed[i].Model.Name : string.Empty, batches)
+                    is { } emitter)
+            {
+                found.Add(emitter);
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>The one emitter an object comes to, or null when none of it glows.</summary>
+    /// <remarks>
+    /// A lamp shade is six surfaces and a stained-glass window is five; one light apiece is
+    /// the answer, and averaging their vertices puts it where the fitting is. The vertices
+    /// are the authored ones through the batch's current placement, so a lamp a script has
+    /// moved lights where it now stands.
+    /// </remarks>
+    private EmissiveSurface? Gather(string owner, List<int> batches)
+    {
+        Vector3 total = Vector3.Zero;
+        Vector3 emission = Vector3.Zero;
+        string texture = string.Empty;
+        int counted = 0;
+
+        foreach (int index in batches)
+        {
+            if (index < 0 || index >= _batches.Count)
+            {
+                continue;
+            }
+
+            Batch batch = _batches[index];
+            Materials.SurfaceFinish finish = Materials.Of(batch.TextureName);
+
+            if (batch.Hidden || !finish.Emits)
+            {
+                continue;
+            }
+
+            emission = Vector3.Max(emission, finish.Emission);
+
+            texture = batch.TextureName;
+
+            Matrix4x4 place = batch.Local * batch.Transform;
+
+            foreach (MeshVertex vertex in batch.Shape)
+            {
+                total += Vector3.Transform(vertex.Position, place);
+                counted++;
+            }
+        }
+
+        if (counted == 0)
+        {
+            return null;
+        }
+
+        Vector3 centre = total / counted;
+        float spread = 0;
+        int measured = 0;
+
+        foreach (int index in batches)
+        {
+            if (index < 0 || index >= _batches.Count)
+            {
+                continue;
+            }
+
+            Batch batch = _batches[index];
+
+            if (batch.Hidden || !Materials.Of(batch.TextureName).Emits)
+            {
+                continue;
+            }
+
+            Matrix4x4 place = batch.Local * batch.Transform;
+
+            foreach (MeshVertex vertex in batch.Shape)
+            {
+                spread += Vector3.Distance(Vector3.Transform(vertex.Position, place), centre);
+                measured++;
+            }
+        }
+
+        return new EmissiveSurface(
+            owner,
+            texture,
+            centre,
+            measured > 0 ? spread / measured : 1f,
+            emission);
+    }
+
+    /// <inheritdoc/>
+    public void SetSelfLit(ModelPlacement placement, bool selfLit)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        foreach (List<int> batches in _placements[placement.Id].Values)
+        {
+            foreach (int index in batches)
+            {
+                Batch batch = _batches[index];
+
+                if (batch.SelfLit == selfLit)
+                {
+                    continue;
+                }
+
+                // The material carries which lightmap is bound, and a self-lit surface
+                // binds white. A model never uses the bake, so nothing actually changes
+                // here today — it is remade anyway, because the rule lives in one place
+                // and a model that ever did use it would otherwise keep the wrong one.
+                _batches[index] = batch with
+                {
+                    SelfLit = selfLit,
+                    Material = MaterialFor(
+                        batch.Painted ?? batch.TextureName,
+                        batch.TextureName,
+                        batch.UseLightmap && !selfLit),
+                };
+            }
+        }
+    }
+
     /// <inheritdoc/>
     public void Repaint(ModelPlacement placement, string texture, string? painted)
     {

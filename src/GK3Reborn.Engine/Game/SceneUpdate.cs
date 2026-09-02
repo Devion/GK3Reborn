@@ -2255,6 +2255,186 @@ public sealed class SceneUpdate
     /// <summary>How many characters have something to do when nobody is asking.</summary>
     public int Fidgeting => _fidgets.Count;
 
+    /// <summary>
+    /// The code this room needs that its data cannot express, where it declares any.
+    /// </summary>
+    /// <remarks>
+    /// Eleven scenes do — <c>custom=Laser</c> and its ten siblings. Set by the launcher
+    /// after the room is built; null in every other room and in every tool, where the
+    /// scene functions go on being recorded. See <see cref="Mechanisms.SceneMechanism"/>.
+    /// </remarks>
+    public Mechanisms.SceneMechanism? Mechanism { get; set; }
+
+    /// <summary>
+    /// Stands an actor somewhere without dropping them onto the floor.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <param name="position">Where to stand them, in world space.</param>
+    /// <param name="heading">Which way to face, as the game's data measures a heading.</param>
+    /// <returns>True when there was somebody of that name to move.</returns>
+    /// <remarks>
+    /// <see cref="Place"/> without the drop, and without stopping what is animating them.
+    /// For the one room where the floor is not where the player is: TE3's platforms turn
+    /// around a shaft with nothing under them, and a player put down onto the floor there
+    /// is a player at the bottom of it.
+    /// </remarks>
+    public bool Carry(string actor, Vector3 position, float heading)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (!_standing.TryGetValue(actor, out PlacedModel? placed))
+        {
+            return false;
+        }
+
+        _geometry.MoveModel(placed.Placement, Standing(placed, position, heading));
+        Follow(actor, position);
+
+        return true;
+    }
+
+    /// <summary>Makes a model its own light source, or stops.</summary>
+    /// <param name="model">The model.</param>
+    /// <param name="selfLit">Whether it is drawn at full brightness and never shaded.</param>
+    /// <remarks>
+    /// The room's geometry carries this per surface and a model carries it nowhere, so it
+    /// is something a mechanism asks for. One does: a laser beam is light, and light is not
+    /// shaded by the room it crosses. See <see cref="ISceneSink.SetSelfLit"/>.
+    /// </remarks>
+    public void SelfLit(PlacedModel model, bool selfLit)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        _geometry.SetSelfLit(model.Placement, selfLit);
+    }
+
+    /// <summary>One of the spots the scene marks out, by name.</summary>
+    /// <param name="name">What the scene file calls it.</param>
+    /// <returns>The spot, or null when the room has no such name.</returns>
+    /// <remarks>
+    /// For a mechanism that stands the player somewhere the artists marked rather than
+    /// somewhere it worked out: TE3's doorway and the top of its altar are both spots.
+    /// </remarks>
+    public Formats.Scenes.ScenePosition? PositionNamed(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _scene.Definition.PositionNamed(name);
+    }
+
+    /// <summary>The middle of anything the room names, prop or geometry.</summary>
+    /// <param name="objectName">What it is called.</param>
+    /// <returns>The centre of its box in world space, or null when there is no such thing.</returns>
+    /// <remarks>
+    /// For a mechanism that has to stand somebody on one of the room's own surfaces. The
+    /// chessboard is the caller: its sixty-four tiles are part of the geometry rather than
+    /// props, so there is no placement to ask and the triangles are the only answer.
+    /// </remarks>
+    public Vector3? MiddleOf(string objectName)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        return SceneScripting.Bounds(_scene, objectName) is var (low, high)
+            ? (low + high) * 0.5f
+            : null;
+    }
+
+    /// <summary>Repaints one of the room's own surfaces.</summary>
+    /// <param name="objectName">The object in the geometry.</param>
+    /// <param name="texture">What to paint it with; null puts its own picture back.</param>
+    /// <returns>True when the room has such an object and the picture was found.</returns>
+    /// <remarks>
+    /// The same call an animation's <c>[STEXTURES]</c> line makes, reached directly for a
+    /// mechanism that repaints a surface on its own account: the chessboard lights and
+    /// unlights its sixteen sword tiles this way.
+    /// </remarks>
+    public bool PaintObject(string objectName, string? texture)
+    {
+        ArgumentNullException.ThrowIfNull(objectName);
+
+        if (texture is { Length: > 0 } picture && Textures?.Invoke(picture) == false)
+        {
+            return false;
+        }
+
+        return _geometry.PaintSceneObject(objectName, texture);
+    }
+
+    /// <summary>Where actors may stand, when the room declares a boundary.</summary>
+    /// <remarks>
+    /// Reachable so that a mechanism can shut a stretch of floor the way a script does. One
+    /// room needs it: CSE has a one-pixel gap in its boundary that counts as a path, and
+    /// Montreaux takes it and walks through a door.
+    /// </remarks>
+    public Navigation.WalkBoundary? Boundary => _scene.Walkable;
+
+    /// <summary>
+    /// Poses named models on an animation's <em>last</em> frame, without running it.
+    /// </summary>
+    /// <param name="animation">What the animation is called.</param>
+    /// <param name="models">Which of its models to pose; others in it are left alone.</param>
+    /// <param name="atEnd">Whether to take the closing frame rather than the opening one.</param>
+    /// <returns>How many were posed.</returns>
+    /// <remarks>
+    /// <see cref="Open"/>'s opposite end, and for the same kind of job: stating where a
+    /// thing rests rather than showing it get there. The one caller is the lobby's patch,
+    /// where the wine glass has to end up where an animation would have left it without
+    /// anybody watching Buchelli put it down.
+    /// </remarks>
+    public int Pose(string animation, IReadOnlyCollection<string> models, bool atEnd = true)
+    {
+        ArgumentNullException.ThrowIfNull(animation);
+        ArgumentNullException.ThrowIfNull(models);
+
+        if (Clips is null || Animations is null || Animations.Read(animation) is not { } read)
+        {
+            return 0;
+        }
+
+        int posed = 0;
+
+        foreach (AnimationAction action in read.Actions)
+        {
+            if (Clips.Read(action.Name) is not { } clip ||
+                !models.Contains(clip.ModelName, StringComparer.OrdinalIgnoreCase) ||
+                !_models.TryGetValue(clip.ModelName, out PlacedModel? target))
+            {
+                continue;
+            }
+
+            var pose = new Playing(
+                clip,
+                target,
+                action with { Frame = 0 },
+                repeat: false,
+                moves: true,
+                Where(target.Name),
+                _geometry.TransformOf(target.Placement),
+                character: Characters?.Of(target.Name));
+
+            if (atEnd)
+            {
+                pose.Last(_geometry);
+            }
+            else
+            {
+                pose.Open(_geometry);
+            }
+
+            posed++;
+        }
+
+        return posed;
+    }
+
+    /// <summary>Where the room was put, for a mechanism that moves its own props.</summary>
+    /// <remarks>
+    /// The sink owns every live transform — see <see cref="PlacedModel.Standing"/> — so a
+    /// mechanism that stands five laser heads on a circle has to write through it rather
+    /// than through the placements the scene file gave them.
+    /// </remarks>
+    public ISceneSink Geometry => _geometry;
+
     /// <summary>Finds a model the room places, by either of its names.</summary>
     /// <param name="name">Its model name or the noun the scene gives it.</param>
     /// <returns>The model, or null when the room has nothing by that name.</returns>
@@ -3286,6 +3466,31 @@ public sealed class SceneUpdate
     }
 
     /// <summary>
+    /// Holds something back until the next frame, however short that is.
+    /// </summary>
+    /// <param name="work">What to do then.</param>
+    /// <remarks>
+    /// <para>
+    /// <see cref="After"/> refuses a delay of nothing on purpose — a script's <c>wait</c>
+    /// with no length is a statement that nothing is being waited for. This is the other
+    /// meaning of zero: <em>not in this frame</em>. A mechanism called from inside an
+    /// action needs it, because starting a line of dialogue inside the action that asked
+    /// for it cuts the first one off; so does one chaining animations, where a clip the
+    /// archives are missing is worth no seconds and must not stall the chain for ever.
+    /// </para>
+    /// <para>
+    /// Ordered with the timed ones and stepped by the same loop, so nothing here is a
+    /// second kind of clock.
+    /// </para>
+    /// </remarks>
+    public void Next(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        _later.Add(new Held(double.Epsilon, work));
+    }
+
+    /// <summary>
     /// Holds something back until the scripts a call started have finished.
     /// </summary>
     /// <param name="scripts">The threads it started.</param>
@@ -3502,6 +3707,12 @@ public sealed class SceneUpdate
         {
             happened.Add($"{carried} carried on");
         }
+
+        // Whatever machinery the room has of its own: the laser heads swinging round to
+        // the angle they were sent to, the beams stretching to whatever is in front of
+        // them. Before the actors, because a script that reads a head's angle back this
+        // frame should read the one it has now.
+        Mechanism?.Advance(seconds);
 
         StepBehaviours(seconds);
         MoveView(seconds);
@@ -4989,6 +5200,14 @@ public sealed class SceneUpdate
         /// started, so nothing is scheduled, nothing sounds and nothing finishes.
         /// </remarks>
         public void Open(ISceneSink geometry) => Pose(geometry, 0);
+
+        /// <summary>Poses the model on the clip's closing frame, without running it.</summary>
+        /// <param name="geometry">Where the model stands.</param>
+        /// <remarks>
+        /// The other end of <see cref="Open"/>: where a thing has been put, rather than
+        /// where it started. Same rule — the pose is applied and the clock never starts.
+        /// </remarks>
+        public void Last(ISceneSink geometry) => Pose(geometry, Math.Max(0, Clip.FrameCount - 1));
 
         /// <summary>Where in the room the opening pose leaves the model standing.</summary>
         /// <param name="standing">The model's own placement, which is applied on top.</param>

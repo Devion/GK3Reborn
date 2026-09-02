@@ -70,6 +70,8 @@ public static class Application
         // --expand-blocks makes a machine that has BC formats behave like one that does
         // not, which is the only way to exercise the Mac's texture path anywhere else.
         // Set before anything creates a device, because a device is where it is read.
+        Game.SceneLoader.NoSun = args.Contains("--no-sun", StringComparer.OrdinalIgnoreCase);
+
         Rendering.Vulkan.VulkanPortability.ForceHostExpansion =
             args.Contains("--expand-blocks", StringComparer.OrdinalIgnoreCase);
 
@@ -801,6 +803,69 @@ public static class Application
             return icon;
         }
 
+        // And the same thing held up to the light. A close-up is the picture the artists
+        // painted of the thing itself — the book of the immortals is 606 by 314 and its
+        // two pages are meant to be read — where the list picture beside it is a 94-pixel
+        // square. Kept apart from the list pictures rather than replacing them: the strip
+        // along the foot of the screen wants the square, and uploading a page of a book
+        // per item to draw it at thumbnail size is the wrong way round.
+        Dictionary<string, UI.ItemIcon> itemCloseUps = new(StringComparer.OrdinalIgnoreCase);
+
+        UI.ItemIcon CloseUp(string item)
+        {
+            if (itemCloseUps.TryGetValue(item, out UI.ItemIcon already))
+            {
+                return already;
+            }
+
+            UI.ItemIcon art = itemArt.CloseUp(archives, item) is { } picture &&
+                renderer.AddOverlayPicture("closeup:" + item.ToUpperInvariant(), picture) is > 0 and { } number
+                    ? new UI.ItemIcon(number, picture.Width, picture.Height)
+                    : default;
+
+            itemCloseUps[item] = art;
+
+            return art;
+        }
+
+        // And the game's own art by file name, for the pieces of the interface that are a
+        // picture rather than a drawing — the handheld GPS is the whole device painted,
+        // labels and all. Cached the same way and for the same reason: looking again every
+        // frame for a file that is not there is a search of every archive per frame.
+        Dictionary<string, UI.ItemIcon> artwork = new(StringComparer.OrdinalIgnoreCase);
+
+        UI.ItemIcon Artwork(string file)
+        {
+            if (artwork.TryGetValue(file, out UI.ItemIcon already))
+            {
+                return already;
+            }
+
+            UI.ItemIcon art = default;
+
+            if (archives.Read(file) is { } bytes)
+            {
+                try
+                {
+                    Formats.Bitmaps.DecodedImage picture =
+                        Formats.Bitmaps.BitmapDecoder.Decode(bytes, file);
+
+                    art = renderer.AddOverlayPicture("art:" + file.ToUpperInvariant(), picture)
+                        is > 0 and { } number
+                        ? new UI.ItemIcon(number, picture.Width, picture.Height)
+                        : default;
+                }
+                catch (Formats.FormatParseException)
+                {
+                    // Drawn without it, which for everything here means not drawn at all.
+                }
+            }
+
+            artwork[file] = art;
+
+            return art;
+        }
+
         // What each verb looks like. The original drew its verb ring as these and nothing
         // else, so they are the picture a returning player already reads faster than the
         // word beside them; VERBS.TXT names one for all but three of the 287.
@@ -1451,14 +1516,100 @@ public static class Application
             IReadOnlyList<Formats.Scenes.AuthoredLight> burning =
                 Game.FlameLighting.Rig(scene.Lights, fires);
 
+            // And the things in the room that glow. A self-lit surface is drawn at full
+            // brightness and lights nothing, so every lamp shade, lit bulb, stained-glass
+            // window and painted view in the game has been a bright object standing in a
+            // room it did not light. Only the ones nobody put a light inside get one — see
+            // Game.EmissiveLighting, which is FlameLighting's rule for the same reason.
+            IReadOnlyList<Rendering.Geometry.EmissiveSurface> glows =
+                args.Contains("--no-emissive", StringComparer.OrdinalIgnoreCase)
+                    ? []
+                    : geometry.Emitters();
+
+            burning = Game.EmissiveLighting.Rig(burning, glows, out int glowing);
+
             // With the geometry's extent, so the rig can tell a lamp that decays from the
             // scene's key light — placed tens of thousands of units away with the two
             // hundred unit range 3ds Max left in the file and its attenuation switched off.
             // Honouring that range does not dim the sun, it deletes it. See
             // GpuLight.IsDistantKey.
+            // And the room's daylight moved to the windows it is named for. A baker does
+            // not care where a light stands and a tracer does: CS3's is above the roof, and
+            // the attic gets no daylight at all until it is where the daylight comes in.
+            // See Game.Daylight.
+            var windows = new List<Game.Window>();
+
+            foreach (string pane in scene.Geometry?.ObjectNames ?? [])
+            {
+                if (!Game.Daylight.IsWindow(pane) ||
+                    SceneScripting.Bounds(scene, pane) is not var (low, high))
+                {
+                    continue;
+                }
+
+                windows.Add(new Game.Window(
+                    pane,
+                    (low + high) / 2f,
+                    Vector3.Distance(low, high) / 2f));
+            }
+
+            burning = Game.Daylight.Rig(
+                burning,
+                windows,
+                new SceneExtent(geometry.Minimum, geometry.Maximum),
+                out int shafts);
+
+            if (shafts > 0)
+            {
+                Log.Info(
+                    $"Daylight: {shafts} light(s) moved to {windows.Count} window(s), " +
+                    "where a wall can shape them");
+            }
+
+            if (args.Contains("--daylight-list", StringComparer.OrdinalIgnoreCase))
+            {
+                foreach (Game.Window pane in windows)
+                {
+                    Log.Info(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  window: {pane.Owner}, {pane.Radius * 2:F0} units across"));
+                }
+            }
+
+            // And balanced for the amount of tracing it is about to be evaluated under.
+            // These are baking rigs: a room's fills, ambients and bounce lights are the
+            // 1999 stand-in for the global illumination the tracer now computes, and
+            // running both is the same light twice. See Game.RigBalance.
+            burning = Game.RigBalance.For(burning, renderer.Quality, out int dimmed);
+
+
             renderer.SetLights(
                 burning, new SceneExtent(geometry.Minimum, geometry.Maximum));
             timeline?.Stamp("light rig");
+
+            if (dimmed > 0)
+            {
+                Log.Info(
+                    $"Rig: {dimmed} of {burning.Count} lights are the bake's own fill, " +
+                    $"turned down to {Game.RigBalance.Keep(renderer.Quality) * 100:F0}% " +
+                    "against the traced occlusion that replaces them");
+            }
+
+            if (args.Contains("--emissive-list", StringComparer.OrdinalIgnoreCase))
+            {
+                foreach (Rendering.Geometry.EmissiveSurface glow in glows)
+                {
+                    Log.Info(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  glows: {glow.Owner} ({glow.Texture}), {glow.Radius:F1} units across"));
+                }
+            }
+
+            if (glowing > 0)
+            {
+                Log.Info(
+                    $"Emissive: {glowing} glowing thing(s) lit that had no light of their own");
+            }
 
             if (fires.Count > 0)
             {
@@ -1605,7 +1756,8 @@ public static class Application
                     Log.Info(string.Create(
                         CultureInfo.InvariantCulture,
                         $"  light {light.Name} r={light.Radius:F1} i={light.Intensity:F2} " +
-                        $"reach={light.AttenuationEnd:F0}{wavers}"));
+                        $"reach={light.AttenuationEnd:F0} at {light.Position.X:F0}," +
+                        $"{light.Position.Y:F0},{light.Position.Z:F0}{wavers}"));
                 }
             }
 
@@ -1637,6 +1789,48 @@ public static class Application
             // the room they were given and the last registration wins.
             SceneScripting.Attach(api, scene, loader.Glances, room, update, Behaviour);
             Showing(api, movies);
+
+            // What is under the pointer, and — for the rooms that fire something into
+            // theirs — what is in front of a laser beam. Built here rather than at the
+            // frame loop below so that both have the same one: a second copy would be a
+            // second pass over every triangle in the room.
+            var interaction = new SceneInteraction(scene, api)
+            {
+                Strings = strings,
+                Watcher = update,
+                Introductions = introductions,
+            };
+
+            // The eleven rooms whose puzzles the original implemented in code rather than
+            // in data. Built after the scripting is attached, because a mechanism reaches
+            // the same calls a script does, and set on both the room and the host: the
+            // room steps it every frame and the host both performs and prices
+            // CallSceneFunction. See Game.Mechanisms.SceneMechanism.
+            api.Mechanism = Game.Mechanisms.SceneMechanisms.For(
+                scene.Definition.Mechanism(), update, api, archives);
+
+            update.Mechanism = api.Mechanism;
+
+            if (api.Mechanism is { } machinery)
+            {
+                Log.Info($"Mechanism: {scene.Name} is a {machinery.Name} room");
+
+                // Where a beam ends is whatever the room puts in front of it, which is the
+                // same question the pointer asks and is answered by the same picker rather
+                // than by a second copy of the room's triangles. The beams themselves are
+                // left out of it: the first pair to cross would otherwise stop each other.
+                if (machinery is Game.Mechanisms.LaserHeads beams)
+                {
+                    beams.Cast = ray => interaction.Cast(ray, Game.Mechanisms.LaserHeads.Beams);
+                }
+
+                machinery.Begin();
+
+                if (machinery.Report() is { Length: > 0 } parts)
+                {
+                    Log.Info($"  {parts}");
+                }
+            }
 
             // --movie NAME plays one straight away, which is how a cutscene is looked at
             // without finding the point in the story that plays it.
@@ -1991,13 +2185,9 @@ public static class Application
             RoomExit exit = FlyScene(
                 fade,
                 window, renderer, geometry, scene, cameraName, frameLimit, update,
-                new SceneInteraction(scene, api)
-                {
-                    Strings = strings,
-                    Watcher = update,
-                    Introductions = introductions,
-                },
-                room, movies, hud, Cut, api, screens, Icon, VerbIcon, sidney,
+                interaction,
+                room, movies, hud, Cut, api, screens, Icon, CloseUp, VerbIcon, Artwork,
+                burning, sidney,
                 map, binoculars, api.State, console,
                 front, pages, Apply, args, strings, journal);
 
@@ -2597,8 +2787,10 @@ public static class Application
     /// <param name="scene">The room it acts on.</param>
     private static void Do(string asked, Gk3SheepApi api, LoadedScene scene)
     {
+        // As the player, not as Gabriel: half the rules in the game are written twice, once
+        // for each of them, and asking with the wrong one silently performs the other's.
         if (asked.Split(':') is [string noun, string verb] &&
-            scene.Actions?.Find(noun.Trim(), verb.Trim()) is { } rule)
+            scene.Actions?.Find(noun.Trim(), verb.Trim(), api.State.Ego) is { } rule)
         {
             ActionOutcome outcome = new ActionRunner(api).Run(rule);
 
@@ -2776,8 +2968,17 @@ public static class Application
     /// </param>
     /// <param name="screens">What draws the screens in front of the room, if anything can.</param>
     /// <param name="icons">The picture belonging to an inventory item, where it has one.</param>
+    /// <param name="closeUps">
+    /// The bigger picture the artists painted of an item, for the screen that shows one
+    /// thing rather than a list of them.
+    /// </param>
     /// <param name="verbIcons">
     /// The picture belonging to a verb, resting or picked out, where it has one.
+    /// </param>
+    /// <param name="artwork">The game's own art by file name, for the GPS.</param>
+    /// <param name="rig">
+    /// The room's lights as it was laid with them, so that a mechanism which adds lights of
+    /// its own can have the whole rig laid again without rebuilding the room's half.
     /// </param>
     /// <param name="sidney">Grace's computer, which one of those screens is.</param>
     /// <param name="map">The driving map's art and roads.</param>
@@ -2819,7 +3020,10 @@ public static class Application
         Gk3SheepApi api,
         ScreenPainter? screens,
         Func<string, ItemIcon> icons,
+        Func<string, ItemIcon> closeUps,
         Func<string, bool, ItemIcon> verbIcons,
+        Func<string, ItemIcon> artwork,
+        IReadOnlyList<Formats.Scenes.AuthoredLight> rig,
         Game.Sidney.SidneyMachine? sidney,
         DrivingMap map,
         Binoculars binoculars,
@@ -2839,7 +3043,10 @@ public static class Application
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(icons);
+        ArgumentNullException.ThrowIfNull(closeUps);
         ArgumentNullException.ThrowIfNull(verbIcons);
+        ArgumentNullException.ThrowIfNull(artwork);
+        ArgumentNullException.ThrowIfNull(rig);
 
         string here = scene.Name;
 
@@ -2849,6 +3056,11 @@ public static class Application
         var smoke = new Game.FlameParticles(Game.Flames.In(scene.Models, api.Animations));
 
         smoke.Follow(scene.Models);
+
+        // Whether anything was handed to the blended pass last frame. Only so that a room
+        // which stops having any — the lasers being switched off — is told once, rather
+        // than every frame of the two hundred rooms that never have any at all.
+        bool blending = false;
 
         int cameraIndex = Math.Max(
             0,
@@ -3503,6 +3715,12 @@ public static class Application
                 window.FramebufferWidth,
                 window.FramebufferHeight);
 
+            // And the room's own machinery is told, where the room has any. One puzzle
+            // needs it: the chessboard decides whether the tile under the pointer is a
+            // legal knight's move before it is clicked, because that answer is what the
+            // action file's case reads to choose which of three scripts the click runs.
+            api.Mechanism?.Pointing(hover.Pick, update.Occupied || menu is not null);
+
             // What the player sees, not the noun behind it: the numbered exits are drawn
             // as the place they lead to, and a log that says EXIT3 cannot be matched
             // against a screenshot that says "Outside Church".
@@ -3788,7 +4006,9 @@ public static class Application
                         int.TryParse(counted, out int prints)
                             ? prints
                             : -1,
-                        icons),
+                        icons,
+                        closeUps,
+                        verbIcons),
                     window.FramebufferWidth,
                     window.FramebufferHeight,
                     pointer);
@@ -3941,21 +4161,45 @@ public static class Application
                 // an empty patch of floor — reported from the dining room, where a click
                 // during the coffee sent Gabriel away while the scene carried on without
                 // him. A character's own idle is not this and may be cut short freely.
+                // Before the floor: a room may claim a click the action files leave
+                // unanswered. TE1's tile floor carries no noun, so nothing resolves on it,
+                // and the board wants it to mean "jump back off me" rather than "walk".
                 if (did is null &&
+                    menu is null &&
+                    window.WasClicked(Platform.PointerButton.Primary) &&
+                    hud?.OverInterface(pointer) != true &&
+                    api.Mechanism?.TakesClick(hover.Pick) == true)
+                {
+                    Log.Info($"{story.Ego}: the room took the click");
+                }
+                else if (did is null &&
                     menu is null &&
                     !update.Performing(story.Ego) &&
                     hud?.OverInterface(pointer) != true &&
                     interaction.FloorTarget(hover) is { } ground)
                 {
-                    // A click across the room runs, a click at the player's feet does not.
-                    double crossing = update.Walk(story.Ego, ground, hurry: hurry, mayRun: true);
+                    // Except where the room takes its own floor clicks. TE6 is the only
+                    // one: Gabriel is circling a pentagram and moves a step at a time in
+                    // the room's own animations, so a click there is a message to the
+                    // script rather than a place to walk to.
+                    if (api.Mechanism?.TakesFloorClick() == true)
+                    {
+                        Log.Info($"{story.Ego}: the room took the click on the floor");
+                    }
+                    else
+                    {
+                        // A click across the room runs, a click at the player's feet does not.
+                        double crossing = update.Walk(
+                            story.Ego, ground, hurry: hurry, mayRun: true);
 
-                    Log.Info(crossing > 0
-                        ? string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"{story.Ego}: walking to {ground.X:F0}, {ground.Z:F0}, {crossing:F1}s")
-                        : $"{story.Ego}: nowhere to walk from here");
+                        Log.Info(crossing > 0
+                            ? string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"{story.Ego}: walking to {ground.X:F0}, {ground.Z:F0}, {crossing:F1}s")
+                            : $"{story.Ego}: nowhere to walk from here");
+                    }
                 }
+
 
                 // A menu the story has made modal stays up until something on it is
                 // chosen. StopVerbCancel is a script saying the player does not get to
@@ -4051,7 +4295,9 @@ public static class Application
                                 window.FramebufferHeight)
                             : null,
                         icons,
-                        verbIcons),
+                        verbIcons,
+                        (api.Mechanism as Game.Mechanisms.CoordinateDevice)?.Reading(),
+                        artwork),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -4078,10 +4324,46 @@ public static class Application
 
             // The room's smoke and embers, moved on and handed over sorted for the eye they
             // are about to be seen by. Before SetScene so the two describe one instant.
+            //
+            // And whatever the room's own machinery wants blended: CS2's laser beams are
+            // drawn as light scattering in the air, which is the one thing in this renderer
+            // that has to be see-through and so has to come through here. How much of the
+            // picture is being paid for goes the other way at the same time — the beams are
+            // drawn as light only where there is a lighting model to make that read.
+            if (api.Mechanism is { } machine)
+            {
+                machine.Tracing = renderer.Quality;
+
+                // And its own lights, where it has any that move. A self-lit surface is
+                // drawn bright and lights nothing, so a laser beam that is to lay red
+                // across the floor under it has to be in the rig — see
+                // SceneMechanism.Lights. Laid only when it says so: laying a rig rebuilds
+                // the scene's light grid, which is a per-room cost.
+                if (machine.LightsMoved)
+                {
+                    renderer.SetLights(
+                        [.. rig, .. machine.Lights],
+                        new SceneExtent(geometry.Minimum, geometry.Maximum));
+                }
+            }
+
+            IReadOnlyList<Rendering.Particle> blended =
+                api.Mechanism?.Particles(view.Position) ?? [];
+
             if (smoke.Emitters > 0)
             {
                 smoke.Advance(delta, view.Position);
-                renderer.SetParticles(smoke.Facing(view.Position));
+
+                IReadOnlyList<Rendering.Particle> puffs = smoke.Facing(view.Position);
+
+                // Both, where a room has both. Neither list is long and the pass takes one.
+                blended = blended.Count == 0 ? puffs : [.. puffs, .. blended];
+            }
+
+            if (blended.Count > 0 || blending)
+            {
+                renderer.SetParticles(blended);
+                blending = blended.Count > 0;
             }
 
             renderer.SetScene(geometry, view);

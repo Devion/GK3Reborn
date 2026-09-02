@@ -1,4 +1,4 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -65,6 +65,22 @@ public sealed class InventoryArtTests
         Assert.Equal(["candy9.BMP", "candy_9.BMP"], art.IconNames("CANDY"));
         Assert.Equal(["MoselyPrint9.BMP", "MoselyPrint_9.BMP"], art.IconNames("MOSELYS_FINGERPRINT"));
         Assert.Empty(art.IconNames("PARCHMENT_1"));
+    }
+
+    [Fact]
+    public void A_close_up_is_looked_for_under_all_three_spellings()
+    {
+        // The picture the close-up screen shows is the "6", not the "9": the "9" is a
+        // 94-pixel square and the "6" is the thing itself, painted to be read.
+        InventoryArt art = InventoryArt.Parse(Data);
+
+        Assert.Equal(
+            ["candy6.BMP", "candy6_ALPHA.BMP", "candy_6_ALPHA.BMP"],
+            art.CloseUpNames("CANDY"));
+
+        // The one asset in the game that spells it the third way.
+        Assert.Contains("MoselyPrint_6_ALPHA.BMP", art.CloseUpNames("MOSELYS_FINGERPRINT"));
+        Assert.Empty(art.CloseUpNames("PARCHMENT_1"));
     }
 
     [Fact]
