@@ -32,6 +32,10 @@
     <PackageReference Include="Silk.NET.Core" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="TestResults\" />
+  </ItemGroup>
+
   <!-- ==================================================================================
        Clean publishing layout. See Plan/01-architecture.md section 8.
 
