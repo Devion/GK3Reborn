@@ -1,6 +1,8 @@
 ﻿using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Sheep;
+using GK3Reborn.Tests.Sheep;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -262,5 +264,198 @@ public sealed class ActionRunnerTests
         // Its case does not hold, so there is no rule to run even though one is written.
         Assert.Null(resolver.Find("WINDOW", "CLOSE"));
         Assert.Null(resolver.Find("WINDOW", "SMASH"));
+    }
+
+    /// <summary>
+    /// A script whose one function waits on a timer and then sets a flag.
+    /// </summary>
+    /// <remarks>
+    /// The shape of every cutscene an action calls into: a wait block over something that
+    /// takes real time, and the rest of the function on the other side of it.
+    /// </remarks>
+    private static SheepScriptFile Cutscene(string flag) =>
+        TestScripts.Build("CS6_ALL.SHP", builder =>
+        {
+            builder.Import("SetTimerSeconds", 0, 2);
+            builder.Import("SetFlag", 0, 3);
+            int name = builder.String(flag);
+
+            builder.Function("Old_GRACE$")
+                .Op(SheepOpcode.BeginWait)
+                .OpF(SheepOpcode.PushF, 3f)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 0)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.EndWait)
+                .Op(SheepOpcode.PushS, name)
+                .Op(SheepOpcode.GetString)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 1)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.ReturnV);
+        });
+
+    /// <summary>The room's half of a wait on a script, without a room.</summary>
+    /// <remarks>
+    /// <see cref="SceneUpdate.Until"/> keeps the work beside the threads and asks the
+    /// scheduler on every tick whether any of them is still parked. That is the whole of
+    /// it, and this is the same two lines with the tick made explicit.
+    /// </remarks>
+    private sealed class Room(SheepScheduler scheduler)
+    {
+        private readonly List<(IReadOnlyList<SheepThread> Until, Action Work)> _held = [];
+
+        public bool Until(IReadOnlyList<SheepThread> scripts, Action work)
+        {
+            if (!scheduler.Outstanding(scripts))
+            {
+                return false;
+            }
+
+            _held.Add((scripts, work));
+            return true;
+        }
+
+        public void Advance(double seconds)
+        {
+            scheduler.Advance(seconds);
+
+            for (int i = _held.Count - 1; i >= 0; i--)
+            {
+                if (scheduler.Outstanding(_held[i].Until))
+                {
+                    continue;
+                }
+
+                Action work = _held[i].Work;
+                _held.RemoveAt(i);
+                work();
+            }
+        }
+    }
+
+    [Fact]
+    public void A_waited_call_into_a_script_holds_the_rest_of_the_action_until_it_is_over()
+    {
+        // CS6's old lady, and the whole of what was reported: OLD_LADY, TALK reads
+        // wait CallSheep("cs6_all", "Old_Grace$"); ... setlocation("cse"), and the called
+        // function is forty seconds of camera cuts, animation and dialogue. Its length is
+        // not a number any host can answer for, so the statement was worth no time at all
+        // and the courtyard arrived in the frame the cutscene started.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+
+        host.Scheduler = scheduler;
+        host.Add(Cutscene("CutsceneOver"));
+
+        var room = new Room(scheduler);
+        api.DefersUntil = room.Until;
+
+        ActionOutcome outcome = new ActionRunner(api).Run(Action(
+            """wait CallSheep("cs6_all", "Old_Grace$"); SetLocation("cse")""",
+            "TALK",
+            "OLD_LADY"));
+
+        // Committed, and not finished: the cutscene is running and the room has not moved.
+        Assert.True(outcome.Ran);
+        Assert.True(outcome.Deferred);
+        Assert.False(state.GetFlag("CutsceneOver"));
+        Assert.NotEqual("cse", state.Location, StringComparer.OrdinalIgnoreCase);
+
+        room.Advance(1.0);
+
+        Assert.False(state.GetFlag("CutsceneOver"));
+        Assert.NotEqual("cse", state.Location, StringComparer.OrdinalIgnoreCase);
+
+        // The wait inside the called function is over, so the rest of it runs — and then
+        // the rest of the action does.
+        room.Advance(2.5);
+
+        Assert.True(state.GetFlag("CutsceneOver"));
+        Assert.Equal("cse", state.Location, ignoreCase: true);
+    }
+
+    [Fact]
+    public void An_unwaited_call_into_a_script_does_not_hold_anything_up()
+    {
+        // The script left it running behind itself on purpose, which is what an unwaited
+        // call is for. Holding the rest of the action back for one would stop a room that
+        // starts a background script and carries on.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+
+        host.Scheduler = scheduler;
+        host.Add(Cutscene("CutsceneOver"));
+
+        var room = new Room(scheduler);
+        api.DefersUntil = room.Until;
+
+        ActionOutcome outcome = new ActionRunner(api).Run(Action(
+            """CallSheep("cs6_all", "Old_Grace$"); SetLocation("cse")"""));
+
+        Assert.False(outcome.Deferred);
+        Assert.Equal("cse", state.Location, ignoreCase: true);
+        Assert.False(state.GetFlag("CutsceneOver"));
+    }
+
+    [Fact]
+    public void A_call_into_a_script_that_finished_leaves_the_action_running_in_one_frame()
+    {
+        // The ordinary CallSheep: nothing in the called function waits, so there is
+        // nothing outstanding when it returns and the statement after it is this frame's.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+
+        host.Scheduler = scheduler;
+        host.Add(TestScripts.Build("CS6_ALL.SHP", builder =>
+        {
+            builder.Import("SetFlag", 0, 3);
+            int name = builder.String("Straight");
+
+            builder.Function("Old_GRACE$")
+                .Op(SheepOpcode.PushS, name)
+                .Op(SheepOpcode.GetString)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 0)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.ReturnV);
+        }));
+
+        api.DefersUntil = new Room(scheduler).Until;
+
+        ActionOutcome outcome = new ActionRunner(api).Run(Action(
+            """wait CallSheep("cs6_all", "Old_Grace$"); SetLocation("cse")"""));
+
+        Assert.False(outcome.Deferred);
+        Assert.True(state.GetFlag("Straight"));
+        Assert.Equal("cse", state.Location, ignoreCase: true);
+    }
+
+    [Fact]
+    public void A_tool_with_nothing_to_wait_on_a_script_with_runs_the_action_straight_through()
+    {
+        // Every sweep of the corpus. There is no scheduler, so the called function runs
+        // inline to completion and the statement after it follows immediately, exactly as
+        // it always did.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+
+        host.Add(Cutscene("CutsceneOver"));
+
+        Assert.Null(api.DefersUntil);
+
+        ActionOutcome outcome = new ActionRunner(api).Run(Action(
+            """wait CallSheep("cs6_all", "Old_Grace$"); SetLocation("cse")"""));
+
+        Assert.False(outcome.Deferred);
+        Assert.True(state.GetFlag("CutsceneOver"));
+        Assert.Equal("cse", state.Location, ignoreCase: true);
     }
 }

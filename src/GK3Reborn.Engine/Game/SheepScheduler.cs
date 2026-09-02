@@ -135,12 +135,21 @@ public sealed class SheepScheduler
 
     /// <summary>Whether any of the scripts a thread called is still going.</summary>
     /// <remarks>
+    /// <para>
     /// Being here is what "still going" means: a thread that finished was taken off this
     /// list, and one that blocked again went back on it. A caller that waited on a
     /// function which never blocked at all sees an empty answer and carries straight on,
     /// which is the ordinary case and costs nothing.
+    /// </para>
+    /// <para>
+    /// Public because a Sheep thread is not the only thing that waits on a script. An
+    /// action file's <c>wait CallSheep(…)</c> is not compiled and has no thread of its
+    /// own, so the runner asks this the same question on its own behalf.
+    /// </para>
     /// </remarks>
-    private bool Outstanding(IReadOnlyList<SheepThread>? until)
+    /// <param name="until">The threads to ask about.</param>
+    /// <returns>True while any of them is still parked here.</returns>
+    public bool Outstanding(IReadOnlyList<SheepThread>? until)
     {
         if (until is not { Count: > 0 })
         {

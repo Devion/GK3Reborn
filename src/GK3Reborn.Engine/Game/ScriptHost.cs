@@ -44,6 +44,11 @@ public sealed class ScriptHost
 
         RegisterCallingFunctions();
         RegisterInventoryFunctions();
+
+        // How anything that is not a Sheep thread gets to wait on a call into a script.
+        // Set here rather than by the caller because it is the calling functions above
+        // that make the threads, and they are registered here too.
+        api.Collects = Within;
     }
 
     /// <summary>Scripts available to call, by name.</summary>
@@ -86,10 +91,20 @@ public sealed class ScriptHost
 
     /// <summary>Runs something, and says which scripts it called into.</summary>
     /// <remarks>
+    /// <para>
     /// The list is held before it is pushed, so that popping it in a finally and returning
     /// it are the same list without a field in between.
+    /// </para>
+    /// <para>
+    /// Public because two different things wait on a call into a script. A Sheep thread
+    /// resumed by the scheduler is one; an action file's statement is the other, and it
+    /// has no thread of its own to be parked, so it collects through here and waits on
+    /// what it collected. See <see cref="Gk3SheepApi.Collects"/>.
+    /// </para>
     /// </remarks>
-    private List<SheepThread> Within(Action work)
+    /// <param name="work">What to run.</param>
+    /// <returns>The threads it started, in the order they were started.</returns>
+    public List<SheepThread> Within(Action work)
     {
         ArgumentNullException.ThrowIfNull(work);
 

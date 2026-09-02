@@ -8,6 +8,7 @@ using GK3Reborn.Game.Actors;
 using GK3Reborn.Formats.Animation;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Rendering;
+using GK3Reborn.Sheep;
 
 namespace GK3Reborn.Game;
 
@@ -3224,7 +3225,30 @@ public sealed class SceneUpdate
         _walking.Clear();
     }
 
-    private readonly List<(double Remaining, Action Work)> _later = [];
+    /// <summary>Something that has not happened yet.</summary>
+    /// <param name="remaining">How much longer to hold it.</param>
+    /// <param name="work">What to do then.</param>
+    private sealed class Held(double remaining, Action work)
+    {
+        /// <summary>How much of the wait is left.</summary>
+        public double Remaining { get; set; } = remaining;
+
+        /// <summary>What to do when it is over.</summary>
+        public Action Work { get; } = work;
+
+        /// <summary>
+        /// Scripts it cannot happen until, when it is waiting on scripts rather than on a
+        /// clock.
+        /// </summary>
+        /// <remarks>
+        /// The two gates are and-ed, not chosen between, so a wait can be both — though
+        /// nothing asks for both yet. <see cref="Remaining"/> is zero for a wait that is
+        /// only on scripts, which is why the clock alone is not enough to say it is over.
+        /// </remarks>
+        public IReadOnlyList<SheepThread>? Until { get; init; }
+    }
+
+    private readonly List<Held> _later = [];
 
     /// <summary>How many things are waiting to happen.</summary>
     public int Later => _later.Count;
@@ -3257,7 +3281,42 @@ public sealed class SceneUpdate
             return false;
         }
 
-        _later.Add((seconds, work));
+        _later.Add(new Held(seconds, work));
+        return true;
+    }
+
+    /// <summary>
+    /// Holds something back until the scripts a call started have finished.
+    /// </summary>
+    /// <param name="scripts">The threads it started.</param>
+    /// <param name="work">What to do once none of them is still running.</param>
+    /// <returns>True when it was taken, false when there was nothing to wait for.</returns>
+    /// <remarks>
+    /// <para>
+    /// The other half of <see cref="After"/>, for the wait whose length is another script.
+    /// An action's <c>wait CallSheep("cs6_all", "Old_Grace$")</c> is over when that
+    /// function is, which is forty seconds of camera cuts, animation and dialogue — and
+    /// the statement after it is <c>SetLocation("cse")</c>. Answering "no time at all"
+    /// and running them together is a room that leaves for the courtyard in the frame the
+    /// cutscene starts, which is how it was reported.
+    /// </para>
+    /// <para>
+    /// A call that started nothing still waiting is refused rather than queued, the same
+    /// way a delay of nothing is: the ordinary <c>CallSheep</c> is a script that ran to
+    /// completion inline, and its caller carries straight on in the frame it asked.
+    /// </para>
+    /// </remarks>
+    public bool Until(IReadOnlyList<SheepThread> scripts, Action work)
+    {
+        ArgumentNullException.ThrowIfNull(scripts);
+        ArgumentNullException.ThrowIfNull(work);
+
+        if (_scripts?.Outstanding(scripts) != true)
+        {
+            return false;
+        }
+
+        _later.Add(new Held(0, work) { Until = scripts });
         return true;
     }
 
@@ -3274,12 +3333,13 @@ public sealed class SceneUpdate
     {
         for (int i = _later.Count - 1; i >= 0; i--)
         {
-            (double remaining, Action work) = _later[i];
-            remaining -= seconds;
+            Held held = _later[i];
+            held.Remaining -= seconds;
 
-            if (remaining > 0)
+            // The clock first because it is the cheap half, and then the scripts: a wait
+            // on a call into a script is over when nothing it started is parked any more.
+            if (held.Remaining > 0 || _scripts?.Outstanding(held.Until) == true)
             {
-                _later[i] = (remaining, work);
                 continue;
             }
 
@@ -3287,7 +3347,7 @@ public sealed class SceneUpdate
 
             try
             {
-                work();
+                held.Work();
             }
             catch (Formats.FormatParseException ex)
             {

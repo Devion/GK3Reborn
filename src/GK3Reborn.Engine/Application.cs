@@ -2032,6 +2032,21 @@ public static class Application
             {
                 next = instead;
 
+                // And the room stops being audible here, rather than when the next one is
+                // built. Ordinarily those are a moment apart and the difference does not
+                // matter; at the end of a point in the story there is a film and a
+                // timeblock card in between, and 212PEND is thirty-nine seconds of the
+                // courtyard's fountain playing under a film set somewhere else. Reported
+                // from the Château de Serres. Everything else the room was sounding like
+                // goes with it — CSE's afternoon runs a room tone and the fountain, and
+                // both are beds.
+                if (room is { Running.Count: > 0 } sounding)
+                {
+                    Log.Info($"Room tone: {string.Join(", ", sounding.Running)} stopped with the timeblock");
+                }
+
+                room?.Leave();
+
                 // The screen belongs to the film and the card from here, and both of them
                 // are the picture rather than something drawn over it — a fade left
                 // standing at black would draw black over the card. So the room finishes

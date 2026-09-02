@@ -1850,6 +1850,10 @@ public static class SceneScripting
         // action runs where it was asked for.
         api.Defers = world.After;
 
+        // And the same for the wait whose length is another script rather than a number of
+        // seconds. Both are the room saying it has a clock; a tool leaves them null.
+        api.DefersUntil = world.Until;
+
         api.Register("StartAnimation", a => SheepValue.FromInt(
             (int)world.Play(Name(a, 0))));
 

@@ -251,6 +251,38 @@ Working out a duration needs the call's arguments, and working those out means e
 the expression. Reading a script is supposed to change nothing, so a read evaluates
 against a host that does nothing and catches the call on its way in.
 
+**One waited call has no duration at all, and it is the second commonest statement in the
+corpus.** `wait CallSheep("cs6_all", "Old_Grace$")` is over when that function is over, and
+how long that is depends on the animations, dialogue, walks and timers inside it — a
+number no host can answer before the fact. So the runner does not try to: the statement is
+made inside a scope that notices which script threads it started, and if any of them is
+still parked when it returns, the rest of the action is held until none of them is. That is
+`Gk3SheepApi.DefersUntil`, wired to `SceneUpdate.Until`, and it is the companion to
+`Defers`/`SceneUpdate.After`, which is the same idea for the approach walk in front of an
+action.
+
+There are **14,853 `CallSheep` statements** across the reachable verbs; 303 action scripts
+have a statement after a waited one and **58 of those change location**. Treating the call
+as instantaneous therefore tore the room down in the frame the cutscene began. CS6's old
+lady is the reported case:
+
+```
+OLD_LADY, TALK, ALL, approach=WalkTo, target=TO_STAIR, script={
+    wait CallSheep("cs6_all", "Old_Grace$");
+    incnounverbcount("old_lady","talk");
+    setlocation("cse");}
+```
+
+`Old_Grace$` is forty seconds of forced camera cuts, four called functions and nine lines
+of dialogue. All of it ran, and the courtyard replaced the room it was running in on the
+same frame, so none of it was ever seen.
+
+An **unwaited** `CallSheep` holds nothing up, which is what it is for: the script left that
+one running behind itself deliberately. And a call into a script that never blocks — the
+ordinary case — leaves nothing outstanding, so the statement after it is still the same
+frame's. A host with no scheduler at all, which is every tool, runs the callee inline to
+completion and carries straight on exactly as it always did.
+
 Two things happen after a script finishes, whatever it said. A **topic** verb — one
 named `T_…` — increments its own topic count, and `Z_CHAT` increments the noun's chat
 count. Ordinary verbs do **not**: an ordinary action increments its count only if its

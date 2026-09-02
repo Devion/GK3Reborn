@@ -89,6 +89,21 @@ fountain together — so each running soundtrack owns its own decode and its own
 voice. One field for the pair meant the second overwrote the first: the fountain was never
 heard, and if it arrived later than the tone it could never be stopped.
 
+**When the room stops being audible is not the same as when the next one is built.**
+Ordinarily those are a moment apart and the difference is inaudible, so `Leave` is called
+as the next room is set up — late on purpose, so that nothing cuts off the entering
+script's first line. At the *end of a point in the story* there is a closing film and a
+timeblock card in between, and 212PEND is thirty-nine seconds long. The Château de Serres
+courtyard runs a room tone, birdsong and a fountain, and all three played under a film set
+somewhere else and on through the card. So a timeblock that is over stops the room's sound
+itself, before the film, and says which soundtracks it stopped:
+
+```
+Timeblock: 212P is over, starting 202P
+Room tone: CSESNDTRKL.STK, CSEBirdAftnoon.STK, CSESNDTRKFOUNTAIN.STK stopped with the timeblock
+Closing film: 212Pend, 38.8s
+```
+
 ## Running one
 
 `SoundtrackProgram` walks the list: a `WAIT` holds it up for its own time or a random one

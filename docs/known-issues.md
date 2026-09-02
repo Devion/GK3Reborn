@@ -221,6 +221,79 @@ walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
 ## Closed
 
+### Talking to the old lady in the wine cellar skipped her scene entirely — fixed 2026-09-02
+
+**Reported:** "Check if there is any cutscene missing on CS6 scene when talking to the old
+woman, as it immediately switches to the courtyard."
+
+Nothing was missing. `CS6212P.NVC` reads
+
+```
+OLD_LADY, TALK, ALL, approach=WalkTo, target=TO_STAIR, script={
+    wait CallSheep("cs6_all", "Old_Grace$");
+    incnounverbcount("old_lady","talk");
+    setlocation("cse");}
+```
+
+and `Old_Grace$` is the scene: forced camera cuts between `OVER_OLD`, `OLD_VIEW_GRACE` and
+`GRACE_VIEW_OLD`, four called functions of its own (`Up$`, `Back$`, `Shake$`, `Shake2$`,
+`Break$`, `Leave$`), Grace's arm being grabbed, and nine lines of dialogue — about forty
+seconds. All of it started. `setlocation("cse")` ran in the same frame, and the courtyard
+replaced the room the scene was playing in before a frame of it was drawn.
+
+**An action's `wait` was a sum of durations, and a call into a script has no duration.**
+`Gk3SheepApi.SecondsFor` answers for animations, dialogue, walks, timers, glides and movies
+— everything whose length is written down somewhere — and `CallSheep` is the one waited call
+whose length is *another script*, which may itself be waiting on any of those. It answered
+zero, and `ActionRunner` had nothing else to hold the rest of the statements with.
+
+A compiled Sheep script never had this problem: the machine parks its thread and
+`SheepScheduler.Park` is told which threads it called, so `Outstanding` keeps it parked
+until they finish. An action file's script is not compiled and has no thread of its own.
+
+**The fix gives it the same wait.** The statement is evaluated inside `ScriptHost.Within`,
+which reports the threads it started (`Gk3SheepApi.Collects`), and if any is still parked
+the rest of the action is handed to `SceneUpdate.Until` and runs when none of them is
+(`Gk3SheepApi.DefersUntil`). `SceneUpdate._later` already held an action back for its
+approach walk; it now takes either gate, a clock or a list of threads.
+
+This was never only CS6. **14,853 of the corpus's statements are `CallSheep`**, 303 action
+scripts have a statement after a waited one, and **58 of those change location** — so every
+one of them was a cutscene that started and a room that was torn down underneath it.
+
+Reproducing it:
+
+    GK3Reborn.exe --scene CS6 --timeblock 212P --do OLD_LADY:TALK --frames 12000
+
+Before, the log read `Doing OLD_LADY:TALK: ran 3 statement(s)` and `Leaving CS6 for cse` two
+lines later. Now the nine lines play in order and the room changes after the last of them.
+
+### The courtyard's fountain played under the whole of the closing film — fixed 2026-09-02
+
+**Reported:** "On the transition of DAY 2 (CS6 -> Courtyard -> Video) it doesn't stop the
+fountain playing sound so it plays throughout the whole video before gabriel's room starts
+playing cutscene."
+
+`SceneAudio.Leave` stops everything a room was sounding like and it was called in the right
+place for a door — as the *next* room is set up, late on purpose so that nothing cuts off
+the entering script's first line. Between two rooms those are a moment apart. At the end of
+a point in the story they are not: there is a closing film and a timeblock card in between,
+and `212PEND` is thirty-nine seconds. CSE's afternoon runs three soundtracks —
+`CSESNDTRKL`, `CSEBirdAftnoon` and `CSESNDTRKFOUNTAIN` — and all three played on under a
+film set somewhere else, then under the card, and stopped only when Gabriel's room was
+built.
+
+**A timeblock that is over now stops the room's sound itself**, before the film, and says
+which soundtracks it stopped:
+
+```
+Timeblock: 212P is over, starting 202P
+Room tone: CSESNDTRKL.STK, CSEBirdAftnoon.STK, CSESNDTRKFOUNTAIN.STK stopped with the timeblock
+Closing film: 212Pend, 38.8s
+```
+
+Doors are untouched: a room still keeps its sound across the fade into the next one.
+
 ### A timeblock's closing film played over the next room, which ran behind it — fixed 2026-09-02
 
 **Reported:** "At the chateau when the cutscene plays between grace/mosely/buthane, the

@@ -274,6 +274,43 @@ public sealed class Gk3SheepApi : ISheepApi
     public Func<double, Action, bool>? Defers { get; set; }
 
     /// <summary>
+    /// Runs something and says which scripts it called into, when anything can.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ScriptHost.Within"/>, which sets it. A compiled script waits on a
+    /// <c>CallSheep</c> because the machine parks its thread and the scheduler is told
+    /// what that thread called; an action file's statement has no thread, so this is how
+    /// it finds out what its own call started. Null in a host with no scripts, where the
+    /// call goes nowhere and there is nothing to wait for.
+    /// </remarks>
+    public Func<Action, List<SheepThread>>? Collects { get; set; }
+
+    /// <summary>
+    /// What holds something back until the scripts a call started have finished, if
+    /// anything can.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Given the threads and the work; answers whether it took charge of it. The companion
+    /// to <see cref="Defers"/>, for the wait whose length is not a number of seconds: an
+    /// action's <c>wait CallSheep(…)</c> is over when the function it called is over, and
+    /// how long that is depends on the animations, dialogue and timers inside it.
+    /// </para>
+    /// <para>
+    /// 303 of the corpus's action scripts have a statement after one of these and 58 of
+    /// those change location, so without it the room the cutscene plays in is torn down in
+    /// the frame the cutscene starts. CS6's old lady is the reported one: talking to her
+    /// ran <c>CallSheep("cs6_all", "Old_Grace$")</c> and <c>SetLocation("cse")</c> together,
+    /// and the courtyard arrived instead of the scene.
+    /// </para>
+    /// <para>
+    /// Null in a tool, where a called script runs to completion inline and there is nothing
+    /// left outstanding to wait on.
+    /// </para>
+    /// </remarks>
+    public Func<IReadOnlyList<SheepThread>, Action, bool>? DefersUntil { get; set; }
+
+    /// <summary>
     /// What plays an animation, when there is a room to play it in.
     /// </summary>
     /// <remarks>

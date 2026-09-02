@@ -41,12 +41,15 @@ public sealed record ActionOutcome(
     public double Approaching { get; init; }
 
     /// <summary>
-    /// Whether the script is still waiting on that walk rather than having run.
+    /// Whether the script has still to finish rather than having run.
     /// </summary>
     /// <remarks>
-    /// The action is committed either way: <see cref="Ran"/> says it was not refused, and
-    /// this says it has not happened yet. A caller with no clock — every tool — never sees
-    /// this set, because there is nothing there to hold an action back with.
+    /// Set for the two things an action waits on that are not a length of time: the
+    /// approach walk in front of it, and a <c>wait CallSheep(…)</c> partway through it,
+    /// whose length is another script. The action is committed either way: <see cref="Ran"/>
+    /// says it was not refused, and this says the whole of it has not happened yet. A
+    /// caller with no clock — every tool — never sees this set, because there is nothing
+    /// there to hold an action back with.
     /// </remarks>
     public bool Deferred { get; init; }
 
@@ -81,10 +84,13 @@ public sealed record ActionOutcome(
 /// instead of guessing at it.
 /// </para>
 /// <para>
-/// <c>wait</c> is recorded and not obeyed, because there is nothing yet for a script to
-/// wait on: calls run inline to completion, which produces the same observable order for
-/// anything that does not depend on real elapsed time. Keeping it in the record is what
-/// lets that stop being true later without the traces becoming incomparable.
+/// <c>wait</c> is obeyed where there is anything to obey it with. Most waited calls have a
+/// length the host can answer for — an animation is a frame count, a line of dialogue is
+/// one animation per line — and the statement's length is the longest of them. A call into
+/// another script has no such length, so the rest of the action is held until the function
+/// it called is over. A host with neither — every tool — records the <c>wait</c> and runs
+/// straight on, which is the same observable order for anything that does not depend on
+/// real elapsed time.
 /// </para>
 /// </remarks>
 public sealed class ActionRunner
@@ -166,11 +172,29 @@ public sealed class ActionRunner
         return Perform(action, statements, sources) with { Approaching = approaching };
     }
 
-    /// <summary>Runs an action's statements, once the player is where they belong.</summary>
-    private ActionOutcome Perform(
-        NvcAction action, List<ActionStatement> statements, List<string> sources)
+    /// <summary>Runs something and says it started no scripts.</summary>
+    /// <remarks>
+    /// For a host with no script repository behind it, where a call into a script goes
+    /// nowhere and there is nothing that could still be running when it returns.
+    /// </remarks>
+    private static IReadOnlyList<SheepThread> Empty(Action work)
     {
-        for (int i = 0; i < sources.Count; i++)
+        work();
+        return [];
+    }
+
+    /// <summary>Runs an action's statements, once the player is where they belong.</summary>
+    /// <param name="action">The action.</param>
+    /// <param name="statements">Its statements, filled in with what each one took.</param>
+    /// <param name="sources">The text of each, in step with them.</param>
+    /// <param name="from">
+    /// Which statement to start at. Not zero when the action stopped partway through to
+    /// wait on a script it called and is being carried on; see <see cref="Gk3SheepApi.DefersUntil"/>.
+    /// </param>
+    private ActionOutcome Perform(
+        NvcAction action, List<ActionStatement> statements, List<string> sources, int from = 0)
+    {
+        for (int i = from; i < sources.Count; i++)
         {
             try
             {
@@ -181,7 +205,7 @@ public sealed class ActionRunner
                 // when its slowest member is.
                 double seconds = 0;
 
-                SheepExpression.Evaluate(
+                void Evaluate() => SheepExpression.Evaluate(
                     sources[i],
                     _api,
                     null,
@@ -190,7 +214,41 @@ public sealed class ActionRunner
                             seconds = Math.Max(seconds, _api.SecondsFor(name, arguments))
                         : null);
 
+                // Made inside a scope that notices what it called into, because a call
+                // into a script is the one waited call whose length no host can answer:
+                // it is however long that function turns out to take. What it started is
+                // what the rest of this action waits on, below.
+                IReadOnlyList<SheepThread> started =
+                    _api.Collects is { } collect ? collect(Evaluate) : Empty(Evaluate);
+
                 statements[i] = statements[i] with { Seconds = seconds };
+
+                // And if that is still going, the rest of the action is not this frame's
+                // business. Only when the script said to wait: an unwaited CallSheep is
+                // one the script deliberately left running behind it, and 640 of the
+                // corpus's calls rely on that.
+                if (statements[i].Waited &&
+                    i + 1 < sources.Count &&
+                    started.Count > 0 &&
+                    _api.DefersUntil is { } until)
+                {
+                    int next = i + 1;
+
+                    if (until(started, () => Perform(action, statements, sources, next)))
+                    {
+                        // The waits so far, so that the story reads as busy from this frame
+                        // rather than from whenever the script it is waiting on gets round
+                        // to blocking on something measurable.
+                        _api.ActionSeconds = Math.Max(
+                            _api.ActionSeconds, statements[..next].Sum(s => s.Seconds));
+
+                        return new ActionOutcome(
+                            action.Noun, action.Verb, action.Case, statements, Ran: true)
+                        {
+                            Deferred = true,
+                        };
+                    }
+                }
             }
             catch (FormatParseException ex)
             {
