@@ -133,7 +133,7 @@ public static unsafe class D3D12MipChain
             return;
         }
 
-        using var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory);
+        using var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory) { DxilShaderModel = context.DxilShaderModel };
 
         using D3D12Pipeline pipeline = D3D12Pipeline.CreateCompute(
             context.Device, compiler, Source, "mip-chain", Layout);

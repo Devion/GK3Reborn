@@ -17,6 +17,38 @@ window instead: `GK3Reborn.Host --scene CSD --timeblock 202P --frames 8 --screen
 `IRenderer` is the seam and both renderers implement it. `D3D12FramePipeline` is the shared
 room-to-picture chain behind the windowed and the headless renderer.
 
+### What it needs of the card
+
+**Feature level 11_0 and shader model 6.0.** That is the floor the survey asks for, the
+floor the device is now created at, and everything the raster path uses: root signature
+1.0, flip-model swapchain, BC1–BC7, `Texture.Load`, nothing from the 12_x options. The
+device used to be created at 12_0 while the survey had just made one at 11_0 — so a
+GeForce GTX 960M (first-generation Maxwell, 11_0) passed the survey and then failed with
+`DXGI_ERROR_UNSUPPORTED`, 0x887A0004, as an unhandled exception. Asking for 11_0 is a
+floor, not a ceiling: the device that comes back has whatever the hardware has, and
+`D3D12Context.FeatureLevel` / `ShaderModel` say what that was.
+
+**Shaders are compiled for the device's own shader model**, capped at 6.5 —
+`D3D12Context.DxilShaderModel`, threaded into every `ShaderCompiler` the backend makes and
+into its cache key. A module compiled for a newer model than the driver reports is refused
+at pipeline creation with an error naming neither, which is why it is not simply 6.5
+everywhere any more. The ray-traced variants are the only shaders that need 6.5, and they
+are only composed on a device the survey gave the ray-tracing tier, which it does not
+without 6.5. A driver reporting less than 6.0 cannot load DXIL at all and is refused
+with a message that names `--vulkan`.
+
+**Not fallen back from on a named backend, fallen back from otherwise.** `Application
+.OpenRenderer` catches the failure to make a Direct3D renderer, logs `GK3R3422` with the
+reason, closes the window and opens a Vulkan one. `--d3d12` on the command line turns
+that off, so a machine can still be asked the plain question.
+
+Untested on real 11_0 hardware: none is here. The fallback itself was exercised by making
+`D3D12Context.Start` throw and watching the run carry on in Vulkan. What is left that
+*could* bite on such a card is resource binding tier 1 (Kepler and Haswell — Maxwell is
+tier 2), where every descriptor a root table covers has to be valid; the debug layer would
+name it. Resource heap tier 1, which Maxwell *is*, is no concern: every resource here is
+committed, none placed, so no heap mixes buffers with textures.
+
 ### What the two backends measure at
 
 Mean per-channel difference against the Vulkan render of the same shot, over the whole

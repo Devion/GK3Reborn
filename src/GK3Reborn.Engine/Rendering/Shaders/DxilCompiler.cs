@@ -20,9 +20,11 @@ namespace GK3Reborn.Rendering.Shaders;
 /// the signature is checked at the end of every compile instead.
 /// </para>
 /// <para>
-/// Shader model 6.5 throughout. It is the floor for <c>RayQuery</c>, which is the only
-/// form of ray tracing the renderer uses, and there is nothing to gain by compiling the
-/// raster shaders against an older one.
+/// Shader model 6.5 by default, which is the floor for <c>RayQuery</c>, the only form of
+/// ray tracing the renderer uses. It is not a floor for the device: a card that reports
+/// less is given modules compiled for what it has, down to 6.0, because the raster
+/// shaders need nothing newer and a ray query is never in them on a card without the
+/// tier. See <see cref="Direct3D12.D3D12Context.DxilShaderModel"/>.
 /// </para>
 /// </remarks>
 public sealed class DxilCompiler : IDisposable
@@ -70,30 +72,58 @@ public sealed class DxilCompiler : IDisposable
         _compiler = compiler;
     }
 
+    /// <summary>The shader model compiled for when nobody names one: 6.5.</summary>
+    public const uint DefaultShaderModel = 0x65;
+
+    /// <summary>The DXC profile for a stage at a shader model.</summary>
+    /// <param name="stage">The stage.</param>
+    /// <param name="shaderModel">The model as D3D writes it: 0x60 through 0x69.</param>
+    /// <returns>What <c>-T</c> is given, such as <c>ps_6_1</c>.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The model is not one DXIL has.</exception>
+    public static string ProfileFor(ShaderStage stage, uint shaderModel)
+    {
+        if (shaderModel is < 0x60 or > 0x69)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(shaderModel), shaderModel,
+                "DXIL shader models run from 6.0 (0x60) to 6.9 (0x69).");
+        }
+
+        string kind = stage switch
+        {
+            ShaderStage.Vertex => "vs",
+            ShaderStage.Fragment => "ps",
+            _ => "cs",
+        };
+
+        return $"{kind}_{shaderModel >> 4}_{shaderModel & 0xF}";
+    }
+
     /// <summary>Compiles HLSL to DXIL.</summary>
     /// <param name="hlsl">HLSL source, as SPIRV-Cross wrote it.</param>
     /// <param name="stage">Which stage to compile for.</param>
     /// <param name="name">Name used in error messages.</param>
     /// <param name="entryPoint">Entry point function.</param>
+    /// <param name="shaderModel">
+    /// The shader model to compile for, as D3D writes it. The device's own, capped at 6.5:
+    /// a module compiled for a newer model than the driver reports is refused when a
+    /// pipeline is made from it, and the refusal names neither the module nor the model.
+    /// </param>
     /// <returns>A signed DXIL container.</returns>
     /// <exception cref="ShaderCompilationException">The shader did not compile.</exception>
     public unsafe byte[] Compile(
         string hlsl,
         ShaderStage stage,
         string name = "shader",
-        string entryPoint = "main")
+        string entryPoint = "main",
+        uint shaderModel = DefaultShaderModel)
     {
         ArgumentNullException.ThrowIfNull(hlsl);
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(entryPoint);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        string profile = stage switch
-        {
-            ShaderStage.Vertex => "vs_6_5",
-            ShaderStage.Fragment => "ps_6_5",
-            _ => "cs_6_5",
-        };
+        string profile = ProfileFor(stage, shaderModel);
 
         // HLSL 2021 is DXC's own default from 1.7 onwards and is stated anyway, because a
         // silent change of language version between package updates would change what the

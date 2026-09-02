@@ -34,6 +34,14 @@ public static class Application
     {
         ArgumentNullException.ThrowIfNull(args);
 
+        // Before the log, the report and everything else: somebody asking what the switches
+        // are has not asked for a run, and should not get the first lines of one.
+        if (CommandLine.WantsHelp(args))
+        {
+            Console.Out.Write(CommandLine.Usage());
+            return 0;
+        }
+
         // Idempotent: the host opens it before this is reached, so that anything thrown on
         // the way here is written down too. Called again for the sake of the callers that
         // are not the host - a test, a tool - which have not.
@@ -377,22 +385,8 @@ public static class Application
         // — Silk refuses to make a Vulkan window on a machine with no loader, and a Direct3D
         // machine should not need one — so this is decided before there is a window rather
         // than after there is a renderer.
-        Rendering.RenderBackend backend = ChooseBackend(Option(args, "--backend"), settings);
-
-        // --width and --height, for photographing the interface at a display size this
-        // machine has not got. Everything about the interface's size is decided from the
-        // framebuffer, so there is no other way to see what a 4K display would show.
-        using var window = Platform.SilkGameWindow.Open(
-            $"GK3Reborn - {sceneName}",
-            int.TryParse(Option(args, "--width"), out int windowWidth) && windowWidth > 0
-                ? windowWidth
-                : 1280,
-            int.TryParse(Option(args, "--height"), out int windowHeight) && windowHeight > 0
-                ? windowHeight
-                : 720,
-            backend == Rendering.RenderBackend.Vulkan
-                ? Platform.WindowGraphics.Vulkan
-                : Platform.WindowGraphics.None);
+        string? backendAsked = CommandLine.BackendAsked(args);
+        Rendering.RenderBackend backend = ChooseBackend(backendAsked, settings);
 
         // What the player has dropped into libs/, and NVIDIA's loader started against it.
         //
@@ -414,16 +408,30 @@ public static class Application
             Rendering.Upscaling.NgxFeatureTable.TryEnable();
         }
 
-        using Rendering.Upscaling.Streamline? streamline =
-            backend == Rendering.RenderBackend.Vulkan
-                ? Rendering.Upscaling.Streamline.TryStart(runtimes)
-                : null;
+        // --width and --height, for photographing the interface at a display size this
+        // machine has not got. Everything about the interface's size is decided from the
+        // framebuffer, so there is no other way to see what a 4K display would show.
+        //
+        // The window, the renderer and Streamline together, because which window to open
+        // depends on which renderer is going to draw into it, and that is only settled once
+        // the renderer exists: a Direct3D machine that turns out not to be one gets a Vulkan
+        // window instead. See OpenRenderer.
+        OpenedRenderer drawing = OpenRenderer(
+            backend,
+            insisted: backendAsked is not null,
+            $"GK3Reborn - {sceneName}",
+            int.TryParse(Option(args, "--width"), out int windowWidth) && windowWidth > 0
+                ? windowWidth
+                : 1280,
+            int.TryParse(Option(args, "--height"), out int windowHeight) && windowHeight > 0
+                ? windowHeight
+                : 720,
+            runtimes,
+            Option(args, "--libs-dir"));
 
-        using Rendering.IRenderer renderer =
-            backend == Rendering.RenderBackend.Direct3D12
-                ? Rendering.Direct3D12.D3D12Renderer.Create(
-                    window, window, rayTracing: true, runtimes: Option(args, "--libs-dir"))
-                : VulkanRenderer.Create(window, window, streamline: streamline);
+        using Platform.SilkGameWindow window = drawing.Window;
+        using Rendering.Upscaling.Streamline? streamline = drawing.Streamline;
+        using Rendering.IRenderer renderer = drawing.Renderer;
 
         renderer.Runtimes = runtimes;
 
@@ -5236,23 +5244,7 @@ public static class Application
     }
 
     /// <summary>Reads an option's value from the command line.</summary>
-    private static string? Option(string[] args, string name)
-    {
-        int at = Array.FindIndex(args, a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
-
-        if (at < 0 || at + 1 >= args.Length)
-        {
-            return null;
-        }
-
-        string next = args[at + 1];
-
-        // The next flag is not this one's value. `--start --rt high` means "start where the
-        // game starts, and trace at high", not "open the room called --rt" — and taking it
-        // as a room name is a failure a long way from the mistake, after a window has
-        // opened and a menu has been sat through.
-        return next.StartsWith("--", StringComparison.Ordinal) ? null : next;
-    }
+    private static string? Option(string[] args, string name) => CommandLine.Value(args, name);
 
     /// <summary>Where the game is usually installed relative to the repository.</summary>
     /// <remarks>
@@ -5930,6 +5922,118 @@ public static class Application
         }
 
         return Rendering.RenderBackends.Resolve(wanted);
+    }
+
+    /// <summary>A window, the renderer drawing into it, and the loader that renderer needed.</summary>
+    /// <param name="Window">The window. Opened for the renderer's API, which is why the two travel together.</param>
+    /// <param name="Streamline">NVIDIA's loader, on Vulkan; Direct3D starts its own inside the renderer.</param>
+    /// <param name="Renderer">The renderer.</param>
+    /// <param name="Backend">Which API it is, which may not be the one that was asked for.</param>
+    private readonly record struct OpenedRenderer(
+        Platform.SilkGameWindow Window,
+        Rendering.Upscaling.Streamline? Streamline,
+        Rendering.IRenderer Renderer,
+        Rendering.RenderBackend Backend);
+
+    /// <summary>
+    /// Opens a window and makes a renderer for it, falling back from Direct3D to Vulkan
+    /// when the machine turns out not to be a Direct3D machine after all.
+    /// </summary>
+    /// <param name="backend">The backend to try first. Not <see cref="Rendering.RenderBackend.Automatic"/>.</param>
+    /// <param name="insisted">
+    /// Whether the backend was named on the command line. A named one is not fallen back
+    /// from: somebody who typed it is finding out whether it works, and being handed the
+    /// other renderer would tell them it does.
+    /// </param>
+    /// <param name="title">The window title.</param>
+    /// <param name="width">The window width.</param>
+    /// <param name="height">The window height.</param>
+    /// <param name="runtimes">The upscaler runtimes that were found.</param>
+    /// <param name="libsDirectory">Where <c>--libs-dir</c> pointed, for Direct3D's own Streamline.</param>
+    /// <returns>The three, to be disposed by the caller in the reverse of this order.</returns>
+    /// <remarks>
+    /// <para>
+    /// Direct3D 12 fails on a machine for reasons the operating system alone cannot rule
+    /// out: no adapter at all, a driver that stops short of shader model 6.0, a device that
+    /// will not be made. Every one of those used to be an unhandled exception with an
+    /// HRESULT in it — <c>0x887A0004</c>, on the GeForce GTX 960M that found the first of
+    /// them — and the remedy, <c>--vulkan</c>, was known only to somebody who had read the
+    /// source. Now the failure is logged with its reason and Vulkan is tried, which is the
+    /// renderer the game runs on everywhere that is not Windows and the one the settings
+    /// page will then say it is running on.
+    /// </para>
+    /// <para>
+    /// A window is opened for one API and cannot be re-purposed for the other — Vulkan
+    /// needs a surface the window has to be created with — so the fallback closes the
+    /// Direct3D window and opens a Vulkan one. Nothing has been drawn into the first, so
+    /// nothing is lost but a flicker.
+    /// </para>
+    /// </remarks>
+    private static OpenedRenderer OpenRenderer(
+        Rendering.RenderBackend backend,
+        bool insisted,
+        string title,
+        int width,
+        int height,
+        Rendering.Upscaling.UpscalerRuntimes runtimes,
+        string? libsDirectory)
+    {
+        if (backend == Rendering.RenderBackend.Direct3D12)
+        {
+            Platform.SilkGameWindow window = Platform.SilkGameWindow.Open(
+                title, width, height, Platform.WindowGraphics.None);
+
+            try
+            {
+                Rendering.IRenderer renderer = Rendering.Direct3D12.D3D12Renderer.Create(
+                    window, window, rayTracing: true, runtimes: libsDirectory);
+
+                return new OpenedRenderer(window, null, renderer, backend);
+            }
+            catch (Exception error) when (
+                error is Rendering.Direct3D12.D3D12Exception
+                    or Rendering.Shaders.ShaderCompilationException)
+            {
+                window.Dispose();
+
+                if (insisted)
+                {
+                    throw new Rendering.Direct3D12.D3D12Exception(
+                        $"{error.Message} Direct3D 12 was asked for; --vulkan is the other renderer.",
+                        error);
+                }
+
+                Log.Warning(
+                    "WARNING GK3R3422: Direct3D 12 cannot run on this machine; using Vulkan " +
+                    $"instead. {error.Message}");
+            }
+            catch
+            {
+                window.Dispose();
+                throw;
+            }
+        }
+
+        Platform.SilkGameWindow vulkanWindow = Platform.SilkGameWindow.Open(
+            title, width, height, Platform.WindowGraphics.Vulkan);
+
+        Rendering.Upscaling.Streamline? streamline = null;
+
+        try
+        {
+            streamline = Rendering.Upscaling.Streamline.TryStart(runtimes);
+
+            Rendering.IRenderer renderer = VulkanRenderer.Create(
+                vulkanWindow, vulkanWindow, streamline: streamline);
+
+            return new OpenedRenderer(vulkanWindow, streamline, renderer, Rendering.RenderBackend.Vulkan);
+        }
+        catch
+        {
+            streamline?.Dispose();
+            vulkanWindow.Dispose();
+            throw;
+        }
     }
 
     /// <summary>

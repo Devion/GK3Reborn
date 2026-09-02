@@ -238,7 +238,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         bool traced = rayTracing && context.SupportsRayTracing;
 
         D3D12GeometryDevice geometry = D3D12GeometryDevice.Create(context);
-        var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory);
+        var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory) { DxilShaderModel = context.DxilShaderModel };
 
         // Started after the device rather than before it, which is the other way round from
         // Vulkan. There, Streamline has to be consulted while the device is being created

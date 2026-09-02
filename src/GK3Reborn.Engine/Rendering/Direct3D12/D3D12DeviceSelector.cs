@@ -38,7 +38,7 @@ public static unsafe class D3D12DeviceSelector
     /// the floor for <c>RayQuery</c>, so a device that cannot reach it cannot run the
     /// ray-traced shaders whatever its ray-tracing tier says.
     /// </remarks>
-    private const uint RequiredShaderModel = 0x65;
+    internal const uint RequiredShaderModel = 0x65;
 
     /// <summary>Surveys every Direct3D 12 adapter on the machine.</summary>
     /// <returns>What was found, and which one would be used.</returns>
@@ -320,7 +320,10 @@ public static unsafe class D3D12DeviceSelector
         return architecture;
     }
 
-    private static D3DFeatureLevel HighestFeatureLevel(ref ComPtr<ID3D12Device5> device)
+    /// <summary>The highest feature level a device supports.</summary>
+    /// <param name="device">The device.</param>
+    /// <returns>The level, or 11_0 if the runtime will not say.</returns>
+    internal static D3DFeatureLevel HighestFeatureLevel(ref ComPtr<ID3D12Device5> device)
     {
         D3DFeatureLevel[] wanted =
         [
@@ -349,7 +352,10 @@ public static unsafe class D3D12DeviceSelector
         return D3DFeatureLevel.Level110;
     }
 
-    private static uint HighestShaderModel(ref ComPtr<ID3D12Device5> device)
+    /// <summary>The highest shader model a device supports, as D3D writes it (0x65 is 6.5).</summary>
+    /// <param name="device">The device.</param>
+    /// <returns>The model, or 6.0 if the runtime will not say.</returns>
+    internal static uint HighestShaderModel(ref ComPtr<ID3D12Device5> device)
     {
         // The call is a negotiation rather than a question: it is given the highest model
         // the caller understands and writes back the highest the device has, and it fails
@@ -419,7 +425,8 @@ public static unsafe class D3D12DeviceSelector
         }
     }
 
-    private static string Name(D3DFeatureLevel level) => level switch
+    /// <summary>A feature level as Direct3D spells it.</summary>
+    internal static string Name(D3DFeatureLevel level) => level switch
     {
         D3DFeatureLevel.Level122 => "12_2",
         D3DFeatureLevel.Level121 => "12_1",
@@ -428,6 +435,7 @@ public static unsafe class D3D12DeviceSelector
         _ => "11_0",
     };
 
-    private static string Name(uint shaderModel) =>
+    /// <summary>A shader model as Direct3D spells it.</summary>
+    internal static string Name(uint shaderModel) =>
         string.Create(CultureInfo.InvariantCulture, $"{shaderModel >> 4}.{shaderModel & 0xF}");
 }

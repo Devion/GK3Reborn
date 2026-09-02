@@ -55,7 +55,7 @@ public sealed class ShaderCompiler : IDisposable
     /// all of them belong here, because none of them appears in the text of a shader.
     /// </para>
     /// </remarks>
-    private const string Recipe = "5";
+    private const string Recipe = "6";
 
     /// <summary>
     /// Where compiled shaders are cached when nobody has said otherwise.
@@ -69,6 +69,14 @@ public sealed class ShaderCompiler : IDisposable
     /// <see cref="InstallPaths.WritableDirectory"/>.
     /// </remarks>
     public static string DefaultCacheDirectory => InstallPaths.WritableDirectory("shader-cache");
+
+    /// <summary>The shader model the DXIL is compiled for, as D3D writes it (0x65 is 6.5).</summary>
+    /// <remarks>
+    /// The device decides it — see <see cref="Direct3D12.D3D12Context.DxilShaderModel"/> —
+    /// and it is part of the cache key, because a module compiled for 6.5 is not the module
+    /// a 6.1 device can load and the two would otherwise share a name. Ignored for SPIR-V.
+    /// </remarks>
+    public uint DxilShaderModel { get; init; } = DxilCompiler.DefaultShaderModel;
 
     /// <summary>Creates a compiler.</summary>
     /// <param name="cacheDirectory">Where to cache compiled shaders, or null to not cache.</param>
@@ -253,8 +261,8 @@ public sealed class ShaderCompiler : IDisposable
             // SPIRV-Cross names the entry point of what it emits "main" whatever the source
             // called it, so the entry point DXC is given is not the one the source used.
             var pair = (
-                _dxil.Compile(vertexHlsl, ShaderStage.Vertex, name + ".vert", "main"),
-                _dxil.Compile(fragmentHlsl, ShaderStage.Fragment, name + ".frag", "main"));
+                _dxil.Compile(vertexHlsl, ShaderStage.Vertex, name + ".vert", "main", DxilShaderModel),
+                _dxil.Compile(fragmentHlsl, ShaderStage.Fragment, name + ".frag", "main", DxilShaderModel));
 
             WritePair(cachePath, pair);
             return pair;
@@ -337,7 +345,7 @@ public sealed class ShaderCompiler : IDisposable
             // SPIRV-Cross names the entry point of what it emits "main" whatever the
             // source called it, so the entry point DXC is given is not the one the source
             // was compiled with.
-            return _dxil.Compile(hlsl, stage, name, "main");
+            return _dxil.Compile(hlsl, stage, name, "main", DxilShaderModel);
         }
     }
 
@@ -391,7 +399,7 @@ public sealed class ShaderCompiler : IDisposable
         }
 
         byte[] key = SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"pair|{Recipe}|{language}|{vertexEntryPoint}|{fragmentEntryPoint}|{vertexSource}|{fragmentSource}"));
+            $"pair|{Recipe}|{TargetKey(ShaderTarget.Dxil)}|{language}|{vertexEntryPoint}|{fragmentEntryPoint}|{vertexSource}|{fragmentSource}"));
 
         return Path.Combine(_cacheDirectory, Convert.ToHexStringLower(key)[..32] + ".dxilpair");
     }
@@ -444,6 +452,10 @@ public sealed class ShaderCompiler : IDisposable
         Store(path, bytes);
     }
 
+    /// <summary>The target as the cache key spells it: DXIL carries the shader model, SPIR-V does not.</summary>
+    private string TargetKey(ShaderTarget target) =>
+        target == ShaderTarget.Dxil ? $"Dxil-{DxilShaderModel:X}" : "SpirV";
+
     private string? CachePathFor(
         ShaderTarget target,
         string source,
@@ -460,7 +472,7 @@ public sealed class ShaderCompiler : IDisposable
         // its own entry and nothing else. The target is part of it because the same source
         // has two answers and they are not interchangeable.
         byte[] key = SHA256.HashData(
-            Encoding.UTF8.GetBytes($"{Recipe}|{target}|{language}|{stage}|{entryPoint}|{source}"));
+            Encoding.UTF8.GetBytes($"{Recipe}|{TargetKey(target)}|{language}|{stage}|{entryPoint}|{source}"));
 
         string extension = target == ShaderTarget.SpirV ? ".spv" : ".dxil";
         return Path.Combine(_cacheDirectory, Convert.ToHexStringLower(key)[..32] + extension);

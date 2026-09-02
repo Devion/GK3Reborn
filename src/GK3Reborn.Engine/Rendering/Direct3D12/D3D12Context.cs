@@ -87,6 +87,30 @@ public sealed unsafe class D3D12Context : IDisposable
     /// </remarks>
     public bool SupportsRayTracing => Adapter1.Tiers.HasFlag(RenderCapabilityTier.RayTracing);
 
+    /// <summary>The oldest shader model a Direct3D 12 device can load: 6.0, which is DXIL.</summary>
+    public const uint LowestShaderModel = 0x60;
+
+    /// <summary>The feature level the device actually has.</summary>
+    /// <remarks>
+    /// Not what was asked for. The device is created against the 11_0 floor and this is
+    /// what came back, so a first-generation Maxwell reads 11_0 here and an RTX reads 12_2.
+    /// The renderer's raster path needs nothing above the floor; ray tracing is a tier of
+    /// its own and is read from <see cref="SupportsRayTracing"/>.
+    /// </remarks>
+    public D3DFeatureLevel FeatureLevel { get; private set; } = D3DFeatureLevel.Level110;
+
+    /// <summary>The highest shader model the device accepts, as D3D writes it (0x65 is 6.5).</summary>
+    public uint ShaderModel { get; private set; } = LowestShaderModel;
+
+    /// <summary>The shader model the renderer's DXIL is compiled for on this device.</summary>
+    /// <remarks>
+    /// The device's own, capped at 6.5, which is the highest anything here is written for
+    /// and the floor for <c>RayQuery</c>. A device that stops short of 6.5 cannot have been
+    /// given the ray-tracing tier — the survey ties the two together — so the shaders it is
+    /// handed never contain a ray query, and nothing else in them needs more than 6.0.
+    /// </remarks>
+    public uint DxilShaderModel => Math.Min(ShaderModel, D3D12DeviceSelector.RequiredShaderModel);
+
     /// <summary>The adapter's locally unique identifier, eight bytes.</summary>
     /// <remarks>
     /// How Streamline names an adapter on this backend — Vulkan hands it a physical device
@@ -557,17 +581,44 @@ public sealed unsafe class D3D12Context : IDisposable
 
         SelectAdapter(chosen);
 
+        // 11_0 is a floor, not a request: the device that comes back has every capability
+        // the hardware has, whatever minimum was named. It used to say 12_0 here, and that
+        // was the whole of why a GeForce GTX 960M — first-generation Maxwell, which reports
+        // 11_0 and runs everything the raster path asks of it — failed to start with
+        // DXGI_ERROR_UNSUPPORTED while the survey above had just made a device on it. The
+        // survey asks for 11_0; asking for anything else here is asking a different question.
         Guid deviceId = ID3D12Device5.Guid;
         D3D12Exception.ThrowIfFailed(
             _d3d12.CreateDevice(
                 (IUnknown*)_adapter.Handle,
-                D3DFeatureLevel.Level120,
+                D3DFeatureLevel.Level110,
                 &deviceId,
                 (void**)_device.GetAddressOf()),
             $"create a device on {chosen.Name}");
 
         DeviceName = chosen.Name;
         Adapter1 = chosen;
+
+        // What was actually made, asked of the device itself rather than read back out of
+        // the survey's text. The shaders are compiled for this: DXC is told a profile, and
+        // a module compiled for a newer model than the driver has is refused at pipeline
+        // creation with an error that names neither.
+        FeatureLevel = D3D12DeviceSelector.HighestFeatureLevel(ref _device);
+        ShaderModel = D3D12DeviceSelector.HighestShaderModel(ref _device);
+
+        if (ShaderModel < LowestShaderModel)
+        {
+            throw new D3D12Exception(
+                $"{chosen.Name} reports shader model " +
+                $"{D3D12DeviceSelector.Name(ShaderModel)}, and Direct3D 12 loads nothing " +
+                "older than 6.0. A newer driver may add it; otherwise run with --vulkan.");
+        }
+
+        Foundation.Diagnostics.Log.Info(
+            $"Direct3D 12: {chosen.Name}, feature level " +
+            $"{D3D12DeviceSelector.Name(FeatureLevel)}, shader model " +
+            $"{D3D12DeviceSelector.Name(ShaderModel)}; shaders compiled for " +
+            $"{D3D12DeviceSelector.Name(DxilShaderModel)}");
 
         var queueDescription = new CommandQueueDesc
         {

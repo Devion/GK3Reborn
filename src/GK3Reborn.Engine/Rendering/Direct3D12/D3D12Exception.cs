@@ -69,6 +69,7 @@ public sealed class D3D12Exception : Exception
         0x80004005 => "unspecified failure",
         0x887A0001 => "invalid call",
         0x887A0002 => "not found",
+        0x887A0004 => "unsupported: the adapter or its driver cannot do what was asked of it",
         0x887A0005 => "the device was removed, which means it reset after some earlier call",
         0x887A0006 => "the device hung on work submitted earlier",
         0x887A0020 => "the driver reported an internal error",

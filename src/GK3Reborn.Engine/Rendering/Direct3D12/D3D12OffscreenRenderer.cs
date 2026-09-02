@@ -98,7 +98,7 @@ public sealed unsafe class D3D12OffscreenRenderer : IDisposable
         try
         {
             return new D3D12OffscreenRenderer(
-                context, new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory));
+                context, new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory) { DxilShaderModel = context.DxilShaderModel });
         }
         catch
         {

@@ -376,6 +376,18 @@ install has anyway. Naming `--enhanced`, `--workspace` or `--uncompressed` is
 what asks for the loose sets instead; `--rebarn` still forces packs-only and
 refuses to start without a pack, which is what makes a measurement honest.
 
+`GK3Reborn --help` lists every switch: where to start, what to draw with, which
+content to read, and the ones for photographing a run with no keyboard.
+
+Windows draws through Direct3D 12 and everything else through Vulkan; `--vulkan`
+(or `--backend vulkan`) asks for the other on Windows, and the Display page
+carries the same choice. Direct3D needs a card at feature level 11_0 with a
+driver that speaks shader model 6.0, which is any card that has run a game
+since about 2014 — a GeForce GTX 960M is enough. Ray tracing needs shader model
+6.5 and inline ray tracing on top, and a card without them draws the baked
+lighting instead. When Direct3D cannot start at all the game says so in the log,
+opens Vulkan instead, and the settings page shows which one is running.
+
 ### Upscaling and HDR
 
 Settings → Upscaling offers four: off, the engine's own, FSR and DLSS. The first two need
@@ -429,6 +441,12 @@ neither can happen on the machine this is developed on:
   Windows and two on Linux and macOS, so a player can be looking straight at the
   directory the game says is missing. When the name is there under another spelling
   the log says which one and where.
+
+A third used to be silent and is not any more: **Direct3D 12 will not start** on
+the card. The log carries `GK3R3422` with Direct3D's own reason — an HRESULT such
+as `0x887A0004`, which is DXGI saying unsupported — and the run goes on in Vulkan.
+Only a backend named on the command line is not fallen back from, because somebody
+who typed `--d3d12` is finding out whether it works.
 
 ## Locale
 
