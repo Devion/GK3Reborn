@@ -100,6 +100,16 @@ public sealed class SceneAudio
 
     private AudioVoice _line;
 
+    /// <summary>
+    /// How much longer a line with a caption and no recording is held for.
+    /// </summary>
+    /// <remarks>
+    /// The one place a timer stands in for the device. Everywhere else a line is over when
+    /// its source stops, which is why the two never drift; a line that was never recorded
+    /// has no source, so its own animation is the clock instead.
+    /// </remarks>
+    private double _silent;
+
     /// <summary>Creates the scene's audio.</summary>
     /// <param name="sounds">Where the decoded sounds are.</param>
     /// <param name="animations">Where the animations that name them are.</param>
@@ -586,6 +596,8 @@ public sealed class SceneAudio
             _line = AudioVoice.None;
         }
 
+        _silent = 0;
+
         // Tapping through the words does not tap through what they do to the room. The
         // player skipping "But I'm afraid I have bad news" would otherwise skip the fight
         // music that comes up under its last few frames, and the room would be wrong for
@@ -619,6 +631,8 @@ public sealed class SceneAudio
             _backend.Silence(_line);
             _line = AudioVoice.None;
         }
+
+        _silent = 0;
 
         Ended(performed);
 
@@ -1068,6 +1082,25 @@ public sealed class SceneAudio
             }
         }
 
+        // A line that is only words runs down here rather than on the device. Before the
+        // check below and not inside it: it has no voice for that to look at.
+        if (_silent > 0)
+        {
+            _silent -= seconds;
+
+            if (_silent <= 0)
+            {
+                _silent = 0;
+                Ended(performed: true);
+
+                Saying = null;
+                Caption = null;
+                Speaker = null;
+
+                Next();
+            }
+        }
+
         if (_line.Exists && !_backend.IsPlaying(_line))
         {
             _line = AudioVoice.None;
@@ -1092,6 +1125,11 @@ public sealed class SceneAudio
     /// <summary>Starts the line at the head of the queue.</summary>
     private void Next()
     {
+        // Whatever was standing on the screen belongs to the line that is over. Cleared
+        // here rather than only where a hold runs out, because a run can be continued out
+        // from under one.
+        _silent = 0;
+
         while (_speaking.Count > 0)
         {
             string yak = _speaking.Dequeue();
@@ -1142,10 +1180,27 @@ public sealed class SceneAudio
                 }
             }
 
-            // The animation is there but its audio is not, so the line is skipped rather
-            // than holding up the ones behind it. What it was going to do to the music
-            // still happens, all at once: the line contributes no time, and a fight whose
-            // first sentence is missing should still get its music.
+            // The animation is there, its audio is not, and it still has something to say.
+            // A YAK whose recording was deleted keeps its [GK3] caption and simply names no
+            // sound, which is how eighteen of the crow's-nest puzzle's nineteen lines
+            // survive; the shipped game has a handful more. Dropping those left the noun
+            // silent *and* wordless while the waited StartVoiceOver went on spending the
+            // animation's three seconds — a click that visibly does nothing, which is
+            // exactly how it was reported. So a line with words holds for as long as the
+            // animation is, and the caption stands for that long. A restored recording
+            // dropped into overrides/audio takes the branch above instead and nothing here
+            // has to change.
+            if (animation.Captions.Count > 0 && animation.Duration > 0)
+            {
+                _silent = animation.Duration;
+                Opening(animation);
+                return;
+            }
+
+            // Nothing to hear and nothing to read, so the line is skipped rather than
+            // holding up the ones behind it. What it was going to do to the music still
+            // happens, all at once: the line contributes no time, and a fight whose first
+            // sentence is missing should still get its music.
             Opening(animation);
             Ended(performed: true);
 

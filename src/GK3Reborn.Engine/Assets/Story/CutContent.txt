@@ -214,9 +214,23 @@ rule MA3_ALL.NVC CIGARETTE_BUTT_PILE CLEAN LOOKED_AT_BUTT_PILE
 # interface is now Game.WaterAiming; the case, and the three rules that hang off it, are in
 # rc2_crowsnest.nvc, which this brings into the room's scope.
 place RC2.SIF rc2_birdsnest BIRDS_NEST 1830,185,-3250 after=rc2_museum_door
-place RC2.SIF rc2_crow CROW_AT_NEST 1830,198,-3250,20 after=rc2_museum_door
+# In the cup rather than on the rim: the nest stands 11.5 tall from 185, so a crow whose
+# feet are at 194 is sitting in it with its back and head above the edge, which is both what
+# "at nest" means and the only way it can be seen from the square below.
+place RC2.SIF rc2_crow CROW_AT_NEST 1830,194,-3250,20 after=rc2_museum_door
 place RC2.SIF rc2_gardenhose GARDEN_HOSE 2080,45,-3256 after=rc2_museum_door
-place RC2.SIF rc2_blackrug BLACK_RUG_IN_WINDOW 1990,100,-3262 after=rc2_museum_door
+# Out of rc2_highwindows2, the nearer to the museum of the pair of upstairs windows over
+# the street -- and not over the museum railing, which is where this first went. Two
+# things say so: the noun is BLACK_RUG_IN_WINDOW, and its PICKUP line is "I can't get up
+# there", which a rug on a railing beside the steps plainly is not.
+#
+# The window is the quad (1749.70, 193.39, -2832.70) to (1752.08, 193.39, -2889.48): the
+# sill is 193.39 and the middle of it is (1750.9, -2861.1). The wall faces
+# (-0.999, 0, -0.042), which is a heading of -92.4, and the point below is that middle
+# moved six units back into the wall, so that the drop hangs against the stone rather than
+# standing off it. The y is the sill less the 38 the rug drops, because pos puts the
+# model's lowest vertex there and this one's lowest vertex is the loose end in the air.
+place RC2.SIF rc2_blackrug BLACK_RUG_IN_WINDOW 1756.9,155.4,-2860.8,-92.4 after=rc2_museum_door
 rule RC2_1ALL.NVC BIRDS_NEST LOOK NOT_GOT_BLACK_FIBERS
 rule RC2_1ALL.NVC BLACK_RUG_IN_WINDOW LOOK GABE_ALL
 rule RC2_1ALL.NVC BLACK_RUG_IN_WINDOW LOOK GRACE_ALL

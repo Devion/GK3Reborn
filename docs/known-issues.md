@@ -219,7 +219,66 @@ who has turned that down to one has turned this off with it.
 A walk a **script** asked for never does. Their timings were written against the pace the game
 walks at, and a cutscene that arrives early is a cutscene with a gap in it.
 
+## 6. TE2 does not ship, because a pack key drops the extension
+
+**Found 2026-09-03** while putting the crow's-nest action file into the packs, which was
+missing for the same reason and is now there. `enhanced/rooms` was in no pack at all, so
+against the two volumes alone — which is all a player has — the rebuilt TE2 is
+`ERROR SCENE001: No archive contains TE2.BSP`. Reproduce it with
+
+```
+GK3Reborn.Tools render-scene --source <GK3>/Data --packs ContentWorkspace \
+    --model TE2 --timeblock 309P --restore-cut-content rebuilt
+```
+
+and note that adding `--enhanced enhanced/textures`, which is what every development run
+does, makes it work: the loader reads `enhanced/rooms` loose from the workspace, and in
+development the workspace is always there. This is the third time that shape of gap has
+bitten — the material library was the second.
+
+**The obstacle is the key, not the plan.** `RebarnFormat.Key` strips the extension for every
+kind but Audio, and `AddedAssets` addresses its entries under `RebarnKind.Raw` by their 1999
+name. So `TE2.SIF` and `TE2.BSP` are one entry, and packing the room's `.SIF` makes a read of
+its `.BSP` return the scene file — which crashes on the signature rather than failing to find
+anything. That is why the pack plan takes `*.nvc`, `*.anm` and `*.act` from `enhanced/rooms`
+and not the `*.sif`, `*.scn` or `*.glb` a whole rebuilt room needs.
+
+Fixing it means giving added assets a key that keeps the extension, as Audio has. Raw cannot
+simply become another exception: the terrain reads `Raw` by `"<set>.<part>"` and relies on the
+strip to find `<set>.<part>.r32` (`SceneLoader.ForestFor`). Either those two want separate
+kinds, or `AddedAssets` wants one of its own.
+
 ## Closed
+
+### A line whose recording was deleted said nothing at all — fixed 2026-09-03
+
+**Reported:** "Looking at either crow, nest or rug does not invoke any audio line so that
+part is not yet properly implemented?"
+
+**A `.YAK` is the line, and it carries two things.** Its `[SOUNDS]` names the recording and
+its `[GK3]` carries the caption. When the developers cut the crow's-nest puzzle they deleted
+the recordings and left the YAKs, so eighteen of that puzzle's nineteen lines are a caption
+with no sound behind it; the shipped game has a handful more. `docs/cut-content.md` says
+those play as subtitles, and they did not.
+
+`SceneAudio.Next` read the caption off the animation, walked the animation's sounds, found
+none, and fell through to the branch that skips a line so it does not hold up the ones
+behind it — clearing `Caption` in the same call that set it. Nothing was heard and nothing
+was written, while the waited `StartVoiceOver` that asked for the line went on spending the
+three seconds the YAK is long, because `SecondsFor` reads the animation and not the device.
+Three seconds of a click that does nothing.
+
+**A line with words now holds for as long as its animation is.** One timer, and the only
+place in the audio layer where a timer stands in for the device: everywhere else a line is
+over when its source stops, which is why the two never drift, and a line that was never
+recorded has no source to ask. What the line does to the music is unchanged — `Opening`
+still takes on its schedule at the start and `Ended` still performs the rest at the end, so
+a soundtrack change written on frame 40 now happens on frame 40 rather than all at once in
+the frame the line was asked for. A line with neither sound nor caption is still skipped
+outright, which is the case the old code was written for.
+
+A restored recording dropped into `overrides/audio` takes the ordinary path instead and
+nothing about this has to change. `SilentLineTests` covers the four cases.
 
 ### Montreaux arrived twice in the attic, and everybody acted before they got there — fixed 2026-09-02
 

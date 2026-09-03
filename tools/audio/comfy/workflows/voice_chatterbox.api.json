@@ -1,0 +1,66 @@
+{
+  "1": {
+    "class_type": "ChatterBoxEngineNode",
+    "_meta": {
+      "title": "ChatterBox, English"
+    },
+    "inputs": {
+      "language": "English",
+      "device": "auto",
+      "exaggeration": 0.4,
+      "temperature": 0.7,
+      "cfg_weight": 0.5,
+      "crash_protection_template": ""
+    }
+  },
+  "2": {
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "Gabriel, from the archives"
+    },
+    "inputs": {
+      "audio": "GK3_GABRIEL_REF.wav"
+    }
+  },
+  "3": {
+    "class_type": "UnifiedTTSTextNode",
+    "_meta": {
+      "title": "One line"
+    },
+    "inputs": {
+      "TTS_engine": [
+        "1",
+        0
+      ],
+      "text": "REPLACED BY THE DRIVER",
+      "narrator_voice": "none",
+      "seed": 1,
+      "opt_narrator": [
+        "2",
+        0
+      ],
+      "enable_chunking": false,
+      "enable_audio_cache": false
+    }
+  },
+  "4": {
+    "class_type": "SaveAudioWithPath",
+    "_meta": {
+      "title": "Straight into the content workspace"
+    },
+    "inputs": {
+      "audio": [
+        "3",
+        0
+      ],
+      "folder_path": "REPLACED BY THE DRIVER",
+      "subfolder_name": "dialogue",
+      "filename": "REPLACED BY THE DRIVER",
+      "suffix": "",
+      "sample_rate": "48000",
+      "bit_depth": "24-bit PCM",
+      "overwrite": true,
+      "normalize_clipping": true
+    }
+  }
+}

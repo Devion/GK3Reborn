@@ -182,7 +182,7 @@ overrides first, then a content workspace, then a ReBarn pack.
 | Dr Wen's documents | R31 | `LETTER_FROM_WEN` | two sheets, fanned, on the writing desk. Two because the line counts them: *"He mentions three documents, but there're only two here."* | `RLCSTATIONARY` — the hotel's own paper |
 | The lobby magazines | LBY | `MAGAZINES` | a stack of three on the coffee table | `MAGAZINEFRNT`, `MAGBACK`, `MAGBACK2` — covers the game already carries |
 | The Abbé's cigarette ends | MA3 | `CIGARETTE_BUTT_PILE` | a scatter of ends and a dropped packet at the foot of the lookout post on Tour Magdala | `CIGPACKFRNT`, `CIGPACKTOP`, `CIGPACKSIDE`, `CIGPACKBOT` — the FRAIS packet, which is what the close-up line is about |
-| The crow's nest, the crow, the hose and the black rug | RC2 | four nouns | the objects the cut crow's-nest puzzle wants; see below | `BarkOld`, `BLACK`, `HOSEPIECE` — which nothing in the shipped game uses — and `RUGTILE` |
+| The crow's nest, the crow, the hose and the black rug | RC2 | four nouns | the objects the cut crow's-nest puzzle wants; see below | `BarkOld`, `BLACK`, `HOSEPIECE` and `HOSEPIECEBACK` — which nothing in the shipped game uses — and `RUGTILE` |
 
 Two rules hold for all of them, and both are about not being noticed.
 
@@ -194,7 +194,9 @@ name; that is the whole binding, and it is what `GlbReader` reads.
 **Every prop is built at the origin standing on the ground plane**, in glTF's own frame with
 Y up and the exporter's axis conversion switched off. Which way that conversion goes is a
 setting whose effect is invisible until a letter is standing on its edge on somebody's desk —
-which is exactly how the first build of these came out.
+which is exactly how the first build of these came out. The one prop that does not stand on
+anything is the rug, which hangs: its lowest vertex is the loose end in the air, so its `pos`
+is the sill less the drop rather than a surface, and the table says so beside it.
 
 **The model layer answers only for names the archives have no `.MOD` for.** That boundary is
 the whole safety argument. `enhanced/models` also holds several hundred meshes from the
@@ -250,21 +252,56 @@ are in the archives and used by nothing** — the hose's own texture, made for t
 placed.
 
 **Eighteen of the nineteen recordings were deleted. Their YAKs were not.** Each still
-carries its caption and simply names no sound, and that turns out to matter: the engine
-schedules a line's dialogue independently of its sound cues, so a caption-only YAK plays as
-a subtitle for the length the animation was cut to, with nothing missing to fail on. Thirteen
-of the puzzle's lines have their exact wording that way:
+carries its caption and simply names no sound. That was supposed to mean they play as
+subtitles for the length the animation was cut to, and for a while it did not: the audio
+layer read the caption off the animation and cleared it in the same call, because a line
+with no recording was treated as a line with nothing to say. Every one of these was silent
+*and* wordless while the waited `StartVoiceOver` went on spending its three seconds, which
+is a click that visibly does nothing — see `docs/known-issues.md`. A caption-only line now
+holds for as long as its animation is. Thirteen of the puzzle's lines have their exact
+wording that way:
 
 > *"He's using fibers from that black rug to line his nest. **I** could use some of those."*
 > *"I ought to be able to use that hose on the bird's nest."*
 > *"It's not gonna work as is. I can't aim the water flow."*
 
 **What is in:** the four objects it wants, built by `make_props.py` and placed in RC2 — the
-nest high in the museum tree, the crow on it, the hose coiled by the museum steps in
-`HOSEPIECE`, and the rug over the railing in `RUGTILE` (the line calls it black; `RUG1` is
-cream). With them, the lines that describe them. The tree itself is a plain restoration:
+nest high in the museum tree, the crow sitting in it, the hose coiled by the museum steps in
+`HOSEPIECE` and `HOSEPIECEBACK`, and the rug hung out of an upstairs window in `RUGTILE` (the line calls it
+black; `RUG1` is cream). With them, the lines that describe them. The tree itself is a plain
+restoration:
 `rc2_museumtree` was bound to nothing and both of its rules were commented out with their
 audio intact.
+
+**Three of the four were wrong the first time, and all three in a way only looking at the
+room shows.** The rug went over the museum railing, where it hung in the air beside the
+steps; the noun is `BLACK_RUG_IN_WINDOW` and its `PICKUP` line is *"I can't get up there"*,
+neither of which is true of a railing a player can walk to. It is now folded over the sill
+of `rc2_highwindows2` — the nearer to the museum of the pair of upstairs windows on the west
+side of the street, sill at y 193.4, wall facing (-0.999, 0, -0.042) — and drops 38 units
+down the stone, which is as far as it can hang before the string course under it.
+
+The other two were boxes, and a box is the wrong answer twice over. The nest was two stacked
+cuboids, which in a tree reads as a crate somebody left up there; it is a solid of revolution
+now, 26 across and 11.5 high on a woven cross-section taken round in sixteen steps, with a
+cup deep enough that the crow sits *in* it rather than on top of it. **The hose was three
+flat boxes, and its own texture said so.** `HOSEPIECE` is 128×16 — a length of hose seen
+side-on, dark at both edges with a highlight down the middle — which is a skin for a tube and
+nothing else; laid flat on the top of a box it put that highlight across a plate, and three
+of those stacked read as a pile of crockery. It is three turns of round tube now, the strip
+running once along each turn and once around it, with the top turn stopping 60° short so the
+hose has an end. The two faces that leaves are capped with `HOSEPIECEBACK`, which is what
+that texture is — a brass ferrule and the green — and the gap is put where FR_MS2 stands,
+since that is the camera the player is on at the steps. Everything else in `make_props.py` is
+something an artist would have built out of flat panels in 1999 and still would; a nest and a
+hose are not.
+
+The three of them cost `make_props.py` a `revolve` part: a closed (radius, height)
+cross-section taken round the Y axis, optionally through part of a turn and capped where it
+stops, and optionally mapped along itself rather than face by face. A point at radius nought
+is one vertex on the axis and the ring beside it closes as a fan, which is how the nest gets
+a floor without a separate cap. 224 triangles for the nest and 580 for the hose, against a
+dozen for a magazine — which is the right trade only where the shape is the whole point.
 
 **And the chain, including the interface it ends in.** Two things in `RC2102P.NVC` could not
 simply be uncommented: the case `ON_NEST_FOR_10_SECONDS`, which a rule names and no `[LOGIC]`
