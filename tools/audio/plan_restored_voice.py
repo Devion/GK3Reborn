@@ -2,9 +2,10 @@
 
     python tools/audio/plan_restored_voice.py D:/Dev/GK3Reborn/ContentWorkspace
 
-Writes ``manifests/restored-voice.json``: one entry per line the cut crow's-nest puzzle
-calls for and the archives do not have, with the words it says, where those words came
-from, and the reference recordings a clone should be conditioned on.
+Writes ``manifests/restored-voice.json``: one entry per line the cut crow's-nest
+restoration calls for and the archives do not have, with the words it says, where those
+words came from, who says it, and the reference recordings a clone should be conditioned
+on.
 
 Nothing here makes audio. This is the part that has to be right before anything does.
 
@@ -21,8 +22,9 @@ should never be filed as one of theirs -- see docs/cut-content.md.
 The reference
 -------------
 
-A clone needs a sample of the voice. There are 1,050 lines in the archives whose YAK names
-GABRIEL as the speaker, so the sample is his own recordings and nothing else. They are
+A clone needs a sample of the voice, and of the right voice: one of these lines is Grace's.
+So there is a reference set per character who speaks here, taken from the archives' own
+lines whose YAK names them -- 1,050 of them are Gabriel's -- and nothing else. They are
 picked long, because a longer reference clones better, and from the same day and the same
 part of town where that is possible: a reference from a scene where he is shouting gives
 eighteen lines of a man shouting about a bird's nest.
@@ -34,29 +36,49 @@ import re
 import struct
 import sys
 
-# The nineteen the puzzle calls for. The one that survived is here too, marked, because it
-# is the control: whatever is generated can be compared against a real recording of a line
-# from the same scene, in the same voice, saying words from the same page.
+# The nineteen the puzzle calls for, and the six the room says about the same objects at
+# any hour of day one. The one that survived is here too, marked, because it is the
+# control: whatever is generated can be compared against a real recording of a line from
+# the same scene, in the same voice, saying words from the same page.
+#
+# The last field is who says it. Almost every YAK in the game names its speaker as UNKNOWN,
+# so the speaker is taken from the rule instead: a plate played under GABE_ALL is his and
+# one played under GRACE_ALL is hers. Across the corpus that is decisive where it can be
+# measured -- 583 of the plates ending QS1 are played under GRACE_ALL and none under
+# GABE_ALL, and 174 of the PF1s are his -- and the six new lines here are named by their
+# own rules in RC2_1ALL.NVC. The three the bird's nest says carry cases about the black
+# fibres rather than a character, but they belong to a puzzle only Gabriel can do.
 LINES = [
-    ("13952441O1", "BIRDS_NEST", "LOOK"),
-    ("1395232CW1", "BIRDS_NEST", "PICKUP"),
-    ("13952321O1", "BIRDS_NEST", "PICKUP"),
-    ("139520LCW1", "BIRDS_NEST", "THINK"),
-    ("1395257OD1", "BIRDS_NEST", "HOSE"),
-    ("1395257L91", "BIRDS_NEST", "HOSE"),
-    ("1395257SU1", "BIRDS_NEST", "HOSE"),
-    ("139D644PF1", "BIRDS_NEST_ON_GRND", "LOOK"),
-    ("139D632291", "BIRDS_NEST_ON_GRND", "PICKUP"),
-    ("139CP445O1", "CROW_AT_NEST", "LOOK"),
-    ("1395D3B411", "GARDEN_HOSE", "SPRAY_GUN"),
-    ("1395D44OD1", "GARDEN_HOSE", "LOOK"),
-    ("1395D44SU1", "GARDEN_HOSE", "LOOK"),
-    ("1395D0L1X1", "GARDEN_HOSE", "THINK"),
-    ("1395D0LCW1", "GARDEN_HOSE", "THINK"),
-    ("1394D1TPF1", "WATER_INTERFACE", "AIM"),
-    ("1394D1TFS1", "WATER_INTERFACE", "AIM"),
-    ("1394D22PF1", "WATER_INTERFACE", "EXIT"),
-    ("1396L3W4B1", "SCENE", "ENTER"),
+    ("13952441O1", "BIRDS_NEST", "LOOK", "GABRIEL"),
+    ("1395232CW1", "BIRDS_NEST", "PICKUP", "GABRIEL"),
+    ("13952321O1", "BIRDS_NEST", "PICKUP", "GABRIEL"),
+    ("139520LCW1", "BIRDS_NEST", "THINK", "GABRIEL"),
+    ("1395257OD1", "BIRDS_NEST", "HOSE", "GABRIEL"),
+    ("1395257L91", "BIRDS_NEST", "HOSE", "GABRIEL"),
+    ("1395257SU1", "BIRDS_NEST", "HOSE", "GABRIEL"),
+    ("139D644PF1", "BIRDS_NEST_ON_GRND", "LOOK", "GABRIEL"),
+    ("139D632291", "BIRDS_NEST_ON_GRND", "PICKUP", "GABRIEL"),
+    ("139CP445O1", "CROW_AT_NEST", "LOOK", "GABRIEL"),
+    ("1395D3B411", "GARDEN_HOSE", "SPRAY_GUN", "GABRIEL"),
+    ("1395D44OD1", "GARDEN_HOSE", "LOOK", "GABRIEL"),
+    ("1395D44SU1", "GARDEN_HOSE", "LOOK", "GABRIEL"),
+    ("1395D0L1X1", "GARDEN_HOSE", "THINK", "GABRIEL"),
+    ("1395D0LCW1", "GARDEN_HOSE", "THINK", "GABRIEL"),
+    ("1394D1TPF1", "WATER_INTERFACE", "AIM", "GABRIEL"),
+    ("1394D1TFS1", "WATER_INTERFACE", "AIM", "GABRIEL"),
+    ("1394D22PF1", "WATER_INTERFACE", "EXIT", "GABRIEL"),
+    ("1396L3W4B1", "SCENE", "ENTER", "GABRIEL"),
+
+    # RC2_1ALL.NVC: what the two objects say whenever anybody is in the square on day one,
+    # as against RC2102P.NVC's puzzle. These were missed the first time round -- the plan
+    # was written from the puzzle's own action file and stopped there -- so the nest and
+    # the rug were the two things in the restoration that had a caption and no voice.
+    ("1355244CS1", "BIRDS_NEST", "LOOK", "GABRIEL"),
+    ("1355244031", "BIRDS_NEST", "LOOK", "GABRIEL"),
+    ("1355232031", "BIRDS_NEST", "PICKUP", "GABRIEL"),
+    ("1351L44PF1", "BLACK_RUG_IN_WINDOW", "LOOK", "GABRIEL"),
+    ("1351L44QS1", "BLACK_RUG_IN_WINDOW", "LOOK", "GRACE"),
+    ("1351L32PF1", "BLACK_RUG_IN_WINDOW", "PICKUP", "GABRIEL"),
 ]
 
 # Words for the five whose captions did not survive either. Written here rather than in the
@@ -110,14 +132,14 @@ def seconds(path):
     return size / bytes_a_second if bytes_a_second else (size / (rate * 2))
 
 
-def gabriel(raw, normalized, want, prefer):
-    """The longest of Gabriel's own recordings, preferring a location code."""
+def voice(speaker, raw, normalized, want, prefer):
+    """The longest of one character's own recordings, preferring a location code."""
     spoken = []
 
     for code, path in yaks(raw).items():
         text = open(path, "rb").read().decode("latin-1")
 
-        if "SPEAKER,GABRIEL" not in text.upper():
+        if f"SPEAKER,{speaker}" not in text.upper():
             continue
 
         wav = os.path.join(normalized, asset(code) + ".wav")
@@ -152,7 +174,7 @@ def main():
     have = yaks(raw)
     entries = []
 
-    for code, noun, verb in LINES:
+    for code, noun, verb, speaker in LINES:
         wrapper = have.get(code)
         spoken = caption(wrapper) if wrapper else None
         recorded = os.path.exists(os.path.join(normalized, asset(code) + ".wav"))
@@ -162,22 +184,37 @@ def main():
             "asset": asset(code),
             "noun": noun,
             "verb": verb,
-            "speaker": "GABRIEL",
+            "speaker": speaker,
             "text": spoken or WRITTEN.get(code),
             "source": "caption" if spoken else "written",
             "written": spoken is None,
             "recorded": recorded,
+            # Whether the game still has the .YAK that names the line. Four of these have
+            # neither recording nor wrapper -- they were cut before either was made -- and
+            # a line with no wrapper cannot be spoken at all, because the wrapper is what
+            # the engine reads and what names the sound. The generator writes one.
+            "wrapper": wrapper is not None,
         })
 
     missing = [e for e in entries if not e["recorded"]]
     invented = [e for e in missing if e["written"]]
     unknown = [e for e in missing if e["text"] is None]
 
+    # One reference set per character who has a line here, because a clone conditioned on
+    # Gabriel saying Grace's line gives Gabriel saying Grace's line. The file name is what
+    # the generator stages into ComfyUI's input directory and what the pinned graph loads.
+    voices = {
+        speaker: {
+            "input": f"GK3_{speaker}_REF.wav",
+            "reference": voice(speaker, raw, normalized, want=8, prefer="139"),
+        }
+        for speaker in dict.fromkeys(line[3] for line in LINES)
+    }
+
     manifest = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "about": "Lines the cut crow's-nest puzzle calls for and the archives do not have.",
-        "speaker": "GABRIEL",
-        "reference": gabriel(raw, normalized, want=8, prefer="139"),
+        "voices": voices,
         "lines": entries,
     }
 
@@ -188,7 +225,7 @@ def main():
         json.dump(manifest, handle, indent=1)
         handle.write("\n")
 
-    print(f"{len(entries)} lines the puzzle calls for")
+    print(f"{len(entries)} lines the restoration calls for")
     print(f"  {len(entries) - len(missing)} still recorded")
     print(f"  {len(missing) - len(invented)} to synthesise from their own captions")
     print(f"  {len(invented)} to synthesise from words we wrote")
@@ -197,8 +234,11 @@ def main():
         print(f"  {len(unknown)} with no words at all: "
               + ", ".join(e['plate'] for e in unknown))
 
-    total = sum(r["seconds"] for r in manifest["reference"])
-    print(f"reference: {len(manifest['reference'])} of Gabriel's own lines, {total:.1f}s")
+    for speaker, chosen in voices.items():
+        total = sum(r["seconds"] for r in chosen["reference"])
+        print(f"reference {speaker}: {len(chosen['reference'])} of their own lines, "
+              f"{total:.1f}s, staged as {chosen['input']}")
+
     print(f"wrote {out}")
 
 

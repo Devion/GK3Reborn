@@ -26,6 +26,8 @@ quietly be filed as a recovered recording.
 import argparse
 import json
 import os
+import struct
+import shutil
 import sys
 import time
 import urllib.error
@@ -75,11 +77,99 @@ def wait(url, prompt_id, patience):
     raise SystemExit(f"ComfyUI did not finish within {patience:.0f}s.")
 
 
+def wrapper(workspace, line, target):
+    """Writes the .YAK for a line the game has no wrapper for.
+
+    A line is two things: a recording, and a wrapper that names it and carries the caption.
+    The engine reads the wrapper -- there is no path from a licence plate to a file that
+    does not go through one -- so four of these, cut before either was made, could not have
+    been spoken however good the audio was. This writes one in the game's own shape,
+    fifteen frames a second, with the DIALOGUECUE three frames from the end as the shipped
+    ones have it.
+
+    It goes to ``enhanced/rooms``, which is where the files no barn has live, and the
+    speaker is UNKNOWN because that is what every voice-over YAK in the game says.
+    """
+    with open(target, "rb") as handle:
+        head = handle.read(44)
+
+    a_second = struct.unpack_from("<I", head, 28)[0] or 1
+    frames = max(4, round((os.path.getsize(target) - 44) / a_second * 15))
+
+    rooms = os.path.join(workspace, "enhanced", "rooms")
+    os.makedirs(rooms, exist_ok=True)
+    path = os.path.join(rooms, f"E{line['plate']}.YAK")
+
+    body = [
+        "[HEADER]",
+        str(frames),
+        "",
+        "[SOUNDS]",
+        "1",
+        f"0,{line['asset']},100",
+        "",
+        "[GK3]",
+        "3",
+        "0,SPEAKER,UNKNOWN",
+        f"0,CAPTION,{line['text']}",
+        f"{frames - 3},DIALOGUECUE",
+        "",
+    ]
+
+    # Latin-1 with the game's own line endings: these go through the same parser that reads
+    # the 1999 wrappers, and one that differs from them in anything but its contents is a
+    # difference somebody has to explain later.
+    with open(path, "w", encoding="latin-1", newline="") as handle:
+        handle.write('\r\n'.join(body))
+
+
+    return path
+
+
+def stage(plan, workspace, into, dry_run):
+    """Copies each character's reference where ComfyUI's LoadAudio will find it.
+
+    Returns the file name to give node 2 for each speaker. A reference already there and
+    the same size is left alone, so a run does not rewrite eleven seconds of WAV it just
+    wrote.
+    """
+    source = os.path.join(workspace, "normalized", "audio", "dialogue")
+    named = {}
+
+    for speaker, chosen in plan["voices"].items():
+        if not chosen["reference"]:
+            raise SystemExit(f"The plan has no reference recording for {speaker}.")
+
+        picked = os.path.join(source, chosen["reference"][0]["file"])
+        target = os.path.join(into, chosen["input"])
+        named[speaker] = chosen["input"]
+
+        if not os.path.exists(picked):
+            raise SystemExit(f"No reference at {picked}; run extract-audio first.")
+
+        if dry_run:
+            continue
+
+        if (os.path.exists(target)
+                and os.path.getsize(target) == os.path.getsize(picked)):
+            continue
+
+        os.makedirs(into, exist_ok=True)
+        shutil.copyfile(picked, target)
+        print(f"  staged {chosen['input']} <- {chosen['reference'][0]['plate']}")
+
+    return named
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--comfy-url", default=DEFAULT_URL)
     parser.add_argument("--comfy-output", default="D:/AI/ComfyUI/ComfyUI/output")
+    parser.add_argument(
+        "--comfy-input",
+        default=os.environ.get("GK3_COMFY_INPUT", "D:/AI/ComfyUI/ComfyUI/input"),
+        help="where LoadAudio looks; the voice references are staged into it")
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--patience", type=float, default=600)
@@ -108,18 +198,31 @@ def main():
         print("nothing to say")
         return
 
-    print(f"{len(wanted)} line(s), reference {plan['reference'][0]['plate']}")
+    # The reference each character is cloned from, put where LoadAudio can see it. Staged
+    # here rather than by hand: the planner chooses it from the archives and a reference
+    # nobody can trace back to a plate is a voice nobody can account for.
+    voices = stage(plan, args.workspace, args.comfy_input, args.dry_run)
+
+    print(f"{len(wanted)} line(s) in {len(voices)} voice(s): " + ", ".join(
+        f"{speaker} from {chosen['reference'][0]['plate']}"
+        for speaker, chosen in plan["voices"].items()))
 
     for line in wanted:
         target = os.path.join(out, line["asset"] + ".wav")
 
-        print(f"  {line['asset']:16s} [{line['source']:7s}] {line['text'][:58]}")
+        print(f"  {line['asset']:16s} [{line['speaker']:7s}] "
+              f"[{line['source']:7s}] {line['text'][:48]}")
 
         if args.dry_run:
             continue
 
         graph = json.loads(json.dumps(pinned))
         graph["3"]["inputs"]["text"] = line["text"]
+
+        # Whose voice. The pinned graph names Gabriel's because most of these are his; a
+        # line of Grace's cloned from him is Gabriel reading Grace's line, which is worse
+        # than no line at all.
+        graph["2"]["inputs"]["audio"] = voices[line["speaker"]]
 
         # One seed per line rather than one for the run, so re-running a single line that
         # came out badly does not change the others. CRC rather than hash(): Python
@@ -140,6 +243,9 @@ def main():
             raise SystemExit(f"ComfyUI finished and {target} is not there.")
 
         print(f"    -> {target} ({os.path.getsize(target) / 1024:.0f} KB)")
+
+        if not line["wrapper"]:
+            print(f"    -> {wrapper(args.workspace, line, target)}")
 
     print(f"\nwrote into {out}")
     print("these are packed by: GK3Reborn.Tools pack-content --workspace <ws>")

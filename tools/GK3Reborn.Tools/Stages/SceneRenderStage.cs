@@ -959,7 +959,8 @@ public sealed class SceneRenderStage
         File.WriteAllBytes(
             path, PngWriter.Encode(new DecodedImage(width, height, pixels, false, "noun-map")));
 
-        _log($"noun map: {picker.TargetCount} things the ray can meet, {counts.Count} nouns " +
+        _log($"noun map: {picker.TargetCount} things the ray can meet in " +
+             $"{picker.TriangleCount:N0} triangles, {counts.Count} nouns " +
              $"over {clickable * 100 / Math.Max(1, columns * rows)}% of the view");
 
         // Which kinds answered matters as much as which nouns did: a hit test that never

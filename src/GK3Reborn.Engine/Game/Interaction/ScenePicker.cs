@@ -94,9 +94,21 @@ public sealed class ScenePicker
     {
         ArgumentNullException.ThrowIfNull(scene);
 
+        Dictionary<string, SceneModel> declared = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (SceneModel model in scene.Definition.Models())
+        {
+            declared[model.Name] = model;
+        }
+
         if (scene.Geometry is { } bsp)
         {
-            AddGeometry(bsp, scene.Definition);
+            AddGeometry(bsp, declared, scene.ReplacedSurfaces);
+        }
+
+        foreach (GrownStand stand in scene.Woods ?? [])
+        {
+            AddStand(stand, declared);
         }
 
         foreach (PlacedModel placed in scene.Models)
@@ -107,6 +119,15 @@ public sealed class ScenePicker
 
     /// <summary>How many separately nameable things the ray can meet.</summary>
     public int TargetCount => _targets.Count;
+
+    /// <summary>How many triangles those things are made of.</summary>
+    /// <remarks>
+    /// Reported because it is what a pick costs and it is no longer close to what the room
+    /// draws: a grown tree is ten thousand triangles of leaf card, and a room with a stand
+    /// in it carries more foliage in the picker than it does wall.
+    /// </remarks>
+    public int TriangleCount =>
+        _targets.Sum(t => t.Parts.Sum(p => p.Triangles.Length)) / 3;
 
     /// <summary>
     /// Things a script has switched off, by name.
@@ -278,20 +299,28 @@ public sealed class ScenePicker
     }
 
     /// <summary>Gathers the room's own geometry, one target per named object.</summary>
-    private void AddGeometry(BspFile bsp, SceneDefinition definition)
+    /// <param name="bsp">The room's parsed geometry.</param>
+    /// <param name="declared">What the scene files say about each object, by name.</param>
+    /// <param name="replaced">
+    /// Surfaces a grown tree stands in for, which the renderer was told not to draw.
+    /// </param>
+    /// <remarks>
+    /// <b>A card a tree replaced is not there.</b> It is still in the BSP — nothing rewrites
+    /// the geometry — and the room simply stops drawing it, so a ray that went on meeting it
+    /// would name a flat tree standing where a modelled one is, and would find it
+    /// <em>through</em> the modelled one. See <see cref="AddStand"/> for the other half.
+    /// </remarks>
+    private void AddGeometry(
+        BspFile bsp,
+        Dictionary<string, SceneModel> declared,
+        IReadOnlySet<int>? replaced)
     {
-        Dictionary<string, SceneModel> declared = new(StringComparer.OrdinalIgnoreCase);
-
-        foreach (SceneModel model in definition.Models())
-        {
-            declared[model.Name] = model;
-        }
-
         Dictionary<int, List<Vector3>> byObject = [];
 
         foreach (BspPolygon polygon in bsp.Polygons)
         {
-            if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= bsp.Surfaces.Count)
+            if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= bsp.Surfaces.Count ||
+                replaced?.Contains(polygon.SurfaceIndex) == true)
             {
                 continue;
             }
@@ -340,6 +369,143 @@ public sealed class ScenePicker
                 FrontFacingOnly: true));
         }
     }
+
+    /// <summary>How many cells a stand's triangles are sorted into, along each axis.</summary>
+    /// <remarks>
+    /// <para>
+    /// A tree is one nameable thing but it is not one <em>shape</em>: ten thousand leaf
+    /// cards spread through a volume eighty units across. A single box around all of them
+    /// is entered by nearly every ray a wood sees, and the whole ten thousand are then
+    /// tested one at a time. WOD is the room that shows it — the camera stands inside the
+    /// pines — and one pick there went from 19 to 137 microseconds when the stands arrived.
+    /// </para>
+    /// <para>
+    /// Sorting them into a grid and giving each cell its own box costs nothing at load and
+    /// turns that back into 24. Four is enough: the crown is most of the volume and it
+    /// divides evenly, where a finer grid buys little and pays for it in box tests on every
+    /// ray that misses.
+    /// </para>
+    /// </remarks>
+    private const int StandCells = 4;
+
+    /// <summary>The fewest triangles worth sorting into cells rather than leaving in one.</summary>
+    private const int WorthSplitting = 256;
+
+    /// <summary>Gathers one modelled tree grown over the room's own cards.</summary>
+    /// <param name="stand">The tree and where it stands.</param>
+    /// <param name="declared">What the scene files say about each object, by name.</param>
+    /// <remarks>
+    /// <para>
+    /// It answers to the object whose cards it replaced, because that is what the player is
+    /// pointing at: MCF's maples are <c>mcf_trs</c>, which the scene calls <c>TREES</c>, and
+    /// a tree grown over it is still that. The lookup is the same one the geometry does, so
+    /// an object the scene never named goes on being scenery after it has been grown.
+    /// </para>
+    /// <para>
+    /// <b>In world space, unlike a model.</b> A prop is kept in its own space because it can
+    /// be moved and an actor walks; nothing ever moves one of these — no script places one,
+    /// hides one or animates one — so the transform is applied once here rather than on
+    /// every ray. The wind is not applied and should not be: it is a vertex shader over the
+    /// drawn leaves, and a hotspot that swayed would be a hotspot that moved out from under
+    /// the pointer.
+    /// </para>
+    /// <para>
+    /// <b>In pieces, unlike anything else here.</b> Every other target is divided by what
+    /// can move independently of what; a tree has no moving parts and is divided by where
+    /// its triangles are instead, purely so that the box test has something to reject. See
+    /// <see cref="StandCells"/>.
+    /// </para>
+    /// <para>
+    /// Both faces, for the same reason a prop is: a tree is leaf cards and a bole, and half
+    /// the cards face away from any given ray.
+    /// </para>
+    /// </remarks>
+    private void AddStand(GrownStand stand, Dictionary<string, SceneModel> declared)
+    {
+        declared.TryGetValue(stand.Named, out SceneModel? model);
+
+        List<Vector3> triangles = [];
+
+        foreach (ModMesh mesh in stand.Tree.Meshes)
+        {
+            Matrix4x4 into = mesh.MeshToLocal * stand.Standing;
+
+            foreach (ModSubmesh submesh in mesh.Submeshes)
+            {
+                for (int i = 0; i + 2 < submesh.Indices.Length; i += 3)
+                {
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i]], into));
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 1]], into));
+                    triangles.Add(Vector3.Transform(submesh.Positions[submesh.Indices[i + 2]], into));
+                }
+            }
+        }
+
+        if (triangles.Count == 0)
+        {
+            return;
+        }
+
+        _targets.Add(new Target(
+            stand.Named,
+            NounOf(model),
+            model?.Verb,
+            PickKind.Geometry,
+            Sorted(triangles),
+            FrontFacingOnly: false));
+    }
+
+    /// <summary>Sorts a stand's triangles into cells, each of which gets its own box.</summary>
+    /// <param name="triangles">Its triangles, three vertices at a time, in world space.</param>
+    /// <returns>One part per cell that has anything in it.</returns>
+    /// <remarks>
+    /// By the middle of each triangle, so a triangle belongs to exactly one cell and the
+    /// boxes overlap by however far the largest of them reaches out of its own. That is a
+    /// leaf card's width, which is nothing beside a crown.
+    /// </remarks>
+    private static Part[] Sorted(List<Vector3> triangles)
+    {
+        if (triangles.Count < WorthSplitting * 3)
+        {
+            return [new Part(-1, [.. triangles])];
+        }
+
+        Vector3 least = new(float.MaxValue);
+        Vector3 most = new(float.MinValue);
+
+        foreach (Vector3 vertex in triangles)
+        {
+            least = Vector3.Min(least, vertex);
+            most = Vector3.Max(most, vertex);
+        }
+
+        Vector3 span = Vector3.Max(most - least, new Vector3(1e-3f));
+        Dictionary<int, List<Vector3>> cells = [];
+
+        for (int i = 0; i + 2 < triangles.Count; i += 3)
+        {
+            Vector3 middle = (triangles[i] + triangles[i + 1] + triangles[i + 2]) / 3f;
+            Vector3 at = (middle - least) / span * StandCells;
+
+            int cell =
+                (Cell(at.X) * StandCells * StandCells) + (Cell(at.Y) * StandCells) + Cell(at.Z);
+
+            if (!cells.TryGetValue(cell, out List<Vector3>? owned))
+            {
+                owned = [];
+                cells[cell] = owned;
+            }
+
+            owned.Add(triangles[i]);
+            owned.Add(triangles[i + 1]);
+            owned.Add(triangles[i + 2]);
+        }
+
+        return [.. cells.OrderBy(c => c.Key).Select(c => new Part(-1, [.. c.Value]))];
+    }
+
+    /// <summary>Which cell a coordinate falls in, with the far edge kept inside.</summary>
+    private static int Cell(float at) => Math.Clamp((int)at, 0, StandCells - 1);
 
     /// <summary>Gathers one placed prop or actor, in the model's own space.</summary>
     /// <remarks>

@@ -4,6 +4,70 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. A grown tree is drawn but cannot be clicked, and the cards it replaced still can (done 2026-09-04)
+
+**Reported:** 2026-09-04, alongside the MCF clue note (see
+[trees.md](trees.md#a-tree-may-not-bury-a-puzzle)). Found while reproducing that one, and a
+separate defect that outlived its fix.
+
+`ScenePicker` was built from the room's parsed `.BSP` and its placed models. Trees grown
+over a room's **own** foliage objects were neither: `SceneLoader.PlantWoods` handed them
+straight to the render sink, and the surfaces they replace were dropped from the drawing
+(`replaced`, passed to `AddScene`) but not from the picker, which walks every polygon in the
+BSP regardless. So in the twenty-two rooms that grow their own woods, **what was drawn was not what
+was clicked, in both directions**: the modelled tree in front of you was invisible to
+the ray, and the flat card that was no longer drawn was what answered.
+
+Trees grown from **props** were never affected — `PlaceProp` swaps the grown model into the
+`PlacedModel` before the picker sees it, so those were already picked as they are drawn.
+
+**Reproduction, before the fix.** Render a room's noun map with and without grown trees; if
+the picker saw them the two would differ.
+
+```
+GK3Reborn.Tools render-scene --source <Data> --packs <Workspace> --model LMB \
+  --output a.png --noun-map with.png
+GK3Reborn.Tools render-scene --source <Data> --packs <Workspace> --model LMB \
+  --no-trees --output b.png --noun-map without.png
+```
+
+`with.png` and `without.png` were byte-identical for LMB and PLO. CSE's differed, and that
+was the prop path working correctly.
+
+**The fix gives the picker the same two facts the renderer has.** `LoadedScene` now carries
+`ReplacedSurfaces` and `Woods`; `ScenePicker` skips the first when gathering geometry and
+adds the second as targets answering to the object whose cards they replaced. A stand is
+baked into world space at construction — nothing ever moves one, unlike a prop — and picked
+from both faces, since a tree is leaf cards and half of them face away from any ray. The
+wind is deliberately not applied: it is a vertex shader over the drawn leaves, and a hotspot
+that swayed would be a hotspot that moved out from under the pointer.
+
+**What it costs, measured.** A grown tree is thousands of triangles of leaf card, and the
+picker carries them all. A pick is 196,608 of them — a 512x384 noun map — with the scene's
+own load time subtracted, best of three:
+
+| room | picker triangles before | after | µs a pick before | after |
+|---|---|---|---|---|
+| VG1 | 8,591 | 182,667 | 8 | 11 |
+| LMB | 13,314 | 243,609 | 12 | 14 |
+| BAL | 162,139 | 321,991 | 21 | 18 |
+| WOD | 205,143 | 311,932 | 21 | 15 |
+| CSD | 368,376 | 401,456 | 13 | 14 |
+
+Twenty times the triangles for roughly the same pick, and two rooms came out faster than
+they went in. Three things account for it. The rooms that were already expensive were
+expensive because of **prop** trees, which the picker has always carried — CSD's 368,000
+are thirty-two of those, and it only gains the six the room grows for itself. The flat
+cards **left**, and a foliage card is a large flat quad whose box nearly every ray in a
+wood enters. And a stand is sorted into a 4x4x4 grid of cells with a box each, because it
+is one nameable thing and not one shape: WOD in a single box went to **137 µs**, which is
+what the grid is for.
+
+**One noun gained coverage and none lost it.** Noun maps over all twenty-three wooded rooms
+before and after: the only difference in the corpus is that CEM's `ABBE_CROSS` — the cross
+on Saunière's grave — answers again. It had been behind an undrawn foliage card the whole
+time.
+
 ## 1. Several rooms of the hotel loaded and standing at once (feature) — dropped 2026-08-23
 
 **Requested:** 2026-08-22. **Investigated, not attempted, and now dropped** on the
@@ -249,6 +313,45 @@ strip to find `<set>.<part>.r32` (`SceneLoader.ForestFor`). Either those two wan
 kinds, or `AddedAssets` wants one of its own.
 
 ## Closed
+
+### The restored voices were generated, packed, and never asked for — fixed 2026-09-03
+
+**Reported:** "why is there no wav for 'There is a bird up there', I thought that was
+generated and placed in enhanced/audio/? didn't it get packed in the rebarn or is it not
+linked properly?" and "same for the rug, no voice".
+
+Two separate faults, and the reported line had both.
+
+**Nothing asked for the audio.** `tools/audio` speaks the cut puzzle's lines and writes them
+into `enhanced/audio/dialogue` under the exact 1999 asset name, and `pack-content` puts them
+in the volume — fourteen of them were in the pack and correct. But a line reaches the device
+by way of its `.YAK`, and a YAK whose recording was deleted names no sound at all, so
+`SceneAudio` walked an empty list and fell through to the caption. The audio was there and
+unreachable.
+
+A YAK called `E1395D0LCW1` carries `A1395D0L.CW1` — first seven characters, a stop, last
+three — and **6,606 of the corpus's YAKs name exactly that and nothing else**, which makes
+it the game's convention rather than a guess. So a line whose YAK names no sound now asks
+for the recording its plate implies. It is reached *only* where the YAK names none, and that
+is what makes it safe twice over: 683 YAKs deliberately point at a different recording — a
+line written twice and recorded once — and those keep theirs; and **of the 90 soundless YAKs
+in the shipped game, not one has its implied recording in the archives**, so the fallback can
+never give voice to a line the developers silenced. There is nothing there to find.
+
+**And six lines were never generated.** The plan in `plan_restored_voice.py` was written
+from `RC2102P.NVC`, the puzzle's own action file, and stopped there. The nest's three lines
+and the rug's three are in `RC2_1ALL.NVC` — what those objects say at any hour of day one —
+so they were the two objects in the whole restoration with a caption and no voice, which is
+exactly what was noticed. They are in the plan now, which is twenty-five lines.
+
+One of the six is Grace's, and the planner had one voice. The speaker is now taken from the
+rule that plays the line — decisive where it can be measured: 583 of the plates ending `QS1`
+are played under `GRACE_ALL` and none under `GABE_ALL` — and there is a reference set per
+character, staged into ComfyUI's input directory by the generator rather than by hand.
+
+**Four had no `.YAK` at all**, having been cut before one was made, and a line with no
+wrapper cannot be spoken however good the audio is. The generator writes those in the game's
+own shape into `enhanced/rooms`, caption and all, and the pack takes `*.yak` from there.
 
 ### A line whose recording was deleted said nothing at all — fixed 2026-09-03
 

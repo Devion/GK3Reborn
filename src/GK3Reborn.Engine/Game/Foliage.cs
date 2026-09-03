@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
@@ -29,6 +29,18 @@ public readonly record struct TreeSite(
     float Radius,
     int Seed,
     bool Trunked = false);
+
+/// <summary>A modelled tree standing in for a room's own foliage cards.</summary>
+/// <param name="Named">The geometry object whose cards it replaces, and whose noun it answers to.</param>
+/// <param name="Tree">The grown tree, in the space it was built in.</param>
+/// <param name="Standing">Where it stands in the room.</param>
+/// <remarks>
+/// Kept after loading for the same reason the placed props are: what the renderer holds
+/// cannot answer a click. A room's grown trees are not props — nothing places them, nothing
+/// hides them and nothing moves them — so they have no <c>PlacedModel</c> to be found
+/// through, and without this they are drawn and not there.
+/// </remarks>
+public readonly record struct GrownStand(string Named, ModFile Tree, Matrix4x4 Standing);
 
 /// <summary>
 /// Finds the trees hiding in a scene's flat foliage cards.
@@ -744,6 +756,59 @@ public static class Foliage
         }
 
         return crowns;
+    }
+
+    /// <summary>
+    /// How far off the ground a thing has to be before a tree is around it rather than
+    /// over it.
+    /// </summary>
+    /// <remarks>
+    /// About ankle height on a man of seventy-six units. Everything a scene leaves lying
+    /// under a tree — a dirt mark scratched into the ground, a pile of spoil, a dropped
+    /// tool — sits on the ground the tree grows out of, and the 1999 cards hung over it
+    /// exactly as the grown crown does. What is <em>off</em> the ground and still inside
+    /// the trunk's column is a different thing entirely, and there is only one of it in
+    /// the game.
+    /// </remarks>
+    private const float Underfoot = 10f;
+
+    /// <summary>Whether a grown tree standing here would close over something.</summary>
+    /// <param name="site">The site the tree would fill.</param>
+    /// <param name="least">Lower corner of the thing's box, in the room's own space.</param>
+    /// <param name="most">Upper corner of it.</param>
+    /// <returns>True when the tree would be built around it.</returns>
+    /// <remarks>
+    /// <para>
+    /// The site's own cylinder, which is what <see cref="Standing"/> fits the tree into:
+    /// its radius across, from the ground it stands on to the top of it. The box is tested
+    /// whole rather than by its middle, because a model's box is not always a tight fit
+    /// round the thing it draws — MCF's note measures sixty-four units across a note the
+    /// size of a hand — and the middle of a loose box is nowhere in particular.
+    /// </para>
+    /// <para>
+    /// <b>What rests on the ground is under the tree, not in it.</b> That is the whole of
+    /// the distinction and it separates the two cases in the corpus by a wide margin:
+    /// MCF's clue note hangs thirty-seven units clear of the ground its maple stands on,
+    /// and L'Ermitage's dirt marks and spoil heap — which sit inside the same cylinder,
+    /// near its rim — start at or below theirs. See <see cref="Underfoot"/>.
+    /// </para>
+    /// </remarks>
+    public static bool Buries(TreeSite site, Vector3 least, Vector3 most)
+    {
+        // On the ground the tree grows out of, so the tree is over it. Or clear above the
+        // whole tree, which nothing in the corpus is, but a crown does not reach up either.
+        if (least.Y <= site.Foot.Y + Underfoot || least.Y >= site.Foot.Y + site.Height)
+        {
+            return false;
+        }
+
+        // The nearest part of its footprint to the trunk, not the middle of it.
+        var axis = new Vector2(site.Foot.X, site.Foot.Z);
+
+        var nearest = new Vector2(
+            Math.Clamp(axis.X, least.X, most.X), Math.Clamp(axis.Y, least.Z, most.Z));
+
+        return Vector2.Distance(axis, nearest) <= site.Radius;
     }
 
     /// <summary>Where a grown tree has to be put to fill a site.</summary>

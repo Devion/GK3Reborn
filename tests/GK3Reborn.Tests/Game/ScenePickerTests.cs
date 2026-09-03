@@ -124,6 +124,19 @@ public sealed class ScenePickerTests
             kind);
     }
 
+    /// <summary>A grown tree standing at a distance, as one triangle facing the camera.</summary>
+    /// <param name="named">The geometry object whose cards it replaces.</param>
+    /// <param name="z">How far down +Z it stands.</param>
+    /// <remarks>
+    /// Its geometry is at the origin and the placement carries it out to <paramref name="z"/>,
+    /// which is how a real one arrives: <c>Foliage.Standing</c> fits a normalised tree to
+    /// the site the cards measured.
+    /// </remarks>
+    private static GrownStand Tree(string named, float z) =>
+        new(named,
+            Model("tree", null, 0f, PlacedModelKind.Prop).Model,
+            Matrix4x4.CreateTranslation(0, 0, z));
+
     /// <summary>The same model, standing in a sink that can be told to move it.</summary>
     /// <remarks>
     /// How a model really stands in a room: the sink holds where it is and a walk writes
@@ -197,6 +210,162 @@ public sealed class ScenePickerTests
 
         Assert.Equal("door", pick.Name);
         Assert.Equal(300f, pick.Distance, 3);
+    }
+
+    [Fact]
+    public void The_card_a_grown_tree_replaced_is_not_there()
+    {
+        // The card is still in the BSP — nothing rewrites the geometry — and the room has
+        // simply stopped drawing it. A ray that went on meeting it would name a flat tree
+        // standing where a modelled one is, and would find it through the modelled one.
+        var picker = new ScenePicker(Scene(
+            Room(("trees", 100f), ("cliff", 300f)),
+            """
+            model=trees, noun=TREES, type=scene
+            model=cliff, noun=CLIFF, type=scene
+            """) with
+        {
+            ReplacedSurfaces = new HashSet<int> { 0 },
+        });
+
+        ScenePick pick = Assert.NotNull(Ahead(picker));
+
+        Assert.Equal("cliff", pick.Name);
+        Assert.Equal(300f, pick.Distance, 3);
+    }
+
+    [Fact]
+    public void A_grown_tree_answers_to_the_object_whose_cards_it_replaced()
+    {
+        // What the player is pointing at is the tree the room always had. MCF's maples are
+        // mcf_trs, which the scene calls TREES, and a tree grown over it is still that.
+        var picker = new ScenePicker(Scene(
+            Room(("trees", 100f), ("cliff", 300f)),
+            """
+            model=trees, noun=TREES, type=scene
+            model=cliff, noun=CLIFF, type=scene
+            """) with
+        {
+            ReplacedSurfaces = new HashSet<int> { 0 },
+            Woods = [Tree("trees", 150f)],
+        });
+
+        ScenePick pick = Assert.NotNull(Ahead(picker));
+
+        Assert.Equal("trees", pick.Name);
+        Assert.Equal("TREES", pick.Noun);
+        Assert.Equal(150f, pick.Distance, 3);
+        Assert.True(pick.IsInteractive);
+    }
+
+    [Fact]
+    public void A_grown_tree_stops_what_is_behind_it()
+    {
+        // The half this was reported for: the note at MCF stayed pickable through a canopy
+        // the ray could not see, so the hotspot was there and nothing the player could aim
+        // at was.
+        var picker = new ScenePicker(Scene(
+            Room(("cliff", 300f)),
+            "model=cliff, noun=CLIFF, type=scene",
+            Model("note", "CLUE_NOTE_3", 200f, PlacedModelKind.Prop)) with
+        {
+            Woods = [Tree("trees", 150f)],
+        });
+
+        ScenePick pick = Assert.NotNull(Ahead(picker));
+
+        Assert.Equal("trees", pick.Name);
+        Assert.Equal(150f, pick.Distance, 3);
+    }
+
+    /// <summary>A stand big enough that the picker sorts it into cells.</summary>
+    /// <param name="named">The geometry object whose cards it replaces.</param>
+    /// <param name="z">Where the nearest of its triangles stands.</param>
+    /// <remarks>
+    /// Six hundred triangles spread through a volume, the way a crown's leaf cards are,
+    /// with one of them square in front of the camera at <paramref name="z"/>. The rest are
+    /// off to the sides and behind it, so a picker that lost a cell would answer with one
+    /// of those or with nothing.
+    /// </remarks>
+    private static GrownStand Thicket(string named, float z)
+    {
+        List<ModMesh> meshes = [];
+
+        for (int i = 0; i < 600; i++)
+        {
+            // The first is dead ahead; the others are scattered across a hundred units and
+            // set back, which is what puts them in cells of their own.
+            float x = i == 0 ? 0f : ((i * 37) % 101) - 50f;
+            float y = i == 0 ? 0f : ((i * 53) % 101) - 50f;
+            float away = i == 0 ? 0f : ((i * 71) % 101) + 10f;
+
+            meshes.Add(new ModMesh
+            {
+                MeshToLocal = Matrix4x4.CreateTranslation(x, y, away),
+                BoundsMin = new Vector3(-1, -1, 0),
+                BoundsMax = new Vector3(1, 1, 0),
+                Submeshes =
+                [
+                    new ModSubmesh
+                    {
+                        TextureName = "leaf",
+                        Color = (255, 255, 255),
+                        Positions =
+                        [
+                            new Vector3(-4, -4, 0), new Vector3(0, 8, 0), new Vector3(4, -4, 0),
+                        ],
+                        Normals = [-Vector3.UnitZ, -Vector3.UnitZ, -Vector3.UnitZ],
+                        TexCoords = new Vector2[3],
+                        Indices = [0, 1, 2],
+                    },
+                ],
+            });
+        }
+
+        return new GrownStand(
+            named, ModFile.FromMeshes(named, [.. meshes]), Matrix4x4.CreateTranslation(0, 0, z));
+    }
+
+    [Fact]
+    public void A_stand_sorted_into_cells_answers_the_same_as_one_kept_whole()
+    {
+        // The cells exist so the box test has something to reject — a crown is ten thousand
+        // leaf cards and one box round all of them is entered by nearly every ray a wood
+        // sees. What they must not do is change the answer.
+        var picker = new ScenePicker(Scene(
+            Room(("cliff", 400f)),
+            """
+            model=trees, noun=TREES, type=scene
+            model=cliff, noun=CLIFF, type=scene
+            """) with
+        {
+            Woods = [Thicket("trees", 150f)],
+        });
+
+        ScenePick pick = Assert.NotNull(Ahead(picker));
+
+        Assert.Equal("trees", pick.Name);
+        Assert.Equal("TREES", pick.Noun);
+        Assert.Equal(150f, pick.Distance, 3);
+    }
+
+    [Fact]
+    public void A_grown_tree_over_an_object_the_scene_never_named_is_scenery()
+    {
+        // Same rule as the geometry it stands in for: an object no [MODELS] line mentions
+        // is wallpaper, and growing it does not give it a noun it never had.
+        var picker = new ScenePicker(Scene(
+            Room(("cliff", 300f)),
+            "model=cliff, noun=CLIFF, type=scene") with
+        {
+            Woods = [Tree("ler_treeshadowcasters", 150f)],
+        });
+
+        ScenePick pick = Assert.NotNull(Ahead(picker));
+
+        Assert.Equal("ler_treeshadowcasters", pick.Name);
+        Assert.Null(pick.Noun);
+        Assert.False(pick.IsInteractive);
     }
 
     [Fact]

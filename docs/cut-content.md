@@ -367,8 +367,32 @@ the same diagnostics, the same codes, nothing new broken anywhere else.
 The cat-hair moustache is untouched and still works. This is a second way through, not a
 replacement.
 
-Restoring the voice is then a matter of dropping recordings into `overrides/audio/`, which
-needs no change here at all.
+**And the voice.** The twenty-five lines this restoration needs are spoken by
+`tools/audio/make_restored_voice.py` through a running ComfyUI, from the plan
+`tools/audio/plan_restored_voice.py` writes: what each line says, where those words came
+from, who says it, and the recordings the clone is conditioned on. Nineteen say words the
+game's own captions preserved and five say words we wrote, and the manifest keeps them
+apart, because a line that is ours must never be filed as one of theirs. One of them —
+*"Someone's airing their rug."* — is Grace's, and is cloned from Grace: the speaker of each
+line is read off the rule that plays it, which is decisive where it can be measured, 583 of
+the plates ending `QS1` being played under `GRACE_ALL` and none under `GABE_ALL`.
+
+**How a recording reaches a line, and how it did not.** A YAK's `[SOUNDS]` names its
+recording, and a deleted one names nothing — so audio put back under the 1999 name had
+nobody asking for it, and fourteen spoken lines sat in the pack unplayed. The engine now
+falls back to the recording the licence plate implies: `E1395D0LCW1` carries
+`A1395D0L.CW1`, which **6,606 of the corpus's YAKs name exactly**. It is reached only where
+the YAK names none, and that is what makes it safe — **of the 90 soundless YAKs in the
+shipped game, not one has its implied recording in the archives**, so it can never give
+voice to a line the developers silenced. See `docs/known-issues.md`.
+
+Four of the twenty-five had no `.YAK` either, having been cut before one was made, and a
+line with no wrapper cannot be spoken at all however good the audio is: the wrapper is what
+the engine reads. Those four are written by the generator into `enhanced/rooms`, in the
+game's own shape, and carry their caption with them.
+
+A player who would rather have a real performance drops one into `overrides/audio/` under
+the same 1999 name, and it wins over both.
 
 ### The Mysterious Room 2
 

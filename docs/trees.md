@@ -1,4 +1,4 @@
-# Trees
+﻿# Trees
 
 Every tree in Gabriel Knight 3 is a picture of a tree on a flat quad. This replaces the
 ones worth replacing with modelled trees, grown to the size the artist drew.
@@ -321,10 +321,110 @@ That has to hold for a *partial* set too, and it is arranged rather than hoped f
   reports how many stands it left flat and draws its cards instead — the same picture as no
   trees at all, plus a warning naming each bad file.
 - **A prop whose tree will not load** keeps its card, one prop at a time.
+- **A stand that would close over something the player has to click stays flat, all of
+  it.** A card takes up no room and the tree that replaces it is eighty units across; the
+  space it fills was empty when the room was authored, and at MCF there is a clue note
+  nailed to the maple. See *A tree may not bury a puzzle* below.
 
 Measured: with no packs and no workspace, WOD draws **9,561 triangles**. With a pack
 holding the manifest but no geometry, WOD draws **9,561 triangles**. With the full pack,
 **88,653**.
+
+## A tree may not bury a puzzle
+
+**MCF's third clue note is nailed to a tree**, three units off its trunk and a fifth of the
+way up it, and the grown maple closes over it. The note goes on being drawn — inside a
+canopy — the camera at the spot the scene walks Grace to stands *inside* the crown, and
+every click near the note lands on foliage. Reported as "clue note 3 at MCF can't be
+interacted with, the trees are always hit". Nothing in the picking is wrong: the note is
+where it always was, with its three verbs, and there is simply a tree in front of it.
+
+So a stand is refused when any noun-bearing prop is inside one of its sites. The test is
+the site's own cylinder — the radius across, from the ground to the top — and it is put to
+the prop's whole box rather than to its middle, because a model's box is not always a tight
+fit round what it draws: `mcf_note` measures sixty-four units across a note the size of a
+hand, and the middle of a box like that is nowhere in particular.
+
+**What settles it is where the thing starts.** L'Ermitage sits inside the same shape:
+Grace's dirt marks and the spoil heap are within `ler_vegitation`'s cylinder, near its rim,
+and their boxes are sixty units tall because of what marking the ground animates. But they
+rest *on the ground the tree grows out of*, and the 1999 cards hung over them exactly as
+the grown crown does. A thing on the ground is under the tree; a thing hanging clear of the
+ground inside the trunk's column is in it. Ten units of slack — ankle height on a man of
+seventy-six — separates the two cases by a wide margin: MCF's note starts 37 units up, LER's
+marks start 4 units *below* the foot.
+
+Refused before the budget, so a stand that must not be grown is not charged for either —
+MCF's three maples would otherwise spend the room's whole allowance on trees that are then
+left flat.
+
+**Measured over the corpus:** twenty-three rooms grow trees over their own objects. This
+refuses **one** of them, MCF, and its three maples. Every other room is untouched.
+
+Two exemptions keep it that narrow. A prop with no noun is scenery and may stand inside a
+tree as happily as a branch does. And a prop that is *itself* a picture of a tree is not
+counted at all: where a scene places a card of a tree the room also draws, the two are the
+same tree and the prop is meant to be inside the site — that is the duplicate
+`AlreadyStanding` settles, and counting it here would refuse nearly every stand in the
+game.
+
+**The cost is a handful of reads.** The surfaces a grown tree replaces have to be named
+before the room is added, and the props are not placed until after it, so the noun-bearing
+props are read in `GrowWoods` rather than waited for. Only a room that has a stand to grow
+at all pays for it.
+
+## What is drawn is what is clicked
+
+A grown tree has to be in the picker, and the card it replaced has to be out of it. Neither
+was true until 2026-09-04, and the two failures cancelled into something that looked like
+neither: the modelled tree in front of the pointer was invisible to the ray, while the flat
+card the room had stopped drawing went on answering. Rooms that grow trees over their own
+objects are the only ones affected — a tree grown from a **prop** has always been picked
+correctly, because `PlaceProp` swaps the grown model into the `PlacedModel` before the
+picker is built.
+
+`LoadedScene` carries the two facts the renderer already had: `ReplacedSurfaces`, the cards
+that stopped being drawn, and `Woods`, the trees that took their place. `ScenePicker` skips
+the first and adds the second.
+
+- **A stand answers to the object whose cards it replaced.** MCF's maples are `mcf_trs`,
+  which the scene calls `TREES`. The lookup is the same one the geometry does, so an object
+  no `[MODELS]` line names — `ler_treeshadowcasters` — goes on being scenery after it has
+  been grown: solid, and answering to nothing.
+- **Baked into world space, unlike a prop.** Nothing ever moves one of these: no script
+  places, hides or animates them. So the transform is applied once at construction rather
+  than on every ray.
+- **The wind is not applied, on purpose.** It is a vertex shader over the drawn leaves. A
+  hotspot that swayed would be a hotspot that moved out from under the pointer.
+- **Both faces**, because a tree is leaf cards and a bole, and half the cards face away from
+  any given ray.
+- **In cells, unlike anything else here.** Every other target is divided by what can move
+  independently of what. A tree has no moving parts and is divided by *where its triangles
+  are* instead — a 4x4x4 grid, a box each — purely so the box test has something to reject.
+  A crown is ten thousand leaf cards through a volume eighty units across, and one box
+  round all of them is entered by nearly every ray a wood sees: WOD went to **137 µs** a
+  pick that way, and to 15 with the grid.
+
+**What it costs, measured.** A pick is 196,608 of them — a 512x384 noun map — less the
+scene's own load time, best of three:
+
+| room | picker triangles before | after | µs a pick before | after |
+|---|---|---|---|---|
+| VG1 | 8,591 | 182,667 | 8 | 11 |
+| LMB | 13,314 | 243,609 | 12 | 14 |
+| BAL | 162,139 | 321,991 | 21 | 18 |
+| WOD | 205,143 | 311,932 | 21 | 15 |
+| CSD | 368,376 | 401,456 | 13 | 14 |
+
+Twenty times the triangles for roughly the same pick, and WOD and BAL came out faster than
+they went in. The rooms that were already expensive were expensive because of **prop**
+trees, which the picker has always carried — CSD's 368,000 are thirty-two of those — and
+the flat cards that left were large flat quads whose boxes a ray in a wood enters whatever
+it is aimed at.
+
+**One noun gained coverage across the corpus and none lost it.** Noun maps over all
+twenty-three wooded rooms before and after: CEM's `ABBE_CROSS`, the cross on Saunière's
+grave, answers again. It had been sitting behind an undrawn foliage card.
 
 ## The foliage is drawn, and its colour is measured
 

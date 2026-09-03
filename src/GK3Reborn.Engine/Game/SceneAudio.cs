@@ -1148,11 +1148,11 @@ public sealed class SceneAudio
                 Speaker = animation.Captions[0].Speaker;
             }
 
-            // A line's animation names its own audio; without that there is no way from a
-            // licence plate to a file.
-            foreach (AnimationSound cue in animation.Sounds)
+            // A line's animation names its own audio, and where it names none the licence
+            // plate does. See Asset.
+            foreach (string named in Named(animation, yak))
             {
-                if (_sounds.Read(cue.Name) is not { } sound)
+                if (_sounds.Read(named) is not { } sound)
                 {
                     continue;
                 }
@@ -1187,9 +1187,7 @@ public sealed class SceneAudio
             // silent *and* wordless while the waited StartVoiceOver went on spending the
             // animation's three seconds — a click that visibly does nothing, which is
             // exactly how it was reported. So a line with words holds for as long as the
-            // animation is, and the caption stands for that long. A restored recording
-            // dropped into overrides/audio takes the branch above instead and nothing here
-            // has to change.
+            // animation is, and the caption stands for that long.
             if (animation.Captions.Count > 0 && animation.Duration > 0)
             {
                 _silent = animation.Duration;
@@ -1209,6 +1207,44 @@ public sealed class SceneAudio
             Speaker = null;
         }
     }
+
+    /// <summary>The sounds to try for a line, in order.</summary>
+    /// <param name="line">The line's animation.</param>
+    /// <param name="plate">The licence plate it was read under.</param>
+    /// <returns>What to ask the sound library for.</returns>
+    /// <remarks>
+    /// Whatever the YAK names, where it names anything: 683 of the corpus's YAKs point at a
+    /// recording that is not the one their own name implies — <c>E01LIQ44QR1</c> plays
+    /// <c>A01LED44.QR1</c>, a line said twice and recorded once — and a derived name must
+    /// never stand in front of a stated one.
+    /// </remarks>
+    private static IEnumerable<string> Named(AnimationFile line, string plate) =>
+        line.Sounds.Count > 0
+            ? line.Sounds.Select(cue => cue.Name)
+            : Asset(plate) is { } implied ? [implied] : [];
+
+    /// <summary>The recording a licence plate implies, by the game's own naming.</summary>
+    /// <param name="plate">Ten characters, as <c>StartVoiceOver</c> takes them.</param>
+    /// <returns>The asset name, or null when the name is not a plate.</returns>
+    /// <remarks>
+    /// <para>
+    /// A YAK called <c>E1395D0LCW1</c> carries <c>A1395D0L.CW1</c>: the first seven
+    /// characters, a stop, and the last three. **6,606 of the corpus's YAKs name exactly
+    /// that and nothing else**, which makes it the game's convention rather than a guess.
+    /// </para>
+    /// <para>
+    /// It is only reached where the YAK names no sound at all, and that is what makes it
+    /// safe: **of the 90 soundless YAKs in the shipped game, not one has its implied
+    /// recording in the archives.** So this can never give voice to a line the developers
+    /// silenced — there is nothing there to find. What it does reach is audio that was
+    /// added afterwards under the 1999 name, which is where <c>tools/audio</c> writes the
+    /// crow's-nest puzzle's lines and where a player's own recording in
+    /// <c>overrides/audio</c> goes. Without it the pack held fourteen spoken lines that
+    /// nothing ever asked for.
+    /// </para>
+    /// </remarks>
+    private static string? Asset(string plate) =>
+        plate.Length == 10 ? $"A{plate[..7]}.{plate[7..]}" : null;
 
     /// <summary>Takes on the schedule the line about to be spoken carries.</summary>
     /// <remarks>

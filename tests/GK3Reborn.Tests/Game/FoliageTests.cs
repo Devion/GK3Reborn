@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Text.Json;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Models;
@@ -203,6 +203,68 @@ public sealed class FoliageTests : IDisposable
 
         Assert.Null(Foliage.SiteFor(
             Card("PINE2", new Vector3(0, 0, 0), new Vector3(30, 30, 0)), library));
+    }
+
+    /// <summary>MCF's maple, measured from the room's own cards.</summary>
+    /// <remarks>
+    /// The numbers are the ones the room actually produces, so that a change to how a card
+    /// is measured shows up here as a test that has stopped describing the game.
+    /// </remarks>
+    private static readonly TreeSite Maple = new(
+        new TreeSpecies
+        {
+            Name = "maple",
+            Canopy = false,
+            Sprites = ["MAPLE"],
+            Card = "RBN_MAPLE_CLUMP",
+            Variants = [],
+        },
+        Foot: new Vector3(732f, 2.8f, 150.1f),
+        Height: 207.8f,
+        Radius: 84.7f,
+        Seed: 1,
+        Trunked: true);
+
+    [Fact]
+    public void A_tree_is_not_grown_over_something_the_player_has_to_click()
+    {
+        // MCF's third clue note, nailed to the maple the room draws as a card: thirty-seven
+        // units clear of the ground and against the trunk. Growing the tree draws a canopy
+        // around it, so the note goes on being drawn inside one and every click near it
+        // lands on leaves.
+        Assert.True(Foliage.Buries(
+            Maple, new Vector3(725.9f, 39.7f, 149.3f), new Vector3(790.3f, 106.2f, 211.9f)));
+    }
+
+    [Fact]
+    public void What_lies_on_the_ground_under_a_tree_is_under_it_rather_than_in_it()
+    {
+        // L'Ermitage's dirt marks sit inside the same cylinder, near its rim, and their
+        // boxes are sixty units tall because of what marking the ground animates. What
+        // settles it is where they start: on the ground the tree grows out of. The 1999
+        // cards hung over them exactly as the grown crown does.
+        var ermitage = Maple with { Foot = new Vector3(234.8f, -1.1f, 421.8f), Height = 176.4f, Radius = 81f };
+
+        Assert.False(Foliage.Buries(
+            ermitage, new Vector3(197.8f, -5f, 458.9f), new Vector3(263.7f, 56.4f, 527.9f)));
+    }
+
+    [Fact]
+    public void A_tree_does_not_bury_what_stands_beyond_its_reach()
+    {
+        // Off the ground and well clear of the trunk: the crown never gets to it.
+        Assert.False(Foliage.Buries(
+            Maple, new Vector3(1000f, 40f, 150f), new Vector3(1010f, 60f, 160f)));
+    }
+
+    [Fact]
+    public void A_loose_box_is_tested_by_its_nearest_corner_rather_than_its_middle()
+    {
+        // The note's own box is sixty-four units across a note the size of a hand, so its
+        // middle is nowhere in particular. A box whose middle is outside the radius and
+        // whose near edge is against the trunk is still inside the tree.
+        Assert.True(Foliage.Buries(
+            Maple, new Vector3(730f, 40f, 148f), new Vector3(950f, 60f, 152f)));
     }
 
     [Fact]

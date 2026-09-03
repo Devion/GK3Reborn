@@ -77,6 +77,25 @@ public sealed record LoadedScene(
     internal (Vector3 Minimum, Vector3 Maximum) Bounds { get; init; }
 
     /// <summary>
+    /// The room's own foliage cards that a grown tree stands in for, by surface.
+    /// </summary>
+    /// <remarks>
+    /// The renderer is told not to draw these, and what is not drawn must not be clickable
+    /// either: the card is still in <see cref="Geometry"/>, where a ray would find it and
+    /// name a tree that is no longer there. Paired with <see cref="Woods"/> — one says what
+    /// stopped being drawn and the other says what took its place.
+    /// </remarks>
+    public IReadOnlySet<int>? ReplacedSurfaces { get; init; }
+
+    /// <summary>The modelled trees grown over those cards, and where they stand.</summary>
+    /// <remarks>
+    /// Kept for the same reason <see cref="Placed"/> is: the geometry the renderer holds
+    /// cannot answer a click, and these are the only drawn things in a room that are
+    /// neither part of its <see cref="Geometry"/> nor a <see cref="PlacedModel"/>.
+    /// </remarks>
+    public IReadOnlyList<GrownStand>? Woods { get; init; }
+
+    /// <summary>
     /// The rig the room is actually lit by: the artists' lights, with any scenekey the
     /// synthesized sun stands in for taken out and the sun put in.
     /// </summary>
@@ -295,6 +314,16 @@ public sealed class SceneLoader
     /// leaves were, and the room's own copy is hidden underneath it.
     /// </remarks>
     private readonly List<TreeSite> _trunked = [];
+
+    /// <summary>
+    /// The trees grown over the room's own cards, kept so that a click can find them.
+    /// </summary>
+    /// <remarks>
+    /// Gathered as they are planted rather than worked out again afterwards, because
+    /// planting is where the refusals are: a site a prop already stands on is skipped, and
+    /// so is one whose tree will not read. What is in here is what is on the screen.
+    /// </remarks>
+    private readonly List<GrownStand> _woods = [];
 
     /// <summary>Creates a loader.</summary>
     /// <param name="archives">Where to read assets from.</param>
@@ -578,6 +607,7 @@ public sealed class SceneLoader
         _standing.Clear();
         _nearTrees.Clear();
         _trunked.Clear();
+        _woods.Clear();
 
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
         Timeline?.Stamp("scene files (.SIF)");
@@ -702,7 +732,7 @@ public sealed class SceneLoader
 
         // Decided before the room is added, because growing a wood means not drawing the
         // cards it replaces, and the cards are hidden by naming them here.
-        List<Foliage.FoliageObject> woods = GrowWoods(bsp, diagnostics);
+        List<Foliage.FoliageObject> woods = GrowWoods(bsp, init, diagnostics);
         Timeline?.Stamp("grow woods");
 
         // The cards the grown trees stand in for, by surface. Not by object: an object can
@@ -820,6 +850,12 @@ public sealed class SceneLoader
 
             // Decided above, before the horizon that is lit by it.
             Sun = sun,
+
+            // What the room stopped drawing, and what it drew instead. Both are wanted by
+            // the picker and by nothing else: a click has to meet the tree that is on the
+            // screen rather than the card that used to be.
+            ReplacedSurfaces = replaced,
+            Woods = [.. _woods],
         };
 
         // The walk boundary, the action files, the soundtracks and the camera shell, all
@@ -1642,6 +1678,30 @@ public sealed class SceneLoader
     /// </remarks>
     private static Matrix4x4 StandOn(ModFile model, Vector3 where, float heading)
     {
+        if (Box(model) is not { } corners)
+        {
+            return Matrix4x4.CreateTranslation(where);
+        }
+
+        (Vector3 min, Vector3 max) = corners;
+
+        var footing = new Vector3((min.X + max.X) / 2f, min.Y, (min.Z + max.Z) / 2f);
+
+        return Matrix4x4.CreateTranslation(-footing)
+            * Matrix4x4.CreateRotationY(heading * MathF.PI / 180f)
+            * Matrix4x4.CreateTranslation(where);
+    }
+
+    /// <summary>The box a model fills, in the space its own vertices are in.</summary>
+    /// <param name="model">The parsed model.</param>
+    /// <returns>Its corners, or null when it has no vertices at all.</returns>
+    /// <remarks>
+    /// Each group's own transform is applied and nothing else, because that is what makes
+    /// the parts of a model agree with each other. Where the model then stands is a
+    /// separate question and a different matrix.
+    /// </remarks>
+    private static (Vector3 Least, Vector3 Most)? Box(ModFile model)
+    {
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
         bool any = false;
 
@@ -1659,16 +1719,7 @@ public sealed class SceneLoader
             }
         }
 
-        if (!any)
-        {
-            return Matrix4x4.CreateTranslation(where);
-        }
-
-        var footing = new Vector3((min.X + max.X) / 2f, min.Y, (min.Z + max.Z) / 2f);
-
-        return Matrix4x4.CreateTranslation(-footing)
-            * Matrix4x4.CreateRotationY(heading * MathF.PI / 180f)
-            * Matrix4x4.CreateTranslation(where);
+        return any ? (min, max) : null;
     }
 
     /// <summary>
@@ -1689,14 +1740,24 @@ public sealed class SceneLoader
 
     /// <summary>Finds the stands of trees in a room, as far as the budget reaches.</summary>
     /// <param name="scene">The parsed room.</param>
+    /// <param name="init">What the scene files say the room holds.</param>
     /// <param name="diagnostics">Receives a warning for any grown tree that will not load.</param>
     /// <returns>The objects whose cards are to be replaced, largest first.</returns>
     /// <remarks>
+    /// <para>
     /// All of an object or none of it. A room is hidden by name and there is no way to hide
     /// half of one, so growing part of a stand and leaving the rest would draw the modelled
     /// trees over the cards they were meant to replace.
+    /// </para>
+    /// <para>
+    /// Which is also why one buried prop refuses the whole object rather than the one tree
+    /// standing over it: the surfaces a stand replaces are recorded for the object and not
+    /// for the tree, so a single site cannot be left flat on its own. See
+    /// <see cref="Reachable"/> for what counts as buried and why it is worth the cost.
+    /// </para>
     /// </remarks>
-    private List<Foliage.FoliageObject> GrowWoods(BspFile scene, DiagnosticBag diagnostics)
+    private List<Foliage.FoliageObject> GrowWoods(
+        BspFile scene, SceneDefinition init, DiagnosticBag diagnostics)
     {
         if (Trees is not { IsEmpty: false } library)
         {
@@ -1704,12 +1765,25 @@ public sealed class SceneLoader
         }
 
         List<Foliage.FoliageObject> afforded = [];
+        List<(Vector3 Least, Vector3 Most)>? reachable = null;
         int spent = 0;
         int refused = 0;
         int unreadable = 0;
+        int buried = 0;
 
         foreach (Foliage.FoliageObject wood in Foliage.InGeometry(scene, library))
         {
+            // Before the budget, because a stand that must not be grown should not be
+            // charged for either: MCF's three maples cost the room's whole allowance, and
+            // spending it on a stand that is then refused would leave nothing for the rest.
+            reachable ??= Reachable(init, library, diagnostics);
+
+            if (wood.Sites.Any(site => reachable.Exists(p => Foliage.Buries(site, p.Least, p.Most))))
+            {
+                buried += wood.Sites.Count;
+                continue;
+            }
+
             int cheapest = wood.Sites.Sum(
                 s => TreeLibrary.Variant(s.Species, s.Seed, far: true).Triangles);
 
@@ -1737,6 +1811,16 @@ public sealed class SceneLoader
         {
             _log?.Invoke(
                 $"trees: {unreadable} left flat; the grown trees for them will not load");
+        }
+
+        if (buried > 0)
+        {
+            // Said out loud because it is the one refusal that is about the game rather
+            // than about the budget or the files, and a room that quietly stopped growing
+            // its trees should say which of the two happened.
+            _log?.Invoke(
+                $"trees: {buried} left flat; a grown tree would close over something the " +
+                "player has to click");
         }
 
         // The whole trees among them, for the props that are pictures of the same trees.
@@ -1776,6 +1860,89 @@ public sealed class SceneLoader
         }
 
         return afforded;
+    }
+
+    /// <summary>
+    /// Where the things the player has to be able to click actually are.
+    /// </summary>
+    /// <param name="init">What the scene files say the room holds.</param>
+    /// <param name="library">The trees, for recognising a prop that is only a picture of one.</param>
+    /// <param name="diagnostics">Receives a prop that will not read.</param>
+    /// <returns>The box each noun-bearing prop fills, in the room's own space.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this exists.</b> A flat card is a picture of a tree and takes up no room; the
+    /// tree that replaces it is eighty units across and two hundred tall, and the space it
+    /// fills was empty when the room was authored. At MCF the third clue note is nailed to
+    /// a maple three units off its trunk and a fifth of the way up it, and the grown maple
+    /// closes over it: the note goes on being drawn, inside a canopy, and every click near
+    /// it lands on the foliage in front. A puzzle item that cannot be reached is worse than
+    /// a flat tree, so the stand stays flat.
+    /// </para>
+    /// <para>
+    /// <b>Props only, and only ones with a noun.</b> The room's own geometry cannot be
+    /// buried by this — a tree replaces cards from one object and the objects around it are
+    /// drawn where they always were — and a prop with no noun is scenery, which may stand
+    /// inside a tree as happily as a branch does.
+    /// </para>
+    /// <para>
+    /// <b>A foliage prop is not counted.</b> Where a scene places a card of a tree the room
+    /// also draws, the two are the same tree and the prop is meant to be inside the site —
+    /// that is the duplicate <see cref="AlreadyStanding"/> settles, and counting it here
+    /// would refuse every stand that has a prop copy, which is most of them.
+    /// </para>
+    /// <para>
+    /// The models are read here rather than waited for, because the surfaces a grown tree
+    /// replaces have to be named before the room is added and the props are not placed
+    /// until after it. Only rooms that have a stand to grow at all pay for it.
+    /// </para>
+    /// </remarks>
+    private List<(Vector3 Least, Vector3 Most)> Reachable(
+        SceneDefinition init, TreeLibrary library, DiagnosticBag diagnostics)
+    {
+        List<(Vector3 Least, Vector3 Most)> found = [];
+
+        foreach (SceneModel model in init.Models())
+        {
+            if (model.Noun is not { Length: > 0 } || IsBakedIn(model))
+            {
+                continue;
+            }
+
+            byte[]? bytes = _archives.Read(model.Name + ".MOD");
+
+            ModFile? parsed = bytes is null
+                ? Models?.Read(model.Name, diagnostics)
+                : ModFile.Parse(bytes, model.Name + ".MOD");
+
+            if (parsed is null || Foliage.SiteFor(parsed, library) is not null)
+            {
+                continue;
+            }
+
+            if (Box(parsed) is not { } corners)
+            {
+                continue;
+            }
+
+            // Where the scene puts it, for the props that carry another room's coordinates.
+            // The same transform the placement uses, so the box tested is the box the
+            // player will be clicking at. Both corners go through it and are put back in
+            // order afterwards, since a turn about the vertical can swap them over.
+            if (model.Position is { } stands)
+            {
+                Matrix4x4 standing = StandOn(parsed, stands, model.Heading ?? 0f);
+                Vector3 a = Vector3.Transform(corners.Least, standing);
+                Vector3 b = Vector3.Transform(corners.Most, standing);
+
+                found.Add((Vector3.Min(a, b), Vector3.Max(a, b)));
+                continue;
+            }
+
+            found.Add(corners);
+        }
+
+        return found;
     }
 
     /// <summary>Whether every tree a stand needs can actually be loaded.</summary>
@@ -1840,7 +2007,10 @@ public sealed class SceneLoader
                     chosen.Name,
                     diagnostics);
 
-                geometry.Add(grown, Foliage.Standing(site, chosen));
+                Matrix4x4 standing = Foliage.Standing(site, chosen);
+
+                geometry.Add(grown, standing);
+                _woods.Add(new GrownStand(wood.Named, grown, standing));
                 planted++;
 
                 if (near)

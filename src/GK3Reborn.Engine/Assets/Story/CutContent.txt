@@ -203,10 +203,13 @@ rule MA3_ALL.NVC CIGARETTE_BUTT_PILE CLEAN LOOKED_AT_BUTT_PILE
 # with its sprites and a combine step -- and what it never had is geometry. These are the
 # four objects it wants, and the lines that describe them.
 #
-# Eighteen of the puzzle's nineteen recordings were deleted, but their YAKs were not: each
-# still carries its caption and simply names no sound. So these play as subtitles, at the
-# length the animation was cut to, and a restored recording dropped into overrides/audio
-# gives them their voice back without changing anything here.
+# Eighteen of the puzzle's nineteen recordings were deleted, and the six lines RC2_1ALL.NVC
+# says about the same objects went with them, but their YAKs did not: each still carries its
+# caption and simply names no sound. So a line with no recording plays as a subtitle for the
+# length the animation was cut to. All twenty-four are spoken again by tools/audio, which
+# writes them into enhanced/audio/dialogue under the 1999 name; the engine finds one there
+# because a YAK that names no sound falls back to the recording its licence plate implies.
+# A player's own recording in overrides/audio wins over that, and changes nothing here.
 #
 # The chain itself needs two things the original's file cannot supply: the interface its
 # WATER_INTERFACE rule is about, which was never built, and a definition for the case
