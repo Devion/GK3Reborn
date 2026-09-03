@@ -41,6 +41,16 @@ public sealed class SceneRenderStage
         _log = log;
     }
 
+    /// <summary>
+    /// How much of the cut-content restoration table to apply to this render.
+    /// </summary>
+    /// <remarks>
+    /// A property rather than another argument to <see cref="Run"/>, which already takes
+    /// more than anything should. None by default, so a render is of the game as it
+    /// shipped unless somebody asked otherwise. See <c>docs/cut-content.md</c>.
+    /// </remarks>
+    public CutContentTier Restore { get; set; }
+
     /// <summary>Renders a scene.</summary>
     /// <param name="sourceDirectory">The game's <c>Data</c> directory.</param>
     /// <param name="sceneName">Scene name, such as <c>R25</c>.</param>
@@ -125,6 +135,15 @@ public sealed class SceneRenderStage
         ArgumentNullException.ThrowIfNull(diagnostics);
 
         using GameArchives archives = GameArchives.Open(sourceDirectory);
+
+        CutContent restored = CutContent.Open(Restore);
+
+        if (!restored.IsEmpty)
+        {
+            archives.Restoration = restored;
+            archives.RestorationDiagnostics = diagnostics;
+            _log($"cut content: {restored.EditCount} restoration(s) in {restored.Count} file(s)");
+        }
 
         if (!RenderBackends.TryParse(backend, out RenderBackend wanted))
         {
@@ -268,6 +287,49 @@ public sealed class SceneRenderStage
             ? "scene geometry: none improved; every room is drawn as it shipped"
             : $"scene geometry: {rooms.Count} room(s) improved, " +
               (rooms.Packed ? "read from the packs" : "read loose"));
+
+        // Prop geometry that did not ship with the game, from the same two supplies. Not
+        // switchable here: it answers only for names the archives have no .MOD for, so a
+        // render with it and a render without it differ only where a restoration has put
+        // something the game never had.
+        ModelLibrary props = ModelLibrary.Open(
+            enhanced is { Length: > 0 } ? Beside(enhanced, "models") : string.Empty,
+            volumes,
+            diagnostics);
+
+        loader.Models = props.IsEmpty ? null : props;
+        _log(props.Describe() is { } available
+            ? $"prop models: {available}"
+            : "prop models: none available; a scene naming one places nothing");
+
+        // The files no barn has, for the rooms that were cut before there was anything to
+        // cut them from. Last of every layer, as in the game.
+        AddedAssets rebuilt = Restore >= CutContentTier.Reconstructed
+            ? AddedAssets.Open(
+                enhanced is { Length: > 0 } ? Beside(enhanced, "rooms") : string.Empty,
+                volumes,
+                diagnostics)
+            : AddedAssets.Empty;
+
+        if (!rebuilt.IsEmpty)
+        {
+            archives.Added = rebuilt;
+            _log($"added assets: {rebuilt.Describe()}");
+        }
+
+        // Rooms the game never had, from the same two supplies. Only consulted for a name
+        // with no .BSP, so a render of a shipped room is unaffected by it.
+        RoomLibrary builtRooms = RoomLibrary.Open(
+            enhanced is { Length: > 0 } ? Beside(enhanced, "rooms") : string.Empty,
+            volumes,
+            diagnostics);
+
+        loader.Rooms = builtRooms.IsEmpty ? null : builtRooms;
+
+        if (builtRooms.Describe() is { } roomsAvailable)
+        {
+            _log($"built rooms: {roomsAvailable}");
+        }
 
         // The reconstructed horizon, from the same two supplies as the trees and for the
         // same reason. Without it a tool render of an outdoor scene shows the painted 1999

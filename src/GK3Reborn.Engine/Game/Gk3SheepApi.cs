@@ -966,6 +966,15 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // The hose. Not a function the original has -- the interface its own action file
+        // names was never built -- so this is the port's way in to it, and the only thing
+        // that opens it is the restored crow's-nest puzzle. See Game.WaterAiming.
+        Register("ShowWaterInterface", a =>
+        {
+            State.Screens.Show(new Screen(ScreenKind.Water, Arg(a, 0)));
+            return SheepValue.FromInt(0);
+        });
+
         // Sidney is a screen like the others and was the one of them the story could not
         // open. Two of the game's scripts call this.
         Register("ShowSidney", _ =>

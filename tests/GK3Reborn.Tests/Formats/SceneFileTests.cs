@@ -172,6 +172,35 @@ public sealed class SceneFileTests
     }
 
     [Fact]
+    public void A_model_line_may_say_where_the_thing_stands()
+    {
+        // Not something 1999 wrote — no [MODELS] line in the shipped corpus carries a pos
+        // at all — and it exists because a prop is otherwise placed by the coordinates
+        // baked into its own mesh, which are the coordinates of whichever room it was
+        // modelled for. Without this, reusing a suitcase in another room means authoring
+        // an animation to move it there.
+        const string Text = """
+            [MODELS]
+            model=r33luggage_, noun=SUITCASE_IN_CLOSET, type=prop, pos={312.0,1.0,256.0}, heading=90
+            model=r29_bed, noun=BED, type=scene
+            """;
+
+        SceneInitFile init = SceneInitFile.Parse(Text, "R29.SIF");
+
+        SceneModel placed = Assert.Single(init.Models(), m => m.Name == "r33luggage_");
+
+        Assert.Equal(new Vector3(312f, 1f, 256f), placed.Position);
+        Assert.Equal(90f, placed.Heading);
+
+        // And a line that says nothing about where it goes still says nothing, so every
+        // model the game itself places is unaffected.
+        SceneModel untouched = Assert.Single(init.Models(), m => m.Name == "r29_bed");
+
+        Assert.Null(untouched.Position);
+        Assert.Null(untouched.Heading);
+    }
+
+    [Fact]
     public void A_later_block_refines_the_type_and_noun_of_an_earlier_one()
     {
         SceneInitFile init = SceneInitFile.Parse(InitFixture, "R25.SIF");

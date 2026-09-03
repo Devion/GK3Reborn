@@ -168,13 +168,15 @@ public sealed class RebarnContent : IDisposable
     /// <returns>The count.</returns>
     public int CountOf(RebarnKind kind) => Names(kind).Count;
 
-    /// <summary>Every name of one kind, without extensions, in a stable order.</summary>
+    /// <summary>Every name of one kind, in a stable order.</summary>
     /// <param name="kind">The kind.</param>
     /// <returns>The names.</returns>
     public IReadOnlyList<string> Names(RebarnKind kind) =>
         [.. _entries.Values
             .Where(e => e.Entry.Kind == kind)
-            .Select(e => Path.GetFileNameWithoutExtension(e.Entry.Name))
+            .Select(e => e.Entry.Kind == RebarnKind.Audio
+                ? Path.GetFileName(e.Entry.Name)
+                : Path.GetFileNameWithoutExtension(e.Entry.Name))
             .Concat(Overrides?.Names(kind) ?? [])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)];

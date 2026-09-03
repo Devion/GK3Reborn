@@ -172,6 +172,66 @@ public sealed class SidneyMap
     public static readonly Vector2 Arques = new(1262f, 165f);
 
     /// <summary>
+    /// How many places a figure is made of.
+    /// </summary>
+    /// <param name="shape">Which figure.</param>
+    /// <returns>The count, or nought where the figure takes no places.</returns>
+    /// <remarks>
+    /// <b>The answer has a size, so the question should too.</b> A circle through four
+    /// villages is four places; a line is two. Letting the player put eleven on the map and
+    /// then wonder why nothing confirms is a puzzle made of arithmetic they cannot see. The
+    /// screen stops taking places once a figure has as many as it needs.
+    /// </remarks>
+    public static int Needs(MapShape shape) => shape switch
+    {
+        MapShape.Line => 2,
+        MapShape.Triangle => 3,
+        MapShape.Circle => 4,
+        MapShape.Square => 4,
+        MapShape.Hexagram => 6,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// The places the survey itself marks with a red cross, in map pixels.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found in the picture rather than written down from a walkthrough.</b> The survey
+    /// is green and white and carries exactly five red marks; scanning the enhanced
+    /// 2,736-pixel copy for red and clustering what it finds gives five, and cropping each
+    /// one reads its label off the map. Four of them are the four the circle wants.
+    /// </para>
+    /// <para>
+    /// They are here so the screen can offer to place one. The crosses are three pixels
+    /// across on a survey shown in about four hundred and fifty, which is a fine motor task
+    /// rather than a puzzle, and <c>docs/screens.md</c> asks for an interface easier than
+    /// the original's.
+    /// </para>
+    /// </remarks>
+    public static readonly (string Name, Vector2 At)[] Sites =
+    [
+        ("Rennes-le-Château", new Vector2(266f, 416f)),
+        ("St-Just-et-le-Bezu", new Vector2(301f, 983f)),
+        ("Bugarach", new Vector2(990f, 1041f)),
+        ("Coustaussa", new Vector2(404f, 273f)),
+        ("Montazels", new Vector2(142f, 227f)),
+    ];
+
+    /// <summary>Rennes-le-Château, where the sunrise line starts.</summary>
+    public static Vector2 Church => Sites[0].At;
+
+    /// <summary>
+    /// The ruin of the Château de Blanchefort, where the sunrise line is drawn to.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not one of the crosses.</b> The survey marks villages with a red cross and this
+    /// with a single dark point below its label, which is the only marker anywhere near it.
+    /// Measured the same way as the rest: (1382, 714) on the enhanced 2,736-pixel copy.
+    /// </remarks>
+    public static readonly Vector2 Blanchefort = new(691f, 357f);
+
+    /// <summary>
     /// How near a line has to pass to a named place to be said to go through it.
     /// </summary>
     /// <remarks>
@@ -253,6 +313,22 @@ public sealed class SidneyMap
     /// </remarks>
     public bool Enter(Vector2 at)
     {
+        if (Selected != MapShape.None)
+        {
+            if (Complete)
+            {
+                return false;
+            }
+
+            _points.Add(at);
+
+            // The figure follows the places as they land, so it is never a step behind what
+            // the player can see.
+            UseShape(Selected);
+
+            return true;
+        }
+
         if (_points.Count >= 12)
         {
             return false;
@@ -388,11 +464,61 @@ public sealed class SidneyMap
         _laid.RemoveAll(already => already.Shape == shape);
         _laid.Add(placed);
 
-        // The places it was fitted to are now its own, so the next figure starts from a
-        // clean map: plotting the square's four corners must not re-fit the circle.
-        _points.Clear();
         Found = null;
     }
+
+    /// <summary>
+    /// Chooses which figure the places being marked belong to.
+    /// </summary>
+    /// <param name="shape">The figure, or none to mark places belonging to nothing.</param>
+    /// <remarks>
+    /// <b>Choosing a figure is how a place knows what it is for.</b> One shared set meant
+    /// the square's corners re-fitted the circle; choosing first means every place goes to
+    /// the figure it belongs to, the figure re-fits as each one lands, and choosing a figure
+    /// already drawn picks its places back up to be edited rather than throwing it away.
+    /// </remarks>
+    public void Select(MapShape shape)
+    {
+        Selected = shape;
+
+        foreach (LaidShape laid in _laid)
+        {
+            if (laid.Shape == shape)
+            {
+                // Already drawn: its places come back to be edited.
+                _points.Clear();
+                _points.AddRange(laid.Points);
+                Found = null;
+
+                return;
+            }
+        }
+
+        // Not drawn yet, so whatever is already marked becomes this figure's — but only
+        // as many as it is made of. Adopting the lot gave a triangle four places and a
+        // hexagram five, each fitted to whatever happened to be lying about, and the map
+        // filled up with figures answering to nothing.
+        int needs = Needs(shape);
+
+        if (_points.Count > needs)
+        {
+            _points.RemoveRange(needs, _points.Count - needs);
+        }
+
+        if (_points.Count > 0)
+        {
+            UseShape(shape);
+        }
+
+        Found = null;
+    }
+
+    /// <summary>Which figure the places being marked belong to.</summary>
+    public MapShape Selected { get; private set; }
+
+    /// <summary>Whether the figure being marked has all the places it needs.</summary>
+    public bool Complete =>
+        Selected != MapShape.None && _points.Count >= Needs(Selected);
 
     /// <summary>Re-fits every figure, after the marks under them have changed.</summary>
     public void Refit()

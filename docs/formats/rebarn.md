@@ -1,7 +1,7 @@
 # ReBarn (`.rebarn`)
 
 The remake's own content, in one or two files that sit beside the executable. Enhanced
-colour textures and their material channels, modernised models, imported video — everything
+colour textures and their material channels, modernised models, imported video and restored audio — everything
 `ContentWorkspace/enhanced` holds — compressed to the form the GPU wants and packed so that
 a shipped game is an executable and two files rather than forty thousand.
 
@@ -46,7 +46,7 @@ That encodes every PNG under `enhanced/` to DDS and writes two volumes into
 | Flag | What it does |
 | --- | --- |
 | `--output <dir>` | Where the volumes go. `<workspace>/build/pack` by default. |
-| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models scene-geometry video manifests` |
+| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models scene-geometry video audio manifests` |
 | `--only <dir>` | Only the kinds packed from a source directory, such as `enhanced/trees`. |
 | `--cap normals=512` | Longest edge a kind is encoded at, overriding the default. |
 | `--single-volume` | One file rather than two. |

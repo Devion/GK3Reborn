@@ -14,11 +14,14 @@ soundtrack is compressed.
 In process, on first use, by NLayer.
 
 `Plan/01` rules out an external process at runtime, which is a different thing from ruling
-out decoding — and the difference turned out to be worth 3.7 GB. The corpus used to be
-decoded once offline into `normalized/audio-pcm`, which cost that much disk to save about
-eight milliseconds a sound; the compressed originals are 347 MB and already inside the
-archives. `SoundLibrary` therefore reads the archives and nothing else, and `import-audio`
-is gone.
+out decoding. The complete fallback is decoded on demand from the archives. Restoration
+does need an editable PCM corpus, so `extract-audio` now decodes one under
+`ContentWorkspace/normalized/audio`; that copy is an offline authoring input and is never
+read by the running game.
+
+`SoundLibrary` looks through the player's overrides, restored ReBarn audio, then the
+original archives. See [audio-restoration.md](../audio-restoration.md) for the workspace,
+the dialogue/SFX split and the refusal checks.
 
 ### Two ways the decoder lies to you
 

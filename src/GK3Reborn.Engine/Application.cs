@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using GK3Reborn.Rendering.Geometry;
 using System.Globalization;
 using System.Numerics;
@@ -236,21 +236,7 @@ public static class Application
         StartupReport.Optional("Overrides", overrides is null ? null : overrideDirectory,
             "The game uses the content it shipped with.");
 
-        // Before the window, the device and the menu. A room that is not in the archives
-        // fails the same way whenever it is noticed, and noticing it here means the player
-        // is told what is wrong instead of watching the game quit the moment they press
-        // Play.
-        if (archives.Read(sceneName + ".SIF") is null)
-        {
-            Log.Error(
-                $"No room called {sceneName}: the archives have no {sceneName}.SIF.");
 
-            Log.Error(
-                "Check what was passed to --scene or --start, or drop it and the game "
-                + $"starts where it starts, in {OpeningScene}.");
-
-            return 2;
-        }
 
         // The remake's own content, in the one or two ReBarn volumes that ship beside the
         // executable. Opened once for the session rather than once a room: a pack is
@@ -339,6 +325,84 @@ public static class Application
             : Settings.DefaultPath;
 
         Settings settings = Settings.Load(settingsPath);
+
+        // Content the game shipped with and cannot reach. Off unless asked for, because it
+        // is content the developers switched off — a player who did not ask for it should
+        // get the game as it was released, and a bug report about a line nobody else hears
+        // should be traceable to the switch that turned it on.
+        //
+        // Under the override layer on purpose: a file the player put in overrides/ is
+        // theirs, and is the one thing this must not rewrite.
+        var restoreDiagnostics = new DiagnosticBag();
+        CutContent restored = CutContent.Open(RestorationTier(args, settings));
+
+        if (!restored.IsEmpty)
+        {
+            archives.Restoration = restored;
+            archives.RestorationDiagnostics = restoreDiagnostics;
+
+            // Applied here rather than when a room first asks for one of these files, so
+            // that an edit which no longer matches the installation is reported at startup
+            // beside everything else — not in the middle of a scene, once, as the only sign
+            // that a line the player was told about will never be heard. The result is
+            // cached, so the rooms themselves pay nothing for it.
+            foreach (string name in restored.Names)
+            {
+                archives.Read(name);
+            }
+
+            foreach (Diagnostic diagnostic in restoreDiagnostics.Items)
+            {
+                Log.Report(diagnostic);
+            }
+        }
+
+        // The other half of a restoration: files no barn has and none can, for content that
+        // was cut before there was anything to cut it from. Only with the tier that admits
+        // rebuilt objects, because a room the game never had is the largest of those.
+        AddedAssets rebuilt =
+            RestorationTier(args, settings) >= CutContentTier.Reconstructed
+                ? AddedAssets.Open(
+                    enhancedDirectory is { Length: > 0 }
+                        ? Beside(enhancedDirectory, "rooms")
+                        : string.Empty,
+                    packs)
+                : AddedAssets.Empty;
+
+        rebuilt.Overrides = overrides;
+
+        if (!rebuilt.IsEmpty)
+        {
+            archives.Added = rebuilt;
+            Log.Info($"Added assets: {rebuilt.Describe()}");
+        }
+
+        // Before the window, the device and the menu. A room that is not in the archives
+        // fails the same way whenever it is noticed, and noticing it here means the player
+        // is told what is wrong instead of watching the game quit the moment they press
+        // Play.
+        //
+        // After the added assets rather than before them, because one of the rooms this
+        // build can open is not in any archive: TE2 exists only while cut content is being
+        // restored, and asking before that layer is attached would refuse to start in the
+        // one case the layer is for.
+        if (archives.Read(sceneName + ".SIF") is null)
+        {
+            Log.Error(
+                $"No room called {sceneName}: the archives have no {sceneName}.SIF.");
+
+            Log.Error(
+                "Check what was passed to --scene or --start, or drop it and the game "
+                + $"starts where it starts, in {OpeningScene}.");
+
+            return 2;
+        }
+
+        Log.Info(restored.Describe() is { } putBack
+            ? $"Cut content: {putBack}"
+            : "Cut content: not restored.");
+
+
 
         Log.Info(File.Exists(settingsPath)
             ? $"Settings: {settingsPath}"
@@ -501,7 +565,9 @@ public static class Application
         // the player left it at rather than at full volume for a moment.
         settings.ApplyTo(audio);
 
-        var sounds = new SoundLibrary(archives);
+        // The same precedence as the rest of the content stack: a player's loose
+        // override, then restored audio in ReBarn, then the legally installed original.
+        var sounds = new SoundLibrary(archives, packs);
 
         SceneAudio? room = audio is null
             ? null
@@ -711,18 +777,32 @@ public static class Application
 
             // Sidney's map, the survey the whole puzzle is played on. Beside the driving
             // map's art because both hang off the pipeline the atlas just rebuilt.
-            if (archives.Read(Game.Sidney.SidneyMap.Picture + ".BMP") is { } survey)
+            //
+            // <b>The enhanced set is preferred, and this is the strongest case for one in
+            // the game.</b> The survey is 1,368 pixels shown in about 450, the places the
+            // puzzle is played on are red crosses three pixels across, and the screen can
+            // now be zoomed six times into it. The upscale is 2,736 square. Taking the
+            // original here was why the crosses were barely visible.
+            EnhancedTextures? better = Pictures(
+                settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides);
+
+            Formats.Bitmaps.DecodedImage? survey =
+                better?.Read(Game.Sidney.SidneyMap.Picture) ??
+                Decoded(archives, Game.Sidney.SidneyMap.Picture + ".BMP");
+
+            if (survey is { } drawn)
             {
-                try
+                renderer.AddOverlayPicture(Game.Sidney.SidneyMap.Picture, drawn);
+            }
+
+            // The suspects' faces, rendered from their own heads by the offline tool. They
+            // are enhanced content and nothing else: an installation without the enhanced
+            // set draws the names alone, which is what the original does anyway.
+            foreach (string portrait in Game.Sidney.SidneySuspect.Portraits)
+            {
+                if (better?.Read(portrait) is { } likeness)
                 {
-                    renderer.AddOverlayPicture(
-                        Game.Sidney.SidneyMap.Picture,
-                        Formats.Bitmaps.BitmapDecoder.Decode(survey, Game.Sidney.SidneyMap.Picture));
-                }
-                catch (Formats.FormatParseException)
-                {
-                    // Without it the analyze screen draws a blank square and the marks
-                    // still go where they are put.
+                    renderer.AddOverlayPicture(portrait, likeness);
                 }
             }
 
@@ -1355,6 +1435,15 @@ public static class Application
                 }
             }
 
+            // The restoration table follows its setting the same way the trees and the
+            // improved geometry follow theirs: consulted every time a room is built, so
+            // turning it on or off in the menu takes effect the next time the player walks
+            // into one. The table itself is one per tier for the life of the process, so
+            // this costs a dictionary lookup rather than a re-read and a re-apply.
+            CutContent restoring = CutContent.Open(RestorationTier(args, settings));
+            archives.Restoration = restoring.IsEmpty ? null : restoring;
+            archives.RestorationDiagnostics = restoring.IsEmpty ? null : restoreDiagnostics;
+
             // The improved room geometry, beside the trees and gated on its own setting for
             // the same reasons: it is geometry rather than a bitmap, it is optional at
             // every layer, and it comes from the packs as well as from a workspace because
@@ -1375,6 +1464,42 @@ public static class Application
                         $"Improved scene geometry: {rooms.Count} room(s), " +
                         $"{(rooms.Packed ? "packed" : "loose")}");
                 }
+            }
+
+            // Prop geometry that did not ship with the game. Not gated on a setting of its
+            // own, and it does not need one: it answers only for names the archives have
+            // no .MOD for, and the only reason a scene names one of those is that a
+            // restoration put it there — which is behind a switch already. Nothing that
+            // shipped can be replaced by it.
+            ModelLibrary props = ModelLibrary.Open(
+                packsOnly || enhancedDirectory is not { Length: > 0 }
+                    ? string.Empty
+                    : Beside(enhancedDirectory, "models"),
+                packs);
+
+            props.Overrides = overrides;
+            loader.Models = props.IsEmpty ? null : props;
+
+            if (first && props.Describe() is { } available)
+            {
+                Log.Info($"Prop models: {available}");
+            }
+
+            // Rooms the game never had, built from glTF. Beside the props and bounded the
+            // same way: only a name the archives have no .BSP for reaches it, so no room
+            // that shipped can be replaced by one.
+            RoomLibrary builtRooms = RoomLibrary.Open(
+                packsOnly || enhancedDirectory is not { Length: > 0 }
+                    ? string.Empty
+                    : Beside(enhancedDirectory, "rooms"),
+                packs);
+
+            builtRooms.Overrides = overrides;
+            loader.Rooms = builtRooms.IsEmpty ? null : builtRooms;
+
+            if (first && builtRooms.Describe() is { } roomsAvailable)
+            {
+                Log.Info($"Built rooms: {roomsAvailable}");
             }
 
             // The reconstructed horizon, beside the trees and gated on its own setting for
@@ -2835,10 +2960,9 @@ public static class Application
         {
             foreach (string item in scanning.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (machine.Scan(item.Trim()) is { } scanned)
-                {
-                    Log.Info($"Scanned: {scanned.Text}");
-                }
+                // The same path a click takes, so a still photographed from the command line
+                // is of the state the game would actually be in.
+                ScanIntoSidney(item.Trim(), api, scene, machine, console: null);
             }
 
             if (machine.Files.Count > 0)
@@ -2937,6 +3061,27 @@ public static class Application
             }
         }
 
+        // Files linked to whoever is open on the suspects screen, which is the only way a
+        // still can be taken of a suspect whose vehicle has been worked out: linking is a
+        // click on a file list that only exists once the screen is open. Runs after
+        // --sidney, so the suspect it links to is the one that switch opened.
+        if (Option(args, "--link") is { Length: > 0 } linking && api.Sidney is { } linker)
+        {
+            foreach (string item in linking.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (linker.Files.FirstOrDefault(
+                        f => f.Item.Equals(item.Trim(), StringComparison.OrdinalIgnoreCase))
+                    is not { } file)
+                {
+                    Log.Error($"--link: {item} is not a file Sidney holds; scan it first.");
+
+                    continue;
+                }
+
+                Log.Info($"Linked {item}: {linker.LinkToSuspect(file).Text}");
+            }
+        }
+
         // Places marked on Sidney's map, for photographing the one screen whose whole
         // content the player puts there themselves. In the map's own 1,368 pixels, which is
         // what the marks are kept in and what a click is turned into.
@@ -2976,6 +3121,63 @@ public static class Application
             ruled.RuleInShape = cells < 0;
 
             Log.Info($"Grid {cells}: {ruled.Rule(Math.Abs(cells)).Text}");
+        }
+
+        // <b>The map puzzle is a sequence, so photographing it needs one.</b> Each switch is
+        // read once, which cannot express "mark two places, lay a line, mark four more, lay
+        // a circle" — and that ordering is the whole of what the puzzle is. Steps are
+        // separated by semicolons and run in the order written.
+        if (Option(args, "--map") is { Length: > 0 } steps && api.Sidney is { } plotting)
+        {
+            foreach (string step in steps.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] said = step.Trim().Split(' ', 2);
+                string what = said[0].ToUpperInvariant();
+                string with = said.Length > 1 ? said[1].Trim() : string.Empty;
+
+                switch (what)
+                {
+                    case "MARK" when with.Split(',') is [string across, string down] &&
+                        float.TryParse(across, CultureInfo.InvariantCulture, out float mx) &&
+                        float.TryParse(down, CultureInfo.InvariantCulture, out float my):
+                        Log.Info($"  mark {with}: {plotting.Mark(new Vector2(mx, my)).Text}");
+                        break;
+
+                    case "SHAPE" when Enum.TryParse(
+                        with, ignoreCase: true, out Game.Sidney.MapShape figure):
+                        Log.Info($"  shape {figure}: {plotting.LayShape(figure).Text}");
+                        break;
+
+                    case "GRID" when int.TryParse(
+                        with, CultureInfo.InvariantCulture, out int squares):
+                        plotting.RuleInShape = squares < 0;
+                        Log.Info($"  grid {squares}: {plotting.Rule(Math.Abs(squares)).Text}");
+                        break;
+
+                    case "ASSIST":
+                        plotting.Assist();
+                        Log.Info($"  assist: {plotting.Finish(yes: true).Text.Split((char)10)[0]}");
+                        break;
+
+                    case "DO" when Enum.TryParse(
+                        with, ignoreCase: true, out Game.Sidney.SidneyAction did):
+                        Log.Info($"  do {did}: {plotting.Perform(did).Text}");
+                        break;
+
+                    default:
+                        Log.Error($"--map: {step} is not a step.");
+                        break;
+                }
+            }
+        }
+
+        // How far into the map the view is, for photographing it magnified.
+        if (Option(args, "--zoom") is { Length: > 0 } closer && api.Sidney is { } looking &&
+            float.TryParse(closer, CultureInfo.InvariantCulture, out float times))
+        {
+            looking.ZoomOn(looking.Focus, MathF.Log(MathF.Max(times, 1f)) / MathF.Log(1.2f));
+
+            Log.Info($"Zoom {looking.Zoom:F2} on {looking.Focus.X:F0}, {looking.Focus.Y:F0}");
         }
 
         if (Option(args, "--glide") is { Length: > 0 } destination)
@@ -3138,6 +3340,11 @@ public static class Application
         ArgumentNullException.ThrowIfNull(console);
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(cut);
+
+        // The hose, while one is being aimed. Out here rather than in the screen stack
+        // because the jet and the clock move every frame and the stack is game state; and
+        // out here rather than in the frame because it has to survive one.
+        Game.WaterAiming? aiming = null;
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(icons);
@@ -3367,6 +3574,7 @@ public static class Application
         // Whether the pointer was down last frame, so that picking a marked place up can
         // happen on the edge of the press. See the drag below.
         bool heldLastFrame = false;
+        var panFrom = Vector2.Zero;
         float laidOutAt = front.Settings.TextScale;
 
         bool flicker = options.Contains("--flicker", StringComparer.OrdinalIgnoreCase);
@@ -3904,6 +4112,38 @@ public static class Application
             {
                 Panorama seen = binoculars.For(scene.Name, story.Timeblock.ToString());
 
+                // The hose. Its state is not the screen stack's business — the jet and the
+                // clock move every frame and the stack is part of the state hash — so it
+                // lives beside it and lasts exactly as long as the screen does.
+                if (panel.Kind == ScreenKind.Water)
+                {
+                    aiming ??= new Game.WaterAiming();
+
+                    float span = MathF.Min(window.FramebufferWidth, window.FramebufferHeight) * 0.72f;
+
+                    aiming.PointAt(new Vector2(
+                        (pointer.X - ((window.FramebufferWidth - span) / 2f)) / span,
+                        (pointer.Y - ((window.FramebufferHeight - span) / 2f)) / span));
+
+                    if (aiming.Advance((float)delta))
+                    {
+                        // What the original's own rule does with it: the case that reads
+                        // ten seconds on the nest is now true, and its script takes over.
+                        Log.Info("water: the nest comes down");
+
+                        if (scene.Actions?.Find("WATER_INTERFACE", "AIM", story.Ego) is { } soaked)
+                        {
+                            new ActionRunner(api).Run(soaked);
+                        }
+
+                        story.Screens.Back();
+                    }
+                }
+                else
+                {
+                    aiming = null;
+                }
+
                 if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) &&
                     screens.HitAt(pointer) is { Length: > 0 } chose)
                 {
@@ -3967,12 +4207,8 @@ public static class Application
                         screens.MapBounds is { Z: > 0 } drawn)
                     {
                         // Back into the map's own 1,368 pixels, so a mark means the same
-                        // place whatever size the window is.
-                        float across = Game.Sidney.SidneyMap.Extent / drawn.Z;
-
-                        console.Print(sidney.Mark(new System.Numerics.Vector2(
-                            (pointer.X - drawn.X) * across,
-                            (pointer.Y - drawn.Y) * across)).Text);
+                        // place whatever size the window is and however far it is zoomed.
+                        console.Print(sidney.Mark(screens.MapAt(pointer)).Text);
                     }
                     else if (chose.StartsWith("zoom:", StringComparison.Ordinal) &&
                         seen.Sights.FirstOrDefault(s => s.Location == chose[5..]) is { } sight)
@@ -4050,7 +4286,15 @@ public static class Application
                     }
                     else
                     {
-                        OnScreen(chose, story, sidney, update, console);
+                        OnScreen(
+                            chose,
+                            story,
+                            sidney,
+                            update,
+                            console,
+                            sidney is null
+                                ? null
+                                : item => ScanIntoSidney(item, api, scene, sidney, console));
                     }
                 }
 
@@ -4072,6 +4316,28 @@ public static class Application
                     sidney.StartDrag(belongs, lifted);
                 }
 
+                // <b>A drag on the map itself slides it.</b> Zoomed six times into a
+                // 1,368-pixel survey there is more country off the glass than on it, and
+                // the wheel alone can only look closer at the middle. A click still marks,
+                // because a click is a press and release that hardly moved — which is
+                // exactly what a drag is not.
+                if (holding && sidney is { Dragging: < 0 } sliding &&
+                    panel.Kind == ScreenKind.Sidney && sliding.Zoom > 1f &&
+                    screens.MapBounds is { Z: > 0 } over &&
+                    pointer.X >= over.X && pointer.X <= over.X + over.Z &&
+                    pointer.Y >= over.Y && pointer.Y <= over.Y + over.W)
+                {
+                    if (heldLastFrame)
+                    {
+                        float across = Game.Sidney.SidneyMap.Extent / sliding.Zoom / over.Z;
+
+                        sliding.PanBy(new System.Numerics.Vector2(
+                            (panFrom.X - pointer.X) * across, (panFrom.Y - pointer.Y) * across));
+                    }
+
+                    panFrom = pointer;
+                }
+
                 heldLastFrame = holding;
 
                 // And it follows the pointer until the button comes back up, which is the
@@ -4079,12 +4345,9 @@ public static class Application
                 // moving one is all there is to do.
                 if (sidney is { Dragging: >= 0 } && panel.Kind == ScreenKind.Sidney)
                 {
-                    if (holding && screens.MapBounds is { Z: > 0 } under)
+                    if (holding && screens.MapBounds is { Z: > 0 })
                     {
-                        float over = Game.Sidney.SidneyMap.Extent / under.Z;
-
-                        sidney.DragTo(new System.Numerics.Vector2(
-                            (pointer.X - under.X) * over, (pointer.Y - under.Y) * over));
+                        sidney.DragTo(screens.MapAt(pointer));
                     }
                     else if (sidney.EndDrag() is { } settled)
                     {
@@ -4165,7 +4428,8 @@ public static class Application
                         icons,
                         closeUps,
                         verbIcons,
-                        artwork),
+                        artwork,
+                        aiming),
                     window.FramebufferWidth,
                     window.FramebufferHeight,
                     pointer);
@@ -5359,6 +5623,7 @@ public static class Application
     /// <param name="sidney">Grace's computer.</param>
     /// <param name="update">The room, for anything that has to happen in it.</param>
     /// <param name="console">Where a screen says what it did.</param>
+    /// <param name="scan">How to put an item into Sidney, which needs the room's rules.</param>
     /// <remarks>
     /// The painter knows where things are and this knows what they do. Keeping the two
     /// apart is what lets the screens be laid out fresh every frame without any rule about
@@ -5369,7 +5634,8 @@ public static class Application
         GameState story,
         Game.Sidney.SidneyMachine? sidney,
         SceneUpdate update,
-        GameConsole console)
+        GameConsole console,
+        Action<string>? scan)
     {
         ArgumentNullException.ThrowIfNull(update);
 
@@ -5425,7 +5691,8 @@ public static class Application
                     chose.Split(':', 3) is [_, _, string about] ? about : string.Empty,
                     story,
                     sidney,
-                    console);
+                    console,
+                    scan);
 
                 break;
 
@@ -5628,12 +5895,96 @@ public static class Application
         verbs?.KindOf(verb) == Game.Actions.VerbKind.Inventory;
 
     /// <summary>What a click inside Sidney means.</summary>
+    /// <summary>
+    /// Scans an inventory item into Sidney the way the game does it.
+    /// </summary>
+    /// <param name="item">The item's noun.</param>
+    /// <param name="api">The sheep machine, for running the item's own rule.</param>
+    /// <param name="scene">The room, which holds the action rules.</param>
+    /// <param name="sidney">Grace's computer.</param>
+    /// <param name="console">Where to say what happened, if anywhere.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Adding the file is only half of it.</b> The other half is the game's own
+    /// <c>SCANNER</c> rule for that noun, and the port was skipping it entirely — so an item
+    /// was never marked <c>USED</c>, and the scripts hung off three of them never ran:
+    /// <c>Estelles_Print</c>, which records her print for <i>both</i> egos, and the licence
+    /// scans for Buchelli, Emilio and Mosely. Without it a THINK on a postcard also went on
+    /// telling the player to scan something they had already scanned, for ever.
+    /// </para>
+    /// <para>
+    /// The rules are written against <c>IN_SIDNEY_ADD_DATA</c>, which is
+    /// <c>IsTopLayerInventory() &amp;&amp; GetFlag("UsingScanner")</c> — the scanner is up
+    /// and the player is picking something out of the bag. The port draws that moment as a
+    /// list inside Sidney rather than as the inventory over the top of it, so both halves are
+    /// made true across the call and put back afterwards. It resolves on its own from there:
+    /// a named case is worth 7 against <c>GABE_ALL_INV</c>'s 2, so the rule that scans wins
+    /// over the two that only say something about scanning.
+    /// </para>
+    /// </remarks>
+    private static void ScanIntoSidney(
+        string item,
+        Gk3SheepApi api,
+        LoadedScene scene,
+        Game.Sidney.SidneyMachine sidney,
+        GameConsole? console)
+    {
+        if (sidney.Scan(item) is not { } scanned)
+        {
+            return;
+        }
+
+        console?.Print(scanned.Text);
+        Log.Info($"Scanned: {scanned.Text}");
+
+        GameState story = api.State;
+        bool wasScanning = story.GetFlag("UsingScanner");
+        bool hadInventory = story.Screens.IsOpen(ScreenKind.Inventory);
+
+        story.SetFlag("UsingScanner");
+        story.Screens.Show(new Screen(ScreenKind.Inventory, item));
+
+        try
+        {
+            if (scene.Actions?.Find(item, "SCANNER", story.Ego) is not { } rule)
+            {
+                return;
+            }
+
+            // Counted before the rule runs, which is the order the original works in:
+            // Estelles_Print then sets the count outright, for both egos, and a bump
+            // afterwards would undo what it decided.
+            story.IncrementNounVerbCount(item, "SCANNER");
+
+            ActionOutcome ran = new ActionRunner(api).Run(rule);
+
+            Log.Info(
+                $"{item}:SCANNER [{rule.Case}] - " +
+                $"{(ran.Ran ? "ran" : "refused")} {ran.Statements.Count} statement(s)");
+        }
+        finally
+        {
+            // A script may well have closed the inventory itself; every one of these ends in
+            // HideInventory.
+            if (!hadInventory)
+            {
+                story.Screens.Hide(ScreenKind.Inventory);
+            }
+
+            if (!wasScanning)
+            {
+                story.ClearFlag("UsingScanner");
+            }
+        }
+    }
+
     private static void OnSidney(
         string what,
         string which,
         GameState story,
         Game.Sidney.SidneyMachine sidney,
-        GameConsole console)
+        GameConsole console,
+        Action<string>? scan)
     {
         switch (what)
         {
@@ -5668,6 +6019,14 @@ public static class Application
 
             // The ruling the map is divided into, and whether it fills the figure or the
             // whole picture.
+            case "assist":
+                console.Print(sidney.Assist().Text);
+                break;
+
+            case "solve":
+                console.Print(sidney.Finish(which.StartsWith('Y') || which.StartsWith('y')).Text);
+                break;
+
             case "grid" when int.TryParse(which, out int cells):
                 console.Print(sidney.Rule(cells).Text);
                 break;
@@ -5692,16 +6051,12 @@ public static class Application
                 console.Print(sidney.Append().Text);
                 break;
 
-            // Scanning runs the game's own action as well as making the file. The action is
-            // what marks the item used and sets SidScanner; the file is what
-            // DoesSidneyFileExist reads, and nothing made one before this existed.
+            // Scanning runs the game's own rule as well as making the file. The rule is what
+            // marks the item used, sets SidScanner and calls whatever script hangs off it;
+            // the file is what DoesSidneyFileExist reads, and nothing made one before this
+            // existed.
             case "scan":
-                if (sidney.Scan(which) is { } scanned)
-                {
-                    console.Print(scanned.Text);
-                    story.IncrementNounVerbCount(which, "SCANNER");
-                }
-
+                scan?.Invoke(which);
                 break;
 
             case "file":
@@ -5946,6 +6301,35 @@ public static class Application
 
     /// <summary>Reads an option's value from the command line.</summary>
     private static string? Option(string[] args, string name) => CommandLine.Value(args, name);
+
+    /// <summary>How much of the cut-content table the command line asks for.</summary>
+    /// <param name="args">The command line.</param>
+    /// <param name="settings">The player's saved settings, which the menu writes.</param>
+    /// <returns>Which tier to apply.</returns>
+    /// <remarks>
+    /// <c>--restore-cut-content</c> puts back the things there are to look at, read and
+    /// listen to; <c>--restore-cut-content all</c> also puts back the rules whose verb can
+    /// do something, which can change what an action does. Nothing without the flag: this
+    /// is content the developers switched off, and a player who did not ask for it should
+    /// be playing the game that was released. Without the switch the setting decides, which
+    /// is how the menu turns it on; with it, the command line wins for that run.
+    /// </remarks>
+    private static CutContentTier RestorationTier(string[] args, Settings settings)
+    {
+        if (!args.Contains("--restore-cut-content", StringComparer.OrdinalIgnoreCase))
+        {
+            return settings.RestoredContent;
+        }
+
+        string? how = Option(args, "--restore-cut-content");
+
+        return how?.ToUpperInvariant() switch
+        {
+            "ALL" => CutContentTier.All,
+            "REBUILT" => CutContentTier.Reconstructed,
+            _ => CutContentTier.Observation,
+        };
+    }
 
     /// <summary>Where the game is usually installed relative to the repository.</summary>
     /// <remarks>
@@ -6197,6 +6581,32 @@ public static class Application
         return Directory.Exists(beside) || InstallPaths.CanWrite(AppContext.BaseDirectory)
             ? beside
             : Path.Combine(InstallPaths.UserData, ContentOverrides.DirectoryName);
+    }
+
+    /// <summary>One of the archives' own bitmaps, decoded, or null when it is not there.</summary>
+    /// <param name="archives">The game's data.</param>
+    /// <param name="name">The bitmap's name with extension.</param>
+    /// <returns>The picture, or null.</returns>
+    /// <remarks>
+    /// A picture that will not decode is drawn as nothing rather than stopping the game:
+    /// without Sidney's map the analyze screen shows a blank square and the marks still go
+    /// where they are put.
+    /// </remarks>
+    private static Formats.Bitmaps.DecodedImage? Decoded(GameArchives archives, string name)
+    {
+        if (archives.Read(name) is not { } bytes)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Formats.Bitmaps.BitmapDecoder.Decode(bytes, name);
+        }
+        catch (Formats.FormatParseException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

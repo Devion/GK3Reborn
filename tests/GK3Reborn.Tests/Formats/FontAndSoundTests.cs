@@ -276,6 +276,31 @@ public sealed class FontAndSoundTests
         return stream.ToArray();
     }
 
+    /// <summary>A minimal RIFF/WAVE with a byte-exact sample payload.</summary>
+    private static byte[] WaveBytes(int format, int bits, byte[] data)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+
+        writer.Write("RIFF"u8);
+        writer.Write(36 + data.Length);
+        writer.Write("WAVE"u8);
+        writer.Write("fmt "u8);
+        writer.Write(16);
+        writer.Write((ushort)format);
+        writer.Write((ushort)1);
+        writer.Write(48000);
+        writer.Write(48000 * (bits / 8));
+        writer.Write((ushort)(bits / 8));
+        writer.Write((ushort)bits);
+        writer.Write("data"u8);
+        writer.Write(data.Length);
+        writer.Write(data);
+        writer.Flush();
+
+        return stream.ToArray();
+    }
+
     [Fact]
     public void A_pcm_sound_reads_its_samples_and_its_length()
     {
@@ -302,6 +327,36 @@ public sealed class FontAndSoundTests
         Assert.Equal(0, sound.Samples[0]);
         Assert.True(sound.Samples[1] > 30000);
         Assert.True(sound.Samples[2] < -30000);
+    }
+
+    [Fact]
+    public void Restored_twenty_four_bit_pcm_is_read_without_changing_its_duration()
+    {
+        // 0x7fff00 and -0x800000 reduce exactly to the two signed 16-bit endpoints.
+        byte[] data = [0x00, 0xff, 0x7f, 0x00, 0x00, 0x80];
+        WavFile? sound = WavFile.Read(
+            WaveBytes(WavFile.FormatPcm, 24, data), "MASTER", new DiagnosticBag());
+
+        Assert.NotNull(sound);
+        Assert.Equal([short.MaxValue, short.MinValue], sound.Samples);
+        Assert.Equal(2, sound.FrameCount);
+    }
+
+    [Fact]
+    public void Restored_float_pcm_is_clamped_and_read()
+    {
+        byte[] data = new byte[sizeof(float) * 3];
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0), BitConverter.SingleToInt32Bits(-1f));
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), BitConverter.SingleToInt32Bits(0.5f));
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8), BitConverter.SingleToInt32Bits(2f));
+
+        WavFile? sound = WavFile.Read(
+            WaveBytes(WavFile.FormatIeeeFloat, 32, data), "FLOAT", new DiagnosticBag());
+
+        Assert.NotNull(sound);
+        Assert.Equal(short.MinValue, sound.Samples[0]);
+        Assert.InRange(sound.Samples[1], 16383, 16384);
+        Assert.Equal(short.MaxValue, sound.Samples[2]);
     }
 
     [Fact]

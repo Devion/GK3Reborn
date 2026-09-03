@@ -75,13 +75,12 @@ public static class ContentExtract
         ArgumentException.ThrowIfNullOrWhiteSpace(output);
         ArgumentNullException.ThrowIfNull(say);
 
-        string? wanted = name is { Length: > 0 } ? Path.GetFileNameWithoutExtension(name) : null;
+        string? wanted = name is { Length: > 0 } ? Path.GetFileName(name) : null;
         var total = new Result();
 
         foreach (IGrouping<RebarnKind, (RebarnArchive Pack, RebarnEntry Entry)> group in packs.Entries
                      .Where(e => kinds is null || kinds.Contains(e.Entry.Kind))
-                     .Where(e => wanted is null || Path.GetFileNameWithoutExtension(e.Entry.Name)
-                         .Equals(wanted, StringComparison.OrdinalIgnoreCase))
+                     .Where(e => wanted is null || Matches(e.Entry, wanted))
                      .GroupBy(e => e.Entry.Kind)
                      .OrderBy(g => g.Key))
         {
@@ -123,7 +122,13 @@ public static class ContentExtract
                 return new Result(1, png.Length, 0);
             }
 
-            string file = Path.Combine(directory, entry.Name);
+            // Audio names such as LINE.QR1 have meaningful suffixes. Add a final WAV
+            // wrapper so extracting a pack produces the exact enhanced/ layout that the
+            // override layer and packer consume on the next round trip.
+            string fileName = entry.Kind == RebarnKind.Audio
+                ? entry.Name + ".wav"
+                : entry.Name;
+            string file = Path.Combine(directory, fileName);
 
             using (FileStream stream = File.Create(file))
             {
@@ -142,6 +147,26 @@ public static class ContentExtract
 
             return new Result(0, 0, 1);
         }
+    }
+
+    private static bool Matches(RebarnEntry entry, string wanted)
+    {
+        if (entry.Kind != RebarnKind.Audio)
+        {
+            return Path.GetFileNameWithoutExtension(entry.Name).Equals(
+                Path.GetFileNameWithoutExtension(wanted), StringComparison.OrdinalIgnoreCase);
+        }
+
+        string query = Path.GetFileName(wanted);
+        if (Path.GetFileName(entry.Name).Equals(query, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Also accept the editable wrapper spelling, e.g. DOOR.WAV.wav. Exact identity
+        // is tested first because DOOR.WAV by itself is an original name, not a wrapper.
+        return query.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)
+            && Path.GetFileName(entry.Name).Equals(query[..^4], StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

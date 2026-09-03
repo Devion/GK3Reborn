@@ -203,7 +203,68 @@ that. An *unknown* print matches nobody, which is what the game's own analysis s
 for: bringing it here to be matched against a known one. Gabriel's and Grace's prints have
 their own answers written in the text.
 
+**A registration is not known until a plate has been linked to somebody.** The screen used
+to print all ten the moment it was opened, which hands the player the answer to the very
+plates they are out photographing. The data draws the line itself: six suspects carry a
+registration and there are only five of them — `VDG945F`, `HJK841J`, `FKS427G`, `FED039A`,
+`ASD257K` — because **Lady Howard and Estelle Stiles share a car**, which is the story point.
+Five `*_LICENSE` items exist, one per plate, so Estelle's registration can only ever be
+filled in by linking Lady Howard's licence to her. The other four carry what anyone could
+tell by looking: "Van", "Blue Sedan", "Auto?", and for the Abbé the game's own "Unknown". So a
+registration is hidden behind `Unknown` until its owner has a licence linked; a description
+is shown from the start, because the player already saw the car. Two of the game's own
+strings say this is how it was meant to read — its refusal for a second licence is
+"Vehicle information has already been determined for this suspect", which only means
+something if there was a point at which it had not been, and its analysis of a plate says to
+"use on Suspects Screen to link vehicles to suspects".
+
+Nationality is not gated. It is on the file from the start, and the one nobody knows —
+Emilio's — the text already writes as "Unknown" itself.
+
+**A match sets the flag the story is waiting on, which is not the one the port was
+writing.** `SidneyMatched:6` was written and read by nothing at all. The game's scripts ask
+for `Matched`*Noun* — `MatchedButhane`, `MatchedBuchelli`, `MatchedEstelle`, `MatchedMosely`
+are all named in them — and `MatchedEstelle` is live in two places: it opens the `T_LSR`
+topic with Estelle in the lobby (`LBY306P.NVC`), and it gives Grace a voice-over over the LSR
+envelope in the bag (`INV_ALL.NVC`). Until this was fixed, matching her print unlocked
+nothing.
+
+**And a print is matched against the noun the game knows somebody by, not their surname.**
+Three of the ten are named after something else — the Abbé by his title, Estelle Stiles and
+Larry Chester by their first names — while every item is named after the noun. Comparing
+surnames meant `ABBE_FINGERPRINT`, `ESTELLES_FINGERPRINT` and `LARRYS_FINGERPRINT` matched
+nobody at all, so three suspects could never be convicted of anything. There is a test that
+walks all nine prints the game ships past all ten suspects.
+
 What is linked, and what has matched, are flags on the story, so they survive a save.
+
+### Add data
+
+The screen lists what the player is carrying that the scanner will take, which is the port's
+own drawing of a moment the original played as the inventory opening over Sidney.
+
+**Scanning runs the game's own `SCANNER` rule, and adding the file is only half of it.** The
+port used to add the file and stop, so none of the work the original hangs off that rule ever
+happened. What was being skipped:
+
+- `SetInvItemStatus(item, "USED")` — which **takes the item out of the bag**. Prints and
+  tapes are consumed by scanning them; maps and parchments are not, and their rules say so by
+  leaving the call out.
+- `CallSheep("inv_all", "Estelles_Print")` — which records her print for *both* egos with
+  `SetNounVerbCountBoth`, and the licence scans for Buchelli, Emilio and Mosely.
+- The noun/verb count, without which a THINK on the Poussin or Teniers postcard goes on
+  telling the player to scan something they have already scanned, for ever.
+
+The rules are written against `IN_SIDNEY_ADD_DATA`, which is `IsTopLayerInventory() &&
+GetFlag("UsingScanner")` — the scanner is up, and the player is picking something out of the
+bag. Because the port draws that moment inside Sidney rather than as the inventory over the
+top of it, both halves are made true across the call and put back afterwards. It resolves on
+its own from there: **a case somebody defined is worth 7 against `GABE_ALL_INV`'s 2**, so the
+rule that scans wins over the two that only say something about scanning. There is a test for
+that precedence, because it is the whole thing this depends on.
+
+`SidScanner` is set by those rules and read by nothing in the data — it was how the original's
+executable heard which item had been scanned, and the port does that job directly.
 
 ### Make I.D.
 
@@ -397,6 +458,81 @@ enormous circle, and nothing beyond twice the map's extent is accepted.
 and no arrangement of them keeps it inside the picture. The map pushes a clip around
 everything it draws, so a figure that runs off is cut at the edge instead of being drawn
 across the rest of Sidney and out over the title bar.
+
+## Choosing a figure, and what it costs
+
+**A figure is chosen, and then its places are marked.** Pressing a figure's button says what
+the places about to be marked are *for*; the figure re-fits as each one lands, so it is never
+a step behind what the player can see. Marking first and naming the figure afterwards works
+too — the places already down become that figure's — so neither way round loses the other's
+work.
+
+**Choosing a figure never throws one away.** Pressing the same button again used to take the
+figure off and its places with it, which is a lot to lose to a stray click on the step that
+took longest. It picks the figure up to be edited instead. `ERASE SHAPE` is how one goes, and
+it is its own deliberate act.
+
+**A figure takes no more places than its answer is made of** — a line two, a triangle three,
+a circle or square four, a hexagram six. Letting somebody put eleven on the map and then
+wonder why nothing confirms is a puzzle made of arithmetic they cannot see. Each button
+carries its own tally — `2/4`, and `OK` once the figure is confirmed — which is the one thing
+the original never tells anybody.
+
+**`SCHATGPT` finishes the figure being marked, and only one that has been earned.** A figure
+is offered by a picture the player has analysed; one they have not earned is one the machine
+has no business knowing about, and handing it over would answer a question they have not
+asked. Within that it fills the remaining places from the crosses the survey itself carries,
+and stops when it runs out — what is left after that are places only the player can find,
+which is the part of the puzzle worth keeping.
+
+**A figure owns the places it was fitted to.** One shared set of marks meant that plotting
+the square's four corners re-fitted the circle to eight places and threw it off the four it
+had been confirmed by — and the puzzle is a stack of figures each answering to its own
+places. Laying a figure takes the working set as its own and leaves a clean map for the next
+one; every figure is re-fitted only against what belongs to it. A figure's places are drawn
+a little smaller than the working set, because they are settled.
+
+**The line is a figure, not just a finding.** It was recognised, drawn, and then lost the
+moment the next place was marked — so the sunrise line could not survive into the step that
+needs it. It is on the row of figure buttons now, always offered, because nothing grants it:
+it is the tool the puzzle opens with, two places joined before any picture has been read.
+
+**A square with no places of its own goes round the circle.** "Fit exactly on the outer edge
+of the previous circle" is what the Aries passage asks for, so laying a square over a circle
+with nothing marked circumscribes it — radius times root two, turned forty-five degrees.
+Mark four corners instead and it fits those.
+
+**The survey is drawn from the enhanced set.** It is 1,368 pixels shown in about 450, the
+places the puzzle is played on are red crosses three pixels across, and the screen can now be
+zoomed six times into it — which is the strongest case for an upscale anywhere in the game.
+The driving map had preferred the enhanced copy for years, with a comment saying exactly
+why; Sidney's map, the bigger case, was still taking the original out of the archives. The
+enhanced one is 2,736 square.
+
+**`SCHATGPT` places the next place the survey marks.** An aid to clicking, not an answer:
+the crosses are three pixels across, and a player who knows perfectly well they want
+Bugarach can still spend a minute failing to hit it. Which places matter, and what to make of
+them, is still theirs.
+
+Their positions were **found in the picture, not copied from a walkthrough**: the survey is
+green and white and carries exactly five red marks, so scanning the enhanced copy for red and
+clustering what it finds gives five, and cropping each one reads its label off the map —
+Rennes-le-Château, St-Just-et-le-Bezu, Bugarach, Coustaussa and Montazels. Four of them are
+the four the circle wants, and a test presses the button four times and checks the circle
+locks.
+
+**The wheel looks closer, and a drag slides.** Zoomed six times into the survey there is more
+country off the glass than on it, so dragging the map itself pans it. A click still marks,
+because a click is a press and release that hardly moved — which is exactly what a drag is
+not, and the same distinction that makes picking a place up work.
+
+**The wheel looks closer.** The map is 1,368 pixels shown in about 450, so marking the church
+at Rennes-le-Château means clicking a dot three pixels across — and the original's own
+walkthrough says to enter points "on the magnified map". The wheel over the map zooms it
+from one to six times about the pointer, keeping the place under the pointer where it is.
+Everything drawn goes through the same two numbers — where the view starts and how much of
+the country is on the glass — and `ScreenPainter.MapAt` turns a click back through them, so
+a mark means the same place at any zoom.
 
 **More than one at a time.** The books this game is built on lay a circle over a square over
 a pentagram and read the country off where the lines cross; a screen that holds one figure

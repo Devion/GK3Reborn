@@ -1,0 +1,237 @@
+# Content the game shipped with but cannot reach.
+#
+# Every line below re-enables something the developers wrote and recorded and then
+# switched off — a commented-out action rule, a noun binding that was commented out
+# rather than corrected when a model was renamed, or a model that was folded into a
+# neighbouring noun and lost its own. Nothing here invents a line, a rule or an object.
+# See docs/cut-content.md for the survey this table came out of, and for the credit:
+# the catalogue that started it is Bonny Ploeg's.
+#
+# It is off unless asked for, and cumulative: --restore-cut-content applies
+# [OBSERVATION]; "all" adds [PUZZLE]; "rebuilt" adds [RECONSTRUCTED], which is the only
+# section that is not the developers' own data.
+#
+# Three operations, and each one verifies what it is about to change:
+#
+#   rule <FILE.NVC> <NOUN> <VERB> <CASE>
+#       Uncomment the commented-out rule with exactly that noun, verb and case. If the
+#       file has no such commented rule, or has more than one, nothing is changed and a
+#       diagnostic says so.
+#
+#   bind <FILE.SIF> <MODEL> <NOUN> <TYPE> [after=<MODEL>]
+#       Make a model clickable as a noun. If a commented-out binding for that model and
+#       noun exists, it is uncommented in place, which keeps whatever else that line
+#       said. Otherwise a new line is written immediately after the binding named by
+#       after=, so that it inherits that line's section and its conditions — a room's
+#       [MODELS] blocks are conditional, and a binding in the wrong one is either dead
+#       or live at the wrong time.
+#
+#   place <FILE.SIF> <MODEL> <NOUN> <x,y,z[,heading]> after=<MODEL>
+#       Put a model that did not ship with the game into a room. The model comes from
+#       tools/blender/make_props.py by way of enhanced/models or a ReBarn pack; pos means
+#       "stand here", so the coordinate is the surface it rests on. These are in
+#       [RECONSTRUCTED] and nowhere else.
+#
+#   append <FILE.SIF> <SECTION> <LINE>
+#       Add a line to the end of a named section. For the one thing the others cannot do:
+#       bringing a whole action file into a room's scope, for rules that were never written
+#       rather than merely switched off. Doing nothing when the line is already there.
+#
+#   noun <FILE.SIF> <MODEL> <NOUN>
+#       Point an existing live binding at a different noun. Used where a model was
+#       folded into a neighbouring noun: it keeps the line's type, its hidden flag and
+#       its animation, and changes only what the player is clicking on. Every model this
+#       is used on was checked to be sure the noun it is taken from keeps geometry of
+#       its own.
+#
+# Nothing is written back to the player's installation. The archives are read-only; the
+# edit is applied to the bytes on their way past.
+
+[OBSERVATION]
+
+# The illegible graves in the cemetery. cem_graves is drawn but has no noun; its four
+# rules -- Gabriel and Grace, LOOK and READ -- are commented out with the audio intact.
+noun CEM.SIF cem_graves ILLEGIBLE_GRAVES
+rule CEM_ALL.NVC ILLEGIBLE_GRAVES LOOK GABE_ALL
+rule CEM_ALL.NVC ILLEGIBLE_GRAVES LOOK GRACE_ALL
+rule CEM_ALL.NVC ILLEGIBLE_GRAVES READ GABE_ALL
+rule CEM_ALL.NVC ILLEGIBLE_GRAVES READ GRACE_ALL
+
+# Emilio's newspaper in the lobby. The prop is placed and animated; the line that placed
+# it was copied without its noun, and the original with the noun sits commented above it.
+noun LBY110A.SIF eml_paper EMILIOS_PAPER
+rule LBY110A.NVC EMILIOS_PAPER LOOK INTRODUCED_EMILIO
+rule LBY110A.NVC EMILIOS_PAPER LOOK NOT_INTRODUCED_EMILIO
+
+# The rocks at Devil's Armchair and outside Larry's house. Both bindings are commented
+# out; both sets of rules are live and voiced.
+bind ARM.SIF arm_rocks02 ROCKS scene
+bind ARM.SIF arm_rocks ROCKS scene
+bind LHE.SIF lhe_rocks ROCKS scene
+
+# The log at Devil's Armchair. Three live rules, an inspect camera set up for the noun,
+# and arm_fallentree is the only object in either Armchair room that could be it.
+bind ARM.SIF arm_fallentree LOG scene after=armchrdvl
+
+# Estelle's hole in the woods. Live day-three rules, an inspect camera, and wod_hole
+# bound to nothing at all. Placed after wod_holetop so it is clickable in the timeblocks
+# in which the hole is open.
+bind WOD.SIF wod_hole HOLE scene after=wod_holetop
+
+# Roxanne's laundry. The bin's two rules are live in CLO310A and the noun is framed by an
+# inspect camera; clo_sheets already speaks as SHEETS, so the bin is the maid's cart,
+# which is bound to nothing.
+bind CLO.SIF clo_maidcart LAUNDRY_BIN scene after=clo_sheets
+
+# Wilkes' clothes, and the pyjamas that are not among them -- which Roxanne's own line
+# later refers to. Both piles are bound to SUITCASE, one hidden per timeblock; SUITCASE
+# keeps r23_suitcaseopen, its own model, in R23.SIF.
+noun R23210A.SIF r23clotheswpj CLOTHES
+noun R23210A.SIF r23clothes_no_pj CLOTHES
+noun R23310A.SIF r23clotheswpj CLOTHES
+noun R23310A.SIF r23clothes_no_pj CLOTHES
+
+# The sari in Emilio's room. Both halves are bound to WARDROBE, which keeps ten other
+# models -- the dresser and all three of its drawers, open and closed.
+noun R27.SIF r27_sari1 LINEN_OUTFIT_IN_SACK
+noun R27.SIF r27_sari2 LINEN_OUTFIT_IN_SACK
+
+# The tree outside the museum. Both rules are commented out, both lines are in the
+# archives, and rc2_museumtree is bound to nothing.
+bind RC2.SIF rc2_museumtree TREE scene after=rc2_museum_door
+rule RC2_ALL.NVC TREE LOOK GABE_ALL
+rule RC2_ALL.NVC TREE LOOK GRACE_ALL
+
+# Rules whose noun is already clickable. Every one is an observation verb, so the worst a
+# mistake here can do is say the wrong line.
+rule CHU104P.NVC OFFICE_DOOR GLASS NOT_SEEN_MOSE_BUTHANE_COLLIDE
+rule CHU104P.NVC OFFICE_DOOR GLASS SEEN_MOSE_BUTHANE_COLLIDE
+rule CHU104P.NVC OFFICE_DOOR LOOK KNOW_ABBE_IN_OFFICE
+rule DIN110A.NVC MOSELY LOOK NOT_SEEN_MOSELY
+rule DIN110A.NVC MOSELY TALK NOT_SEEN_MOSELY
+rule DIN_ALL.NVC WATER_MARKS LOOK GABE_ALL
+rule DIN_ALL.NVC WATER_MARKS LOOK GRACE_ALL
+rule HAL106P.NVC BUTHANES_DOOR GLASS GABE_ALL
+rule HAL106P.NVC LADYH_ESTELLE_DOOR GLASS GABE_ALL
+rule LHM_23ALL.NVC SIGN_POST THINK GABE_ALL
+rule MOP102P04P.NVC MOSELYS_MOPED LOOK RENTED_MOPED
+rule PLO_ALL.NVC PATH_UP_CARDOU LOOK GABE_ALL
+rule PLO_ALL.NVC PATH_UP_CARDOU LOOK GRACE_ALL
+rule POU_23ALL.NVC I_AM_WORDS LOOK GRACE_ALL
+rule POU_23ALL.NVC I_AM_WORDS READ GRACE_ALL
+rule POU_23ALL.NVC I_AM_WORDS THINK GRACE_ALL
+rule POU_3ALL.NVC SMALL_ROCK LOOK GRACE_ALL
+rule POU_3ALL.NVC STICK LOOK GRACE_ALL
+rule POU_3ALL.NVC TOMB LOOK GRACE_ALL
+
+[PUZZLE]
+
+# These restore a verb that can do something, not only say something. Each was written
+# and recorded, and each either introduces a verb the noun does not currently offer or
+# stands in front of a live rule with a more specific case. That is how the original
+# resolver works, so a restored rule here can change what an action does -- which is why
+# they are a tier of their own rather than part of the set above.
+#
+# WATER_MARKS gains CLEAN, which no live rule offers.
+rule DIN_ALL.NVC WATER_MARKS CLEAN GABE_ALL
+rule DIN_ALL.NVC WATER_MARKS CLEAN GRACE_ALL
+
+# Larry's alarm clock gains PRESS; the case is the one in which Larry is out and the
+# player has not yet taken the time from it.
+rule LHE202P.NVC ALARM_CLOCK_IN_WINDOW PRESS LARRY_GONE_NOT_GOT_TIME
+
+# The binocular view of the Château de Blanchefort gains ZOOM.
+rule MA3104P.NVC VIEW_C_DE_BLANCH ZOOM ALL
+
+# Solomon's statue answering the radio.
+rule TE4309P.NVC SOLOMON_STATUE RADIO ALL
+
+# The bridge says something when you leave it. Both of these introduce an EXIT rule where
+# the noun has none, so they speak in front of whatever the scene does with the exit.
+rule TE5309P.NVC FULL_BRIDGE EXIT ALL
+rule TE5309P.NVC PARTIAL_BRIDGE EXIT ON_HEXAGRAM_SIDE_OF_CHASM
+
+# Gabriel's own door while the maid is in the room. This one stands in front of five live
+# OPEN rules, one of which is what moves him into R25.
+rule HAL210A.NVC GABRIELS_DOOR OPEN MAID_IN_R25
+
+# The moped in 307A, and picking the stick up at Poussin's tomb. Same shape: a spoken
+# rule in front of a rule that does something.
+rule MOP307A.NVC GABES_MOPED MOPED_KEYS TIME_BLOCK_OVERRIDE
+rule MOP307A.NVC GABES_MOPED DRIVE TIME_BLOCK_OVERRIDE
+rule POU_3ALL.NVC STICK PICKUP GRACE_ALL
+
+[RECONSTRUCTED]
+
+# Objects that were written, recorded and never modelled. Every one of these has live
+# rules and its lines in the archives; what it never had was geometry. The meshes are
+# built by tools/blender/make_props.py out of the game's own textures, and they are new
+# art -- which is why they are a tier of their own and the last one.
+#
+# The coordinates were measured off the rooms: pos means "stand here", so each is the
+# surface the thing rests on, and after= puts the line in the same block as a model that
+# is already in the right place at the right time.
+
+# Madeline's suitcase, on the floor of the hanging half of her wardrobe. The drawers take
+# the left of it and her clothes hang at x 300-305, which leaves 18.6 units of floor before
+# the body ends at 323.6 -- so the case is turned side-on, as luggage in a wardrobe is, and
+# its 13.4 fits where its 22.4 would not.
+#   "Madeline's suitcase."  /  "She's already unpacked."
+place R29.SIF r29_madsuitcase SUITCASE_IN_CLOSET 313.5,2,257,90 after=r29_mad_dress
+
+# The two documents from Dr Wen, on the writing desk in Howard and Stiles' room, whose
+# top is at y=30.2 with the hotel stationery already on it at x 332-347.
+#   "He mentions three documents, but there're only two here."
+place R31210A.SIF r31_wenletter LETTER_FROM_WEN 357,30.3,24 after=r31suitcase
+
+# The magazines on the lobby's coffee table, whose top is at y=23.7.
+#   "Magazines.  Nothing that looks interesting, though."
+place LBY.SIF lby_magazines MAGAZINES -14.6,23.7,85.6 after=lby_candybasket
+rule LBY_ALL.NVC MAGAZINES LOOK GABE_ALL
+rule LBY_ALL.NVC MAGAZINES LOOK GRACE_ALL
+
+# The Abbe's cigarette ends on top of Tour Magdala, at the foot of the lookout post he
+# stands at. The floor is y=456, from the room's own walk positions.
+#   "Nice.  Somebody should clean up this place."
+# LOOK sets a flag its own CLEAN rule reads, and nothing else in the game reads it.
+place MA3.SIF ma3_cigbutts CIGARETTE_BUTT_PILE 2898,456,-4258 after=ma3post
+rule MA3_ALL.NVC CIGARETTE_BUTT_PILE LOOK GABE_ALL
+rule MA3_ALL.NVC CIGARETTE_BUTT_PILE CLEAN LOOKED_AT_BUTT_PILE
+
+# The crow's nest, RC2. The puzzle the Cat Hair Moustache replaced is complete in
+# RC2102P.NVC and RC2_1ALL.NVC -- twenty-two rules, seven named cases, an inventory item
+# with its sprites and a combine step -- and what it never had is geometry. These are the
+# four objects it wants, and the lines that describe them.
+#
+# Eighteen of the puzzle's nineteen recordings were deleted, but their YAKs were not: each
+# still carries its caption and simply names no sound. So these play as subtitles, at the
+# length the animation was cut to, and a restored recording dropped into overrides/audio
+# gives them their voice back without changing anything here.
+#
+# The chain itself needs two things the original's file cannot supply: the interface its
+# WATER_INTERFACE rule is about, which was never built, and a definition for the case
+# ON_NEST_FOR_10_SECONDS, which the rule names and no [LOGIC] block anywhere defines. The
+# interface is now Game.WaterAiming; the case, and the three rules that hang off it, are in
+# rc2_crowsnest.nvc, which this brings into the room's scope.
+place RC2.SIF rc2_birdsnest BIRDS_NEST 1830,185,-3250 after=rc2_museum_door
+place RC2.SIF rc2_crow CROW_AT_NEST 1830,198,-3250,20 after=rc2_museum_door
+place RC2.SIF rc2_gardenhose GARDEN_HOSE 2080,45,-3256 after=rc2_museum_door
+place RC2.SIF rc2_blackrug BLACK_RUG_IN_WINDOW 1990,100,-3262 after=rc2_museum_door
+rule RC2_1ALL.NVC BIRDS_NEST LOOK NOT_GOT_BLACK_FIBERS
+rule RC2_1ALL.NVC BLACK_RUG_IN_WINDOW LOOK GABE_ALL
+rule RC2_1ALL.NVC BLACK_RUG_IN_WINDOW LOOK GRACE_ALL
+rule RC2_1ALL.NVC BLACK_RUG_IN_WINDOW PICKUP GABE_ALL
+rule RC2102P.NVC CROW_AT_NEST LOOK KNOW_ABOUT_BIKES
+rule RC2102P.NVC GARDEN_HOSE THINK ALL
+rule RC2102P.NVC BIRDS_NEST LOOK NOT_KAB_OR_NOT_SF
+# Listed by the timeblock file rather than by RC2.SIF: a name in a general SIF has to say
+# which timeblocks it is for, and this one says nothing of the sort. The original has the
+# same exception -- CHU's ch312p06p.nvc is listed the same way and for the same reason.
+append RC2102P.SIF ACTIONS rc2_crowsnest.nvc
+
+# The one item the puzzle needs that the game never finished. HOSE and HOSE_AND_SPRAY_GUN
+# are named by the cut rules and neither has a sprite or a string anywhere, so an inventory
+# holding one would show a blank with no name. It takes the spray bottle's own picture,
+# which is what the player is carrying: the Abbe's spritzer, now with a hose on it.
+append INVENTORYSPRITES.TXT - HOSE_AND_SPRAY_GUN	= SprayBottle
+append ESTRINGS.TXT - v_hose_and_spray_gun    =Hose and spray bottle

@@ -258,11 +258,13 @@ public sealed class RebarnArchive : IDisposable
 
     /// <summary>Every name of one kind, in a stable order.</summary>
     /// <param name="kind">What the entries are for.</param>
-    /// <returns>The names, without extensions, ordered.</returns>
+    /// <returns>The names, ordered. Audio keeps its apparent extension as part of its identity.</returns>
     public IReadOnlyList<string> Names(RebarnKind kind) =>
         [.. _entries.Values
             .Where(e => e.Kind == kind)
-            .Select(e => System.IO.Path.GetFileNameWithoutExtension(e.Name))
+            .Select(e => e.Kind == RebarnKind.Audio
+                ? System.IO.Path.GetFileName(e.Name)
+                : System.IO.Path.GetFileNameWithoutExtension(e.Name))
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>Reads an entry into a new array.</summary>

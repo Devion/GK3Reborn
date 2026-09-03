@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using GK3Reborn.Content;
 using GK3Reborn.Audio;
 using GK3Reborn.Formats.Audio;
 using GK3Reborn.Formats.Bitmaps;
@@ -324,6 +325,42 @@ public sealed class FrontEndTests
 
         Assert.True(front.Settings.EasterEggs);
         Assert.Equal("On", Row(front, "eggs").Value);
+    }
+
+    [Fact]
+    public void The_cut_content_is_off_until_the_player_asks_for_it_and_cycles_through_every_tier()
+    {
+        // Same rule as the easter eggs, for the same reason, and one more: each step has
+        // to be reachable without passing through the one beyond it, because they are not
+        // the same promise. The first is the developers' own lines; the second can change
+        // what a puzzle does; the third is new art.
+        FrontEnd front = Front();
+
+        front.Choose(new MenuAction("options"));
+        front.Choose(new MenuAction("gameplay"));
+
+        Assert.Equal(CutContentTier.None, front.Settings.RestoredContent);
+        Assert.Equal("Off", Row(front, "restored").Value);
+
+        front.Choose(new MenuAction("restored"));
+
+        Assert.Equal(CutContentTier.Observation, front.Settings.RestoredContent);
+        Assert.Equal("Things to look at", Row(front, "restored").Value);
+
+        front.Choose(new MenuAction("restored"));
+
+        Assert.Equal(CutContentTier.All, front.Settings.RestoredContent);
+
+        // The last step is the only one that puts geometry in the game that nobody at
+        // Sierra made, so it is the furthest from Off and named for what it is.
+        front.Choose(new MenuAction("restored"));
+
+        Assert.Equal(CutContentTier.Reconstructed, front.Settings.RestoredContent);
+        Assert.Equal("And objects rebuilt from scratch", Row(front, "restored").Value);
+
+        front.Choose(new MenuAction("restored"));
+
+        Assert.Equal(CutContentTier.None, front.Settings.RestoredContent);
     }
 
     [Fact]

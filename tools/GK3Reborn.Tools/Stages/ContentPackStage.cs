@@ -16,6 +16,7 @@ namespace GK3Reborn.Tools.Stages;
 /// <param name="Files">
 /// Which files in the source directory this kind claims, as a search pattern.
 /// </param>
+/// <param name="Recursive">Whether nested authoring lanes belong to the same kind.</param>
 /// <remarks>
 /// Every kind but one takes a directory of its own. <c>enhanced/trees</c> is the exception
 /// and has to be: a grown tree is geometry, the foliage it is painted with, and a manifest
@@ -30,7 +31,8 @@ public sealed record PackKind(
     bool Colour,
     int Cap,
     string Volume,
-    string Files = "*");
+    string Files = "*",
+    bool Recursive = false);
 
 /// <summary>
 /// Encodes the enhanced content to DDS and packs it into ReBarn volumes.
@@ -89,6 +91,12 @@ public sealed class ContentPackStage
         new(RebarnKind.Emissive, "enhanced/emissive", "BC7_UNORM_SRGB", true, 0, "Reborn"),
         new(RebarnKind.Model, "enhanced/models", null, false, 0, "Reborn"),
         new(RebarnKind.Video, "enhanced/video", null, false, 0, "Reborn"),
+
+        // Dialogue and general sound are kept in separate authoring directories, but
+        // they are one runtime kind. Each WAV is named <original asset name>.wav; the
+        // wrapper suffix is removed from the pack entry so scripts still address the
+        // exact 1999 name, including dialogue sequence suffixes such as .QR1.
+        new(RebarnKind.Audio, "enhanced/audio", null, false, 0, "Reborn", "*.wav", true),
 
         // The improved room geometry, and the manifest that says which rooms have any and
         // which build of each room it was cut from. A kind of its own rather than a model:
@@ -365,9 +373,16 @@ public sealed class ContentPackStage
     }
 
     private static List<Packable> Verbatim(PackKind kind, string source) =>
-        [.. Directory.EnumerateFiles(source, kind.Files)
+        [.. Directory.EnumerateFiles(
+                source, kind.Files,
+                kind.Recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
             .Where(f => !Path.GetFileName(f).StartsWith('_'))
-            .Select(f => new Packable(kind.Kind, Path.GetFileName(f), f))];
+            .Select(f => new Packable(
+                kind.Kind,
+                kind.Kind == RebarnKind.Audio
+                    ? Path.GetFileName(f)[..^Path.GetExtension(f).Length]
+                    : Path.GetFileName(f),
+                f))];
 
     private List<Packable> Encoded(
         PackKind kind,

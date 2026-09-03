@@ -21,6 +21,16 @@ public enum ScreenKind
     /// <summary>Sidney, the portable computer.</summary>
     Sidney,
 
+    /// <summary>
+    /// The hose, aimed at something until it comes down.
+    /// </summary>
+    /// <remarks>
+    /// The interface the cut crow's-nest puzzle ends in. A panel over the room like the
+    /// binoculars, not somewhere else like the map: the player is standing in the street
+    /// holding a hose. See <see cref="Game.WaterAiming"/>.
+    /// </remarks>
+    Water,
+
     /// <summary>The quest log: what the player is trying to do, and what they have done.</summary>
     /// <remarks>
     /// The port's own, with nothing behind it in the original. A 1999 adventure game will

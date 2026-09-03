@@ -48,6 +48,9 @@ public sealed class SceneCheckStage
         _log = log;
     }
 
+    /// <summary>How much of the cut-content table to apply while checking.</summary>
+    public CutContentTier Restore { get; set; }
+
     /// <summary>Loads every scene at every timeblock.</summary>
     /// <param name="sourceDirectory">The game's <c>Data</c> directory.</param>
     /// <param name="only">A location code to check on its own, or null for all of them.</param>
@@ -64,6 +67,17 @@ public sealed class SceneCheckStage
         ArgumentNullException.ThrowIfNull(diagnostics);
 
         using GameArchives archives = GameArchives.Open(sourceDirectory);
+
+        // With the restoration on, this is what says whether it broke a room somewhere
+        // else: every scene, at every point in the story, loaded with the edits applied.
+        CutContent restored = CutContent.Open(Restore);
+
+        if (!restored.IsEmpty)
+        {
+            archives.Restoration = restored;
+            archives.RestorationDiagnostics = diagnostics;
+            _log($"cut content: {restored.EditCount} restoration(s) in {restored.Count} file(s)");
+        }
 
         IReadOnlyList<string> scenes = Locations(archives, only);
         IReadOnlyList<string> timeblocks = Timeblocks(archives);

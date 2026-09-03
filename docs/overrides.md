@@ -12,6 +12,7 @@ GK3Reborn/
   overrides/
     textures/NUWALL2B.png        the wallpaper in Gabriel's room
     normals/NUWALL2B.png         its relief
+    audio/A0NQIB44.QR1.wav       one restored line, wrapper suffix included
     R25.NVC                      the room's script
 ```
 
@@ -56,14 +57,14 @@ executable — or, on an install that cannot be written to such as a signed `.ap
 Two independent questions, and neither is guessed at.
 
 **The extension says which layer.** The forms the remake's own content takes — `.png`,
-`.dds`, `.bmp`, `.glb`, `.mp4`, `.json` — go in front of the packs. Everything else is an
+`.dds`, `.bmp`, `.glb`, `.mp4`, `.json`, and a wrapped `.wav` — go in front of the packs. Everything else is an
 asset of the 1999 game and goes in front of the archives under its own file name:
 `R25.SIF`, `R25.NVC`, `R25THEME1.WAV`, `GABRIEL.MOD`.
 
 **A directory says which kind.** The last path segment naming one decides:
 
 ```
-textures  normals  orm  height  emissive  models  scene-geometry  video  manifests  raw
+textures  normals  orm  height  emissive  models  scene-geometry  video  audio  manifests  raw
 ```
 
 which is exactly how `ContentWorkspace/enhanced` is laid out and exactly what `--extract`
@@ -138,6 +139,7 @@ overrides/
   models/          .glb
   scene-geometry/  .glb, improved room objects
   video/           .mp4
+  audio/           restored .wav; the final wrapper suffix is not part of the GK3 name
   manifests/       .json, the material library among them
   raw/             terrain and forests
   game/            everything --from game wrote, flat

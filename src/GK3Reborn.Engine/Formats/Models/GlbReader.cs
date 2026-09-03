@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Globalization;
 using System.Numerics;
 using System.Text.Json;
@@ -110,6 +110,14 @@ public static class GlbReader
                         BoundsMin = Least(submeshes),
                         BoundsMax = Most(submeshes),
                         Submeshes = submeshes,
+
+                        // Kept because a room built from glTF groups its surfaces by it:
+                        // the node names are what a scene file binds nouns to, so losing
+                        // them would leave every object in such a room called nothing.
+                        Name = node.TryGetProperty("name", out JsonElement named) &&
+                               named.ValueKind == JsonValueKind.String
+                            ? named.GetString() ?? string.Empty
+                            : string.Empty,
                     });
                 }
             }

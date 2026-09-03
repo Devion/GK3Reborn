@@ -133,7 +133,7 @@ public static class SidneyApps
                 break;
 
             case SidneyScreen.Suspects:
-                Suspects(surface, machine, body);
+                Suspects(surface, machine, view, body);
                 break;
 
             case SidneyScreen.MakeId:
@@ -562,14 +562,19 @@ public static class SidneyApps
     }
 
     /// <summary>The suspects: ten files, what is linked to each, and the match.</summary>
-    private static void Suspects(SidneySurface surface, SidneyMachine machine, Vector4 body)
+    private static void Suspects(
+        SidneySurface surface, SidneyMachine machine, ScreenView view, Vector4 body)
     {
         IReadOnlyList<SidneySuspect> people = machine.Library.Suspects();
 
-        float listWidth = MathF.Max(body.Z * 0.34f, MathF.Min(body.Z * 0.46f, surface.Em(140)));
+        // Wider than it was, because a face now sits in front of every name and the names
+        // are people's: "Excelsior Montreaux" elided to "Excelsior Mo..." is worse than the
+        // column being wide.
+        float listWidth = MathF.Max(body.Z * 0.44f, MathF.Min(body.Z * 0.54f, surface.Em(190)));
         var list = new Vector4(body.X, body.Y, listWidth, body.W);
 
-        float row = surface.Line + surface.Em(10);
+        // Tall enough for a face beside the name. The original's list is names alone.
+        float row = MathF.Max(surface.Line + surface.Em(10), surface.Em(34));
         float step = row + surface.Em(3);
         float offset = surface.BeginScroll("suspects", list, people.Count * step);
         float width = surface.Room(list, people.Count * step);
@@ -587,11 +592,30 @@ public static class SidneyApps
             surface.Fill(
                 bounds.X, bounds.Y, bounds.Z, 1, open ? SidneyPalette.Amber : SidneyPalette.Rule);
 
+            // The face, where one has been rendered. Square, from the top of the row, so
+            // the names still line up whether a portrait is there or not.
+            float face = row - surface.Em(4);
+            int picture = view.Pictures?.Invoke(person.Portrait) ?? 0;
+            float text = bounds.X + surface.Em(10);
+
+            if (picture > 0)
+            {
+                var into = new Vector4(
+                    bounds.X + surface.Em(2), bounds.Y + surface.Em(2), face, face);
+
+                surface.Overlay.Picture(
+                    picture, into.X, into.Y, into.Z, into.W, Vector4.One);
+
+                surface.Frame(into, open ? SidneyPalette.Amber : SidneyPalette.Rule);
+
+                text = into.X + face + surface.Em(8);
+            }
+
             surface.WriteIn(
                 person.Name,
-                bounds.X + surface.Em(10),
+                text,
                 bounds.Y + ((row - surface.Line) / 2),
-                bounds.Z - surface.Em(20),
+                bounds.X + bounds.Z - text - surface.Em(10),
                 open ? SidneyPalette.Amber : SidneyPalette.Ink);
 
             surface.Hit($"sidney:suspect:{person.Index}", bounds);
@@ -654,23 +678,33 @@ public static class SidneyApps
 
         at += surface.Line;
 
-        surface.Write(
-            $"{machine.Library.Say("Vehicle", "Suspects Screen")} {suspect.Vehicle}",
+        // A registration is only there once a plate has been linked to this suspect; a
+        // description of the car is there from the start, because the player saw it. The
+        // label stays either way — a blank line teaches nothing, and a line that says the
+        // answer is not known yet says there is one to go and find.
+        bool knows = !suspect.Registered || machine.KnowsVehicle(suspect);
+
+        surface.WriteIn(
+            $"{machine.Library.Say("Vehicle", "Suspects Screen")} "
+            + (knows ? suspect.Vehicle : "Unknown"),
             detail.X,
             at,
-            SidneyPalette.Dim);
+            width2,
+            knows ? SidneyPalette.Dim : SidneyPalette.Rule);
 
         at += surface.Line * 2;
 
-        surface.Write(
+        // Wrapped: the game's own "There are no linked files for this suspect." is longer
+        // than this column, and a heading that stops at "for this sus" reads as a fault.
+        at = surface.Paragraph(
             linked.Count > 0
                 ? machine.Library.Say("FileList", "Suspects Screen")
                 : machine.Library.Say("NoLinks", "Suspects Screen"),
             detail.X,
             at,
-            SidneyPalette.Amber);
-
-        at += surface.Line + surface.Em(4);
+            width2,
+            detail.Y + detail.W,
+            SidneyPalette.Amber) + surface.Em(4);
 
         foreach (SidneyFile file in linked)
         {

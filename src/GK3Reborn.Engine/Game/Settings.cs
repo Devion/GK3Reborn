@@ -6,6 +6,7 @@ using GK3Reborn.Foundation;
 using GK3Reborn.Platform;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Upscaling;
+using GK3Reborn.Content;
 
 namespace GK3Reborn.Game;
 
@@ -437,6 +438,27 @@ public sealed record Settings
     /// </para>
     /// </remarks>
     public bool PlotArmour { get; init; }
+
+    /// <summary>
+    /// How much of the content the game shipped with and cannot reach is put back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Rules the developers commented out with their recordings still in the archives,
+    /// noun bindings commented out rather than corrected when a model was renamed, and
+    /// models folded into a neighbouring noun. <see cref="CutContentTier.Observation"/> is
+    /// things to look at, read and listen to and nothing else;
+    /// <see cref="CutContentTier.All"/> adds the restored rules whose verb can do
+    /// something, which can change what an action does. See <c>docs/cut-content.md</c>.
+    /// </para>
+    /// <para>
+    /// Off by default, beside the easter eggs and for the same reason: this is content its
+    /// authors switched off, and somebody playing GK3 for the first time should meet the
+    /// game that was released. Consulted each time a room is built, so changing it takes
+    /// effect the next time the player walks into one.
+    /// </para>
+    /// </remarks>
+    public CutContentTier RestoredContent { get; init; } = CutContentTier.None;
 
     /// <summary>Where the settings live for this user.</summary>
     /// <remarks>

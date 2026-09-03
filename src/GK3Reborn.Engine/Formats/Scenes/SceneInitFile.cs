@@ -94,6 +94,29 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     /// </summary>
     public bool VisibilityDisputed { get; init; }
 
+    /// <summary>Where the model is to stand, if the line says.</summary>
+    /// <remarks>
+    /// <para>
+    /// <c>pos={x,y,z}</c> on a <c>type=prop</c> line. Not something 1999 wrote — no
+    /// <c>[MODELS]</c> line in the shipped corpus carries a <c>pos</c> at all — and it
+    /// exists because a prop is otherwise placed by the coordinates baked into its own
+    /// mesh, which are the coordinates of whichever room it was modelled for. Reusing a
+    /// suitcase in another room therefore meant authoring an animation to move it. This
+    /// says where it goes instead.
+    /// </para>
+    /// <para>
+    /// It means <em>stand here</em>: the model is centred on the point in X and Z and its
+    /// lowest point put at the point's Y, so a position taken off a floor or a shelf with
+    /// <c>render-scene --pick</c> puts the object on that floor or that shelf rather than
+    /// half through it.
+    /// </para>
+    /// </remarks>
+    public Vector3? Position { get; init; }
+
+    /// <summary>Which way it faces, in degrees about Y, if the line says.</summary>
+    /// <remarks><c>heading=90</c>, and only meaningful beside a <see cref="Position"/>.</remarks>
+    public float? Heading { get; init; }
+
     /// <summary>An animation that puts it into its opening pose.</summary>
     /// <remarks>
     /// <c>initanim=Rc1PlaceLbyDoor</c>. It states where the thing rests rather than being
@@ -531,6 +554,8 @@ public sealed class SceneInitFile
                 Verb = line.Value("verb") ?? seen?.Verb,
                 Gas = line.Value("gas") ?? seen?.Gas,
                 InitialAnimation = line.Value("initanim") ?? seen?.InitialAnimation,
+                Position = line.Vector("pos") ?? seen?.Position,
+                Heading = line.Number("heading") ?? seen?.Heading,
 
                 // Carried forward, or a third block agreeing with the second would erase
                 // the disagreement the first one recorded. Nothing to carry once the

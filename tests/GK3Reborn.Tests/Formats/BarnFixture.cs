@@ -25,6 +25,13 @@ internal sealed class BarnFixture
         return this;
     }
 
+    /// <summary>Adds binary bytes stored verbatim.</summary>
+    public BarnFixture AddStored(string name, byte[] content)
+    {
+        _entries.Add((name, content, 0));
+        return this;
+    }
+
     /// <summary>Adds an entry stored as a zlib stream.</summary>
     public BarnFixture AddDeflated(string name, string content)
     {

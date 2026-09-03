@@ -608,6 +608,33 @@ public sealed class SidneyMachine
         Showing = null;
     }
 
+    /// <summary>
+    /// Whether the vehicle a suspect drives has been worked out yet.
+    /// </summary>
+    /// <param name="suspect">Which of them.</param>
+    /// <returns>True once a licence plate has been linked to them.</returns>
+    /// <remarks>
+    /// <b>The game's own screen says this is something that gets determined</b> — its
+    /// refusal for a second licence reads "Vehicle information has already been determined
+    /// for this suspect", which only means anything if there was a point at which it had
+    /// not been. The port printed every suspect's registration the moment the screen was
+    /// opened, which hands the player the answer to the plates they are collecting.
+    /// </remarks>
+    public bool KnowsVehicle(SidneySuspect suspect)
+    {
+        ArgumentNullException.ThrowIfNull(suspect);
+
+        foreach (SidneyFile file in LinkedTo(suspect))
+        {
+            if (file.Kind == SidneyKind.Licence)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The files linked to a suspect.</summary>
     /// <param name="suspect">Which of them.</param>
     /// <returns>The files, in the order the store holds them.</returns>
@@ -745,33 +772,44 @@ public sealed class SidneyMachine
 
         if (matched)
         {
-            _state.SetFlag($"SidneyMatched:{suspect.Index}");
+            // <b>The flag the game's own scripts read.</b> "SidneyMatched:2" was written and
+            // read by nothing; the story is waiting on Matched<i>Noun</i>, and setting
+            // MatchedEstelle is what opens the T_LSR topic with her in the lobby and gives
+            // Grace something to say over the LSR envelope. The four the scripts name —
+            // Buthane, Buchelli, Estelle, Mosely — are spelt exactly this way.
+            _state.SetFlag($"Matched{suspect.Noun}");
         }
 
         return Showing;
     }
 
-    /// <summary>Whether a print's name is this suspect's.</summary>
+    /// <summary>Whether a piece of evidence is this suspect's.</summary>
+    /// <param name="item">The item the file was scanned from.</param>
+    /// <param name="suspect">Who it is being tested against.</param>
+    /// <returns>True when the item is named after them.</returns>
     /// <remarks>
-    /// An item's name leads with its owner — BUTHANES_FINGERPRINT, WILKES_FINGERPRINT —
-    /// and a suspect's surname is the last word of their name. A label somebody stuck on
-    /// afterwards comes later in the item's name and is deliberately not consulted.
+    /// Against the noun the game knows them by, not the surname on the list: the Abbé,
+    /// Estelle and Larry are all named after something else, and comparing surnames left
+    /// their prints matching nobody. A single trailing "s" is dropped from each side, because
+    /// the items are possessive where the nouns are not — <c>BUCHELLIS_FINGERPRINT</c> beside
+    /// <c>BUCHELLI</c> — and <c>WILKES</c> is spelt that way in both.
     /// </remarks>
     private static bool Belongs(string item, SidneySuspect suspect)
     {
-        string[] words = suspect.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-        if (words.Length == 0)
+        if (suspect.Noun.Length == 0)
         {
             return false;
         }
 
-        string surname = words[^1].ToUpperInvariant();
-        string leading = item.Split('_')[0].ToUpperInvariant().TrimEnd('S');
+        return Bare(item.Split('_')[0]).Equals(Bare(suspect.Noun), StringComparison.Ordinal);
+    }
 
-        return leading.Length > 2 &&
-               (surname.StartsWith(leading, StringComparison.Ordinal) ||
-                leading.StartsWith(surname, StringComparison.Ordinal));
+    /// <summary>A name with its possessive "s", if it has one, taken off.</summary>
+    private static string Bare(string name)
+    {
+        string upper = name.ToUpperInvariant();
+
+        return upper.Length > 3 && upper[^1] == 'S' ? upper[..^1] : upper;
     }
 
     /// <summary>Prints an identity card.</summary>
@@ -879,34 +917,31 @@ public sealed class SidneyMachine
 
         Choosing = false;
 
-        // The same figure again takes it off, so several can be stacked and unstacked with
-        // one row of buttons and no menu.
-        foreach (LaidShape already in Map.Laid)
-        {
-            if (already.Shape == shape)
-            {
-                Map.Remove(shape);
-                RememberMap();
-                Showing = new SidneyResult(Say("ShapeErasedNote"));
+        // <b>Choosing a figure never throws one away.</b> Pressing the same button again
+        // used to take the figure off and its places with it, which is a lot to lose to a
+        // stray click on the step that took longest. It picks the figure up to be edited
+        // instead, and the map is armed for its places; ERASE SHAPE is how one goes.
+        Map.Select(shape);
+        Marking = true;
 
-                return Showing;
+        // A square asked for with nothing marked goes round the circle already laid, which
+        // is what the Aries passage asks of it.
+        if (Map.Points.Count == 0 && shape == MapShape.Square)
+        {
+            Map.UseShape(shape);
+        }
+
+        RememberMap();
+
+        foreach (LaidShape laid in Map.Laid)
+        {
+            if (laid.Shape == shape && laid.Locked)
+            {
+                Locked(shape);
             }
         }
 
-        Map.UseShape(shape);
-        RememberMap();
-
-        Showing = new SidneyResult(
-            Map.Locked
-                ? Say("MapShapeLockNote")
-                : Map.Points.Count == 0
-                    ? Say("CirclePointsNote")
-                    : Say("MapIndeterminateNote"));
-
-        if (Map.Locked)
-        {
-            Locked(shape);
-        }
+        Showing = new SidneyResult(Note(shape));
 
         return Showing;
     }
@@ -1014,6 +1049,233 @@ public sealed class SidneyMachine
         return Showing;
     }
 
+    /// <summary>
+    /// How far into the map the screen is looking, from one.
+    /// </summary>
+    /// <remarks>
+    /// <b>The map is 1,368 pixels shown in about 450.</b> Marking the church at
+    /// Rennes-le-Château means clicking a dot three pixels across, and the original's own
+    /// walkthrough says to enter points "on the magnified map" — it has a little map and a
+    /// big one for exactly this reason. Zooming is not part of the puzzle and is not saved:
+    /// it is where the player happens to be looking.
+    /// </remarks>
+    public float Zoom { get; private set; } = 1f;
+
+    /// <summary>What sits in the middle of the view, in map pixels.</summary>
+    public System.Numerics.Vector2 Focus { get; private set; } =
+        new(SidneyMap.Extent / 2f, SidneyMap.Extent / 2f);
+
+    /// <summary>
+    /// Zooms the map about a place, keeping that place under the pointer.
+    /// </summary>
+    /// <param name="on">Where the pointer is, in map pixels.</param>
+    /// <param name="by">How many notches, away from the player being positive.</param>
+    public void ZoomOn(System.Numerics.Vector2 on, float by)
+    {
+        float was = Zoom;
+
+        Zoom = Math.Clamp(Zoom * MathF.Pow(1.2f, by), 1f, 6f);
+
+        if (MathF.Abs(Zoom - was) < 1e-4f)
+        {
+            return;
+        }
+
+        // The place under the pointer stays under it, which is what makes a wheel zoom feel
+        // like looking closer rather than like the picture jumping.
+        Focus = on + ((Focus - on) * (was / Zoom));
+        Clamp();
+    }
+
+    /// <summary>Slides the view without changing how close it is.</summary>
+    /// <param name="by">How far, in map pixels.</param>
+    public void PanBy(System.Numerics.Vector2 by)
+    {
+        Focus += by;
+        Clamp();
+    }
+
+    /// <summary>Keeps the view inside the map.</summary>
+    private void Clamp()
+    {
+        float shown = SidneyMap.Extent / Zoom;
+        float edge = shown / 2;
+
+        Focus = new System.Numerics.Vector2(
+            Math.Clamp(Focus.X, edge, SidneyMap.Extent - edge),
+            Math.Clamp(Focus.Y, edge, SidneyMap.Extent - edge));
+    }
+
+    /// <summary>
+    /// Marks the next place the survey itself has a cross on.
+    /// </summary>
+    /// <returns>What the machine says.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>An aid to clicking, not an answer to the puzzle.</b> The crosses are three pixels
+    /// across on a map shown in about four hundred and fifty, and a player who knows
+    /// perfectly well that they want Bugarach can still spend a minute failing to hit it.
+    /// This places the next one they have not used; which places matter, and what to make
+    /// of them, is still theirs to work out.
+    /// </para>
+    /// <para>
+    /// Skips a cross already marked — by the working set or by any figure — so pressing it
+    /// four times gives the four the circle wants and not the same one four times.
+    /// </para>
+    /// </remarks>
+    public SidneyResult Assist()
+    {
+        // Asked before anything is drawn, because it draws a great deal. The answer comes
+        // back through Finish.
+        Showing = new SidneyResult(
+            "SCHATGPT will finish the map: the sunrise line, the circle, the square around "
+            + "it and the chessboard over that.",
+            "Let it?",
+            [Say("Yes") is { Length: > 0 } yes ? yes : "YES",
+             Say("No") is { Length: > 0 } no ? no : "NO"]);
+
+        return Showing;
+    }
+
+    /// <summary>
+    /// Finishes the map puzzle, as far as what the player has earned allows.
+    /// </summary>
+    /// <param name="yes">Whether they said to.</param>
+    /// <returns>What the machine says.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Every step it can, in order, and none it cannot.</b> A figure is offered by a
+    /// picture the player has analysed; one they have not earned is one the machine has no
+    /// business knowing about, so the square is drawn only if a parchment gave it up and the
+    /// hexagram only if Poussin's painting did. What it does draw is drawn properly — the
+    /// places are the survey's own crosses and its one ruin — so the flags the story is
+    /// waiting on are set by the ordinary path rather than written directly.
+    /// </para>
+    /// <para>
+    /// It exists because this is a puzzle a player can be genuinely stuck in front of, with
+    /// a timeblock that will not end until the hexagram locks. Being stuck for good is worse
+    /// than being told.
+    /// </para>
+    /// </remarks>
+    public SidneyResult Finish(bool yes)
+    {
+        if (!yes)
+        {
+            Showing = new SidneyResult(Say("EnterPointsNote"));
+
+            return Showing;
+        }
+
+        List<string> done = [];
+
+        // The sunrise line: the church at Rennes-le-Château over the ruin at Blanchefort.
+        if (Draw(MapShape.Line, [SidneyMap.Church, SidneyMap.Blanchefort]))
+        {
+            done.Add(SidneyMap.NameOf(MapShape.Line));
+        }
+
+        // The circle through the four the survey crosses.
+        if (Draw(
+            MapShape.Circle,
+            [.. SidneyMap.Sites.Take(4).Select(site => site.At)]))
+        {
+            done.Add(SidneyMap.NameOf(MapShape.Circle));
+        }
+
+        // The square round it, which takes no places of its own.
+        if (Draw(MapShape.Square, []))
+        {
+            done.Add(SidneyMap.NameOf(MapShape.Square));
+
+            RuleInShape = true;
+            Rule(8);
+        }
+
+        // <b>The hexagram is not drawn.</b> Poussin's painting gives it up, and the
+        // timeblock in R25307A will not end without it, but where it goes on the country is
+        // not something the survey says: its places are not the crosses, and a hexagram put
+        // somewhere plausible would not lock and would leave a wrong figure on the map
+        // looking like an answer. See docs/sidney.md.
+
+        Map.Select(MapShape.None);
+        RememberMap();
+
+        Showing = new SidneyResult(
+            done.Count == 0
+                ? Say("NoShapeNote")
+                : string.Join(", ", done) + ".\n\n" + Say("MapShapeLockNote"));
+
+        return Showing;
+    }
+
+    /// <summary>Draws one figure over named places, when the player has earned it.</summary>
+    /// <param name="shape">The figure.</param>
+    /// <param name="places">Where it goes, which may be empty.</param>
+    /// <returns>True when it was drawn.</returns>
+    private bool Draw(MapShape shape, IReadOnlyList<System.Numerics.Vector2> places)
+    {
+        if (!Shapes.Contains(shape))
+        {
+            return false;
+        }
+
+        // Cleared before the figure is chosen, not after: choosing it first lets it adopt
+        // whatever the previous step left lying about, which gave the square the circle's
+        // four places instead of letting it go round the circle.
+        Map.Select(MapShape.None);
+        Map.ClearPoints();
+        Map.Select(shape);
+
+        foreach (System.Numerics.Vector2 at in places)
+        {
+            Map.Enter(at);
+        }
+
+        if (places.Count == 0)
+        {
+            Map.UseShape(shape);
+        }
+
+        Map.Analyse();
+
+        foreach (LaidShape laid in Map.Laid)
+        {
+            if (laid.Shape == shape && laid.Locked)
+            {
+                Locked(shape);
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether a place is already marked, by the working set or by any figure.</summary>
+    private bool AlreadyThere(System.Numerics.Vector2 at)
+    {
+        const float Near = 30f;
+
+        foreach (System.Numerics.Vector2 point in Map.Points)
+        {
+            if (System.Numerics.Vector2.Distance(point, at) <= Near)
+            {
+                return true;
+            }
+        }
+
+        foreach (LaidShape laid in Map.Laid)
+        {
+            foreach (System.Numerics.Vector2 point in laid.Points)
+            {
+                if (System.Numerics.Vector2.Distance(point, at) <= Near)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Whether the map is waiting for a grid to be chosen off its list.</summary>
     public bool Ruling { get; set; }
 
@@ -1040,6 +1302,37 @@ public sealed class SidneyMachine
         Showing = new SidneyResult(Say("MapGridPointsNote"));
 
         return Showing;
+    }
+
+    /// <summary>
+    /// What the machine says about the figure being marked.
+    /// </summary>
+    /// <param name="shape">The figure.</param>
+    /// <returns>The line to show.</returns>
+    /// <remarks>
+    /// <b>How many more places it wants</b> is the one thing the original never says and
+    /// the player most needs. Its own notes only ever report what a finished set turned out
+    /// to be, which leaves somebody four clicks into a six-place figure with no idea whether
+    /// they are nearly there or doing it wrong.
+    /// </remarks>
+    private string Note(MapShape shape)
+    {
+        foreach (LaidShape laid in Map.Laid)
+        {
+            if (laid.Shape == shape && laid.Locked)
+            {
+                return Say("MapShapeLockNote");
+            }
+        }
+
+        int needs = SidneyMap.Needs(shape);
+        int has = Map.Points.Count;
+
+        return has < needs
+            ? string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"{SidneyMap.NameOf(shape)}: {has} of {needs} places marked.")
+            : Say("MapIndeterminateNote");
     }
 
     /// <summary>Whether the map is waiting for a shape to be picked off the list.</summary>
@@ -1161,6 +1454,21 @@ public sealed class SidneyMachine
     /// railway runs. Saying it on a guess would confirm a passage the player had not solved.
     /// </para>
     /// </remarks>
+    /// <summary>Whether a line was drawn between two named places, either way round.</summary>
+    private static bool Between(
+        System.Numerics.Vector2 from,
+        System.Numerics.Vector2 to,
+        System.Numerics.Vector2 one,
+        System.Numerics.Vector2 other)
+    {
+        const float Near = 40f;
+
+        return (System.Numerics.Vector2.Distance(from, one) <= Near &&
+                System.Numerics.Vector2.Distance(to, other) <= Near) ||
+               (System.Numerics.Vector2.Distance(from, other) <= Near &&
+                System.Numerics.Vector2.Distance(to, one) <= Near);
+    }
+
     private string LineNote()
     {
         if (Map.Points.Count < 2)
@@ -1171,8 +1479,13 @@ public sealed class SidneyMachine
         System.Numerics.Vector2 from = Map.Points[0];
         System.Numerics.Vector2 to = Map.Points[^1];
 
-        if (SidneyMap.CrossesMeridian(from, to) &&
-            SidneyMap.Through(from, to, SidneyMap.Arques))
+        // <b>The sunrise line is which two places, not where the line happens to go.</b>
+        // Testing it by geometry — does it cross the meridian and pass through Arques —
+        // refuses the right answer: on this survey the line from the church at
+        // Rennes-le-Château over the ruin at Blanchefort misses Arques by a hundred and
+        // twelve pixels, because the map is drawn rather than surveyed. What the note is
+        // about is the two places the player picked.
+        if (Between(from, to, SidneyMap.Church, SidneyMap.Blanchefort))
         {
             return Say("MapLine1Note");
         }

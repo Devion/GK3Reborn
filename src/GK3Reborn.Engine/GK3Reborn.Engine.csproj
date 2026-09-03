@@ -27,6 +27,7 @@
     <EmbeddedResource Include="Assets/Story/Quests.txt" />
     <EmbeddedResource Include="Assets/Story/Walkthrough.txt" />
     <EmbeddedResource Include="Assets/Story/Scores.txt" />
+    <EmbeddedResource Include="Assets/Story/CutContent.txt" />
 
   </ItemGroup>
 

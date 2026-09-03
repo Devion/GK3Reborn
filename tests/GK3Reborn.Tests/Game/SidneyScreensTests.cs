@@ -38,13 +38,34 @@ public sealed class SidneyScreensTests
         [Suspects Screen]
         Name1         = Madeline Buthane
         Name2         = Vittorio Buchelli
-        Name3         = John Wilkes
+        Name3         = Emilio Baza
+        Name4         = Abbe Arnaud
+        Name5         = Lady Howard
+        Name6         = Estelle Stiles
+        Name7         = John Wilkes
+        Name8         = Larry Chester
+        Name9         = Excelsior Montreaux
+        Name10        = Franklin Mosely
         Nationality1  = French
         Nationality2  = Italian
-        Nationality3  = Australian
+        Nationality3  = Unknown
+        Nationality4  = French
+        Nationality5  = British
+        Nationality6  = British
+        Nationality7  = Australian
+        Nationality8  = British
+        Nationality9  = French
+        Nationality10 = American
         VehicleID1    = Van
         VehicleID2    = VDG945F
-        VehicleID3    = FED039A
+        VehicleID3    = HJK841J
+        VehicleID4    = Unknown
+        VehicleID5    = FKS427G
+        VehicleID6    = FKS427G
+        VehicleID7    = FED039A
+        VehicleID8    = Blue Sedan
+        VehicleID9    = Auto?
+        VehicleID10   = ASD257K
         MatchCompare  = Comparing with:
         MatchNone     = ** No Match Found **
         MatchFound    = ** Match Found **
@@ -143,10 +164,129 @@ public sealed class SidneyScreensTests
     {
         IReadOnlyList<SidneySuspect> people = Machine(out _).Library.Suspects();
 
-        Assert.Equal(3, people.Count);
+        Assert.Equal(10, people.Count);
         Assert.Equal("Vittorio Buchelli", people[1].Name);
         Assert.Equal("Italian", people[1].Nationality);
         Assert.Equal("VDG945F", people[1].Vehicle);
+    }
+
+    [Fact]
+    public void A_registration_is_only_known_once_a_plate_has_been_linked()
+    {
+        // The screen used to print every registration the moment it was opened, which hands
+        // the player the answer to the plates they are out photographing. The game's own
+        // refusal for a second licence — "Vehicle information has already been determined
+        // for this suspect" — only means something if there was a point at which it had not
+        // been, and its analysis of a plate says to "use on Suspects Screen to link vehicles
+        // to suspects".
+        SidneyMachine sidney = Machine(out _);
+        SidneySuspect buchelli = sidney.Library.Suspects()
+            .First(s => s.Name.Contains("Buchelli", StringComparison.Ordinal));
+
+        Assert.True(buchelli.Registered);
+        Assert.False(sidney.KnowsVehicle(buchelli));
+
+        sidney.Scan("BUCHELLIS_LICENSE");
+        sidney.OpenSuspect(buchelli);
+        sidney.LinkToSuspect(sidney.Files[0]);
+
+        Assert.True(sidney.KnowsVehicle(buchelli));
+    }
+
+    [Fact]
+    public void A_car_somebody_merely_saw_is_known_without_any_plate()
+    {
+        // Five of the ten carry a plate, and they are exactly the five licences the player
+        // can photograph. The rest carry what one could tell by looking, and hiding that
+        // would hide something they already saw.
+        IReadOnlyList<SidneySuspect> people = Machine(out _).Library.Suspects();
+
+        Assert.Equal("Van", people[0].Vehicle);
+        Assert.False(people[0].Registered);
+        Assert.True(people[1].Registered);
+
+        // The Abbé's is the game's own word for a car nobody ever works out.
+        Assert.Equal("Unknown", people[3].Vehicle);
+        Assert.False(people[3].Registered);
+
+        // Six registrations against four descriptions — but only five plates and five
+        // licence items, because Lady Howard and Estelle Stiles share a car. That is the
+        // story point, and it means Estelle's registration can only ever be filled in by
+        // linking Lady Howard's licence to her.
+        Assert.Equal(
+            ["Buchelli", "Emilio", "Howard", "Estelle", "Wilkes", "Mosely"],
+            people.Where(person => person.Registered).Select(person => person.Noun));
+
+        Assert.Equal(
+            people[4].Vehicle,
+            people[5].Vehicle);
+
+        Assert.Equal(
+            5,
+            people.Where(person => person.Registered)
+                .Select(person => person.Vehicle)
+                .Distinct()
+                .Count());
+    }
+
+    [Theory]
+    [InlineData("ABBE_FINGERPRINT", "Abbe Arnaud")]
+    [InlineData("BUCHELLIS_FINGERPRINT", "Vittorio Buchelli")]
+    [InlineData("BUTHANES_FINGERPRINT", "Madeline Buthane")]
+    [InlineData("ESTELLES_FINGERPRINT", "Estelle Stiles")]
+    [InlineData("HOWARDS_FINGERPRINT", "Lady Howard")]
+    [InlineData("LARRYS_FINGERPRINT", "Larry Chester")]
+    [InlineData("MONTREAUX_FINGERPRINT", "Excelsior Montreaux")]
+    [InlineData("MOSELYS_FINGERPRINT", "Franklin Mosely")]
+    [InlineData("WILKES_FINGERPRINT", "John Wilkes")]
+    public void Every_print_the_game_ships_reaches_exactly_the_person_it_belongs_to(
+        string item, string owner)
+    {
+        // Evidence is named after the noun the game knows somebody by, and three of them are
+        // not their surname: the Abbé by his title, Estelle Stiles and Larry Chester by their
+        // first names. Reading a surname off the suspect list left those three prints
+        // matching nobody at all — no match, no flag, and no way to convict them.
+        SidneyMachine sidney = Machine(out _);
+
+        sidney.Scan(item);
+
+        foreach (SidneySuspect person in sidney.Library.Suspects())
+        {
+            sidney.OpenSuspect(person);
+            sidney.LinkToSuspect(sidney.Files[0]);
+
+            string said = sidney.MatchPrint().Text;
+            bool theirs = person.Name.Equals(owner, StringComparison.Ordinal);
+
+            Assert.Equal(
+                theirs,
+                said.Contains("** Match Found **", StringComparison.Ordinal));
+
+            sidney.UnlinkFromSuspect(sidney.Files[0]);
+        }
+    }
+
+    [Fact]
+    public void Matching_a_print_sets_the_flag_the_story_is_waiting_on()
+    {
+        // "SidneyMatched:6" was written and read by nothing. What the game's own scripts ask
+        // for is MatchedEstelle, and setting it is what opens the T_LSR topic with her in the
+        // lobby and gives Grace something to say over the LSR envelope. Four of these flags
+        // are named in the scripts — Buthane, Buchelli, Estelle, Mosely — and this is how
+        // they are spelt.
+        SidneyMachine sidney = Machine(out GameState state);
+        SidneySuspect estelle = sidney.Library.Suspects()
+            .First(s => s.Name.Contains("Estelle", StringComparison.Ordinal));
+
+        sidney.Scan("ESTELLES_FINGERPRINT");
+        sidney.OpenSuspect(estelle);
+        sidney.LinkToSuspect(sidney.Files[0]);
+
+        Assert.False(state.GetFlag("MatchedEstelle"));
+
+        Assert.Contains("Match Found", sidney.MatchPrint().Text, StringComparison.Ordinal);
+
+        Assert.True(state.GetFlag("MatchedEstelle"));
     }
 
     [Fact]

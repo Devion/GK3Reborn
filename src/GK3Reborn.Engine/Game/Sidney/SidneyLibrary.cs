@@ -105,7 +105,105 @@ public sealed record SidneyMail(
 /// <param name="Name">Their name.</param>
 /// <param name="Nationality">Where they are from.</param>
 /// <param name="Vehicle">What they drive, as far as anybody knows.</param>
-public sealed record SidneySuspect(int Index, string Name, string Nationality, string Vehicle);
+public sealed record SidneySuspect(int Index, string Name, string Nationality, string Vehicle)
+{
+    /// <summary>
+    /// The picture of this suspect, or an empty string where there is none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Rendered from the character's own head</b> rather than cut from anything the game
+    /// ships: the original's suspect screen has no portraits at all, and the pictures that
+    /// exist elsewhere are inventory-sized. <c>render-model --portrait</c> frames the head,
+    /// turns it three-eighths of a turn and subdivides it, which is a far better face than
+    /// any 1999 asset of one.
+    /// </para>
+    /// <para>
+    /// Which model is whom comes out of the scene files, not out of a guess at the initials:
+    /// <c>model=lad</c> is Girard rather than Lady Howard, and Lady Howard is <c>lmo</c>.
+    /// Read off <c>model=X, noun=Y</c> across every SIF.
+    /// </para>
+    /// </remarks>
+    public string Portrait => Index switch
+    {
+        1 => "PORTRAIT_MAD",   // Madeline Buthane
+        2 => "PORTRAIT_VIT",   // Vittorio Buchelli
+        3 => "PORTRAIT_EML",   // Emilio Baza
+        4 => "PORTRAIT_ABE",   // Abbé Arnaud
+        5 => "PORTRAIT_LMO",   // Lady Howard
+        6 => "PORTRAIT_EST",   // Estelle Stiles
+        7 => "PORTRAIT_WIL",   // John Wilkes
+        8 => "PORTRAIT_LAR",   // Larry Chester
+        9 => "PORTRAIT_MON",   // Excelsior Montreaux
+        10 => "PORTRAIT_MOS",  // Franklin Mosely
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// What the game calls this person: the noun its own scripts, items and flags use.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Not the surname.</b> Three of them are known to the game by something else — the
+    /// Abbé by his title, Estelle Stiles and Larry Chester by their first names — and every
+    /// piece of evidence is named after the noun, not the name on the suspect list. Reading
+    /// a surname off <c>Name</c> made <c>ABBE_FINGERPRINT</c>, <c>ESTELLES_FINGERPRINT</c>
+    /// and <c>LARRYS_FINGERPRINT</c> match nobody at all, so three suspects could never be
+    /// convicted of anything.
+    /// </para>
+    /// <para>
+    /// Read off the game's own names: the nine <c>*_FINGERPRINT</c> and five
+    /// <c>*_LICENSE</c> items, the actors its conversations address, and the four
+    /// <c>Matched…</c> flags its scripts write — <c>MatchedButhane</c>,
+    /// <c>MatchedBuchelli</c>, <c>MatchedEstelle</c>, <c>MatchedMosely</c> — which agree
+    /// with each other exactly.
+    /// </para>
+    /// </remarks>
+    public string Noun => Index switch
+    {
+        1 => "Buthane",     // Madeline Buthane
+        2 => "Buchelli",    // Vittorio Buchelli
+        3 => "Emilio",      // Emilio Baza, who leaves no print
+        4 => "Abbe",        // Abbé Arnaud, known by his title
+        5 => "Howard",      // Lady Howard
+        6 => "Estelle",     // Estelle Stiles, known by her first name
+        7 => "Wilkes",      // John Wilkes
+        8 => "Larry",       // Larry Chester, known by his first name
+        9 => "Montreaux",   // Excelsior Montreaux
+        10 => "Mosely",     // Franklin Mosely
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// Whether this suspect's vehicle is recorded as a registration rather than a description.
+    /// </summary>
+    /// <remarks>
+    /// <b>The data draws the line itself.</b> Five of the ten carry a plate — VDG945F,
+    /// HJK841J, FKS427G, FED039A, ASD257K — and those five are exactly the five
+    /// <c>*_LICENSE</c> items the player can photograph. The other five carry what one could
+    /// tell by looking: "Van", "Blue Sedan", "Auto?", and for the Abbé the game's own
+    /// "Unknown". So a registration is something learned by linking a plate; a description
+    /// is not, and hiding it would hide something the player already saw.
+    /// </remarks>
+    public bool Registered =>
+        Vehicle.Length == 7 &&
+        char.IsAsciiLetterUpper(Vehicle[0]) &&
+        char.IsAsciiLetterUpper(Vehicle[1]) &&
+        char.IsAsciiLetterUpper(Vehicle[2]) &&
+        char.IsAsciiDigit(Vehicle[3]) &&
+        char.IsAsciiDigit(Vehicle[4]) &&
+        char.IsAsciiDigit(Vehicle[5]) &&
+        char.IsAsciiLetterUpper(Vehicle[6]);
+
+    /// <summary>Every portrait there is, for whoever loads them.</summary>
+    public static IReadOnlyList<string> Portraits =>
+    [
+        .. Enumerable.Range(1, 10)
+            .Select(index => new SidneySuspect(index, string.Empty, string.Empty, string.Empty)
+                .Portrait)
+            .Where(name => name.Length > 0),
+    ];
+}
 
 /// <summary>One of the identities Sidney can print.</summary>
 /// <param name="Category">Which trade — MEDICAL, REPORTER, REPAIR, SALES, POLICE.</param>

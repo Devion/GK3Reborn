@@ -184,10 +184,10 @@ public static class RebarnFormat
     /// <param name="name">The name, with or without an extension or a directory.</param>
     /// <returns>The canonical key.</returns>
     /// <remarks>
-    /// Uppercase, no extension and no directory, which is how every other layer in the
-    /// engine addresses content: a surface refers to <c>R25WALLS</c>, the archive holds
-    /// <c>R25WALLS.BMP</c> and the pack holds <c>R25WALLS.DDS</c>, and all three are the
-    /// same thing.
+    /// Uppercase, no extension and no directory for ordinary ReBarn content. Audio is the
+    /// exception: GK3 stores a dialogue sequence in the extension position, so
+    /// <c>A0NQIB44.QR1</c> and <c>A0NQIB44.QR2</c> are different recordings and the suffix
+    /// must remain part of the key.
     /// </remarks>
     public static string Key(RebarnKind kind, string name)
     {
@@ -202,7 +202,7 @@ public static class RebarnFormat
         }
 
         int dot = span.LastIndexOf('.');
-        if (dot > 0)
+        if (kind != RebarnKind.Audio && dot > 0)
         {
             span = span[..dot];
         }

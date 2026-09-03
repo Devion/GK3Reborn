@@ -32,6 +32,7 @@ public sealed class SidneyView
     private readonly SidneyScrolls _scrolls = new();
 
     private List<(string Id, Vector4 Bounds)> _regions = [];
+    private SidneyMachine? _machine;
 
     /// <summary>Where the map was drawn last, so a click can be turned into a place.</summary>
     public Vector4 MapBounds { get; private set; }
@@ -49,6 +50,23 @@ public sealed class SidneyView
     /// </remarks>
     public bool Wheel(Vector2 at, float notches, float step)
     {
+        // Over the map the wheel means "look closer", which is the one place in Sidney
+        // where a list is not what is under the pointer.
+        if (_machine is { Screen: SidneyScreen.Analyze } machine &&
+            machine.Open?.Kind == SidneyKind.Map &&
+            MapBounds is { Z: > 0 } map &&
+            at.X >= map.X && at.X <= map.X + map.Z &&
+            at.Y >= map.Y && at.Y <= map.Y + map.W)
+        {
+            float across = SidneyMapView.Shown / map.Z;
+
+            machine.ZoomOn(
+                SidneyMapView.Origin + new Vector2((at.X - map.X) * across, (at.Y - map.Y) * across),
+                notches);
+
+            return true;
+        }
+
         for (int i = _regions.Count - 1; i >= 0; i--)
         {
             (string id, Vector4 bounds) = _regions[i];
@@ -111,6 +129,7 @@ public sealed class SidneyView
         }
 
         MapBounds = default;
+        _machine = machine;
 
         // Nothing any program draws may leave the glass.
         overlay.PushClip(screen);

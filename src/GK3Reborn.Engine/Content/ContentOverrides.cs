@@ -35,7 +35,7 @@ namespace GK3Reborn.Content;
 ///   <item>
 ///     <description>
 ///     <strong>The extension says which layer.</strong> The forms the remake's own content
-///     takes — <c>.png .dds .bmp .glb .mp4 .json</c> — go in front of the packs.
+///     takes — <c>.png .dds .bmp .glb .mp4 .json .wav</c> — go in front of the packs.
 ///     Everything else is an asset of the 1999 game, so it goes in front of the archives
 ///     under its own file name: <c>R25.SIF</c>, <c>R25.NVC</c>, <c>R25THEME1.WAV</c>.
 ///     </description>
@@ -43,7 +43,7 @@ namespace GK3Reborn.Content;
 ///   <item>
 ///     <description>
 ///     <strong>A directory says which kind.</strong> The last path segment that names one
-///     — <c>textures normals orm height emissive models scene-geometry video manifests raw</c>
+///     — <c>textures normals orm height emissive models scene-geometry video audio manifests raw</c>
 ///     — decides, exactly as <c>enhanced/</c> and <c>pack-extract</c> lay them out, so
 ///     <c>--extract</c> writes a tree this reads back without anything being moved. Any
 ///     other directory is the player's own filing and is ignored: <c>overrides/my mod/
@@ -70,7 +70,7 @@ public sealed class ContentOverrides
     /// asset of the original game and is matched by its whole file name instead.
     /// </remarks>
     private static readonly string[] PackForms =
-        [".PNG", ".DDS", ".BMP", ".GLB", ".GLTF", ".MP4", ".M4V", ".JSON"];
+        [".PNG", ".DDS", ".BMP", ".GLB", ".GLTF", ".MP4", ".M4V", ".JSON", ".WAV"];
 
     /// <summary>Extensions that decode to pixels rather than to blocks.</summary>
     /// <remarks>
@@ -186,6 +186,16 @@ public sealed class ContentOverrides
 
         RebarnKind kind = KindOf(root, file, extension);
 
+        // Enhanced audio is named <original asset name>.wav. The extra suffix tells
+        // editors and the packer what the bytes are, while everything before it remains
+        // the identity the 1999 scripts use — including a dialogue sequence suffix such
+        // as .QR1. A plain original-game X.WAV override is still registered in _archive
+        // above and wins there under its exact name.
+        if (kind == RebarnKind.Audio)
+        {
+            bare = name[..^extension.Length];
+        }
+
         if (ImageForms.Contains(extension))
         {
             Into(_images, kind)[bare] = file;
@@ -232,6 +242,7 @@ public sealed class ContentOverrides
         {
             ".GLB" or ".GLTF" => RebarnKind.Model,
             ".MP4" or ".M4V" => RebarnKind.Video,
+            ".WAV" => RebarnKind.Audio,
             ".JSON" => RebarnKind.Manifest,
             _ => RebarnKind.Texture,
         };
@@ -284,7 +295,7 @@ public sealed class ContentOverrides
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return Of(_packed, kind).ContainsKey(Path.GetFileNameWithoutExtension(name));
+        return Of(_packed, kind).ContainsKey(LookupName(kind, name));
     }
 
     /// <summary>Where an override that stands in for a pack entry is on disk.</summary>
@@ -296,7 +307,7 @@ public sealed class ContentOverrides
         ArgumentNullException.ThrowIfNull(name);
 
         return Of(_packed, kind).TryGetValue(
-            Path.GetFileNameWithoutExtension(name), out string? file) ? file : null;
+            LookupName(kind, name), out string? file) ? file : null;
     }
 
     /// <summary>Every overridden name of one kind, in a stable order.</summary>
@@ -355,6 +366,11 @@ public sealed class ContentOverrides
     /// <param name="name">Its name.</param>
     /// <returns>The path, or null when nothing overrides it.</returns>
     public string? SourceOf(RebarnKind kind, string name) => PathOf(kind, name);
+
+    private static string LookupName(RebarnKind kind, string name) =>
+        kind == RebarnKind.Audio
+            ? Path.GetFileName(name)
+            : Path.GetFileNameWithoutExtension(name);
 
     /// <summary>A one-line summary of what is being overridden, for a startup report.</summary>
     /// <returns>The summary, or null when there is nothing.</returns>

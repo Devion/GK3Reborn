@@ -1,4 +1,5 @@
-using System.Text;
+﻿using System.Text;
+using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
 
 namespace GK3Reborn.Content;
@@ -35,6 +36,32 @@ public sealed class GameArchives : IDisposable
     /// about would be the one nobody could work out why they could not replace.
     /// </remarks>
     public ContentOverrides? Overrides { get; set; }
+
+    /// <summary>
+    /// Content the game shipped with and cannot reach, put back on the way past.
+    /// </summary>
+    /// <remarks>
+    /// Null unless the player asked for it, and null all the way down, so that a game
+    /// nobody has asked to restore anything in does one null test per read.
+    /// <para>
+    /// It edits what an archive holds; it never edits an override. A file the player put
+    /// in <c>overrides/</c> is theirs, and a table quietly rewriting it would be the one
+    /// thing an override exists to prevent.
+    /// </para>
+    /// </remarks>
+    public CutContent? Restoration { get; set; }
+
+    /// <summary>Where restorations that did not apply are reported.</summary>
+    public DiagnosticBag? RestorationDiagnostics { get; set; }
+
+    /// <summary>
+    /// Assets the remake adds, which no barn has and none can.
+    /// </summary>
+    /// <remarks>
+    /// Consulted last, after every archive, so it can only ever answer for a name the game
+    /// does not know. See <see cref="AddedAssets"/>.
+    /// </remarks>
+    public AddedAssets? Added { get; set; }
 
     /// <summary>Opens every archive in a directory.</summary>
     /// <param name="directory">The game's <c>Data</c> directory.</param>
@@ -125,6 +152,21 @@ public sealed class GameArchives : IDisposable
             }
         }
 
+        // Last, because that is where they are read from: a listing that put them earlier
+        // would disagree with a read for any name an archive also has.
+        foreach (string added in Added?.Names ?? [])
+        {
+            if (suffix is not null && !added.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (seen.Add(added))
+            {
+                names.Add(added);
+            }
+        }
+
         return names;
     }
 
@@ -145,11 +187,15 @@ public sealed class GameArchives : IDisposable
             BarnEntry? entry = archive.Find(name);
             if (entry is not null && !entry.IsPointer)
             {
-                return archive.Extract(entry);
+                byte[] bytes = archive.Extract(entry);
+
+                return Restoration is { } restoration && restoration.Handles(name)
+                    ? restoration.Apply(name, bytes, RestorationDiagnostics)
+                    : bytes;
             }
         }
 
-        return null;
+        return Added?.Read(name);
     }
 
     /// <summary>Whether any archive holds an asset.</summary>
@@ -176,7 +222,7 @@ public sealed class GameArchives : IDisposable
             }
         }
 
-        return false;
+        return Added?.Has(name) == true;
     }
 
     /// <summary>Reads a text asset by name.</summary>

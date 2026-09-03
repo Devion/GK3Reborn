@@ -24,6 +24,12 @@ public static class SidneyMapView
     /// <summary>What the machine's longer notes are broken into lines by.</summary>
     private const char Newline = (char)10;
 
+    /// <summary>The map pixel at the top left of what was drawn last.</summary>
+    public static Vector2 Origin { get; private set; }
+
+    /// <summary>How many map pixels across were drawn last.</summary>
+    public static float Shown { get; private set; } = SidneyMap.Extent;
+
     /// <summary>Draws the map.</summary>
     /// <param name="surface">Where to draw.</param>
     /// <param name="machine">The machine.</param>
@@ -52,12 +58,29 @@ public static class SidneyMapView
 
         float left = body.X;
         float top = body.Y;
-        float scale = side / SidneyMap.Extent;
+
+        // How much of the country is on the glass, and where it starts. At rest that is all
+        // of it; zoomed in it is a window on to it, and everything drawn — the picture, the
+        // ruling, the figures, the marks — goes through the same two numbers.
+        float shown = SidneyMap.Extent / machine.Zoom;
+        var origin = new Vector2(machine.Focus.X - (shown / 2), machine.Focus.Y - (shown / 2));
+        float scale = side / shown;
         var bounds = new Vector4(left, top, side, side);
 
         if (picture > 0)
         {
-            surface.Overlay.Picture(picture, left, top, side, side, Vector4.One);
+            surface.Overlay.Picture(
+                picture,
+                left,
+                top,
+                side,
+                side,
+                Vector4.One,
+                new Vector4(
+                    origin.X / SidneyMap.Extent,
+                    origin.Y / SidneyMap.Extent,
+                    shown / SidneyMap.Extent,
+                    shown / SidneyMap.Extent));
         }
         else
         {
@@ -72,7 +95,7 @@ public static class SidneyMapView
 
         if (machine.Map.Grid > 0)
         {
-            Rule(surface, machine, left, top, side, scale);
+            Rule(surface, machine, left, top, side, scale, origin);
         }
 
         // <b>The line the analysis found, drawn right across the country.</b> Two places
@@ -89,10 +112,10 @@ public static class SidneyMapView
             if (Across(from, to, SidneyMap.Extent) is [Vector2 a, Vector2 b])
             {
                 surface.Stroke(
-                    left + (a.X * scale),
-                    top + (a.Y * scale),
-                    left + (b.X * scale),
-                    top + (b.Y * scale),
+                    left + ((a.X - origin.X) * scale),
+                    top + ((a.Y - origin.Y) * scale),
+                    left + ((b.X - origin.X) * scale),
+                    top + ((b.Y - origin.Y) * scale),
                     SidneyPalette.Finding,
                     MathF.Max(2, surface.Em(1.4f)));
             }
@@ -102,8 +125,8 @@ public static class SidneyMapView
         if (machine.Map.Found is { Finding: MapFinding.Circle } found)
         {
             surface.Ring(
-                left + (found.Centre.X * scale),
-                top + (found.Centre.Y * scale),
+                left + ((found.Centre.X - origin.X) * scale),
+                top + ((found.Centre.Y - origin.Y) * scale),
                 found.Radius * scale,
                 SidneyPalette.Finding,
                 MathF.Max(2, surface.Em(1.6f)));
@@ -127,10 +150,10 @@ public static class SidneyMapView
                     is [Vector2 one, Vector2 other])
                 {
                     surface.Stroke(
-                        left + (one.X * scale),
-                        top + (one.Y * scale),
-                        left + (other.X * scale),
-                        top + (other.Y * scale),
+                        left + ((one.X - origin.X) * scale),
+                        top + ((one.Y - origin.Y) * scale),
+                        left + ((other.X - origin.X) * scale),
+                        top + ((other.Y - origin.Y) * scale),
                         ink,
                         weight);
                 }
@@ -138,8 +161,8 @@ public static class SidneyMapView
             else if (laid.Shape == MapShape.Circle)
             {
                 surface.Ring(
-                    left + (laid.At.X * scale),
-                    top + (laid.At.Y * scale),
+                    left + ((laid.At.X - origin.X) * scale),
+                    top + ((laid.At.Y - origin.Y) * scale),
                     laid.Size * scale,
                     ink,
                     weight);
@@ -150,12 +173,12 @@ public static class SidneyMapView
                 // finding it, rather than a twelve-sided outline.
                 foreach (Vector2[] triangle in SidneyMap.Triangles(laid))
                 {
-                    Outline(surface, triangle, left, top, scale, ink, weight);
+                    Outline(surface, triangle, left, top, scale, origin, ink, weight);
                 }
             }
             else
             {
-                Outline(surface, SidneyMap.Corners(laid), left, top, scale, ink, weight);
+                Outline(surface, SidneyMap.Corners(laid), left, top, scale, origin, ink, weight);
             }
         }
 
@@ -187,8 +210,8 @@ public static class SidneyMapView
             for (int i = 0; i < laid.Points.Count; i++)
             {
                 Vector2 point = laid.Points[i];
-                float x = left + (point.X * scale);
-                float y = top + (point.Y * scale);
+                float x = left + ((point.X - origin.X) * scale);
+                float y = top + ((point.Y - origin.Y) * scale);
                 bool held = machine.DraggingFigure == f && machine.Dragging == i;
 
                 surface.Disc(
@@ -205,11 +228,18 @@ public static class SidneyMapView
             }
         }
 
-        for (int i = 0; i < machine.Map.Points.Count; i++)
+        bool laidAlready = false;
+
+        foreach (LaidShape laid in machine.Map.Laid)
+        {
+            laidAlready |= laid.Shape == machine.Map.Selected;
+        }
+
+        for (int i = 0; laidAlready ? false : i < machine.Map.Points.Count; i++)
         {
             Vector2 point = machine.Map.Points[i];
-            float x = left + (point.X * scale);
-            float y = top + (point.Y * scale);
+            float x = left + ((point.X - origin.X) * scale);
+            float y = top + ((point.Y - origin.Y) * scale);
             bool held = machine.DraggingFigure < 0 && machine.Dragging == i;
 
             surface.Disc(
@@ -229,7 +259,22 @@ public static class SidneyMapView
 
         surface.Overlay.PopClip();
 
+        Origin = origin;
+        Shown = shown;
+
         float used = Figures(surface, machine, bounds, column);
+
+        // The way out of a fine motor task: the next place the survey has a cross on.
+        float assist = surface.Line + surface.Em(10);
+        var helper = new Vector4(
+            bounds.X + bounds.Z + (column * 0.08f),
+            bounds.Y + used,
+            column - (column * 0.14f),
+            assist);
+
+        surface.Button("sidney:assist", helper, "SCHATGPT");
+
+        used += assist + surface.Em(8);
 
         // The rulings the game offers, when one has been asked for.
         if (machine.Ruling)
@@ -299,6 +344,26 @@ public static class SidneyMapView
 
                 surface.EndScroll();
             }
+
+            // The one question this screen asks: whether to let it finish the map.
+            if (note.Asks is { Length: > 0 } question && note.Choices is { Count: > 0 } answers)
+            {
+                float row = surface.Line + surface.Em(10);
+                float at = said.Y + said.W - row;
+                float x = said.X;
+
+                surface.Write(question, x, at - surface.Line - surface.Em(4), SidneyPalette.Amber);
+
+                foreach (string answer in answers)
+                {
+                    float across = surface.Measure(answer) + surface.Em(20);
+
+                    surface.Button(
+                        "sidney:solve:" + answer, new Vector4(x, at, across, row), answer);
+
+                    x += across + surface.Em(6);
+                }
+            }
         }
 
         return bounds;
@@ -363,12 +428,34 @@ public static class SidneyMapView
             surface.Fill(
                 box, already is not null || over ? SidneyPalette.PanelLit : SidneyPalette.Panel);
 
+            bool chosen = machine.Map.Selected == shape;
+
             surface.Frame(
                 box,
-                already is { Locked: true } ? SidneyPalette.Confirmed
+                chosen ? SidneyPalette.Amber
+                    : already is { Locked: true } ? SidneyPalette.Confirmed
                     : already is not null ? SidneyPalette.Figure
                     : over ? SidneyPalette.AmberDim
-                    : SidneyPalette.Rule);
+                    : SidneyPalette.Rule,
+                chosen ? MathF.Max(1, surface.Em(1.4f)) : 1f);
+
+            // How many places it still wants, beside its picture — the one thing the
+            // original never says. A figure that is confirmed wants none, and says so.
+            int has = already?.Points.Count ?? (chosen ? machine.Map.Points.Count : 0);
+
+            string tally = already is { Locked: true }
+                ? "OK"
+                : string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"{has}/{SidneyMap.Needs(shape)}");
+
+            surface.Write(
+                tally,
+                box.X + box.Z + surface.Em(5),
+                box.Y + ((box.W - surface.Line) / 2),
+                already is { Locked: true } ? SidneyPalette.Confirmed
+                    : chosen ? SidneyPalette.Amber
+                    : SidneyPalette.Dim);
 
             Emblem(
                 surface,
@@ -476,7 +563,8 @@ public static class SidneyMapView
         float left,
         float top,
         float side,
-        float scale)
+        float scale,
+        Vector2 origin)
     {
         int cells = machine.Map.Grid;
 
@@ -488,7 +576,7 @@ public static class SidneyMapView
             if (corners.Length == 4)
             {
                 Vector2 On(Vector2 map) =>
-                    new(left + (map.X * scale), top + (map.Y * scale));
+                    new(left + ((map.X - origin.X) * scale), top + ((map.Y - origin.Y) * scale));
 
                 for (int i = 1; i < cells; i++)
                 {
@@ -515,12 +603,14 @@ public static class SidneyMapView
             }
         }
 
-        float stepped = side / cells;
+        float stepped = SidneyMap.Extent / (float)cells;
 
         for (int i = 1; i < cells; i++)
         {
-            surface.Fill(left + (i * stepped), top, 1, side, SidneyPalette.Rule);
-            surface.Fill(left, top + (i * stepped), side, 1, SidneyPalette.Rule);
+            float at = i * stepped;
+
+            surface.Fill(left + ((at - origin.X) * scale), top, 1, side, SidneyPalette.Rule);
+            surface.Fill(left, top + ((at - origin.Y) * scale), side, 1, SidneyPalette.Rule);
         }
     }
 
@@ -611,6 +701,7 @@ public static class SidneyMapView
         float left,
         float top,
         float scale,
+        Vector2 origin,
         Vector4 colour,
         float weight)
     {
@@ -620,10 +711,10 @@ public static class SidneyMapView
             Vector2 b = corners[(i + 1) % corners.Length];
 
             surface.Stroke(
-                left + (a.X * scale),
-                top + (a.Y * scale),
-                left + (b.X * scale),
-                top + (b.Y * scale),
+                left + ((a.X - origin.X) * scale),
+                top + ((a.Y - origin.Y) * scale),
+                left + ((b.X - origin.X) * scale),
+                top + ((b.Y - origin.Y) * scale),
                 colour,
                 weight);
         }

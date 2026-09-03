@@ -1,6 +1,7 @@
 ﻿using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.UI;
 using GK3Reborn.UI.Interaction;
 using Xunit;
 
@@ -207,5 +208,48 @@ public sealed class ActionCaseTests
         state.SetFlag("EGG");
 
         Assert.Equal(["LOOK", "TALK"], Verbs(resolver, "CHICKEN"));
+    }
+    [Fact]
+    public void Scanning_into_Sidney_beats_the_two_rules_that_only_talk_about_scanning()
+    {
+        // Every scannable item carries three SCANNER rules: the one that does the work, and
+        // one for each ego saying they cannot do it here. All three can be satisfied at once
+        // — GABE_ALL_INV is only "IsCurrentEgo(Gabriel) && IsTopLayerInventory()" — so which
+        // one wins is the whole question. A case somebody defined is worth 7 against that
+        // one's 2, which settles it, and this is what the port's scanning depends on.
+        var state = new GameState();
+
+        ActionResolver resolver = Resolver(
+            state,
+            """
+            [LOGIC]
+            IN_SIDNEY_ADD_DATA={IsTopLayerInventory() && GetFlag("UsingScanner")}
+            GABE_ALL_INV={IsCurrentEgo("Gabriel") && IsTopLayerInventory()}
+            GRACE_ALL_INV={IsCurrentEgo("Grace") && IsTopLayerInventory()}
+
+            [ACTIONS]
+            ABBE_FINGERPRINT, SCANNER, IN_SIDNEY_ADD_DATA, script={}
+            ABBE_FINGERPRINT, SCANNER, GABE_ALL_INV, script={}
+            ABBE_FINGERPRINT, SCANNER, GRACE_ALL_INV, script={}
+            """);
+
+        // Nothing open: no scanner, and no rule at all.
+        Assert.Null(resolver.Find("ABBE_FINGERPRINT", "SCANNER", state.Ego));
+
+        // The bag open in the room, which is somebody holding a print and no machine to put
+        // it in. What they get is the line about not being able to.
+        state.Screens.Show(new Screen(ScreenKind.Inventory, "ABBE_FINGERPRINT"));
+
+        Assert.Equal(
+            "GABE_ALL_INV",
+            resolver.Find("ABBE_FINGERPRINT", "SCANNER", state.Ego)?.Case);
+
+        // And the scanner up, which is the rule that marks the item used and runs whatever
+        // script hangs off it.
+        state.SetFlag("UsingScanner");
+
+        Assert.Equal(
+            "IN_SIDNEY_ADD_DATA",
+            resolver.Find("ABBE_FINGERPRINT", "SCANNER", state.Ego)?.Case);
     }
 }

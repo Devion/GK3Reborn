@@ -5,6 +5,7 @@ using GK3Reborn.Game;
 using GK3Reborn.Platform;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Upscaling;
+using GK3Reborn.Content;
 
 namespace GK3Reborn.UI;
 
@@ -1056,6 +1057,12 @@ public sealed class FrontEnd
         MenuItem.Toggle("captions", "Write out what is said", Settings.Captions),
         MenuItem.Toggle("intro", "Play the intro on starting", Settings.PlayIntro),
         MenuItem.Toggle("eggs", "Easter eggs", Settings.EasterEggs),
+
+        // Named for what it gives rather than for what it is. "Cut content" is what
+        // somebody looking for this will search for; the values say what turning it on
+        // will actually mean, which "on" and "off" could not.
+        MenuItem.Choice("restored", "Cut content", Describe(Settings.RestoredContent)),
+
         MenuItem.Button("back", "Back"),
     ];
 
@@ -1235,6 +1242,17 @@ public sealed class FrontEnd
             "intro" => Settings with { PlayIntro = !Settings.PlayIntro },
             "eggs" => Settings with { EasterEggs = !Settings.EasterEggs },
 
+            "restored" => Settings with
+            {
+                RestoredContent = Settings.RestoredContent switch
+                {
+                    CutContentTier.None => CutContentTier.Observation,
+                    CutContentTier.Observation => CutContentTier.All,
+                    CutContentTier.All => CutContentTier.Reconstructed,
+                    _ => CutContentTier.None,
+                },
+            },
+
             "moustache" => Settings with
             {
                 AlwaysWearsMoustache = !Settings.AlwaysWearsMoustache,
@@ -1357,6 +1375,20 @@ public sealed class FrontEnd
 
         return all[next < 0 ? next + all.Length : next];
     }
+
+    /// <summary>What each cut-content tier is called in the menu.</summary>
+    /// <remarks>
+    /// The names say what the player gets, not what the tier is. "Observation" is a word
+    /// out of the implementation; "things to look at" is the row telling somebody who has
+    /// never read the documentation what turning it on will do to their game.
+    /// </remarks>
+    private static string Describe(CutContentTier tier) => tier switch
+    {
+        CutContentTier.Observation => "Things to look at",
+        CutContentTier.All => "Everything, puzzles included",
+        CutContentTier.Reconstructed => "And objects rebuilt from scratch",
+        _ => "Off",
+    };
 
     private static string Describe(PictureQuality quality) => quality switch
     {

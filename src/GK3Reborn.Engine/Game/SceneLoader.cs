@@ -399,6 +399,27 @@ public sealed class SceneLoader
     public EnhancedScenes? Scenes { get; set; }
 
     /// <summary>
+    /// Prop geometry that did not ship with the game, for the objects restorations put back.
+    /// </summary>
+    /// <remarks>
+    /// Consulted only when the archives have no <c>.MOD</c> of that name, so it can never
+    /// stand in front of a model the game itself places. Null or empty leaves every scene
+    /// with exactly the props it shipped with, and a scene naming a model nothing has
+    /// reports it and places nothing. See <see cref="Content.ModelLibrary"/>.
+    /// </remarks>
+    public ModelLibrary? Models { get; set; }
+
+    /// <summary>
+    /// Rooms that did not ship with the game, built from glTF.
+    /// </summary>
+    /// <remarks>
+    /// Consulted only when the archives have no <c>.BSP</c> of that name, so it can never
+    /// stand in front of a room the game ships. Null or empty leaves a scene with no
+    /// geometry failing exactly as it did. See <see cref="Content.RoomLibrary"/>.
+    /// </remarks>
+    public RoomLibrary? Rooms { get; set; }
+
+    /// <summary>
     /// Where the reconstructed terrain sets live loose, or null for none.
     /// </summary>
     /// <remarks>
@@ -570,12 +591,27 @@ public sealed class SceneLoader
         string bspName = asset?.BspName ?? scene;
 
         byte[]? bspBytes = _archives.Read(bspName + ".BSP");
+        BspFile? supplied = null;
+
         if (bspBytes is null)
         {
-            diagnostics.Add(new Diagnostic(
-                "SCENE001", DiagnosticSeverity.Error, $"No archive contains {bspName}.BSP."));
+            // No .BSP by that name. Before giving up, ask the room library: a room the game
+            // never had can only be here because something asked for it, and building one
+            // out of glTF is the only way it can exist. Asked after the archives and never
+            // before, so it can never stand in front of a room the game itself ships.
+            supplied = Rooms?.Read(bspName, diagnostics);
 
-            return null;
+            if (supplied is null)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE001", DiagnosticSeverity.Error, $"No archive contains {bspName}.BSP."));
+
+                return null;
+            }
+
+            _log?.Invoke(
+                $"geometry: {bspName} built from a model, {supplied.TriangleCount} triangles, " +
+                $"{supplied.Surfaces.Count} surfaces, no bake");
         }
 
         // Between reading it and parsing it. The two are a tenth of a second together on a
@@ -584,7 +620,7 @@ public sealed class SceneLoader
         Timeline?.Stamp("read .BSP");
         Progress?.Invoke();
 
-        BspFile bsp = BspFile.Parse(bspBytes, bspName + ".BSP");
+        BspFile bsp = supplied ?? BspFile.Parse(bspBytes!, bspName + ".BSP");
         Timeline?.Stamp("parse .BSP");
         _log?.Invoke($"geometry: {bspName}.BSP, {bsp.TriangleCount} triangles, {bsp.Surfaces.Count} surfaces");
         Progress?.Invoke();
@@ -1146,8 +1182,16 @@ public sealed class SceneLoader
         {
             byte[]? bytes = _archives.Read(name + ".MOD");
 
+            // A room the game never had has no .MOD shell either, so the model library is
+            // asked for one — after the archives and never before, like everywhere else.
             if (bytes is null)
             {
+                if (Models?.Read(name, diagnostics) is { } supplied)
+                {
+                    shells.Add(supplied);
+                    continue;
+                }
+
                 diagnostics.Add(new Diagnostic(
                     "SCENE013",
                     DiagnosticSeverity.Warning,
@@ -1494,17 +1538,29 @@ public sealed class SceneLoader
         ISceneSink geometry, SceneModel model, DiagnosticBag diagnostics)
     {
         byte[]? bytes = _archives.Read(model.Name + ".MOD");
+        ModFile? supplied = null;
+
         if (bytes is null)
         {
-            diagnostics.Add(new Diagnostic(
-                "SCENE006",
-                DiagnosticSeverity.Warning,
-                $"The scene places {model.Name}, which no archive contains."));
+            // Nothing in the archives by that name. Before giving up, ask the model
+            // library — a prop that did not ship with the game can only be here because a
+            // restoration asked for it, and this is the only way it can exist at all. The
+            // library is asked *after* the archives and never before, so it can never
+            // stand in front of a model the game itself placed.
+            supplied = Models?.Read(model.Name, diagnostics);
 
-            return null;
+            if (supplied is null)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "SCENE006",
+                    DiagnosticSeverity.Warning,
+                    $"The scene places {model.Name}, which no archive contains."));
+
+                return null;
+            }
         }
 
-        ModFile parsed = ModFile.Parse(bytes, model.Name + ".MOD");
+        ModFile parsed = supplied ?? ModFile.Parse(bytes!, model.Name + ".MOD");
         Matrix4x4 standing = Matrix4x4.Identity;
 
         // A flat tree becomes a modelled one here, before anything else is decided
@@ -1517,6 +1573,16 @@ public sealed class SceneLoader
             parsed = grown.Model;
             standing = grown.Standing;
             _treesGrown++;
+        }
+
+        // Where the scene says it stands, for a prop borrowed from another room. A .MOD's
+        // vertices are in the coordinates of the room it was modelled for, so a suitcase
+        // taken from R31 and put in R29 would otherwise appear wherever it sits in R31 —
+        // usually inside a wall. Applied after the tree pass because a grown tree already
+        // carries a transform of its own and no restoration places one.
+        if (model.Position is { } stands && standing.IsIdentity)
+        {
+            standing = StandOn(parsed, stands, model.Heading ?? 0f);
         }
 
         LoadTextures(
@@ -1553,6 +1619,56 @@ public sealed class SceneLoader
             Visible = !model.Hidden,
             InitialAnimation = model.InitialAnimation,
         };
+    }
+
+
+    /// <summary>Builds the transform that stands a model on a point.</summary>
+    /// <param name="model">The mesh, in whatever coordinates it was authored in.</param>
+    /// <param name="where">Where it is to stand.</param>
+    /// <param name="heading">Which way it is to face, in degrees about Y.</param>
+    /// <returns>The transform to place it with.</returns>
+    /// <remarks>
+    /// <para>
+    /// "Stand here" rather than "put your origin here", because the point a placement is
+    /// chosen from is a surface — a shelf, a desk, the floor — and the useful thing to say
+    /// about an object on a surface is that it rests on it. So the model is centred on the
+    /// point in X and Z and its lowest vertex put at the point's Y.
+    /// </para>
+    /// <para>
+    /// The rotation is applied about the model's own centre before it is moved, or an
+    /// object with an origin far from its geometry — which is every prop authored in room
+    /// coordinates — would swing away instead of turning on the spot.
+    /// </para>
+    /// </remarks>
+    private static Matrix4x4 StandOn(ModFile model, Vector3 where, float heading)
+    {
+        Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+        bool any = false;
+
+        foreach (ModMesh mesh in model.Meshes)
+        {
+            foreach (ModSubmesh submesh in mesh.Submeshes)
+            {
+                foreach (Vector3 vertex in submesh.Positions)
+                {
+                    Vector3 local = Vector3.Transform(vertex, mesh.MeshToLocal);
+                    min = Vector3.Min(min, local);
+                    max = Vector3.Max(max, local);
+                    any = true;
+                }
+            }
+        }
+
+        if (!any)
+        {
+            return Matrix4x4.CreateTranslation(where);
+        }
+
+        var footing = new Vector3((min.X + max.X) / 2f, min.Y, (min.Z + max.Z) / 2f);
+
+        return Matrix4x4.CreateTranslation(-footing)
+            * Matrix4x4.CreateRotationY(heading * MathF.PI / 180f)
+            * Matrix4x4.CreateTranslation(where);
     }
 
     /// <summary>

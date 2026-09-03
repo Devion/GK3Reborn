@@ -168,6 +168,13 @@ public static class CommandLine
           --overrides DIR       Where the player's own overriding files are. Default
                                 overrides/ beside the executable.
           --no-overrides        Ignore the overrides directory.
+          --restore-cut-content Put back content the game shipped with and cannot
+                                reach: rules its developers commented out, and
+                                bindings that stopped matching when a model was
+                                renamed. Things to look at and listen to only.
+                                Add "all" for the restored rules whose verb can
+                                do something, or "rebuilt" to add the objects
+                                that were never modelled. See docs/cut-content.md.
 
         photographing a run (headless, no keyboard):
           --frames N            Stop after N frames.
@@ -194,9 +201,12 @@ public static class CommandLine
           --sidney PAGE[:WHAT]  Open Sidney at one of its pages, and open something on it:
                                 a message, a suspect by number, or a file by item name.
           --analyse I:OP[;I:OP] Run Sidney's analyze operations on scanned items, in order.
+          --link ITEM[;ITEM]   Link scanned files to the suspect --sidney opened.
           --mark X,Y[;X,Y]      Mark places on Sidney's map, in the map's own 1,368 pixels.
           --shape N[;N]         Lay saved figures over the map; the same one again takes it off.
           --grid N              Rule the map into N cells each way; negative rules the figure.
+          --map STEP[;STEP]     Drive the map in order: mark X,Y / shape NAME / grid N / do OP.
+          --zoom N              How far into Sidney's map to look, from 1 to 6.
           --glide CAMERA        Glide the camera to a named angle.
           --glance WHO:AT       Have somebody look at something.
           --verbose             List everything that could not be loaded.

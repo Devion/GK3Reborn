@@ -8,10 +8,9 @@ namespace GK3Reborn.Content;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Straight out of the archives. 97.5% of the game's sounds are an MP3 inside a RIFF
-/// header, and <see cref="WavFile"/> decodes those where it finds them, so there is nothing
-/// to import and no second place to look. A decoded copy of the corpus used to sit in the
-/// content workspace and cost 3.7 GB to save about eight milliseconds a sound.
+/// Restored masters come from ReBarn when one exists; the original archive remains the
+/// complete fallback. 97.5% of the originals are an MP3 inside a RIFF header, and
+/// <see cref="WavFile"/> decodes those where it finds them.
 /// </para>
 /// <para>
 /// Names keep their extension, and a script may not give one. A line of dialogue is
@@ -34,6 +33,16 @@ public sealed class SoundLibrary
     {
     }
 
+    /// <summary>Creates a library over overrides, restored packs, then original barns.</summary>
+    /// <param name="archives">The original game's complete fallback.</param>
+    /// <param name="packs">The remake's optional restored content.</param>
+    public SoundLibrary(GameArchives archives, RebarnContent? packs)
+        : this(
+            name => ReadLayered(NotNull(archives), packs, name),
+            name => HasLayered(NotNull(archives), packs, name))
+    {
+    }
+
     /// <summary>Creates a library over anything that can produce a file's bytes.</summary>
     /// <param name="open">Given a full file name, returns its bytes or null.</param>
     /// <param name="exists">
@@ -53,6 +62,28 @@ public sealed class SoundLibrary
     {
         ArgumentNullException.ThrowIfNull(archives);
         return archives;
+    }
+
+    private static byte[]? ReadLayered(
+        GameArchives archives, RebarnContent? packs, string name)
+    {
+        ContentOverrides? overrides = archives.Overrides ?? packs?.Overrides;
+
+        return overrides?.ReadArchive(name)
+            ?? overrides?.Read(Formats.Rebarn.RebarnKind.Audio, name)
+            ?? packs?.Read(Formats.Rebarn.RebarnKind.Audio, name)
+            ?? archives.Read(name);
+    }
+
+    private static bool HasLayered(
+        GameArchives archives, RebarnContent? packs, string name)
+    {
+        ContentOverrides? overrides = archives.Overrides ?? packs?.Overrides;
+
+        return overrides?.HasArchive(name) == true
+            || overrides?.Has(Formats.Rebarn.RebarnKind.Audio, name) == true
+            || packs?.Has(Formats.Rebarn.RebarnKind.Audio, name) == true
+            || archives.Exists(name);
     }
 
     /// <summary>Diagnostics raised while reading.</summary>

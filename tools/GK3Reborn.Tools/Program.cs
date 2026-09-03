@@ -46,6 +46,14 @@ public static class Program
             return Stages.SceneCommands.Run(args);
         }
 
+        // Its own two flags, parsed here for the same reason the pack and scene commands
+        // parse theirs: --all and --verbose mean nothing to any other command, and adding
+        // them to the record every command shares would make every command's help worse.
+        if (args[0] is "check-cut-content")
+        {
+            return CheckCutContent(args);
+        }
+
         Options options = Options.Parse(args);
         if (options.Error is not null)
         {
@@ -60,6 +68,9 @@ public static class Program
         {
             case "extract-barn":
                 return ExtractBarn(options, diagnostics);
+
+            case "extract-audio":
+                return ExtractAudio(options, diagnostics);
 
             case "inventory":
                 return Inventory(options, diagnostics);
@@ -145,7 +156,7 @@ public static class Program
             Environment.CurrentDirectory, options.Model + ".png");
 
         bool rendered = options.Command == "render-scene"
-            ? new SceneRenderStage(Console.WriteLine).Run(
+            ? new SceneRenderStage(Console.WriteLine) { Restore = options.Restore }.Run(
                 options.Source,
                 options.Model,
                 options.Timeblock,
@@ -177,7 +188,7 @@ public static class Program
                 diagnostics)
             : new ModelRenderStage(Console.WriteLine).Run(
                 options.Source, options.Model, output, options.Width, options.Height,
-                options.Heads, diagnostics);
+                options.Heads, options.Portrait, diagnostics);
 
         Report(diagnostics);
         return rendered ? 0 : 3;
@@ -218,6 +229,35 @@ public static class Program
 
         Report(diagnostics);
         return imported ? 0 : 3;
+    }
+
+    private static int CheckCutContent(string[] args)
+    {
+        string? source = null;
+
+        for (int i = 1; i < args.Length - 1; i++)
+        {
+            if (args[i] is "--source")
+            {
+                source = args[i + 1];
+            }
+        }
+
+        if (source is null)
+        {
+            Console.Error.WriteLine("check-cut-content requires --source.");
+            return 2;
+        }
+
+        GK3Reborn.Content.CutContentTier tier =
+            args.Contains("--rebuilt", StringComparer.OrdinalIgnoreCase)
+                ? GK3Reborn.Content.CutContentTier.Reconstructed
+                : args.Contains("--all", StringComparer.OrdinalIgnoreCase)
+                    ? GK3Reborn.Content.CutContentTier.All
+                    : GK3Reborn.Content.CutContentTier.Observation;
+
+        return Stages.CutContentStage.Run(
+            source, tier, args.Contains("--verbose", StringComparer.OrdinalIgnoreCase));
     }
 
     private static int FloorMaterials(Options options, DiagnosticBag diagnostics)
@@ -289,7 +329,7 @@ public static class Program
             return 2;
         }
 
-        bool ok = new SceneCheckStage(Console.WriteLine).Run(
+        bool ok = new SceneCheckStage(Console.WriteLine) { Restore = options.Restore }.Run(
             options.Source, options.Model, options.Deep, diagnostics);
 
         Report(diagnostics);
@@ -376,6 +416,40 @@ public static class Program
         foreach ((string key, int count) in manifest.Summary.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {key,-24} {count}"));
+        }
+
+        Report(diagnostics);
+        return diagnostics.HasErrors ? 1 : 0;
+    }
+
+    private static int ExtractAudio(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("extract-audio requires --source and --workspace.");
+            return 2;
+        }
+
+        if (!Directory.Exists(options.Source))
+        {
+            Console.Error.WriteLine($"Source directory does not exist: {options.Source}");
+            return 2;
+        }
+
+        Console.WriteLine($"source: {options.Source}");
+        Console.WriteLine($"workspace: {options.Workspace}");
+        Console.WriteLine(options.Verify
+            ? "mode: verify (audio files unchanged; manifest refreshed)"
+            : "mode: extract and decode");
+        Console.WriteLine();
+
+        AudioManifest manifest = new AudioExtractStage(Console.WriteLine).Run(
+            options.Source, options.Workspace, writeFiles: !options.Verify, diagnostics);
+
+        Console.WriteLine();
+        foreach ((string key, int count) in manifest.Summary)
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {key,-32} {count}"));
         }
 
         Report(diagnostics);
@@ -675,6 +749,9 @@ public static class Program
 
             commands:
               extract-barn      Extract every entry from every Barn archive.
+              extract-audio     Preserve every original sound under raw/audio and
+                                decode restoration-ready PCM under normalized/audio,
+                                split into dialogue and sfx from YAK references.
               inventory         Classify every asset and map what references what.
               organize          Lay the corpus out by kind and convert textures to PNG.
               classify-models   Work out what each model is for, from the scene files.
@@ -716,6 +793,11 @@ public static class Program
                                 the workspace, and decode them to prove it.
               floor-materials   Say which textures the game walks on, from the floor
                                 object every scene names, and how each is finished.
+              check-cut-content Apply the cut-content restoration table to an
+                                installation and say what happened to every edit.
+                                --all includes the puzzle tier and --rebuilt the
+                                objects that were never modelled; --verbose prints
+                                each changed line. See docs/cut-content.md.
               import-textures   Check generated texture candidates against the
                                 originals they replace and take the sound ones
                                 into the enhanced set.
@@ -741,6 +823,8 @@ public static class Program
               --output PATH        Where render-model writes its PNG.
               --width N            Render width (default 1024).
               --height N           Render height (default 768).
+              --portrait           render-model frames the character's head, turned so
+                                   the face is seen from one side.
               --deep               check-scenes also loads geometry, bakes and
                                    textures, not only what a scene is made of.
               --variant SUFFIX     Which of each candidate's files import-textures
@@ -863,6 +947,12 @@ public static class Program
 
         public bool Deep { get; init; }
 
+        /// <summary>How much of the cut-content table a render applies. See docs/cut-content.md.</summary>
+        public GK3Reborn.Content.CutContentTier Restore { get; init; }
+
+        /// <summary>render-model frames the character's head rather than all of them.</summary>
+        public bool Portrait { get; init; }
+
         public bool WalkOverlay { get; init; }
 
         public string? WalkPath { get; init; }
@@ -949,6 +1039,8 @@ public static class Program
             string? timeblock = null, camera = null, rayTracing = null, backend = null, dlss = null, runtimes = null;
             int width = 1024, height = 768;
             bool deep = false;
+            GK3Reborn.Content.CutContentTier restore = GK3Reborn.Content.CutContentTier.None;
+            bool portrait = false;
             bool walkOverlay = false;
             string? walkPath = null;
             string? pick = null;
@@ -1061,6 +1153,20 @@ public static class Program
                     case "--deep":
                         deep = true;
                         break;
+                    case "--restore-cut-content":
+                        // The word after it is optional, and the next switch is not it.
+                        restore = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
+                            ? args[++i].ToUpperInvariant() switch
+                            {
+                                "ALL" => GK3Reborn.Content.CutContentTier.All,
+                                "REBUILT" => GK3Reborn.Content.CutContentTier.Reconstructed,
+                                _ => GK3Reborn.Content.CutContentTier.Observation,
+                            }
+                            : GK3Reborn.Content.CutContentTier.Observation;
+                        break;
+                    case "--portrait":
+                        portrait = true;
+                        break;
                     case "--walk-overlay":
                         walkOverlay = true;
                         break;
@@ -1130,6 +1236,8 @@ public static class Program
                 Width = width,
                 Height = height,
                 Deep = deep,
+                Restore = restore,
+                Portrait = portrait,
                 WalkOverlay = walkOverlay,
                 WalkPath = walkPath,
                 Pick = pick,

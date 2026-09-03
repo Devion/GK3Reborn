@@ -28,6 +28,9 @@ public sealed class WavFile
     /// <summary>Uncompressed pulse-code modulation.</summary>
     public const int FormatPcm = 1;
 
+    /// <summary>32-bit IEEE floating-point PCM.</summary>
+    public const int FormatIeeeFloat = 3;
+
     /// <summary>An MP3 stream wearing a RIFF header.</summary>
     public const int FormatMpegLayer3 = 85;
 
@@ -149,12 +152,12 @@ public sealed class WavFile
             return Mpeg(data, name, diagnostics);
         }
 
-        if (format != FormatPcm)
+        if (format is not (FormatPcm or FormatIeeeFloat))
         {
             diagnostics.Add(new Diagnostic(
                 "GK3R1121", DiagnosticSeverity.Warning,
                 "A sound is in a compressed format nothing here decodes.",
-                name, null, "format tag 1 or 85",
+                name, null, "format tag 1, 3 or 85",
                 format.ToString(CultureInfo.InvariantCulture),
                 "Convert it to 16-bit PCM."));
 
@@ -173,7 +176,58 @@ public sealed class WavFile
             return null;
         }
 
-        return new WavFile(name, channels, rate, Decode(data, bits));
+        short[]? samples = Decode(data, format, bits);
+
+        if (samples is null)
+        {
+            diagnostics.Add(new Diagnostic(
+                "GK3R1125", DiagnosticSeverity.Warning,
+                "A sound uses a PCM word size nothing here decodes.",
+                name, null, "8, 16, 24 or 32-bit PCM, or 32-bit float",
+                $"format {format}, {bits} bits",
+                "Export the restored master as 24-bit PCM or 32-bit float WAV."));
+
+            return null;
+        }
+
+        return new WavFile(name, channels, rate, samples);
+    }
+
+    /// <summary>Writes the decoded sound as an ordinary 16-bit PCM RIFF/WAVE file.</summary>
+    /// <returns>A lossless representation of the samples held by this instance.</returns>
+    /// <remarks>
+    /// The source archives mostly contain MP3 frames wrapped in RIFF. Restoration tools
+    /// need a conventional WAV, so the import stage decodes once and writes this form to
+    /// <c>normalized/audio</c>. The untouched RIFF wrapper remains in <c>raw/audio</c>.
+    /// </remarks>
+    public byte[] ToPcmWave()
+    {
+        const int Header = 44;
+        int dataBytes = checked(Samples.Length * sizeof(short));
+        byte[] output = new byte[checked(Header + dataBytes)];
+
+        "RIFF"u8.CopyTo(output);
+        BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(4), output.Length - 8);
+        "WAVE"u8.CopyTo(output.AsSpan(8));
+        "fmt "u8.CopyTo(output.AsSpan(12));
+        BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(16), 16);
+        BinaryPrimitives.WriteUInt16LittleEndian(output.AsSpan(20), FormatPcm);
+        BinaryPrimitives.WriteUInt16LittleEndian(output.AsSpan(22), checked((ushort)Channels));
+        BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(24), SampleRate);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            output.AsSpan(28), checked(SampleRate * Channels * sizeof(short)));
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            output.AsSpan(32), checked((ushort)(Channels * sizeof(short))));
+        BinaryPrimitives.WriteUInt16LittleEndian(output.AsSpan(34), 16);
+        "data"u8.CopyTo(output.AsSpan(36));
+        BinaryPrimitives.WriteInt32LittleEndian(output.AsSpan(40), dataBytes);
+
+        for (int i = 0; i < Samples.Length; i++)
+        {
+            BinaryPrimitives.WriteInt16LittleEndian(output.AsSpan(Header + i * 2), Samples[i]);
+        }
+
+        return output;
     }
 
     /// <summary>
@@ -271,8 +325,28 @@ public sealed class WavFile
     /// as signed and every sound is a loud square wave. GK3's PCM is all 16-bit, but the
     /// import writes what it is given.
     /// </remarks>
-    private static short[] Decode(ReadOnlySpan<byte> data, int bits)
+    private static short[]? Decode(ReadOnlySpan<byte> data, int format, int bits)
     {
+        if (format == FormatIeeeFloat)
+        {
+            if (bits != 32)
+            {
+                return null;
+            }
+
+            short[] floating = new short[data.Length / sizeof(float)];
+
+            for (int i = 0; i < floating.Length; i++)
+            {
+                float sample = BitConverter.Int32BitsToSingle(
+                    BinaryPrimitives.ReadInt32LittleEndian(data.Slice(i * 4, 4)));
+                floating[i] = (short)Math.Round(
+                    Math.Clamp(sample, -1f, 1f) * (sample < 0 ? 32768f : 32767f));
+            }
+
+            return floating;
+        }
+
         switch (bits)
         {
             case 16:
@@ -299,8 +373,40 @@ public sealed class WavFile
                 return samples;
             }
 
+            case 24:
+            {
+                short[] samples = new short[data.Length / 3];
+
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    int at = i * 3;
+                    int value = data[at] | (data[at + 1] << 8) | (data[at + 2] << 16);
+                    if ((value & 0x0080_0000) != 0)
+                    {
+                        value |= unchecked((int)0xFF00_0000);
+                    }
+
+                    samples[i] = (short)(value >> 8);
+                }
+
+                return samples;
+            }
+
+            case 32:
+            {
+                short[] samples = new short[data.Length / 4];
+
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    samples[i] = (short)(
+                        BinaryPrimitives.ReadInt32LittleEndian(data.Slice(i * 4, 4)) >> 16);
+                }
+
+                return samples;
+            }
+
             default:
-                return [];
+                return null;
         }
     }
 

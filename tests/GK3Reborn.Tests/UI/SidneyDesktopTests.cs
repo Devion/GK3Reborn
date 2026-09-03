@@ -405,6 +405,69 @@ public sealed class SidneyDesktopTests
     }
 
     [Fact]
+    public void The_wheel_looks_closer_at_the_map_and_a_click_still_means_the_same_place()
+    {
+        // The map is 1,368 pixels shown in about 450, so marking a church means clicking a
+        // dot three pixels across. What matters as much as the zoom is that a click through
+        // it still lands where the player is pointing.
+        var state = new GameState { Ego = "GRACE" };
+
+        var sidney = new SidneyMachine(
+            SidneyLibrary.From(string.Join(
+                Environment.NewLine, "[Main Screen]", "MenuItem1 = ANALYZE")),
+            state)
+        {
+            Screen = SidneyScreen.Analyze,
+        };
+
+        sidney.Scan("MAP");
+        sidney.OpenFile(sidney.Files[0]);
+        sidney.Perform(SidneyAction.EnterPoints);
+
+        ScreenPainter painter = Painter();
+
+        painter.Build(View(sidney), 1600, 900);
+
+        Vector4 map = painter.MapBounds;
+        var at = new Vector2(map.X + (map.Z * 0.3f), map.Y + (map.W * 0.7f));
+        Vector2 before = painter.MapAt(at);
+
+        Assert.Equal(1f, sidney.Zoom);
+
+        // Turned towards the player, three notches.
+        for (int i = 0; i < 3; i++)
+        {
+            painter.SidneyWheel(at, 1);
+            painter.Build(View(sidney), 1600, 900);
+        }
+
+        Assert.True(sidney.Zoom > 1f);
+
+        // The place under the pointer stayed under it, which is what makes a wheel zoom
+        // read as looking closer rather than as the picture jumping.
+        Vector2 after = painter.MapAt(at);
+
+        Assert.Equal(before.X, after.X, 2f);
+        Assert.Equal(before.Y, after.Y, 2f);
+
+        // And a mark made through the zoomed view lands where it was pointed.
+        sidney.Mark(after);
+
+        Assert.Equal(after.X, sidney.Map.Points[0].X, 0.5f);
+
+        // Zoomed all the way out again, the whole country is on the glass.
+        for (int i = 0; i < 20; i++)
+        {
+            painter.SidneyWheel(at, -1);
+        }
+
+        painter.Build(View(sidney), 1600, 900);
+
+        Assert.Equal(1f, sidney.Zoom);
+        Assert.Equal(SidneyMap.Extent, SidneyMapView.Shown, 1f);
+    }
+
+    [Fact]
     public void Two_marked_places_draw_the_line_between_them_across_the_country()
     {
         // The first step of the whole map puzzle is the sunrise line from the church at

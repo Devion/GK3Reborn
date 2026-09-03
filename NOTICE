@@ -34,6 +34,13 @@ its own header.
 File-format understanding also draws on GK3 Tools
 (https://sourceforge.net/projects/gk3tools/).
 
+The survey of the game's unused and cut content in docs/cut-content.md started
+from, and repeatedly checks itself against, Bonny Ploeg's "Gabriel Knight 3
+Secrets" (http://bonny.ploeg.ws/gk3secret.html) and the companion GK3script
+compilation of the game's YAK files. That catalogue of disappeared objects and
+their voice-over lines is Bonny Ploeg's own research; no text from it is
+redistributed here.
+
 ------------------------------------------------------------------------------
 Asset rights
 ------------------------------------------------------------------------------

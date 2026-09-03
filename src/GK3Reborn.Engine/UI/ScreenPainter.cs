@@ -57,6 +57,10 @@ namespace GK3Reborn.UI;
 /// The picture belonging to a verb, resting or picked out. The close-up's buttons draw
 /// these beside the word, which is how a returning player reads them at a glance.
 /// </param>
+/// <param name="Water">
+/// The hose, where one is being aimed. Live state rather than a snapshot: the jet, the nest
+/// and the clock all move every frame, and none of it is the screen stack's business.
+/// </param>
 /// <param name="Artwork">
 /// The game's own bitmaps by file name — the laptop Sidney is drawn inside, and the eight
 /// name plates on its desktop. Null where none have been loaded, and any one of them may
@@ -80,7 +84,8 @@ public readonly record struct ScreenView(
     Func<string, ItemIcon>? Icons = null,
     Func<string, ItemIcon>? CloseUps = null,
     Func<string, bool, ItemIcon>? VerbIcons = null,
-    Func<string, ItemIcon>? Artwork = null);
+    Func<string, ItemIcon>? Artwork = null,
+    Game.WaterAiming? Water = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -247,6 +252,12 @@ public sealed class ScreenPainter
                 Fingerprint(view, body, top, unit);
                 break;
 
+            case ScreenKind.Water:
+                // Its own frame, like the binoculars: the player is looking up a tree with
+                // a hose, not reading a page in front of the room.
+                Water(view, width, height, unit);
+                break;
+
             default:
                 Overlay.Text("Nothing to show.", body.X + (20 * unit), top, Dim);
                 break;
@@ -304,6 +315,7 @@ public sealed class ScreenPainter
         ScreenKind.Inventory => "CARRYING",
         ScreenKind.InventoryInspect => Pretty(view.Screen.Subject ?? view.Held ?? "ITEM"),
         ScreenKind.Binoculars => "BINOCULARS",
+        ScreenKind.Water => "THE HOSE",
         ScreenKind.Driving => "WHERE TO?",
         ScreenKind.Fingerprint => "FINGERPRINT KIT",
         ScreenKind.Sidney => "SIDNEY",
@@ -463,6 +475,72 @@ public sealed class ScreenPainter
 
     /// <summary>Where the pointer is, for hovering a row.</summary>
     private Vector2 _pointer;
+
+    /// <summary>The hose, and what it is being aimed at.</summary>
+    /// <param name="view">What to draw, including the hose being aimed.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <param name="unit">The interface's scale.</param>
+    /// <remarks>
+    /// Drawn over the room rather than instead of it — the player is standing in the street
+    /// and should be able to see they are — so this is a reticle, a target and a bar, and
+    /// no panel at all. What the water is doing is the whole of the interface: the jet
+    /// trails the pointer, the nest sways, and the bar fills only while the two agree.
+    /// </remarks>
+    private void Water(ScreenView view, int width, int height, float unit)
+    {
+        if (view.Water is not { } water)
+        {
+            return;
+        }
+
+        float span = MathF.Min(width, height) * 0.72f;
+        float left = (width - span) / 2f;
+        float top = (height - span) / 2f;
+
+        Vector2 nest = new(left + (water.Nest.X * span), top + (water.Nest.Y * span));
+        Vector2 jet = new(left + (water.Jet.X * span), top + (water.Jet.Y * span));
+
+        float ring = 14 * unit;
+
+        // The nest: a ring the player is trying to keep the water inside. Lit while the
+        // water is on it, because that is the only feedback the puzzle gives.
+        Vector4 mark = water.OnTarget ? Accent : Ink;
+        Overlay.Rect(nest.X - ring, nest.Y - 1, ring * 2, 2, mark);
+        Overlay.Rect(nest.X - 1, nest.Y - ring, 2, ring * 2, mark);
+
+        // The water, as a short fall of drops rather than a cursor: it is coming down out
+        // of the air and it is heavy.
+        for (int i = 0; i < 5; i++)
+        {
+            float fall = i * 5 * unit;
+            float wide = MathF.Max(1f, (5 - i) * unit);
+
+            Overlay.Rect(jet.X - (wide / 2f), jet.Y - fall, wide, 3 * unit, PanelLit);
+        }
+
+        Overlay.Rect(jet.X - (3 * unit), jet.Y - (3 * unit), 6 * unit, 6 * unit, Accent);
+
+        // How long it has been on. Ten seconds is the game's own number.
+        float barWide = span * 0.5f;
+        float barLeft = (width - barWide) / 2f;
+        float barTop = top + span + (18 * unit);
+        float barTall = 10 * unit;
+
+        Overlay.Rect(barLeft, barTop, barWide, barTall, Panel);
+        Overlay.Rect(barLeft, barTop, barWide * water.Progress, barTall, Accent);
+        Overlay.Rect(barLeft, barTop, barWide, 1, Ink);
+
+        Overlay.Text(
+            water.Progress >= 1f
+                ? "The nest gives way."
+                : water.OnTarget
+                    ? "Hold it there."
+                    : "The water goes wide.",
+            barLeft,
+            barTop + barTall + (6 * unit),
+            Ink);
+    }
 
     /// <summary>
     /// The fingerprint kit, over one surface.
@@ -1401,6 +1479,30 @@ public sealed class ScreenPainter
 
     /// <summary>Where the map was drawn last, so a click can be turned into a place.</summary>
     public Vector4 MapBounds => _sidney.MapBounds;
+
+    /// <summary>
+    /// Turns a point on the glass into a place on Sidney's map.
+    /// </summary>
+    /// <param name="at">Where the pointer is, in window pixels.</param>
+    /// <returns>The place, in the map's own 1,368 pixels.</returns>
+    /// <remarks>
+    /// Through whatever the map was last drawn at, so it means the same place whether the
+    /// view is at rest or zoomed into a corner of the country.
+    /// </remarks>
+    public Vector2 MapAt(Vector2 at)
+    {
+        Vector4 bounds = MapBounds;
+
+        if (bounds.Z <= 0)
+        {
+            return Vector2.Zero;
+        }
+
+        float across = UI.Sidney.SidneyMapView.Shown / bounds.Z;
+
+        return UI.Sidney.SidneyMapView.Origin +
+            new Vector2((at.X - bounds.X) * across, (at.Y - bounds.Y) * across);
+    }
 
     /// <summary>
     /// Turns the wheel over whichever of Sidney's lists the pointer is on.
