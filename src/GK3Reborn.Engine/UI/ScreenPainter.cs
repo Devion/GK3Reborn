@@ -540,6 +540,24 @@ public sealed class ScreenPainter
             barLeft,
             barTop + barTall + (6 * unit),
             Ink);
+
+        // A way out, drawn rather than assumed. Every other screen here has one and the
+        // rule in docs/screens.md is that an interface owes the player one; without it this
+        // is a modal panel with a reticle on it and no visible way back to the street.
+        const string Away = "Put the hose down";
+
+        float away = Overlay.Measure(Away) + (24 * unit);
+        var button = new Vector4(
+            barLeft + barWide - away,
+            barTop + barTall + Overlay.LineHeight + (12 * unit),
+            away,
+            Overlay.LineHeight + (12 * unit));
+
+        Overlay.Rect(button.X, button.Y, button.Z, button.W, PanelLit);
+        Overlay.Rect(button.X, button.Y, button.Z, 1, Accent);
+        Overlay.Text(Away, button.X + (12 * unit), button.Y + (6 * unit), Accent);
+
+        _hits.Add(("water:away", button));
     }
 
     /// <summary>

@@ -762,6 +762,15 @@ than a setting because the menu is the only thing a player with no camera and no
 still reach. Reachable from the console as `Unstick()`, which is how a wedged room is
 reproduced and undone headlessly.
 
+**And a third click does it without the menu.** A player who has just found the room
+unresponsive does not go looking through Restore; they click again. So a click the room
+swallows for being busy *with nobody speaking* is counted, and the third one in a row calls
+the same `Unstick` and says so in the log. One such click is ordinary — the player clicked
+during a beat between lines — and skipping a line resets the count, because a conversation
+somebody is tapping through is the game working. Any click the room actually acts on resets
+it too. The cost of being wrong is a moment the player was going to lose anyway; the cost of
+being right is the difference between a stuck game and a game.
+
 ### Shadows ended at a straight line whenever anything upscaled — fixed 2026-08-29
 
 **Reported:** the ray-traced lighting is cut off partway across the frame, and the room is

@@ -3345,6 +3345,10 @@ public static class Application
         // because the jet and the clock move every frame and the stack is game state; and
         // out here rather than in the frame because it has to survive one.
         Game.WaterAiming? aiming = null;
+
+        // Clicks the room has swallowed in a row for being busy, with nobody speaking.
+        // Three is the player saying the game is stuck; see where it is counted.
+        int refused = 0;
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(icons);
@@ -4104,6 +4108,10 @@ public static class Application
                 }
             }
 
+            // Whether the click below was swallowed by somebody talking rather than by the
+            // room being busy. The two are the same branch and want opposite answers.
+            bool cutALine = false;
+
             // A screen in front of the room takes the frame: it draws instead of the room's
             // interface and it takes the click. Nothing behind it is hovered, walked to or
             // acted on, which is what modal means and what stops a click on Sidney's menu
@@ -4506,7 +4514,10 @@ public static class Application
                      window.WasClicked(Platform.PointerButton.Primary) &&
                      menu is null &&
                      hud?.OverInterface(pointer) != true &&
-                     ((room?.Skip() == true) || update.Occupied))
+                     // Assigned in the condition because Skip() silences the line it
+                     // reports, so it must be called here and exactly once — and which of
+                     // the two arms swallowed the click is what the counter below needs.
+                     ((cutALine = room?.Skip() == true) || update.Occupied))
             {
                 // Somebody is speaking, so the click reads the line rather than the room:
                 // it cuts the recording short and the next one starts. Nothing else happens
@@ -4523,6 +4534,30 @@ public static class Application
                 //
                 // Not while a menu is open, and not on the interface: those clicks already
                 // mean something, and a conversation is not a reason to take them away.
+
+                // A click that went nowhere because the room said it was busy, with nobody
+                // speaking. One of those is ordinary — the player clicked during a beat.
+                // Three in a row is the player telling the game it is stuck, and they are
+                // right often enough to believe them: Occupied is four separate things and
+                // any one of them can wedge, at which point there is no camera, no walking
+                // and no way to say so except through a menu they may not know is there.
+                //
+                // Skipping a line resets it, because a conversation the player is tapping
+                // through is the game working.
+                if (cutALine)
+                {
+                    refused = 0;
+                }
+                else if (++refused >= 3)
+                {
+                    refused = 0;
+
+                    IReadOnlyList<string> let = update.Unstick();
+
+                    Log.Info(let.Count == 0
+                        ? "Unstuck by three clicks: nothing was holding the room."
+                        : "Unstuck by three clicks: let go of " + string.Join(", ", let) + ".");
+                }
             }
             // Leaning in, on a button of its own. Looking closely at a thing is not doing
             // something to it, and while it shared the left button it won every click:
@@ -4540,6 +4575,9 @@ public static class Application
             }
             else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary))
             {
+                // The room took this one, so it was never stuck.
+                refused = 0;
+
                 // A click inside the open menu takes whatever is selected; a click anywhere
                 // else dismisses it without doing anything, which is what every menu does.
                 bool inside = menu is not null && hud?.RowAt(pointer) >= 0;
@@ -5644,6 +5682,13 @@ public static class Application
         switch (parts[0])
         {
             case "close":
+                story.Screens.Back();
+                break;
+
+            // Putting the hose down. Whatever the puzzle wants to say about it is said by
+            // the interface's own EXIT rule when the room performs it; what matters here is
+            // that there is a way out at all.
+            case "water:away":
                 story.Screens.Back();
                 break;
 
