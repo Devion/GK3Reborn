@@ -35,6 +35,17 @@ public enum SidneyScreen
 
     /// <summary>Grace's mail.</summary>
     EMail,
+
+    /// <summary>
+    /// Everything that has been scanned in, as a list.
+    /// </summary>
+    /// <remarks>
+    /// The game's own main menu does not carry a row for this — its file list lives on the
+    /// front screen — but the original's screen bar does, and the art for the button is in
+    /// the archives beside the other seven. On a desktop the file store is a place you go
+    /// to rather than something the desktop itself shows, so it is a screen here.
+    /// </remarks>
+    Files,
 }
 
 /// <summary>A message in Grace's inbox.</summary>
@@ -44,13 +55,50 @@ public enum SidneyScreen
 /// <param name="To">Who it was sent to.</param>
 /// <param name="Date">When, as the file writes it.</param>
 /// <param name="Body">Its paragraphs.</param>
+/// <param name="Cc">Who else it went to, which for most of them is nobody.</param>
 public sealed record SidneyMail(
     string Id,
     string Subject,
     string From,
     string To,
     string Date,
-    IReadOnlyList<string> Body);
+    IReadOnlyList<string> Body,
+    string Cc = "")
+{
+    /// <summary>
+    /// Who sent it, as a name rather than an address.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The file gives an address and nothing else — <c>RT_Nakimura@aol.com</c> — and a list
+    /// of addresses is a list nobody reads. What is in front of the at-sign is what the
+    /// sender called themselves, so underscores become spaces and the result is offered as
+    /// their name, with the address still shown in the message itself.
+    /// </para>
+    /// <para>
+    /// <b>Full stops are left alone</b>, because the sixth message is from
+    /// <c>s.pam@easteregg.com</c> and turning that into "s pam" throws the joke away.
+    /// </para>
+    /// </remarks>
+    public string Sender
+    {
+        get
+        {
+            string local = From.Split('@')[0];
+
+            return local.Length == 0 ? From : local.Replace('_', ' ').Trim();
+        }
+    }
+
+    /// <summary>When it arrived, without the year, for a list that has one column for it.</summary>
+    /// <remarks>
+    /// The file writes "Jul 1, 1998, 7:25am", which is a date, a year and a time. A list
+    /// with one narrow column for it shows the day: the year is the same for all six, and
+    /// the header inside the message still carries the whole thing.
+    /// </remarks>
+    public string When =>
+        Date.Split(',', StringSplitOptions.TrimEntries) is [string day, ..] ? day : Date;
+}
 
 /// <summary>Somebody Sidney keeps a file on.</summary>
 /// <param name="Index">Which of the ten, from one.</param>
@@ -144,12 +192,83 @@ public sealed class SidneyLibrary
     public string Say(string key, string section = "Main Screen") =>
         _text.Value(section, key) ?? string.Empty;
 
+    /// <summary>A line of a message's attachment, and the picture that goes beside it.</summary>
+    /// <param name="Text">What the line says.</param>
+    /// <param name="Picture">
+    /// The bitmap to draw to its left, without extension, or null where the line is prose.
+    /// </param>
+    public readonly record struct MailLine(string Text, string? Picture = null);
+
+    /// <summary>
+    /// What a message from Sidney itself has attached to it.
+    /// </summary>
+    /// <param name="id">Which message, as <c>ESIDNEYEMAIL.TXT</c> keys it.</param>
+    /// <returns>The attachment's lines, which is empty for a message that has none.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Two of the six messages are illustrated and neither carries its own content.</b>
+    /// Their bodies say only that a result was "added to files group"; what the original
+    /// draws under that is kept in <c>ESIDNEY.TXT</c>'s e-mail section as <c>HermFile1</c>
+    /// and <c>SolomonFile1</c> onwards — the symbol search with its four alchemical signs,
+    /// and the layout of the Temple of Solomon.
+    /// </para>
+    /// <para>
+    /// The four lines of the symbol search that begin at an equals sign — "=  'to mix'" —
+    /// are written that way because the symbol is drawn where the words would start. They
+    /// take <c>SID_SYMB_1</c> to <c>SID_SYMB_4</c> in order.
+    /// </para>
+    /// <para>
+    /// Keyed on the message's own identifier rather than on its subject, which is translated
+    /// in every localisation the game shipped in.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<MailLine> Attachment(string id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+
+        if (id.Equals("EMail4", StringComparison.OrdinalIgnoreCase))
+        {
+            return [.. Lines("EMail Screen", "SolomonFile").Select(line => new MailLine(line))];
+        }
+
+        if (!id.Equals("EMail5", StringComparison.OrdinalIgnoreCase))
+        {
+            return [];
+        }
+
+        List<MailLine> lines = [];
+        int symbol = 0;
+
+        foreach (string line in Lines("EMail Screen", "HermFile"))
+        {
+            bool illustrated = line.StartsWith('=') && symbol < SidneyPictures.Symbols.Count;
+
+            lines.Add(new MailLine(line, illustrated ? SidneyPictures.Symbols[symbol++] : null));
+        }
+
+        return lines;
+    }
+
     /// <summary>The eight rows of the main menu, in order, without the separator.</summary>
     /// <remarks>
     /// The file writes a caret for the rule between ADD DATA and E-MAIL. It is a separator
     /// rather than a row, and offering it as one is offering the player a menu item called
     /// <c>^</c>.
     /// </remarks>
+    /// <summary>
+    /// A numbered run of lines — <c>AbbeTape1</c>, <c>AbbeTape2</c> — in order.
+    /// </summary>
+    /// <param name="section">Which section they are in.</param>
+    /// <param name="prefix">What the keys are called before their number.</param>
+    /// <returns>The lines, which is empty when there are none.</returns>
+    /// <remarks>
+    /// The file's own way of writing anything longer than a line: a message's paragraphs, a
+    /// telephone call's turns, a list of suspects. It stops at the first gap, because the
+    /// files number from one and a gap is a mistake rather than a signal.
+    /// </remarks>
+    public IReadOnlyList<string> Lines(string section, string prefix) =>
+        _text.Run(section, prefix);
+
     public IReadOnlyList<string> MainMenu() =>
         [.. _text.Run("Main Screen", "MenuItem").Where(item => item != "^")];
 
@@ -261,7 +380,8 @@ public sealed class SidneyLibrary
                 _mail.Value(id, "From") ?? string.Empty,
                 _mail.Value(id, "To") ?? string.Empty,
                 _mail.Value(id, "Date") ?? string.Empty,
-                _mail.Run(id, "Body")));
+                _mail.Run(id, "Body"),
+                _mail.Value(id, "CC") ?? string.Empty));
         }
 
         return messages;

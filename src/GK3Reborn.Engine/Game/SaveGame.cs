@@ -8,6 +8,37 @@ using System.Text.Json.Serialization;
 
 namespace GK3Reborn.Game;
 
+/// <summary>What is on Sidney's map, as the story keeps it.</summary>
+/// <param name="Marks">The places marked, as "x,y" in the map's own 1,368 pixels.</param>
+/// <param name="Figures">The figures laid over them, in the order they were laid.</param>
+/// <param name="Grid">How many cells the ruling is divided into, or nought for none.</param>
+public sealed record SavedMap(
+    IReadOnlyList<string> Marks, IReadOnlyList<SavedFigure> Figures, int Grid);
+
+/// <summary>One figure laid over Sidney's map.</summary>
+/// <param name="Shape">Which figure, as <c>MapShape</c> names it.</param>
+/// <param name="X">Where its middle is across the map, in map pixels.</param>
+/// <param name="Y">And down.</param>
+/// <param name="Size">The radius of the circle it is drawn inside.</param>
+/// <param name="Turn">How far it has been turned, in degrees.</param>
+/// <param name="Points">
+/// The places it was fitted to, as "x,y" in map pixels — its own, and not the map's.
+/// </param>
+public sealed record SavedFigure(
+    string Shape,
+    float X,
+    float Y,
+    float Size,
+    float Turn,
+    IReadOnlyList<string> Points)
+{
+    /// <summary>A figure saved before figures kept their own places.</summary>
+    public SavedFigure(string shape, float x, float y, float size, float turn)
+        : this(shape, x, y, size, turn, [])
+    {
+    }
+}
+
 /// <summary>What an actor is carrying, and which of it is in hand.</summary>
 /// <param name="Owner">Whose pockets.</param>
 /// <param name="Items">What is in them.</param>
@@ -180,6 +211,22 @@ public sealed record SaveGame
 
     /// <summary>Which inventory items have been through Sidney's scanner.</summary>
     public IReadOnlyList<string> SidneyScans { get; init; } = [];
+
+    /// <summary>
+    /// The places marked on Sidney's map, as "x,y" in the map's own 1,368 pixels.
+    /// </summary>
+    /// <remarks>
+    /// The map puzzle is several sittings long — mark a village, go and read a painting's
+    /// geometry, come back and lay the figure it saved over the marks — so what is on the
+    /// map has to survive a save like everything else the story remembers.
+    /// </remarks>
+    public IReadOnlyList<string> SidneyMarks { get; init; } = [];
+
+    /// <summary>The figures laid over it, in the order they were laid.</summary>
+    public IReadOnlyList<SavedFigure> SidneyFigures { get; init; } = [];
+
+    /// <summary>How many cells the map's grid is ruled into, or nought for none.</summary>
+    public int SidneyGrid { get; init; }
 
     /// <summary>What everyone is carrying.</summary>
     public IReadOnlyList<SavedInventory> Inventories { get; init; } = [];

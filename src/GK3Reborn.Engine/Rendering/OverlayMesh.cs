@@ -28,9 +28,18 @@ public readonly record struct OverlayRun(int Picture, int First, int Count);
 /// space and cost a second buffer; at a few hundred rectangles a frame that trade is not
 /// worth making.
 /// </para>
+/// <para>
+/// <b>A list too long for the buffer is cut, and says so.</b> The cut takes the rectangles
+/// added last, which are the ones drawn on top — so what disappears is the taskbar, the
+/// buttons and the notification, and what remains looks like a screen that was drawn
+/// correctly and then had its furniture removed. It cost an afternoon once. It is reported
+/// once per run rather than per frame, because a frame that overruns is followed by sixty
+/// more.
+/// </para>
 /// </remarks>
 public static class OverlayMesh
 {
+    private static bool _saidSo;
     /// <summary>Builds the vertices for a display list.</summary>
     /// <param name="overlay">What to draw.</param>
     /// <param name="capacity">The most rectangles the vertex buffer holds.</param>
@@ -46,6 +55,16 @@ public static class OverlayMesh
         runs.Clear();
 
         int rectangles = Math.Min(overlay.Quads.Count, capacity);
+
+        if (overlay.Quads.Count > capacity && !_saidSo)
+        {
+            _saidSo = true;
+
+            Foundation.Diagnostics.Log.Warning(
+                $"GK3R3610: the interface asked for {overlay.Quads.Count} rectangles and " +
+                $"the buffer holds {capacity}. What is drawn last is what is lost, which " +
+                "is whatever sits on top.");
+        }
 
         if (rectangles <= 0)
         {

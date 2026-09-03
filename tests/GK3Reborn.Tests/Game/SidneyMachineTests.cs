@@ -44,6 +44,10 @@ public sealed class SidneyMachineTests
         CirclePointsNote = Select points to lock down feature.
         MapIndeterminateNote = Analysis is indeterminate.
         MapEnterPointNote = Point at %s entered.
+        MapLine1Note = A straight line marked between the two points intersects with meridian and point 'Arques'.
+        MapLine2Note = Line tangential to circle and intersects with conjoining features on the meridian.
+        MapLine3Note = A straight line between the two intersects with meridian and line marked.
+        MapLineDisallow = Points can be joined by line, but no other features on map seem to suggest such a connection.
         Languages      = Languages:
         French         = FRENCH
         English        = ENGLISH
@@ -256,7 +260,8 @@ public sealed class SidneyMachineTests
 
         // Nothing has been analysed, so there is nothing to lay: the shape items are not
         // offered, and asking for one anyway is refused rather than silently obeyed.
-        Assert.Empty(sidney.Shapes);
+        // Only the line, which is always offered: no picture has given a figure up yet.
+        Assert.Equal([MapShape.Line], sidney.Shapes);
         Assert.DoesNotContain(SidneyAction.UseShape, sidney.Available());
         Assert.Equal("No shape is selected.", sidney.LayShape(MapShape.Hexagram).Text);
     }
@@ -270,13 +275,346 @@ public sealed class SidneyMachineTests
         sidney.Perform(SidneyAction.ViewGeometry);
 
         // "Second triangle forms hexagram shape", says the analysis, and those are the two
-        // it hands over.
-        Assert.Equal([MapShape.Triangle, MapShape.Hexagram], sidney.Shapes);
+        // it hands over. The line is always there: it is the tool the puzzle opens with and
+        // nothing grants it.
+        Assert.Equal([MapShape.Line, MapShape.Triangle, MapShape.Hexagram], sidney.Shapes);
 
         Opened(sidney, "MAP");
 
-        Assert.Contains(SidneyAction.UseShape, sidney.Available());
+        // The figures themselves are offered beside the map rather than behind a USE SHAPE
+        // button, so what the map screen adds is the two operations that act on one already
+        // laid — and neither of those means anything until one is.
+        Assert.DoesNotContain(SidneyAction.RotateShape, sidney.Available());
+        Assert.DoesNotContain(SidneyAction.EraseShape, sidney.Available());
+
+        sidney.LayShape(MapShape.Hexagram);
+
+        Assert.Contains(SidneyAction.RotateShape, sidney.Available());
         Assert.Contains(SidneyAction.EraseShape, sidney.Available());
+    }
+
+    [Fact]
+    public void A_finding_is_recorded_under_the_name_the_game_asks_about()
+    {
+        // The action files ask GetFlag("AnalyzedGeomParchment1") and GetFlag("LockedHexagram");
+        // the machine was setting SidneyDid:fileParchment1:ViewGeometry and
+        // SidneyShape:Hexagram, which nothing in the game has ever heard of. Every such
+        // condition answered no — and R25307A will not end its timeblock without the second
+        // of them.
+        SidneyMachine sidney = Machine(out GameState state);
+
+        Opened(sidney, "PARCHMENT_1");
+        sidney.Perform(SidneyAction.ViewGeometry);
+
+        Assert.True(state.GetFlag("AnalyzedGeomParchment1"));
+
+        Opened(sidney, "PARCHMENT_2");
+        sidney.Perform(SidneyAction.ViewGeometry);
+
+        Assert.True(state.GetFlag("AnalyzedGeomParchment2"));
+
+        // filePainting1 is the Poussin, which is how the game numbers it.
+        Opened(sidney, "POUSSIN_POSTCARD");
+        sidney.Perform(SidneyAction.ViewGeometry);
+
+        Assert.True(state.GetFlag("AnalyzedGeomPainting1"));
+
+        // Only viewing geometry is asked about; the rest is the machine's own bookkeeping.
+        Assert.False(state.GetFlag("AnalyzedGeomParchment1:Analyse"));
+    }
+
+    [Fact]
+    public void A_figure_that_locks_sets_the_flag_the_timeblock_waits_on()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        Opened(sidney, "POUSSIN_POSTCARD");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = i * 60 * MathF.PI / 180f;
+
+            sidney.Mark(new Vector2(
+                700 + (300 * MathF.Cos(angle)), 700 + (300 * MathF.Sin(angle))));
+        }
+
+        sidney.LayShape(MapShape.Hexagram);
+
+        Assert.True(sidney.Map.Locked);
+        Assert.True(state.GetFlag("LockedHexagram"));
+    }
+
+    [Fact]
+    public void A_circle_is_fitted_to_every_marked_place_not_the_first_three()
+    {
+        // Reported: five places marked, and the circle sailed off the top of the map
+        // through three of them ignoring the two at the bottom. The three it took were
+        // whichever had been clicked first.
+        SidneyMachine sidney = Machine(out _);
+
+        Opened(sidney, "PARCHMENT_2");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+
+        // Eight places on one circle of radius 300 about (700, 700), so the fit has a right
+        // answer to find and any three of them would find a different one.
+        for (int i = 0; i < 8; i++)
+        {
+            float angle = i * 45 * MathF.PI / 180f;
+
+            sidney.Mark(new Vector2(
+                700 + (300 * MathF.Cos(angle)), 700 + (300 * MathF.Sin(angle))));
+        }
+
+        sidney.LayShape(MapShape.Circle);
+
+        Assert.Equal(700f, sidney.Map.ShapeAt.X, 1f);
+        Assert.Equal(700f, sidney.Map.ShapeAt.Y, 1f);
+        Assert.Equal(300f, sidney.Map.ShapeSize, 1f);
+        Assert.True(sidney.Map.Locked);
+    }
+
+    [Fact]
+    public void Places_in_a_line_are_refused_a_circle_rather_than_given_an_enormous_one()
+    {
+        SidneyMachine sidney = Machine(out _);
+
+        Opened(sidney, "PARCHMENT_2");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+
+        sidney.Mark(new Vector2(400, 400));
+        sidney.Mark(new Vector2(700, 410));
+        sidney.Mark(new Vector2(1000, 420));
+        sidney.LayShape(MapShape.Circle);
+
+        // Not the circle whose centre is off in the next country: the ordinary fit, which
+        // stays on the map the player is looking at.
+        Assert.InRange(sidney.Map.ShapeSize, 1f, SidneyMap.Extent);
+        Assert.InRange(sidney.Map.ShapeAt.X, 0f, SidneyMap.Extent);
+        Assert.InRange(sidney.Map.ShapeAt.Y, 0f, SidneyMap.Extent);
+    }
+
+    [Fact]
+    public void A_line_that_reaches_Arques_earns_the_note_the_puzzle_opens_on()
+    {
+        // "A straight line marked between the two points intersects with meridian and point
+        // 'Arques'" — the sunrise line, and the first step of the whole map puzzle. Arques
+        // was measured off the enhanced map, which is exactly twice the coordinates the
+        // marks are kept in.
+        SidneyMachine sidney = Machine(out _);
+
+        Opened(sidney, "MAP");
+
+        // Two places whose line runs on through Arques and crosses the meridian on the way.
+        sidney.Mark(new Vector2(400, 500));
+
+        Assert.Contains("Enter", sidney.Mark(new Vector2(830, 330)).Text, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains(
+            "Arques",
+            sidney.Showing!.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Two_places_that_reach_nothing_are_told_so()
+    {
+        SidneyMachine sidney = Machine(out _);
+
+        Opened(sidney, "MAP");
+        sidney.Mark(new Vector2(120, 1200));
+        sidney.Mark(new Vector2(300, 1260));
+
+        Assert.DoesNotContain("Arques", sidney.Showing!.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_marked_place_can_be_picked_up_and_put_down_somewhere_else()
+    {
+        // The original can only clear every place and start again, which for a puzzle played
+        // by clicking villages on a photograph is a lot to lose to one stray pixel.
+        SidneyMachine sidney = Machine(out _);
+
+        Opened(sidney, "PARCHMENT_2");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+
+        for (int i = 0; i < 4; i++)
+        {
+            float angle = i * 90 * MathF.PI / 180f;
+
+            sidney.Mark(new Vector2(
+                700 + (300 * MathF.Cos(angle)), 700 + (300 * MathF.Sin(angle))));
+        }
+
+        sidney.LayShape(MapShape.Circle);
+
+        Assert.True(sidney.Map.Locked);
+
+        // The four places went with the circle when it was laid, so it is the circle's
+        // second place that is picked up — and moving it re-fits that circle and nothing
+        // else.
+        sidney.StartDrag(0, 2);
+        sidney.DragTo(new Vector2(120, 120));
+
+        Assert.Equal(new Vector2(120, 120), sidney.Map.Laid[0].Points[2]);
+
+        // Dragged off the circle, so the confirmation it had cannot survive being put down.
+        sidney.EndDrag();
+
+        Assert.Equal(-1, sidney.Dragging);
+        Assert.False(sidney.Map.Locked);
+
+        // And back again, which re-earns it.
+        sidney.StartDrag(0, 2);
+        sidney.DragTo(new Vector2(400, 700));
+        sidney.EndDrag();
+
+        Assert.True(sidney.Map.Locked);
+    }
+
+    [Fact]
+    public void A_place_cannot_be_dragged_off_the_map()
+    {
+        SidneyMachine sidney = Machine(out _);
+
+        Opened(sidney, "MAP");
+        sidney.Mark(new Vector2(700, 700));
+        sidney.StartDrag(-1, 0);
+        sidney.DragTo(new Vector2(-500, 90000));
+        sidney.EndDrag();
+
+        Assert.InRange(sidney.Map.Points[0].X, 0, SidneyMap.Extent);
+        Assert.InRange(sidney.Map.Points[0].Y, 0, SidneyMap.Extent);
+    }
+
+    [Fact]
+    public void A_grid_can_be_ruled_inside_the_figure_and_a_save_keeps_which()
+    {
+        // The chessboard the Gemini and Cancer passages are about is eight by eight ruled
+        // inside the tilted square. A grid that can only cover the whole map cannot draw it,
+        // and ESIDNEY.TXT offers "Fill shape" against "Fill entire screen" for exactly this.
+        SidneyMachine sidney = Machine(out GameState state);
+
+        Opened(sidney, "PARCHMENT_2");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+
+        sidney.Mark(new Vector2(430, 430));
+        sidney.Mark(new Vector2(900, 400));
+        sidney.Mark(new Vector2(930, 930));
+        sidney.Mark(new Vector2(450, 900));
+        sidney.LayShape(MapShape.Square);
+
+        sidney.RuleInShape = true;
+        sidney.Rule(8);
+
+        Assert.Equal(8, sidney.Map.Grid);
+        Assert.True(sidney.Map.GridInShape);
+
+        var loaded = new GameState { Ego = "GRACE" };
+
+        loaded.Restore(state.Capture("test"));
+
+        var after = new SidneyMachine(SidneyLibrary.From(Text), loaded);
+
+        Assert.Equal(8, after.Map.Grid);
+        Assert.True(after.Map.GridInShape);
+    }
+
+    [Fact]
+    public void What_is_on_the_map_survives_a_save()
+    {
+        // The map puzzle runs over several sittings: mark a village, go and read a
+        // painting's geometry, come back and lay the figure it saved. A map that forgot
+        // itself when the game was saved would make the whole of it one sitting long.
+        SidneyMachine sidney = Machine(out GameState state);
+
+        Opened(sidney, "POUSSIN_POSTCARD");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = i * 60 * MathF.PI / 180f;
+
+            sidney.Mark(new Vector2(
+                700 + (300 * MathF.Cos(angle)), 700 + (300 * MathF.Sin(angle))));
+        }
+
+        // DRAW GRID offers the sizes the game lists rather than choosing one; Rule is what
+        // picking 8x8 off that list does.
+        sidney.Perform(SidneyAction.DrawGrid);
+
+        Assert.True(sidney.Ruling);
+
+        sidney.Rule(8);
+        sidney.LayShape(MapShape.Hexagram);
+
+        // The six places went with the hexagram, so the triangle is laid over a clean map
+        // and keeps none of its own. That is the point of a figure owning its places.
+        Assert.Equal(6, sidney.Map.Laid[0].Points.Count);
+        Assert.Empty(sidney.Map.Points);
+
+        sidney.LayShape(MapShape.Triangle);
+
+        Assert.Equal(2, sidney.Map.Laid.Count);
+
+        SaveGame saved = state.Capture("test");
+
+        // A fresh game and a fresh machine, as loading a save gives you.
+        var loaded = new GameState { Ego = "GRACE" };
+
+        loaded.Restore(saved);
+
+        var after = new SidneyMachine(SidneyLibrary.From(Text), loaded);
+
+        Assert.Equal(6, after.Map.Laid[0].Points.Count);
+        Assert.Equal(8, after.Map.Grid);
+        Assert.Equal(
+            [MapShape.Hexagram, MapShape.Triangle],
+            after.Map.Laid.Select(laid => laid.Shape));
+
+        // And whether a figure is confirmed is worked out again from the marks it was
+        // restored beside, rather than taken on trust from the save.
+        Assert.True(after.Map.Laid[0].Locked);
+    }
+
+    [Fact]
+    public void More_than_one_figure_can_be_laid_over_the_country_at_once()
+    {
+        // What the books this game is built on actually do: a circle over a square, read
+        // off where the lines cross. One figure at a time made the player remember the
+        // last one.
+        SidneyMachine sidney = Machine(out _);
+
+        Opened(sidney, "POUSSIN_POSTCARD");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+
+        sidney.Mark(new Vector2(400, 400));
+        sidney.Mark(new Vector2(900, 900));
+
+        sidney.LayShape(MapShape.Triangle);
+        sidney.LayShape(MapShape.Hexagram);
+
+        Assert.Equal(
+            [MapShape.Triangle, MapShape.Hexagram],
+            sidney.Map.Laid.Select(laid => laid.Shape));
+
+        // The same one again takes it off, which is how the row of buttons unstacks them.
+        sidney.LayShape(MapShape.Triangle);
+
+        Assert.Equal([MapShape.Hexagram], sidney.Map.Laid.Select(laid => laid.Shape));
+
+        // And laying one that is already there re-fits it rather than stacking a second.
+        sidney.LayShape(MapShape.Hexagram);
+        sidney.LayShape(MapShape.Hexagram);
+
+        Assert.Single(sidney.Map.Laid);
     }
 
     [Fact]

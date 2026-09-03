@@ -36,7 +36,18 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
     public const int MostPictures = 256;
 
     /// <summary>How many rectangles the vertex buffer holds.</summary>
-    private const int Capacity = 4096;
+    /// <summary>
+    /// The most rectangles one frame of interface may hold.
+    /// </summary>
+    /// <remarks>
+    /// Four thousand was enough for a screen of panels and words and is not enough for
+    /// Sidney's map: a circle drawn as axis-aligned rectangles costs about its
+    /// circumference, and four figures laid over a 4K map come to five and a half thousand
+    /// between them. Sixteen thousand is about three megabytes a frame in flight, which is
+    /// nothing beside a texture, and leaves the room the warning below is there to notice
+    /// running out of.
+    /// </remarks>
+    private const int Capacity = 16384;
 
     private readonly D3D12Context _context;
     private readonly ShaderCompiler _compiler;

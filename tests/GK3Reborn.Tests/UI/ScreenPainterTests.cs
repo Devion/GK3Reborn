@@ -441,7 +441,23 @@ public sealed class ScreenPainterTests
         sidney.OpenFile(sidney.Files[0]);
         painter.Build(view, Width, Height);
 
+        // The operations sit under the four menus the original groups them into — OPEN,
+        // TEXT, GRAPHIC and MAP — because laid out flat the map's eight of them wrapped
+        // onto three rows of a screen 640 pixels wide. Only the menus with something
+        // applicable are offered, and only one opens at a time.
+        Assert.NotNull(Middle(painter, "sidney:menu:1"));
+        Assert.NotNull(Middle(painter, "sidney:menu:2"));
+        Assert.Null(Middle(painter, "sidney:do:Analyse"));
+
+        sidney.Menu = 1;
+        painter.Build(view, Width, Height);
+
         Assert.NotNull(Middle(painter, "sidney:do:Analyse"));
+        Assert.Null(Middle(painter, "sidney:do:ExtractAnomalies"));
+
+        sidney.Menu = 2;
+        painter.Build(view, Width, Height);
+
         Assert.NotNull(Middle(painter, "sidney:do:ExtractAnomalies"));
     }
 

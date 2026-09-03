@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using GK3Reborn.Rendering.Geometry;
 using System.Globalization;
 using System.Numerics;
@@ -34,30 +34,18 @@ public static class Application
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        // Before the log, the report and everything else: somebody asking what the switches
-        // are has not asked for a run, and should not get the first lines of one.
         if (CommandLine.WantsHelp(args))
         {
             Console.Out.Write(CommandLine.Usage());
             return 0;
         }
 
-        // Idempotent: the host opens it before this is reached, so that anything thrown on
-        // the way here is written down too. Called again for the sake of the callers that
-        // are not the host - a test, a tool - which have not.
         Log.Open();
-
-        Log.Info("GK3Reborn 0.1.0");
-        Log.Info("Scaffold stage: subsystems are contracts only.");
+        Log.Info("GK3Reborn 0.6.0");
         Log.Info($"Native library root: {nativeLibraryRoot ?? "(not installed)"}");
 
-        // Where the log is, what the machine is, and whether the native payload is there.
-        // Before anything is loaded, because the point of it is to be readable in a run
-        // that got no further than this.
         StartupReport.Begin(nativeLibraryRoot);
 
-        // The deterministic clock and RNG are live from the first commit so that no
-        // subsystem is ever written against wall-clock time or ambient randomness.
         var clock = new GameClock();
         clock.AdvanceFixed(60);
         var random = new DeterministicRandom(seed: 0x6B33);
@@ -67,24 +55,10 @@ public static class Application
 
         Log.Info();
 
-        // --expand-blocks makes a machine that has BC formats behave like one that does
-        // not, which is the only way to exercise the Mac's texture path anywhere else.
-        // Set before anything creates a device, because a device is where it is read.
-        Game.SceneLoader.NoSun = args.Contains("--no-sun", StringComparer.OrdinalIgnoreCase);
+        SceneLoader.NoSun = args.Contains("--no-sun", StringComparer.OrdinalIgnoreCase);
+        VulkanPortability.ForceHostExpansion = args.Contains("--expand-blocks", StringComparer.OrdinalIgnoreCase);
+        RayTracingQuality? asked = Option(args, "--rt") is { Length: > 0 } level ? RayTracingSettings.Parse(level) : null;
 
-        Rendering.Vulkan.VulkanPortability.ForceHostExpansion =
-            args.Contains("--expand-blocks", StringComparer.OrdinalIgnoreCase);
-
-        // --rt says what the picture costs and outranks the player's own setting, which
-        // is what a flag is for. Without one the settings decide, because nobody starting
-        // the game to play it passes a ray-tracing level on a command line.
-        RayTracingQuality? asked = Option(args, "--rt") is { Length: > 0 } level
-            ? RayTracingSettings.Parse(level)
-            : null;
-
-        // Content out rather than a game in. Before the window, the device and the
-        // archives check, because it needs none of them and somebody unpacking fifteen
-        // gigabytes should not first wait for a Vulkan instance to be built.
         if (args.Contains("--extract", StringComparer.OrdinalIgnoreCase))
         {
             return Extract(args);
@@ -2873,11 +2847,135 @@ public static class Application
             }
         }
 
+        // A colon opens something on the page as well, which is the only way a screen that
+        // is about one thing — a message, a suspect's file — can be photographed with
+        // anything on it.
         if (Option(args, "--sidney") is { Length: > 0 } page && api.Sidney is { } opened &&
-            Enum.TryParse(page, ignoreCase: true, out Game.Sidney.SidneyScreen which))
+            page.Split(':') is [string pageName, ..] &&
+            Enum.TryParse(pageName, ignoreCase: true, out Game.Sidney.SidneyScreen which))
         {
             opened.Screen = which;
-            Log.Info($"Sidney: {which}");
+
+            if (page.Split(':') is [_, string about, ..] && about.Length > 0)
+            {
+                switch (which)
+                {
+                    case Game.Sidney.SidneyScreen.EMail:
+                        opened.ReadMail(
+                            opened.Library.Mail().FirstOrDefault(
+                                m => m.Id.Equals(about, StringComparison.OrdinalIgnoreCase)));
+
+                        break;
+
+                    case Game.Sidney.SidneyScreen.Suspects when int.TryParse(about, out int index):
+                        opened.OpenSuspect(
+                            opened.Library.Suspects().FirstOrDefault(s => s.Index == index));
+
+                        break;
+
+                    case Game.Sidney.SidneyScreen.Search:
+                        opened.Typed = about;
+                        opened.Look();
+
+                        break;
+
+                    case Game.Sidney.SidneyScreen.Translate:
+                        opened.OpenForTranslation(
+                            opened.Files.FirstOrDefault(
+                                f => f.Item.Equals(about, StringComparison.OrdinalIgnoreCase)));
+
+                        break;
+
+                    default:
+                        opened.OpenFile(
+                            opened.Files.FirstOrDefault(
+                                f => f.Item.Equals(about, StringComparison.OrdinalIgnoreCase)));
+
+                        break;
+                }
+
+                Log.Info($"Sidney: {which} ({about})");
+            }
+            else
+            {
+                Log.Info($"Sidney: {which}");
+            }
+        }
+
+        // Operations run on Sidney's files before the first frame, as the analyze screen's
+        // buttons would: ITEM:ACTION, so that a chain several files long — read a
+        // parchment's geometry, then lay the shape it saved over the map — can be
+        // photographed. The file is opened first, because every operation is about one.
+        if (Option(args, "--analyse") is { Length: > 0 } chain && api.Sidney is { } analysing)
+        {
+            foreach (string step in chain.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] parts = step.Split(':');
+                string item = parts[0];
+
+                analysing.OpenFile(
+                    analysing.Files.FirstOrDefault(
+                        f => f.Item.Equals(item, StringComparison.OrdinalIgnoreCase)));
+
+                // An item on its own opens it and does nothing, which is how a chain ends
+                // on the file that should be showing.
+                if (parts is not [_, string operation] || operation.Length == 0)
+                {
+                    Log.Info($"Opened {item}");
+
+                    continue;
+                }
+
+                if (!Enum.TryParse(operation, ignoreCase: true, out Game.Sidney.SidneyAction what))
+                {
+                    Log.Error($"--analyse: {operation} is not one of Sidney's operations.");
+
+                    continue;
+                }
+
+                Log.Info($"{item} {what}: {analysing.Perform(what).Text}");
+            }
+        }
+
+        // Places marked on Sidney's map, for photographing the one screen whose whole
+        // content the player puts there themselves. In the map's own 1,368 pixels, which is
+        // what the marks are kept in and what a click is turned into.
+        if (Option(args, "--mark") is { Length: > 0 } marks && api.Sidney is { } marking)
+        {
+            foreach (string place in marks.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (place.Split(',') is [string across, string down] &&
+                    float.TryParse(across, CultureInfo.InvariantCulture, out float mx) &&
+                    float.TryParse(down, CultureInfo.InvariantCulture, out float my))
+                {
+                    Log.Info($"Marked {mx}, {my}: {marking.Mark(new Vector2(mx, my)).Text}");
+                }
+            }
+        }
+
+        // And the figure laid over the country, which is the last of the map's states that a
+        // still cannot otherwise be taken of: laying one is a click on a list that only
+        // exists while the machine is asking.
+        if (Option(args, "--shape") is { Length: > 0 } figures && api.Sidney is { } laying)
+        {
+            foreach (string figure in figures.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (Enum.TryParse(figure.Trim(), ignoreCase: true, out Game.Sidney.MapShape laid))
+                {
+                    Log.Info($"Shape {laid}: {laying.LayShape(laid).Text}");
+                }
+            }
+        }
+
+        // The ruling, for photographing the chessboard the map puzzle ends on. A negative
+        // count rules the figure rather than the whole picture, which is the game's own
+        // "fill shape" against its "fill entire screen".
+        if (Option(args, "--grid") is { Length: > 0 } ruling && api.Sidney is { } ruled &&
+            int.TryParse(ruling, CultureInfo.InvariantCulture, out int cells))
+        {
+            ruled.RuleInShape = cells < 0;
+
+            Log.Info($"Grid {cells}: {ruled.Rule(Math.Abs(cells)).Text}");
         }
 
         if (Option(args, "--glide") is { Length: > 0 } destination)
@@ -3265,6 +3363,10 @@ public static class Application
         // way: dragging that row in the pause menu changes what the letters should be cut
         // at without the window having moved at all.
         int laidOutFor = window.FramebufferHeight;
+
+        // Whether the pointer was down last frame, so that picking a marked place up can
+        // happen on the edge of the press. See the drag below.
+        bool heldLastFrame = false;
         float laidOutAt = front.Settings.TextScale;
 
         bool flicker = options.Contains("--flicker", StringComparer.OrdinalIgnoreCase);
@@ -3952,11 +4054,58 @@ public static class Application
                     }
                 }
 
-                // Sidney's search box is the one place in the game the player types into
-                // that is not the console, so the keys go there while it is showing.
+                // <b>Dragging is a press, not a click.</b> A click is reported on the way
+                // back up and only when the pointer has hardly moved, which is exactly what
+                // a drag is not — so a place dragged across the map produced no click at
+                // all, and a place merely pressed produced one with the button already
+                // released. Picked up on the edge of the press instead.
+                bool holding = !console.Open && window.IsHeld(Platform.PointerButton.Primary);
+
+                if (holding && !heldLastFrame && sidney is { Dragging: < 0 } &&
+                    panel.Kind == ScreenKind.Sidney &&
+                    screens.HitAt(pointer) is { } under2 &&
+                    under2.StartsWith("sidney:point:", StringComparison.Ordinal) &&
+                    under2[13..].Split(':') is [string owner, string index] &&
+                    int.TryParse(owner, out int belongs) &&
+                    int.TryParse(index, out int lifted))
+                {
+                    sidney.StartDrag(belongs, lifted);
+                }
+
+                heldLastFrame = holding;
+
+                // And it follows the pointer until the button comes back up, which is the
+                // whole of dragging one: the map is drawn from the marks every frame, so
+                // moving one is all there is to do.
+                if (sidney is { Dragging: >= 0 } && panel.Kind == ScreenKind.Sidney)
+                {
+                    if (holding && screens.MapBounds is { Z: > 0 } under)
+                    {
+                        float over = Game.Sidney.SidneyMap.Extent / under.Z;
+
+                        sidney.DragTo(new System.Numerics.Vector2(
+                            (pointer.X - under.X) * over, (pointer.Y - under.Y) * over));
+                    }
+                    else if (sidney.EndDrag() is { } settled)
+                    {
+                        console.Print(settled.Text);
+                    }
+                }
+
+                // The wheel, before anything else looks at the pointer: a list inside
+                // Sidney is what it means while one is under it.
+                if (panel.Kind == ScreenKind.Sidney && window.ScrollDelta != 0)
+                {
+                    screens.SidneyWheel(pointer, window.ScrollDelta);
+                }
+
+                // Sidney's two text boxes are the only places in the game the player types
+                // into that are not the console, so the keys go there while one is showing:
+                // the search box, and the string that finishes the Arcadia inscription.
                 if (!console.Open &&
-                    sidney is { Screen: Game.Sidney.SidneyScreen.Search } typing2 &&
-                    panel.Kind == ScreenKind.Sidney)
+                    sidney is { } typing2 &&
+                    panel.Kind == ScreenKind.Sidney &&
+                    (typing2.Screen == Game.Sidney.SidneyScreen.Search || typing2.Appending))
                 {
                     if (window.Typed is { Length: > 0 } letters)
                     {
@@ -3970,7 +4119,14 @@ public static class Application
 
                     if (window.WasPressed(Platform.EditKey.Enter))
                     {
-                        typing2.Look();
+                        if (typing2.Appending)
+                        {
+                            console.Print(typing2.Append().Text);
+                        }
+                        else
+                        {
+                            typing2.Look();
+                        }
                     }
                 }
 
@@ -4008,7 +4164,8 @@ public static class Application
                             : -1,
                         icons,
                         closeUps,
-                        verbIcons),
+                        verbIcons,
+                        artwork),
                     window.FramebufferWidth,
                     window.FramebufferHeight,
                     pointer);
@@ -5255,12 +5412,21 @@ public static class Application
                 story.RideTo(parts[1]);
                 break;
 
-            case "sidney" when sidney is not null && parts.Length > 2:
-                OnSidney(parts[1], parts[2], story, sidney, console);
-                break;
+            // Split into three at most, because what a command is *about* may itself carry
+            // a colon and only the first two fields are the command.
+            //
+            // The subject is optional: SEARCH, MATCH PRINT and the power button are whole
+            // commands on their own. Requiring one silently dropped every button that had
+            // none — the search screen did nothing at all when its own button was clicked,
+            // and the print match the fingerprint puzzle ends on did nothing either.
+            case "sidney" when sidney is not null && parts.Length > 1:
+                OnSidney(
+                    parts[1],
+                    chose.Split(':', 3) is [_, _, string about] ? about : string.Empty,
+                    story,
+                    sidney,
+                    console);
 
-            case "sidney" when sidney is not null && parts.Length > 1 && parts[1] == "home":
-                sidney.Home();
                 break;
 
             default:
@@ -5480,8 +5646,50 @@ public static class Application
                 sidney.Home();
                 break;
 
+            // Opening a message marks it read, which is what turns the corner's
+            // notification off. Nothing did before, so the original's NEW E-MAIL light
+            // would have burned for the whole game.
             case "mail":
-                sidney.Reading = sidney.Library.Mail().FirstOrDefault(m => m.Id == which);
+                sidney.ReadMail(sidney.Library.Mail().FirstOrDefault(m => m.Id == which));
+                break;
+
+            // The translate screen keeps its own open file: analysing a parchment and
+            // translating a tape are two things a player may have going at once, and one
+            // list that meant both would close the other.
+            case "open":
+                sidney.OpenForTranslation(sidney.Files.FirstOrDefault(f => f.Id == which));
+                break;
+
+            // The analyze screen's four menus: one open at a time, and clicking the open
+            // one shuts it.
+            case "menu" when int.TryParse(which, out int menu):
+                sidney.Menu = sidney.Menu == menu ? 0 : menu;
+                break;
+
+            // The ruling the map is divided into, and whether it fills the figure or the
+            // whole picture.
+            case "grid" when int.TryParse(which, out int cells):
+                console.Print(sidney.Rule(cells).Text);
+                break;
+
+            case "fill":
+                sidney.RuleInShape = !sidney.RuleInShape;
+                break;
+
+            case "from":
+                sidney.From = which;
+                break;
+
+            case "translate":
+                console.Print(sidney.Translate().Text);
+                break;
+
+            case "complete":
+                sidney.Complete(!which.StartsWith('N') && !which.StartsWith('n'));
+                break;
+
+            case "append":
+                console.Print(sidney.Append().Text);
                 break;
 
             // Scanning runs the game's own action as well as making the file. The action is

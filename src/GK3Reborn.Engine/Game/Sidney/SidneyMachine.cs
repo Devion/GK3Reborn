@@ -40,6 +40,9 @@ public enum SidneyAction
     /// <summary>Take the marks off again.</summary>
     ClearPoints,
 
+    /// <summary>Take back the place marked last, which the original cannot do.</summary>
+    UndoPoint,
+
     /// <summary>Rule the map into squares.</summary>
     DrawGrid,
 
@@ -83,6 +86,13 @@ public sealed class SidneyMachine
     private readonly GameState _state;
     private readonly HashSet<string> _done = new(StringComparer.OrdinalIgnoreCase);
 
+    private SidneyTranslator? _translator;
+
+    /// <summary>The rulings the game offers, in the order it lists them.</summary>
+    private static readonly int[] GridSizes = [2, 4, 8, 12, 16];
+    private readonly SidneyMap _map = new();
+    private SavedMap? _mapWas;
+
     /// <summary>Creates the machine.</summary>
     /// <param name="library">The game's own Sidney text.</param>
     /// <param name="state">The story, which owns which files exist.</param>
@@ -113,8 +123,76 @@ public sealed class SidneyMachine
     /// <summary>The identity the make-ID screen has printed, or null.</summary>
     public SidneyIdentity? Identity { get; private set; }
 
-    /// <summary>The map, its points and whatever has been laid over it.</summary>
-    public SidneyMap Map { get; } = new();
+    /// <summary>
+    /// The map, its marks and whatever has been laid over it.
+    /// </summary>
+    /// <remarks>
+    /// Read back out of the story whenever the story's copy has moved on without it, which
+    /// is what loading a save looks like from here. The machine is built once and a save may
+    /// be loaded under it at any time, so this cannot be done in the constructor.
+    /// </remarks>
+    public SidneyMap Map
+    {
+        get
+        {
+            if (!ReferenceEquals(_mapWas, _state.SidneyMap))
+            {
+                _mapWas = _state.SidneyMap;
+
+                _map.Restore(
+                    _state.SidneyMap.Marks.Select(Place),
+                    _state.SidneyMap.Figures.Select(Figure),
+                    _state.SidneyMap.Grid);
+            }
+
+            return _map;
+        }
+    }
+
+    /// <summary>Writes the map back to the story, which is what a save records.</summary>
+    private void RememberMap()
+    {
+        var kept = new SavedMap(
+            [
+                .. _map.Points.Select(point => string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture, $"{point.X},{point.Y}")),
+            ],
+            [
+                .. _map.Laid.Select(laid => new SavedFigure(
+                    SidneyMap.NameOf(laid.Shape),
+                    laid.At.X,
+                    laid.At.Y,
+                    laid.Size,
+                    laid.Turn,
+                    [
+                        .. laid.Points.Select(point => string.Create(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            $"{point.X},{point.Y}")),
+                    ])),
+            ],
+            _map.GridInShape ? -_map.Grid : _map.Grid);
+
+        _state.SidneyMap = kept;
+        _mapWas = kept;
+    }
+
+    /// <summary>One saved place, back as a point.</summary>
+    private static System.Numerics.Vector2 Place(string mark) =>
+        mark.Split(',') is [string across, string down] &&
+        float.TryParse(across, System.Globalization.CultureInfo.InvariantCulture, out float x) &&
+        float.TryParse(down, System.Globalization.CultureInfo.InvariantCulture, out float y)
+            ? new System.Numerics.Vector2(x, y)
+            : System.Numerics.Vector2.Zero;
+
+    /// <summary>One saved figure, back as a placement.</summary>
+    private static LaidShape Figure(SavedFigure saved) =>
+        new(
+            Enum.TryParse(saved.Shape, ignoreCase: true, out MapShape shape) ? shape : MapShape.None,
+            new System.Numerics.Vector2(saved.X, saved.Y),
+            saved.Size,
+            saved.Turn,
+            Locked: false,
+            [.. saved.Points.Select(Place)]);
 
     /// <summary>Whether the analyze screen is waiting for a point to be marked.</summary>
     public bool Marking { get; private set; }
@@ -124,6 +202,57 @@ public sealed class SidneyMachine
 
     /// <summary>The message the mail screen has open, or null.</summary>
     public SidneyMail? Reading { get; set; }
+
+    /// <summary>
+    /// When it is, for the clock in the corner of the screen.
+    /// </summary>
+    /// <remarks>
+    /// The story's own timeblock rather than the wall clock. Sidney is a machine inside the
+    /// game and a real time of day on it would say the player is not.
+    /// </remarks>
+    public string Now
+    {
+        get
+        {
+            Timeblock when = _state.Timeblock;
+
+            return string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"Day {when.Day}  {when.Hour}:00 {(when.IsAfternoon ? "PM" : "AM")}");
+        }
+    }
+
+    /// <summary>
+    /// Whether a message has been opened.
+    /// </summary>
+    /// <param name="mail">Which message.</param>
+    /// <returns>True when it has been read.</returns>
+    /// <remarks>
+    /// A flag on the story, like everything else the machine remembers, so that it survives
+    /// a save. The original had a "NEW E-MAIL" light in the corner of its screen with
+    /// nothing behind it here to turn it off.
+    /// </remarks>
+    public bool HasRead(SidneyMail mail)
+    {
+        ArgumentNullException.ThrowIfNull(mail);
+
+        return _state.GetFlag("SidneyRead:" + mail.Id);
+    }
+
+    /// <summary>Opens a message, and marks it read.</summary>
+    /// <param name="mail">Which message, or null to close the one open.</param>
+    public void ReadMail(SidneyMail? mail)
+    {
+        Reading = mail;
+
+        if (mail is not null)
+        {
+            _state.SetFlag("SidneyRead:" + mail.Id);
+        }
+    }
+
+    /// <summary>How many messages have not been opened yet.</summary>
+    public int Unread => _library.Mail().Count(m => !HasRead(m));
 
     /// <summary>What the last operation said, or null.</summary>
     public SidneyResult? Showing { get; private set; }
@@ -232,15 +361,19 @@ public sealed class SidneyMachine
             // notes: places are marked on it and the analysis measures what they make.
             case SidneyKind.Map:
                 actions.Add(SidneyAction.EnterPoints);
+                actions.Add(SidneyAction.UndoPoint);
                 actions.Add(SidneyAction.ClearPoints);
                 actions.Add(SidneyAction.DrawGrid);
                 actions.Add(SidneyAction.EraseGrid);
 
                 // A shape can only be laid once one has been found in a picture, which is
                 // what makes the geometry analyses worth running.
-                if (Shapes.Count > 0)
+                // USE SHAPE is not here: the figures that may be laid are drawn beside the
+                // map as themselves, and a button that opens a list of their names is two
+                // steps and a covered map to do what one look at that row does. What is
+                // left is turning whichever was laid last.
+                if (Map.Laid.Count > 0)
                 {
-                    actions.Add(SidneyAction.UseShape);
                     actions.Add(SidneyAction.RotateShape);
                     actions.Add(SidneyAction.EraseShape);
                 }
@@ -294,6 +427,7 @@ public sealed class SidneyMachine
             SidneyAction.Translate => Finished("AnalyzeSUM"),
             SidneyAction.EnterPoints => Marked(),
             SidneyAction.ClearPoints => Cleared(),
+            SidneyAction.UndoPoint => Undone(),
             SidneyAction.DrawGrid => Ruled(),
             SidneyAction.EraseGrid => Unruled(),
             SidneyAction.EraseShape => Unshaped(),
@@ -358,11 +492,87 @@ public sealed class SidneyMachine
     /// <summary>Puts the machine back to its front screen.</summary>
     public void Home()
     {
+        Menu = 0;
+        Marking = false;
         Screen = SidneyScreen.Main;
         Showing = null;
         Reading = null;
         Page = null;
         Suspect = null;
+        Appending = false;
+    }
+
+    /// <summary>The translate screen's own reading of the game's text.</summary>
+    public SidneyTranslator Translator => _translator ??= new SidneyTranslator(_library);
+
+    /// <summary>The file the translate screen has open, or null.</summary>
+    public SidneyFile? Translating { get; private set; }
+
+    /// <summary>What the player says that file is written in, or null.</summary>
+    public string? From { get; set; }
+
+    /// <summary>Whether the machine is waiting for a string to add to a sentence.</summary>
+    public bool Appending { get; private set; }
+
+    /// <summary>Opens a file on the translate screen.</summary>
+    /// <param name="file">Which file, or null to close the one open.</param>
+    public void OpenForTranslation(SidneyFile? file)
+    {
+        Translating = file;
+        Showing = null;
+        Appending = false;
+        From = null;
+    }
+
+    /// <summary>Translates the open file out of the language chosen.</summary>
+    /// <returns>What the machine says.</returns>
+    public SidneyResult Translate()
+    {
+        Showing = Translator.Translate(Translating, From);
+        Appending = false;
+
+        if (Showing.Choices is { Count: > 0 } && Translating is { } file)
+        {
+            _state.SetFlag(Flag(file, SidneyAction.Translate));
+            _done.Add(Flag(file, SidneyAction.Translate));
+        }
+
+        return Showing;
+    }
+
+    /// <summary>Says whether to add to an unfinished sentence.</summary>
+    /// <param name="yes">True to be asked for a string.</param>
+    public void Complete(bool yes)
+    {
+        Appending = yes;
+        Typed = string.Empty;
+
+        if (yes)
+        {
+            // The game's own name for having started the anagram, which two conditions ask
+            // about before the sentence is finished.
+            _state.SetFlag("StartArcadiaAnagram");
+        }
+    }
+
+    /// <summary>Adds whatever has been typed to the unfinished sentence.</summary>
+    /// <returns>What the machine says.</returns>
+    public SidneyResult Append()
+    {
+        Showing = Translator.Append(Translating, Typed);
+
+        if (Showing.Produced is { Length: > 0 } made)
+        {
+            // <b>The names the story asks about.</b> R25307A's timeblock will not end
+            // without SavedArcadiaText, and three other conditions read ArcadiaComplete.
+            // The machine's own SidneyText: name is kept beside them for the screen.
+            _state.SetFlag("SidneyText:" + made);
+            _state.SetFlag("SavedArcadiaText");
+            _state.SetFlag("ArcadiaComplete");
+            Appending = false;
+        }
+
+        return Showing;
     }
 
     /// <summary>Looks up whatever has been typed.</summary>
@@ -616,7 +826,10 @@ public sealed class SidneyMachine
     {
         get
         {
-            List<MapShape> found = [];
+            // The line is always offered. It is the tool the first step of the puzzle is
+            // made of — two places joined, before any picture has been analysed — and
+            // nothing grants it because nothing has to.
+            List<MapShape> found = [MapShape.Line];
 
             foreach ((SidneyKind kind, MapShape[] shapes) in Granted)
             {
@@ -665,7 +878,23 @@ public sealed class SidneyMachine
         }
 
         Choosing = false;
+
+        // The same figure again takes it off, so several can be stacked and unstacked with
+        // one row of buttons and no menu.
+        foreach (LaidShape already in Map.Laid)
+        {
+            if (already.Shape == shape)
+            {
+                Map.Remove(shape);
+                RememberMap();
+                Showing = new SidneyResult(Say("ShapeErasedNote"));
+
+                return Showing;
+            }
+        }
+
         Map.UseShape(shape);
+        RememberMap();
 
         Showing = new SidneyResult(
             Map.Locked
@@ -676,8 +905,139 @@ public sealed class SidneyMachine
 
         if (Map.Locked)
         {
-            _state.SetFlag($"SidneyShape:{SidneyMap.NameOf(shape)}");
+            Locked(shape);
         }
+
+        return Showing;
+    }
+
+    /// <summary>
+    /// Which of the analyze screen's four menus is open, or nought for none.
+    /// </summary>
+    /// <remarks>
+    /// The original's analyze screen is four dropdowns — OPEN, TEXT, GRAPHIC and MAP — and
+    /// the port's first pass laid every operation out flat. That is easier to read right up
+    /// until the map, which has eight of them and wrapped onto three rows of a screen that
+    /// is only 640 pixels wide to begin with. The game's own grouping is both the fix and
+    /// what the data describes.
+    /// </remarks>
+    public int Menu { get; set; }
+
+    /// <summary>
+    /// Which menu an operation sits under, as <c>ESIDNEY.TXT</c> groups them.
+    /// </summary>
+    /// <param name="action">The operation.</param>
+    /// <returns>One to four.</returns>
+    public static int MenuOf(SidneyAction action) => action switch
+    {
+        SidneyAction.Analyse => 1,
+        SidneyAction.ExtractAnomalies or SidneyAction.AnalyseText or SidneyAction.Translate => 2,
+        SidneyAction.ViewGeometry or SidneyAction.RotateShape or
+            SidneyAction.ZoomAndClarify or SidneyAction.EraseShape => 3,
+        _ => 4,
+    };
+
+    /// <summary>What the game calls one of those menus.</summary>
+    /// <param name="menu">Which of the four.</param>
+    /// <returns>Its name, in the game's own words.</returns>
+    public string MenuName(int menu) =>
+        _library.Say($"Menu{menu}Name", "Analyze Screen") is { Length: > 0 } named
+            ? named
+            : menu switch { 1 => "OPEN", 2 => "TEXT", 3 => "GRAPHIC", _ => "MAP" };
+
+    /// <summary>
+    /// Which marked place is being dragged, or minus one while none is.
+    /// </summary>
+    /// <remarks>
+    /// <b>The original cannot move a place at all</b> — a misplaced click has to be cleared
+    /// and every other place with it. The puzzle is played by clicking villages on a
+    /// photograph and getting one a few pixels out is the ordinary case, so a place can be
+    /// picked up and put down again here.
+    /// </remarks>
+    public int Dragging { get; private set; } = -1;
+
+    /// <summary>
+    /// Which figure the dragged place belongs to, or minus one for the working set.
+    /// </summary>
+    public int DraggingFigure { get; private set; } = -1;
+
+    /// <summary>Picks up a marked place.</summary>
+    /// <param name="figure">Which figure it belongs to, or minus one for the working set.</param>
+    /// <param name="which">Which of that figure's places.</param>
+    public void StartDrag(int figure, int which)
+    {
+        DraggingFigure = figure;
+        Dragging = which;
+    }
+
+    /// <summary>Moves the place being dragged.</summary>
+    /// <param name="to">Where the pointer is, in map pixels.</param>
+    public void DragTo(System.Numerics.Vector2 to)
+    {
+        if (Dragging >= 0)
+        {
+            Map.MovePoint(DraggingFigure, Dragging, to);
+        }
+    }
+
+    /// <summary>
+    /// Puts the dragged place down, and measures everything again.
+    /// </summary>
+    /// <returns>What the machine says, or null when nothing was being dragged.</returns>
+    public SidneyResult? EndDrag()
+    {
+        if (Dragging < 0)
+        {
+            return null;
+        }
+
+        Dragging = -1;
+        DraggingFigure = -1;
+
+        // The same as marking a fresh place: every figure is re-fitted and the set is
+        // measured again, because a confirmation cannot outlive the marks that earned it.
+        Map.Refit();
+        RememberMap();
+
+        foreach (LaidShape laid in Map.Laid)
+        {
+            if (laid.Locked)
+            {
+                Locked(laid.Shape);
+            }
+        }
+
+        MapAnalysis found = Map.Analyse();
+
+        Showing = new SidneyResult(Verdict(found));
+
+        return Showing;
+    }
+
+    /// <summary>Whether the map is waiting for a grid to be chosen off its list.</summary>
+    public bool Ruling { get; set; }
+
+    /// <summary>Whether the grid the list offers will be ruled inside the figure.</summary>
+    public bool RuleInShape { get; set; }
+
+    /// <summary>The grid sizes the game offers, as it writes them.</summary>
+    public IReadOnlyList<(int Cells, string Label)> Grids =>
+    [
+        .. GridSizes
+            .Select(cells => (cells, _library.Say($"Grid{cells}", "Analyze Screen")))
+            .Where(row => row.Item2.Length > 0),
+    ];
+
+    /// <summary>Rules the map, or the figure on it, into so many cells.</summary>
+    /// <param name="cells">How many each way.</param>
+    /// <returns>What the machine says.</returns>
+    public SidneyResult Rule(int cells)
+    {
+        Map.DrawGrid(cells, RuleInShape && Map.Laid.Count > 0);
+        RememberMap();
+        Ruling = false;
+
+        Showing = new SidneyResult(Say("MapGridPointsNote"));
 
         return Showing;
     }
@@ -708,9 +1068,11 @@ public sealed class SidneyMachine
         // finding one takes a few presses rather than a hundred.
         bool locked = Map.Rotate(15f);
 
+        RememberMap();
+
         if (locked)
         {
-            _state.SetFlag($"SidneyShape:{SidneyMap.NameOf(Map.Shape)}");
+            Locked(Map.Shape);
         }
 
         return new SidneyResult(locked ? Say("MapShapeLockNote") : Say("CirclePointsNote"));
@@ -725,6 +1087,7 @@ public sealed class SidneyMachine
 
         Choosing = false;
         Map.EraseShape();
+        RememberMap();
 
         return new SidneyResult(Say("ShapeErasedNote"));
     }
@@ -750,22 +1113,28 @@ public sealed class SidneyMachine
 
         MapAnalysis found = Map.Analyse();
 
-        // A shape already laid is re-fitted, because the places it has to pass through
-        // have just changed.
-        if (Map.Shape != MapShape.None)
-        {
-            Map.UseShape(Map.Shape);
+        // Every figure already laid is re-fitted, because the places they have to pass
+        // through have just changed — and a confirmation cannot be allowed to outlive the
+        // marks that earned it.
+        Map.Refit();
+        RememberMap();
 
-            if (Map.Locked)
+        foreach (LaidShape laid in Map.Laid)
+        {
+            if (laid.Locked)
             {
-                _state.SetFlag($"SidneyShape:{SidneyMap.NameOf(Map.Shape)}");
+                Locked(laid.Shape);
             }
         }
 
         string said = Say("MapEnterPointNote").Replace(
             "%s", SidneyMap.Coordinates(at), StringComparison.Ordinal);
 
-        if (Map.Points.Count > 2 || found.Finding is MapFinding.Circle or MapFinding.Rectangle)
+        // <b>Two places are the interesting case, not the dull one.</b> The verdict used
+        // to wait for a third, so the sunrise line — the first step of the whole map
+        // puzzle, and a thing made of exactly two points — was marked and never
+        // remarked on.
+        if (Map.Points.Count > 1 || found.Finding is MapFinding.Circle or MapFinding.Rectangle)
         {
             said = said + "\n\n" + Verdict(found);
         }
@@ -773,6 +1142,59 @@ public sealed class SidneyMachine
         Showing = new SidneyResult(said);
 
         return Showing;
+    }
+
+    /// <summary>
+    /// Which of the game's notes a line between two places earns.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>ESIDNEY.TXT</c> writes five, and which one applies is geography.
+    /// <c>MapLine1Note</c> is the one the whole map puzzle opens on: "A straight line marked
+    /// between the two points intersects with meridian and point 'Arques'" — the sunrise
+    /// line from the church at Rennes-le-Château over the tower at Blanchefort, which runs
+    /// on to Arques. <c>MapLine2Note</c> wants the line tangential to a circle already laid.
+    /// </para>
+    /// <para>
+    /// <b><c>MapLine4Note</c> is not chosen here.</b> "Landmark feature connects points" is
+    /// the snake — the railway north of the site — and the engine has no idea where the
+    /// railway runs. Saying it on a guess would confirm a passage the player had not solved.
+    /// </para>
+    /// </remarks>
+    private string LineNote()
+    {
+        if (Map.Points.Count < 2)
+        {
+            return Say("MapLineDisallow");
+        }
+
+        System.Numerics.Vector2 from = Map.Points[0];
+        System.Numerics.Vector2 to = Map.Points[^1];
+
+        if (SidneyMap.CrossesMeridian(from, to) &&
+            SidneyMap.Through(from, to, SidneyMap.Arques))
+        {
+            return Say("MapLine1Note");
+        }
+
+        // Tangential to a circle already laid: touching it, rather than cutting across it.
+        foreach (LaidShape laid in Map.Laid)
+        {
+            if (laid.Shape != MapShape.Circle)
+            {
+                continue;
+            }
+
+            if (SidneyMap.Through(from, to, laid.At + new System.Numerics.Vector2(laid.Size, 0)) ||
+                SidneyMap.Through(from, to, laid.At - new System.Numerics.Vector2(laid.Size, 0)) ||
+                SidneyMap.Through(from, to, laid.At + new System.Numerics.Vector2(0, laid.Size)) ||
+                SidneyMap.Through(from, to, laid.At - new System.Numerics.Vector2(0, laid.Size)))
+            {
+                return Say("MapLine2Note");
+            }
+        }
+
+        return Map.Points.Count > 2 ? Say("MapLine3Note") : Say("MapLineDisallow");
     }
 
     /// <summary>What the machine makes of the points as they stand.</summary>
@@ -793,7 +1215,7 @@ public sealed class SidneyMachine
                 return Say("MapRectNote");
 
             case MapFinding.Line:
-                return Map.Points.Count > 2 ? Say("MapLine3Note") : Say("MapLineDisallow");
+                return LineNote();
 
             case MapFinding.Several:
                 return Say("MapSeveralPossNote");
@@ -806,9 +1228,19 @@ public sealed class SidneyMachine
         }
     }
 
+    /// <summary>
+    /// Arms the map for marking, or disarms it.
+    /// </summary>
+    /// <remarks>
+    /// <b>A toggle, and the map only takes a click while it is on.</b> The picture used to
+    /// be a target the whole time the map was open, so a click meant to reach a menu behind
+    /// the pointer, or a click to dismiss something, put a village on the map — before
+    /// ENTER POINTS had ever been chosen. The original's menu item exists precisely because
+    /// clicking a map is otherwise ambiguous.
+    /// </remarks>
     private SidneyResult Marked()
     {
-        Marking = true;
+        Marking = !Marking;
 
         return new SidneyResult(Say("EnterPointsNote"));
     }
@@ -817,12 +1249,52 @@ public sealed class SidneyMachine
     {
         Marking = false;
         Map.ClearPoints();
+        RememberMap();
 
         return new SidneyResult(Say("EnterPointsNote"));
     }
 
+    /// <summary>Takes back the place marked last, and measures what is left.</summary>
+    private SidneyResult Undone()
+    {
+        if (!Map.Undo())
+        {
+            return new SidneyResult(Say("EnterPointsNote"));
+        }
+
+        Map.Refit();
+        RememberMap();
+
+        foreach (LaidShape laid in Map.Laid)
+        {
+            if (laid.Locked)
+            {
+                Locked(laid.Shape);
+            }
+        }
+
+        // What is left is measured again, because taking a place back changes the answer as
+        // surely as adding one does.
+        MapAnalysis found = Map.Analyse();
+
+        return new SidneyResult(
+            Map.Points.Count == 0
+                ? Say("EnterPointsNote")
+                : found.Finding == MapFinding.TooFew
+                    ? Say("MapIndeterminateNote")
+                    : Verdict(found));
+    }
+
     private SidneyResult Ruled()
     {
+        // The list of sizes the game offers, rather than one size chosen for the player.
+        if (Map.Grid == 0)
+        {
+            Ruling = true;
+
+            return new SidneyResult(Say("GridList"));
+        }
+
         if (Map.Grid > 0)
         {
             return new SidneyResult(Say("GridDispNote"));
@@ -831,6 +1303,7 @@ public sealed class SidneyMachine
         // Eight by eight. The file offers a list — two, four, eight, twelve, sixteen — and
         // eight is the one the puzzle is drawn against.
         Map.DrawGrid(8);
+        RememberMap();
 
         return new SidneyResult(Say("MapGridPointsNote"));
     }
@@ -843,6 +1316,7 @@ public sealed class SidneyMachine
         }
 
         Map.EraseGrid();
+        RememberMap();
 
         return new SidneyResult(Say("ShapeErasedNote"));
     }
@@ -889,6 +1363,12 @@ public sealed class SidneyMachine
 
         _done.Add(flag);
         _state.SetFlag(flag);
+
+        // And under the name the game itself asks about, where it asks about one at all.
+        if (StoryFlag(file, action) is { Length: > 0 } known)
+        {
+            _state.SetFlag(known);
+        }
     }
 
     /// <summary>
@@ -899,6 +1379,61 @@ public sealed class SidneyMachine
     /// than kept here so it survives a save. What Sidney has been asked to do is part of
     /// the game, not part of the screen.
     /// </remarks>
+    /// <summary>
+    /// Records that a figure sits on every marked place.
+    /// </summary>
+    /// <param name="shape">Which figure.</param>
+    /// <remarks>
+    /// <b>Under the name the game reads.</b> <c>R25307A.NVC</c> will not let its timeblock
+    /// end without <c>GetFlag("LockedHexagram")</c>, and seven conditions across the action
+    /// files ask about <c>LockedSquare</c>. The machine's own
+    /// <c>SidneyShape:Hexagram</c> is kept beside them because the map screen reads it, but
+    /// it is not what the story is listening for.
+    /// </remarks>
+    private void Locked(MapShape shape)
+    {
+        if (shape == MapShape.None)
+        {
+            return;
+        }
+
+        _state.SetFlag($"SidneyShape:{SidneyMap.NameOf(shape)}");
+        _state.SetFlag($"Locked{SidneyMap.NameOf(shape)}");
+    }
+
     private static string Flag(SidneyFile file, SidneyAction action) =>
         $"SidneyDid:{file.Id}:{action}";
+
+    /// <summary>
+    /// The name the game's own conditions know a finding by, where they know it at all.
+    /// </summary>
+    /// <param name="file">The file that was analysed.</param>
+    /// <param name="action">What was done to it.</param>
+    /// <returns>The flag the story reads, or null where the story does not ask.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The story asks for these by name and the machine was setting others.</b>
+    /// <c>SidneyDid:fileParchment1:ViewGeometry</c> is the machine's own bookkeeping and
+    /// nothing in the game has ever heard of it; what the action files ask is
+    /// <c>GetFlag("AnalyzedGeomParchment1")</c>. Every such condition answered no, for ever
+    /// — the same fault as <c>AddSidneyFile</c> having had no caller.
+    /// </para>
+    /// <para>
+    /// The four are the two parchments and two of the three paintings, which is exactly the
+    /// set the files are numbered as: <c>filePainting1</c> is the Poussin and
+    /// <c>filePainting3</c> the Teniers without its temple. The third is not asked about.
+    /// </para>
+    /// </remarks>
+    private static string? StoryFlag(SidneyFile file, SidneyAction action)
+    {
+        if (action != SidneyAction.ViewGeometry)
+        {
+            return null;
+        }
+
+        // fileParchment1 becomes AnalyzedGeomParchment1, which is how the game spells it.
+        return file.Id.StartsWith("file", StringComparison.OrdinalIgnoreCase)
+            ? "AnalyzedGeom" + file.Id[4..]
+            : null;
+    }
 }

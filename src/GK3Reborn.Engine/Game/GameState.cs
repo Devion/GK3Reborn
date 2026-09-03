@@ -748,6 +748,19 @@ public sealed class GameState
 
     private readonly Dictionary<string, int> _hints = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// What is on Sidney's map: the places marked, the figures laid over them and the
+    /// ruling.
+    /// </summary>
+    /// <remarks>
+    /// <b>Here rather than on the map itself, because the story is what a save records.</b>
+    /// The map puzzle runs over several sittings — mark a village, go and read a painting's
+    /// geometry, come back and lay the figure it saved — and a map that forgot itself when
+    /// the game was closed would make the whole of it one sitting long. The machine writes
+    /// through to this after every change and reads it back when a save is loaded.
+    /// </remarks>
+    public SavedMap SidneyMap { get; set; } = new([], [], 0);
+
     /// <summary>How many hints the player has asked for about one objective.</summary>
     /// <param name="objective">What it is filed under.</param>
     /// <returns>The count, nought when they have never asked.</returns>
@@ -870,6 +883,9 @@ public sealed class GameState
             Hints = new Dictionary<string, int>(_hints),
             SidneyFiles = [.. _sidneyFiles.OrderBy(f => f, StringComparer.Ordinal)],
             SidneyScans = [.. _sidneyScans.OrderBy(s => s, StringComparer.Ordinal)],
+            SidneyMarks = [.. SidneyMap.Marks],
+            SidneyFigures = [.. SidneyMap.Figures],
+            SidneyGrid = SidneyMap.Grid,
             Introduced = Introduced,
             BlockedHitTests = [.. BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)],
             Inventories =
@@ -989,6 +1005,9 @@ public sealed class GameState
         {
             _sidneyScans.Add(Key(scan));
         }
+
+        SidneyMap = new SavedMap(
+            [.. save.SidneyMarks], [.. save.SidneyFigures], save.SidneyGrid);
 
         // Who this save says the player already knows. Empty for a game played through in
         // this engine, which answers the question out of its own topic counts, and filled

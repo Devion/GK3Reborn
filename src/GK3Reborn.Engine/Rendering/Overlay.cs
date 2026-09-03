@@ -411,6 +411,7 @@ public sealed class OverlayAtlas
 public sealed class Overlay
 {
     private readonly List<OverlayQuad> _quads = [];
+    private readonly List<Vector4> _clips = [];
 
     private int _magnify = 1;
 
@@ -475,6 +476,97 @@ public sealed class Overlay
         Width = width;
         Height = height;
         _quads.Clear();
+        _clips.Clear();
+    }
+
+    /// <summary>
+    /// Confines everything drawn until the matching <see cref="PopClip"/> to a rectangle.
+    /// </summary>
+    /// <param name="bounds">The rectangle, as x, y, width, height.</param>
+    /// <remarks>
+    /// <para>
+    /// Clipped as the quads are added rather than by the device, so that nothing about the
+    /// pipeline has to change and the whole interface stays one draw call. A rectangle is
+    /// trimmed to the intersection and a picture's source is trimmed with it in proportion,
+    /// which is what keeps a half-scrolled letter looking like half a letter rather than a
+    /// whole one squashed.
+    /// </para>
+    /// <para>
+    /// Nesting intersects rather than replaces: a list inside a window that is itself
+    /// inside a laptop screen should not be able to draw outside any of the three.
+    /// </para>
+    /// </remarks>
+    public void PushClip(Vector4 bounds)
+    {
+        _clips.Add(_clips.Count == 0 ? bounds : Intersect(_clips[^1], bounds));
+    }
+
+    /// <summary>Lifts the last clip.</summary>
+    public void PopClip()
+    {
+        if (_clips.Count > 0)
+        {
+            _clips.RemoveAt(_clips.Count - 1);
+        }
+    }
+
+    /// <summary>Adds a rectangle, trimmed to whatever clip is in force.</summary>
+    private void Add(OverlayQuad quad)
+    {
+        if (_clips.Count == 0)
+        {
+            _quads.Add(quad);
+
+            return;
+        }
+
+        Vector4 clip = _clips[^1];
+        Vector4 to = quad.Destination;
+
+        float left = MathF.Max(to.X, clip.X);
+        float top = MathF.Max(to.Y, clip.Y);
+        float right = MathF.Min(to.X + to.Z, clip.X + clip.Z);
+        float bottom = MathF.Min(to.Y + to.W, clip.Y + clip.W);
+
+        if (right <= left || bottom <= top)
+        {
+            return;
+        }
+
+        if (left == to.X && top == to.Y && right == to.X + to.Z && bottom == to.Y + to.W)
+        {
+            _quads.Add(quad);
+
+            return;
+        }
+
+        // What fraction of the original each edge moved by, which is the same fraction of
+        // the source to take. Guarded against a zero-sized original, which cannot be
+        // clipped into anything and is dropped above anyway.
+        Vector4 from = quad.Source;
+
+        float u = to.Z > 0 ? (left - to.X) / to.Z : 0;
+        float v = to.W > 0 ? (top - to.Y) / to.W : 0;
+        float du = to.Z > 0 ? (right - left) / to.Z : 0;
+        float dv = to.W > 0 ? (bottom - top) / to.W : 0;
+
+        _quads.Add(quad with
+        {
+            Destination = new Vector4(left, top, right - left, bottom - top),
+            Source = new Vector4(
+                from.X + (from.Z * u), from.Y + (from.W * v), from.Z * du, from.W * dv),
+        });
+    }
+
+    /// <summary>The overlap of two rectangles, which may be empty.</summary>
+    private static Vector4 Intersect(Vector4 a, Vector4 b)
+    {
+        float left = MathF.Max(a.X, b.X);
+        float top = MathF.Max(a.Y, b.Y);
+        float right = MathF.Min(a.X + a.Z, b.X + b.Z);
+        float bottom = MathF.Min(a.Y + a.W, b.Y + b.W);
+
+        return new Vector4(left, top, MathF.Max(0, right - left), MathF.Max(0, bottom - top));
     }
 
     /// <summary>Draws a solid rectangle.</summary>
@@ -484,7 +576,7 @@ public sealed class Overlay
     /// <param name="height">How tall.</param>
     /// <param name="color">What colour, straight alpha.</param>
     public void Rect(float x, float y, float width, float height, Vector4 color) =>
-        _quads.Add(new OverlayQuad(
+        Add(new OverlayQuad(
             new Vector4(x, y, width, height), Atlas.White, color));
 
     /// <summary>
@@ -516,7 +608,7 @@ public sealed class Overlay
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(picture);
 
-        _quads.Add(new OverlayQuad(
+        Add(new OverlayQuad(
             new Vector4(x, y, width, height),
             source ?? new Vector4(0, 0, 1, 1),
             tint,
@@ -553,7 +645,7 @@ public sealed class Overlay
             // this does not know which sort it has.
             if (glyph.Width > 0 && glyph.Height > 0)
             {
-                _quads.Add(new OverlayQuad(
+                Add(new OverlayQuad(
                     new Vector4(
                         MathF.Round(at + (glyph.Left * _magnify)),
                         MathF.Round(top + (glyph.Top * _magnify)),

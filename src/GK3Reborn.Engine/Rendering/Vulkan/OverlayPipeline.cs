@@ -224,7 +224,7 @@ public sealed unsafe class OverlayPipeline : IDisposable
         Format depthFormat,
         ShaderCompiler compiler,
         OverlayAtlas atlas,
-        int capacity = 4096)
+        int capacity = 16384)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(compiler);

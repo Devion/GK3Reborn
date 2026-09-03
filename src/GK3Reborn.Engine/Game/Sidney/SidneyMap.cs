@@ -26,7 +26,43 @@ public enum MapShape
 
     /// <summary>A triangle.</summary>
     Triangle,
+
+    /// <summary>
+    /// A straight line through the places marked for it.
+    /// </summary>
+    /// <remarks>
+    /// The first figure the puzzle asks for and the last: the sunrise line from the church
+    /// at Rennes-le-Château over the tower at Blanchefort, and the snake the railway makes
+    /// north of the site. It was only ever a <em>finding</em> here, so it vanished the
+    /// moment the next place was marked — and every step after the first needs it to stay.
+    /// </remarks>
+    Line,
 }
+
+/// <summary>
+/// One figure laid over the country, where it sits and whether it is confirmed.
+/// </summary>
+/// <param name="Shape">Which figure.</param>
+/// <param name="At">Where its middle is, in map pixels.</param>
+/// <param name="Size">The radius of the circle it is drawn inside.</param>
+/// <param name="Turn">How far it has been turned, in degrees.</param>
+/// <param name="Locked">Whether every marked place sits on its outline.</param>
+/// <param name="Points">
+/// The places it was fitted to, which are its own.
+/// </param>
+/// <remarks>
+/// <b>A figure owns its marks.</b> One shared set meant that plotting the four corners of
+/// the square re-fitted the circle to eight places and threw it off the four it was
+/// confirmed by — and the puzzle is a stack of figures each answering to its own places.
+/// What is marked but not yet given to a figure stays in the map's working set.
+/// </remarks>
+public sealed record LaidShape(
+    MapShape Shape,
+    Vector2 At,
+    float Size,
+    float Turn,
+    bool Locked,
+    IReadOnlyList<Vector2> Points);
 
 /// <summary>What the points the player entered turned out to be.</summary>
 public enum MapFinding
@@ -123,6 +159,28 @@ public sealed class SidneyMap
     /// <summary>Where the meridian falls across the map, as a fraction of its width.</summary>
     private const double MeridianAcross = 0.655;
 
+    /// <summary>
+    /// Where Arques sits, in map pixels.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured off the map rather than guessed at.</b> The enhanced
+    /// <c>SIDNEYBIGMAP</c> is 2,736 pixels square — exactly twice the coordinates the marks
+    /// are kept in — and the village's own block of buildings, not its label, sits at
+    /// (2523, 330) on it. The label is up and to the left of the place, which is why the
+    /// buildings are what was measured.
+    /// </remarks>
+    public static readonly Vector2 Arques = new(1262f, 165f);
+
+    /// <summary>
+    /// How near a line has to pass to a named place to be said to go through it.
+    /// </summary>
+    /// <remarks>
+    /// Wider than a village, because the two places the line is drawn from were clicked by
+    /// eye on a picture and the note it unlocks is a confirmation rather than a
+    /// measurement — the same reasoning as the tolerance a laid figure is locked by.
+    /// </remarks>
+    private const float PlaceTolerance = 40f;
+
     /// <summary>How much ground the map covers east to west, in degrees of longitude.</summary>
     private const double SpanLongitude = 0.28;
 
@@ -133,24 +191,38 @@ public sealed class SidneyMap
     private const double SpanLatitude = 0.185;
 
     private readonly List<Vector2> _points = [];
+    private readonly List<LaidShape> _laid = [];
 
     /// <summary>The points the player has entered, in map pixels.</summary>
     public IReadOnlyList<Vector2> Points => _points;
 
-    /// <summary>The shape laid over the map, if any.</summary>
-    public MapShape Shape { get; private set; }
+    /// <summary>
+    /// Every figure laid over the country, in the order they were laid.
+    /// </summary>
+    /// <remarks>
+    /// <b>More than one at a time, because what they make together is the puzzle.</b> The
+    /// books this game is built on lay a pentagram over a circle over a square and read the
+    /// country off where the lines cross; a screen that holds one figure at a time makes the
+    /// player remember the last one. The most recently laid is the one the rotate turns and
+    /// the one the single-figure properties below report, which is what an editor does with
+    /// a selection.
+    /// </remarks>
+    public IReadOnlyList<LaidShape> Laid => _laid;
 
-    /// <summary>Where the shape sits, in map pixels.</summary>
-    public Vector2 ShapeAt { get; private set; }
+    /// <summary>The figure most recently laid, if any.</summary>
+    public MapShape Shape => _laid.Count > 0 ? _laid[^1].Shape : MapShape.None;
+
+    /// <summary>Where it sits, in map pixels.</summary>
+    public Vector2 ShapeAt => _laid.Count > 0 ? _laid[^1].At : Vector2.Zero;
 
     /// <summary>How big it is: the radius of the circle it is drawn inside.</summary>
-    public float ShapeSize { get; private set; }
+    public float ShapeSize => _laid.Count > 0 ? _laid[^1].Size : 0f;
 
     /// <summary>How far it has been turned, in degrees.</summary>
-    public float ShapeTurn { get; private set; }
+    public float ShapeTurn => _laid.Count > 0 ? _laid[^1].Turn : 0f;
 
-    /// <summary>Whether the marked places sit on the shape.</summary>
-    public bool Locked { get; private set; }
+    /// <summary>Whether the marked places sit on it.</summary>
+    public bool Locked => _laid.Count > 0 && _laid[^1].Locked;
 
     /// <summary>How many cells the grid is divided into each way, or zero for none.</summary>
     public int Grid { get; private set; }
@@ -168,6 +240,7 @@ public sealed class SidneyMap
         MapShape.Square => "Square",
         MapShape.Hexagram => "Hexagram",
         MapShape.Triangle => "Triangle",
+        MapShape.Line => "Line",
         _ => "None",
     };
 
@@ -191,6 +264,72 @@ public sealed class SidneyMap
         return true;
     }
 
+    /// <summary>
+    /// Takes back the place marked last.
+    /// </summary>
+    /// <returns>True when there was one to take back.</returns>
+    /// <remarks>
+    /// <b>The original has no such thing</b>: its map offers ENTER POINTS and CLEAR POINTS,
+    /// so one misplaced click costs every place marked so far. The puzzle is played by
+    /// clicking villages on a picture and a misplaced click is the ordinary case, which is
+    /// exactly what <c>docs/screens.md</c> means by an interface easier than that one's.
+    /// </remarks>
+    public bool Undo()
+    {
+        if (_points.Count == 0)
+        {
+            return false;
+        }
+
+        _points.RemoveAt(_points.Count - 1);
+        Found = null;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Moves a place already marked.
+    /// </summary>
+    /// <param name="figure">Which figure it belongs to, or minus one for the working set.</param>
+    /// <param name="which">Which of that figure's places, from nought.</param>
+    /// <param name="to">Where it goes, in map pixels.</param>
+    /// <returns>True when it moved.</returns>
+    /// <remarks>
+    /// Kept on the map: a place dragged off the edge is a place the analysis would measure
+    /// somewhere the picture does not show.
+    /// </remarks>
+    public bool MovePoint(int figure, int which, Vector2 to)
+    {
+        var at = new Vector2(Math.Clamp(to.X, 0, Extent), Math.Clamp(to.Y, 0, Extent));
+
+        if (figure < 0)
+        {
+            if (which < 0 || which >= _points.Count)
+            {
+                return false;
+            }
+
+            _points[which] = at;
+            Found = null;
+
+            return true;
+        }
+
+        if (figure >= _laid.Count || which < 0 || which >= _laid[figure].Points.Count)
+        {
+            return false;
+        }
+
+        // A figure's own place moved re-fits that figure and nothing else, which is the
+        // whole reason a figure keeps its own.
+        List<Vector2> own = [.. _laid[figure].Points];
+
+        own[which] = at;
+        _laid[figure] = Place(_laid[figure].Shape, own);
+
+        return true;
+    }
+
     /// <summary>Takes every point off the map.</summary>
     public void ClearPoints()
     {
@@ -198,12 +337,32 @@ public sealed class SidneyMap
         Found = null;
     }
 
-    /// <summary>Lays a grid over the map.</summary>
+    /// <summary>
+    /// Lays a grid over the map, or over the figure laid on it.
+    /// </summary>
     /// <param name="cells">How many cells each way — 2, 4, 8, 12 or 16.</param>
-    public void DrawGrid(int cells) => Grid = Math.Clamp(cells, 0, 64);
+    /// <param name="inShape">Whether to rule inside the figure rather than the whole map.</param>
+    /// <remarks>
+    /// <b>Both of those are the game's own.</b> <c>ESIDNEY.TXT</c> offers Grid2 through
+    /// Grid16 and then asks "Fill entire screen" or "Fill shape", and the chessboard the
+    /// Gemini and Cancer passages are about is eight by eight ruled inside the tilted
+    /// square — which a grid that can only cover the whole map cannot draw.
+    /// </remarks>
+    public void DrawGrid(int cells, bool inShape = false)
+    {
+        Grid = Math.Clamp(cells, 0, 64);
+        GridInShape = inShape && Grid > 0;
+    }
+
+    /// <summary>Whether the grid is ruled inside the figure rather than over the whole map.</summary>
+    public bool GridInShape { get; private set; }
 
     /// <summary>Takes the grid off again.</summary>
-    public void EraseGrid() => Grid = 0;
+    public void EraseGrid()
+    {
+        Grid = 0;
+        GridInShape = false;
+    }
 
     /// <summary>
     /// Lays a shape over the map, fitted to whatever has been marked.
@@ -217,62 +376,128 @@ public sealed class SidneyMap
     /// </remarks>
     public void UseShape(MapShape shape)
     {
-        Shape = shape;
-        ShapeTurn = 0;
-
-        if (_points.Count == 0)
+        if (shape == MapShape.None)
         {
-            // Nothing to fit to: the middle of the map, big enough to see.
-            ShapeAt = new Vector2(Extent / 2f, Extent / 2f);
-            ShapeSize = Extent * 0.3f;
-            Locked = false;
-
             return;
+        }
+
+        LaidShape placed = Place(shape, _points);
+
+        // Laying a figure that is already there re-fits it rather than stacking a second
+        // copy on the first, and brings it to the front so that the rotate turns it.
+        _laid.RemoveAll(already => already.Shape == shape);
+        _laid.Add(placed);
+
+        // The places it was fitted to are now its own, so the next figure starts from a
+        // clean map: plotting the square's four corners must not re-fit the circle.
+        _points.Clear();
+        Found = null;
+    }
+
+    /// <summary>Re-fits every figure, after the marks under them have changed.</summary>
+    public void Refit()
+    {
+        for (int i = 0; i < _laid.Count; i++)
+        {
+            _laid[i] = Place(_laid[i].Shape, _laid[i].Points);
+        }
+    }
+
+    /// <summary>Where a figure sits once it is fitted to the marks.</summary>
+    /// <summary>
+    /// Where a figure sits once it is fitted to a set of places.
+    /// </summary>
+    /// <param name="shape">Which figure.</param>
+    /// <param name="places">The places it answers to, which become its own.</param>
+    /// <returns>The figure, placed.</returns>
+    private LaidShape Place(MapShape shape, IReadOnlyList<Vector2> places)
+    {
+        List<Vector2> own = [.. places];
+
+        if (own.Count == 0)
+        {
+            // A square with nothing of its own goes round the circle already laid, which is
+            // the step the puzzle actually asks for: "fit exactly on the outer edge of the
+            // previous circle". Failing that, the middle of the map, big enough to see.
+            foreach (LaidShape already in _laid)
+            {
+                if (shape == MapShape.Square && already.Shape == MapShape.Circle)
+                {
+                    return new LaidShape(
+                        shape,
+                        already.At,
+                        already.Size * MathF.Sqrt(2f),
+                        45f,
+                        Locked: true,
+                        own);
+                }
+            }
+
+            return new LaidShape(
+                shape, new Vector2(Extent / 2f, Extent / 2f), Extent * 0.3f, 0f, false, own);
         }
 
         Vector2 middle = Vector2.Zero;
 
-        foreach (Vector2 point in _points)
+        foreach (Vector2 point in own)
         {
             middle += point;
         }
 
-        middle /= _points.Count;
+        middle /= own.Count;
 
-        // A circle through three marked places is exact; anything else is centred on them
-        // and sized to reach the furthest.
-        if (shape == MapShape.Circle && _points.Count >= 3 &&
-            Circumcircle(_points[0], _points[1], _points[2], out Vector2 centre, out float radius))
+        Vector2 at;
+        float size;
+        float turn = 0f;
+
+        // A line is the two ends of what was marked, and is drawn on past them; its middle
+        // and half-length are only where the machine keeps it.
+        if (shape == MapShape.Line)
         {
-            ShapeAt = centre;
-            ShapeSize = radius;
+            Vector2 from = own[0];
+            Vector2 to = own[^1];
+            Vector2 along = to - from;
+
+            at = middle;
+            size = MathF.Max(along.Length() / 2, 1f);
+            turn = along.LengthSquared() > 1e-3f
+                ? MathF.Atan2(along.Y, along.X) * 180f / MathF.PI
+                : 0f;
+        }
+        else if (shape == MapShape.Circle && own.Count >= 3 &&
+            FitCircle(own, out Vector2 centre, out float radius))
+        {
+            // <b>Every place, not the first three of them.</b> Taking three left a player
+            // who had marked five wondering why the circle sailed off the top of the map
+            // ignoring the two at the bottom.
+            at = centre;
+            size = radius;
         }
         else
         {
             float furthest = 0;
 
-            foreach (Vector2 point in _points)
+            foreach (Vector2 point in own)
             {
                 furthest = MathF.Max(furthest, Vector2.Distance(point, middle));
             }
 
-            ShapeAt = middle;
-            ShapeSize = MathF.Max(furthest, 40f);
+            at = middle;
+            size = MathF.Max(furthest, 40f);
 
             // A shape with corners is turned so one of them meets the first marked place,
             // which is what somebody laying a template on a map does before anything else.
-            if (_points.Count > 0)
-            {
-                Vector2 toFirst = _points[0] - middle;
+            Vector2 toFirst = own[0] - middle;
 
-                if (toFirst.LengthSquared() > 1e-3f)
-                {
-                    ShapeTurn = MathF.Atan2(toFirst.Y, toFirst.X) * 180f / MathF.PI;
-                }
+            if (toFirst.LengthSquared() > 1e-3f)
+            {
+                turn = MathF.Atan2(toFirst.Y, toFirst.X) * 180f / MathF.PI;
             }
         }
 
-        Locked = Fits();
+        var fitted = new LaidShape(shape, at, size, turn, false, own);
+
+        return fitted with { Locked = Fits(fitted) };
     }
 
     /// <summary>Turns the shape.</summary>
@@ -280,24 +505,70 @@ public sealed class SidneyMap
     /// <returns>Whether it now sits on the marked places.</returns>
     public bool Rotate(float degrees)
     {
-        if (Shape == MapShape.None)
+        if (_laid.Count == 0)
         {
             return false;
         }
 
-        ShapeTurn = (ShapeTurn + degrees) % 360f;
-        Locked = Fits();
+        LaidShape turned = _laid[^1] with { Turn = (_laid[^1].Turn + degrees) % 360f };
 
-        return Locked;
+        _laid[^1] = turned with { Locked = Fits(turned) };
+
+        return _laid[^1].Locked;
     }
 
-    /// <summary>Takes the shape off again.</summary>
+    /// <summary>Takes the most recently laid figure off again.</summary>
     public void EraseShape()
     {
-        Shape = MapShape.None;
-        Locked = false;
-        ShapeSize = 0;
+        if (_laid.Count > 0)
+        {
+            _laid.RemoveAt(_laid.Count - 1);
+        }
     }
+
+    /// <summary>
+    /// Puts a saved map back: its marks, its figures and its grid.
+    /// </summary>
+    /// <param name="marks">The places, as "x,y" in map pixels.</param>
+    /// <param name="figures">The figures, each with where it sits.</param>
+    /// <param name="grid">How many cells the ruling is divided into.</param>
+    /// <remarks>
+    /// Whether each figure is confirmed is worked out again rather than restored, because
+    /// it is a fact about the figure and the marks together and both are here. A saved
+    /// "locked" that disagreed with them would be a confirmation the player could no longer
+    /// earn or lose.
+    /// </remarks>
+    public void Restore(
+        IEnumerable<Vector2> marks, IEnumerable<LaidShape> figures, int grid)
+    {
+        ArgumentNullException.ThrowIfNull(marks);
+        ArgumentNullException.ThrowIfNull(figures);
+
+        _points.Clear();
+        _laid.Clear();
+        Found = null;
+        Grid = Math.Clamp(Math.Abs(grid), 0, 64);
+        GridInShape = grid < 0;
+
+        _points.AddRange(marks);
+
+        foreach (LaidShape figure in figures)
+        {
+            _laid.Add(figure with { Locked = Fits(figure) });
+        }
+
+        if (_points.Count > 0)
+        {
+            Analyse();
+        }
+    }
+
+    /// <summary>Takes one named figure off.</summary>
+    /// <param name="shape">Which figure.</param>
+    public void Remove(MapShape shape) => _laid.RemoveAll(laid => laid.Shape == shape);
+
+    /// <summary>Takes every figure off.</summary>
+    public void EraseShapes() => _laid.Clear();
 
     /// <summary>
     /// Whether every marked place sits on the shape as it is placed.
@@ -308,16 +579,32 @@ public sealed class SidneyMap
     /// near the marks is not confirmation of anything; one that passes through all of them
     /// is the whole point of laying it there.
     /// </remarks>
-    public bool Fits()
+    public bool Fits() => _laid.Count > 0 && Fits(_laid[^1]);
+
+    /// <summary>Whether every marked place sits on one figure as it is placed.</summary>
+    /// <param name="laid">The figure.</param>
+    /// <returns>True when it passes through all of them.</returns>
+    public bool Fits(LaidShape laid)
     {
-        if (Shape == MapShape.None || _points.Count == 0 || ShapeSize <= 0)
+        ArgumentNullException.ThrowIfNull(laid);
+
+        if (laid.Shape == MapShape.None || laid.Size <= 0)
         {
             return false;
         }
 
-        foreach (Vector2 point in _points)
+        // Against its own places, not against whatever happens to be on the map: a figure
+        // is confirmed by what it was laid over.
+        IReadOnlyList<Vector2> against = laid.Points.Count > 0 ? laid.Points : _points;
+
+        if (against.Count == 0)
         {
-            if (Away(point) > ShapeTolerance)
+            return false;
+        }
+
+        foreach (Vector2 point in against)
+        {
+            if (Away(point, laid) > ShapeTolerance)
             {
                 return false;
             }
@@ -326,17 +613,28 @@ public sealed class SidneyMap
         return true;
     }
 
-    /// <summary>How far a place is from the shape's outline, in map pixels.</summary>
-    private float Away(Vector2 point)
+    /// <summary>How far a place is from a figure's outline, in map pixels.</summary>
+    private static float Away(Vector2 point, LaidShape laid)
     {
-        if (Shape == MapShape.Circle)
+        if (laid.Shape == MapShape.Circle)
         {
-            return MathF.Abs(Vector2.Distance(point, ShapeAt) - ShapeSize);
+            return MathF.Abs(Vector2.Distance(point, laid.At) - laid.Size);
+        }
+
+        // A line has no inside: what matters is how far the place is from the line itself,
+        // which runs on past both ends.
+        if (laid.Shape == MapShape.Line)
+        {
+            float radians = laid.Turn * MathF.PI / 180f;
+            var along = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
+            Vector2 offset = point - laid.At;
+
+            return MathF.Abs((along.X * offset.Y) - (along.Y * offset.X));
         }
 
         // Everything else is a ring of corners, and a place is measured against the nearest
         // of the sides between them.
-        Vector2[] corners = Corners();
+        Vector2[] corners = Corners(laid);
         float nearest = float.MaxValue;
 
         for (int i = 0; i < corners.Length; i++)
@@ -357,9 +655,16 @@ public sealed class SidneyMap
     /// one triangle, then a second forming the star — and the sides a place has to lie on
     /// are those triangles' sides.
     /// </remarks>
-    public Vector2[] Corners()
+    public Vector2[] Corners() => _laid.Count > 0 ? Corners(_laid[^1]) : [];
+
+    /// <summary>One figure's corners, in map pixels and in order round it.</summary>
+    /// <param name="laid">The figure.</param>
+    /// <returns>The corners; empty for a circle, which has none.</returns>
+    public static Vector2[] Corners(LaidShape laid)
     {
-        int sides = Shape switch
+        ArgumentNullException.ThrowIfNull(laid);
+
+        int sides = laid.Shape switch
         {
             MapShape.Square => 4,
             MapShape.Triangle => 3,
@@ -373,14 +678,14 @@ public sealed class SidneyMap
         }
 
         var corners = new Vector2[sides];
-        float turn = ShapeTurn * MathF.PI / 180f;
+        float turn = laid.Turn * MathF.PI / 180f;
 
         for (int i = 0; i < sides; i++)
         {
             float angle = turn + (i * MathF.Tau / sides);
 
-            corners[i] = ShapeAt + new Vector2(
-                MathF.Cos(angle) * ShapeSize, MathF.Sin(angle) * ShapeSize);
+            corners[i] = laid.At + new Vector2(
+                MathF.Cos(angle) * laid.Size, MathF.Sin(angle) * laid.Size);
         }
 
         return corners;
@@ -388,14 +693,22 @@ public sealed class SidneyMap
 
     /// <summary>The two triangles a hexagram is drawn as, or nothing.</summary>
     /// <returns>Each triangle's three corners.</returns>
-    public IReadOnlyList<Vector2[]> Triangles()
+    public IReadOnlyList<Vector2[]> Triangles() =>
+        _laid.Count > 0 ? Triangles(_laid[^1]) : [];
+
+    /// <summary>The two triangles a hexagram is drawn as, or nothing.</summary>
+    /// <param name="laid">The figure.</param>
+    /// <returns>Each triangle's three corners.</returns>
+    public static IReadOnlyList<Vector2[]> Triangles(LaidShape laid)
     {
-        if (Shape != MapShape.Hexagram)
+        ArgumentNullException.ThrowIfNull(laid);
+
+        if (laid.Shape != MapShape.Hexagram)
         {
             return [];
         }
 
-        Vector2[] points = Corners();
+        Vector2[] points = Corners(laid);
 
         return [[points[0], points[2], points[4]], [points[1], points[3], points[5]]];
     }
@@ -475,6 +788,55 @@ public sealed class SidneyMap
             : new MapAnalysis(MapFinding.Indeterminate);
     }
 
+    /// <summary>
+    /// Whether the line through two places passes through a third.
+    /// </summary>
+    /// <param name="from">One place.</param>
+    /// <param name="to">The other.</param>
+    /// <param name="place">The third, in map pixels.</param>
+    /// <returns>True when the line runs within a village's width of it.</returns>
+    /// <remarks>
+    /// The whole line, not the piece between the two: what the sunrise line is *for* is
+    /// where it goes on past Blanchefort, which is Arques.
+    /// </remarks>
+    public static bool Through(Vector2 from, Vector2 to, Vector2 place)
+    {
+        Vector2 along = to - from;
+        float length = along.Length();
+
+        if (length < 1e-3f)
+        {
+            return false;
+        }
+
+        Vector2 offset = place - from;
+        float away = MathF.Abs((along.X * offset.Y) - (along.Y * offset.X)) / length;
+
+        return away <= PlaceTolerance;
+    }
+
+    /// <summary>
+    /// Whether the line through two places crosses the Paris meridian on the map.
+    /// </summary>
+    /// <param name="from">One place.</param>
+    /// <param name="to">The other.</param>
+    /// <returns>True when it does, somewhere the map actually shows.</returns>
+    public static bool CrossesMeridian(Vector2 from, Vector2 to)
+    {
+        float meridian = (float)(MeridianAcross * Extent);
+        Vector2 along = to - from;
+
+        if (MathF.Abs(along.X) < 1e-3f)
+        {
+            return MathF.Abs(from.X - meridian) <= PlaceTolerance;
+        }
+
+        float t = (meridian - from.X) / along.X;
+        float y = from.Y + (along.Y * t);
+
+        return y >= 0 && y <= Extent;
+    }
+
     /// <summary>Whether every point lies close enough to one straight line.</summary>
     private static bool Collinear(IReadOnlyList<Vector2> points)
     {
@@ -523,6 +885,92 @@ public sealed class SidneyMap
         return MathF.Abs(Vector2.Distance(centre, points[3]) - radius) <= CircleTolerance;
     }
 
+    /// <summary>
+    /// The circle that best passes through every marked place.
+    /// </summary>
+    /// <param name="points">The places.</param>
+    /// <param name="centre">Where its middle is.</param>
+    /// <param name="radius">How big it is.</param>
+    /// <returns>True when one could be fitted that is worth drawing.</returns>
+    /// <remarks>
+    /// <para>
+    /// The ordinary algebraic fit: every place satisfies x squared plus y squared plus Dx
+    /// plus Ey plus F equals nought for one circle, which is linear in D, E and F, so the
+    /// normal equations give the circle whose squared error is least. Three places give the
+    /// exact circle through them, which is what the circumcircle gave; more give the circle
+    /// they actually suggest instead of the one the first three happen to make.
+    /// </para>
+    /// <para>
+    /// Worked around the middle of the places rather than the map's corner, because the
+    /// normal equations of a fit far from the origin lose their precision to the size of the
+    /// numbers. Places in a line have no circle worth drawing and are refused here, which is
+    /// what keeps the figure on the map.
+    /// </para>
+    /// </remarks>
+    private static bool FitCircle(
+        List<Vector2> points, out Vector2 centre, out float radius)
+    {
+        centre = default;
+        radius = 0;
+
+        if (points.Count < 3)
+        {
+            return false;
+        }
+
+        Vector2 middle = Vector2.Zero;
+
+        foreach (Vector2 point in points)
+        {
+            middle += point;
+        }
+
+        middle /= points.Count;
+
+        double sxx = 0;
+        double sxy = 0;
+        double syy = 0;
+        double sxz = 0;
+        double syz = 0;
+
+        foreach (Vector2 point in points)
+        {
+            double x = point.X - middle.X;
+            double y = point.Y - middle.Y;
+            double z = (x * x) + (y * y);
+
+            sxx += x * x;
+            sxy += x * y;
+            syy += y * y;
+            sxz += x * z;
+            syz += y * z;
+        }
+
+        double determinant = (sxx * syy) - (sxy * sxy);
+
+        if (Math.Abs(determinant) < 1e-6)
+        {
+            return false;
+        }
+
+        double cx = ((sxz * syy) - (syz * sxy)) / (2 * determinant);
+        double cy = ((syz * sxx) - (sxz * sxy)) / (2 * determinant);
+        double sum = 0;
+
+        foreach (Vector2 point in points)
+        {
+            double dx = point.X - middle.X - cx;
+            double dy = point.Y - middle.Y - cy;
+
+            sum += Math.Sqrt((dx * dx) + (dy * dy));
+        }
+
+        centre = new Vector2((float)(middle.X + cx), (float)(middle.Y + cy));
+        radius = (float)(sum / points.Count);
+
+        return float.IsFinite(radius) && radius >= 1f && radius <= Extent * 2;
+    }
+
     /// <summary>The circle through three points, or false where there is none.</summary>
     /// <param name="a">The first point.</param>
     /// <param name="b">The second.</param>
@@ -553,7 +1001,12 @@ public sealed class SidneyMap
 
         radius = Vector2.Distance(centre, a);
 
-        return radius >= 1f;
+        // <b>An enormous circle through three places is a straight line.</b> The test above
+        // only rejects points that are exactly collinear; three that are nearly so give a
+        // circle whose centre is somewhere off in the next country and whose arc across the
+        // map is indistinguishable from the line they actually make. Refusing it here sends
+        // the caller to the ordinary fit, which is what those places deserve.
+        return float.IsFinite(radius) && radius >= 1f && radius <= Extent * 4;
     }
 
     /// <summary>Whether four points make a rectangle, in whatever order they were given.</summary>

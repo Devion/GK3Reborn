@@ -191,7 +191,12 @@ public static class CommandLine
           --carry ITEM[,..]     Put things in the bag before the room is looked at.
           --screen KIND[:ABOUT] Open a screen on the way in; the colon names its subject.
           --scan ITEM[,..]      Scan things into Sidney, and open the first file.
-          --sidney PAGE         Open Sidney at one of its pages.
+          --sidney PAGE[:WHAT]  Open Sidney at one of its pages, and open something on it:
+                                a message, a suspect by number, or a file by item name.
+          --analyse I:OP[;I:OP] Run Sidney's analyze operations on scanned items, in order.
+          --mark X,Y[;X,Y]      Mark places on Sidney's map, in the map's own 1,368 pixels.
+          --shape N[;N]         Lay saved figures over the map; the same one again takes it off.
+          --grid N              Rule the map into N cells each way; negative rules the figure.
           --glide CAMERA        Glide the camera to a named angle.
           --glance WHO:AT       Have somebody look at something.
           --verbose             List everything that could not be loaded.
