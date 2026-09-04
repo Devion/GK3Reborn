@@ -602,7 +602,10 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
             frames.Rig.Handle,
             frames.Rig.Size);
 
-        reflections.Bind(depth.View, normal.View, motion.View, lit.View);
+        // No planar pass here, so the picture stands in for it and the plane is noughts:
+        // nothing is ever on a plane that does not exist, so the branch never runs and the
+        // descriptor is bound to something valid rather than to nothing.
+        reflections.Bind(depth.View, normal.View, motion.View, lit.View, lit.View);
 
         composite.Bind(
             scene.View,

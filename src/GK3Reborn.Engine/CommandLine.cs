@@ -145,6 +145,13 @@ public static class CommandLine
                                 before this one did.
           --no-sun              Leave out the synthesized sun, which stands in for the
                                 artists' scenekey in any room whose asset names a sky.
+          --real-light          Switch off the artists' fills, ambients and bounces so
+                                that only real sources light the room: the sun, the sky
+                                through a window, a lamp, a fire. Rooms lit mostly by
+                                those fills get darker.
+          --no-real-light       Force the fills back on, whatever the setting says.
+          --no-floor-reflections Draw no rendered reflection in a polished floor, as
+                                builds before this one did. The screen-space one stays.
           --no-emissive         Leave the room's glowing things unlit, as builds before
                                 this one did: a lamp shade drawn bright and lighting
                                 nothing.

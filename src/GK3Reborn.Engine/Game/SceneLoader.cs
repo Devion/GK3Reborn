@@ -679,9 +679,14 @@ public sealed class SceneLoader
 
         if (floorTextures.Count > 0)
         {
+            // Named rather than counted. Which textures the room lays on its own floor is
+            // what decides where relief is cut and, now, which surface may be given a
+            // reflection of the room standing on it — and a count says nothing about
+            // whether the right ones were found.
             _log?.Invoke(
                 $"floor: {floorObject}, {floorTextures.Count} " +
-                $"texture{(floorTextures.Count == 1 ? string.Empty : "s")} that can carry relief");
+                $"texture{(floorTextures.Count == 1 ? string.Empty : "s")} that can carry " +
+                $"relief: {string.Join(", ", floorTextures.Order(StringComparer.Ordinal))}");
         }
 
         // Outdoors, the ground does not stop at the floor object: verges, rock faces and

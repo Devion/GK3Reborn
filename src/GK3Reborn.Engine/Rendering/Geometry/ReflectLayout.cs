@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -47,6 +47,13 @@ public static class ReflectLayout
         new ShaderBinding(0, 7, ShaderBindingKind.StorageImage, ShaderStages.Compute),
         new ShaderBinding(0, 8, ShaderBindingKind.StorageImage, ShaderStages.Compute),
         new ShaderBinding(0, 9, ShaderBindingKind.UniformBuffer, ShaderStages.Compute),
+
+        // The room as the reflection plane sees it, rendered a moment ago from the camera
+        // reflected through that plane. What a floor shows is mostly what is above the
+        // camera — the ceiling, the beams, the chandelier — and none of that is ever in the
+        // frame the march has to work from, which is why a tiled hall reflected almost
+        // nothing however smooth its material said it was.
+        new ShaderBinding(0, 10, ShaderBindingKind.SampledImage, ShaderStages.Compute),
     ],
     LevelConstantBytes);
 }
@@ -68,7 +75,14 @@ public readonly record struct LevelConstants(int Width, int Height, int Level);
 /// <param name="Height">Viewport height in pixels.</param>
 /// <param name="InverseWidth">One over the width.</param>
 /// <param name="InverseHeight">One over the height.</param>
-/// <param name="Tuning">Thickness, the roughest surface worth a ray, and the level count.</param>
+/// <param name="Tuning">
+/// Thickness, the roughest surface worth a ray, the level count, and how much of whatever
+/// is found to show.
+/// </param>
+/// <param name="MirrorPlane">
+/// The plane this frame's planar reflection was rendered about — <c>xyz</c> a unit normal
+/// out of it, <c>w</c> its offset — or all noughts when there is none.
+/// </param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ReflectUniforms(
     Matrix4x4 Projection,
@@ -80,4 +94,5 @@ public readonly record struct ReflectUniforms(
     int Height,
     float InverseWidth,
     float InverseHeight,
-    Vector4 Tuning);
+    Vector4 Tuning,
+    Vector4 MirrorPlane);

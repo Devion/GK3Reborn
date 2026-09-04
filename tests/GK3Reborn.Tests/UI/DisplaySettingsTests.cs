@@ -49,24 +49,63 @@ public sealed class DisplaySettingsTests
     }
 
     [Fact]
-    public void Both_pages_are_reachable_from_the_settings_page_and_go_back_to_it()
+    public void Every_section_is_one_click_from_every_other_and_back_is_the_way_out()
     {
-        FrontEnd front = On(FrontEndPage.Options);
+        // What the sidebar buys, stated as a test: the settings used to be five pages
+        // reached one at a time from a menu of five buttons, so comparing a Picture row
+        // against a Display row was four keystrokes. Now every section is one.
+        FrontEnd front = On(FrontEndPage.Video);
 
-        Assert.Contains("display", front.Items.Select(i => i.Id));
-        Assert.Contains("upscaling", front.Items.Select(i => i.Id));
+        foreach (MenuSection section in FrontEnd.Sections)
+        {
+            front.Choose(new MenuAction("tab:" + section.Id));
+            Assert.True(front.OnSettings, $"{section.Id} is not a settings section");
+            Assert.Equal(section.Id, FrontEnd.Sections[front.Section].Id);
+        }
 
-        front.Choose(new MenuAction("upscaling"));
-        Assert.Equal(FrontEndPage.Upscaling, front.Page);
+        // And out of the settings altogether, not up to a menu of five buttons that is no
+        // longer there.
+        front.Back();
+        Assert.Equal(FrontEndPage.Main, front.Page);
+    }
+
+    [Fact]
+    public void The_settings_open_again_where_they_were_left()
+    {
+        FrontEnd front = On(FrontEndPage.Main);
+
+        front.Choose(new MenuAction("options"));
+        front.Choose(new MenuAction("tab:audio"));
+        Assert.Equal(FrontEndPage.Audio, front.Page);
 
         front.Back();
-        Assert.Equal(FrontEndPage.Options, front.Page);
+        Assert.Equal(FrontEndPage.Main, front.Page);
 
-        front.Choose(new MenuAction("display"));
-        Assert.Equal(FrontEndPage.Display, front.Page);
+        front.Choose(new MenuAction("options"));
+        Assert.Equal(FrontEndPage.Audio, front.Page);
+    }
 
-        front.Back();
-        Assert.Equal(FrontEndPage.Options, front.Page);
+    [Fact]
+    public void The_shoulder_buttons_walk_the_sections_round()
+    {
+        FrontEnd front = On(FrontEndPage.Video);
+
+        // Round rather than stopping, so a player holding one down never has to notice
+        // where they started.
+        for (int i = 0; i < FrontEnd.Sections.Count; i++)
+        {
+            Assert.True(front.StepSection(1));
+        }
+
+        Assert.Equal(FrontEndPage.Video, front.Page);
+
+        front.StepSection(-1);
+        Assert.Equal(FrontEndPage.Controls, front.Page);
+
+        // And nothing at all where there are no sections to step.
+        FrontEnd main = On(FrontEndPage.Main);
+        Assert.False(main.StepSection(1));
+        Assert.Equal(FrontEndPage.Main, main.Page);
     }
 
     [Fact]
@@ -130,14 +169,16 @@ public sealed class DisplaySettingsTests
         // paragraph under every row to find it. What is allowed to stay is what the player
         // cannot see for themselves: a runtime that is missing, a colour space the display
         // refused, a setting that waits for the next door or the next start.
+        // Picture carries the upscaling rows now, so it is allowed the two lines those
+        // rows were allowed on a page of their own: which file is missing, and why a row
+        // is dead. Everything else is unchanged.
         (FrontEndPage Page, int Most)[] pages =
         [
-            (FrontEndPage.Video, 1),
+            (FrontEndPage.Video, 3),
             (FrontEndPage.Display, 0),
-            (FrontEndPage.Upscaling, 1),
             (FrontEndPage.Audio, 1),
             (FrontEndPage.Gameplay, 0),
-            (FrontEndPage.Assists, 0),
+            (FrontEndPage.Controls, 1),
         ];
 
         foreach ((FrontEndPage page, int most) in pages)
@@ -304,7 +345,7 @@ public sealed class DisplaySettingsTests
     {
         // DLSS is NVIDIA's and runs on nothing else. A permanently unavailable row reads as
         // something the game has failed to do rather than as something the hardware cannot.
-        FrontEnd front = On(FrontEndPage.Upscaling);
+        FrontEnd front = On(FrontEndPage.Video);
         front.Offered = [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr];
 
         var seen = new List<UpscalerKind>();
@@ -323,7 +364,7 @@ public sealed class DisplaySettingsTests
     [Fact]
     public void Fsr_is_offered_on_every_card_and_dlss_on_an_nvidia_one()
     {
-        FrontEnd front = On(FrontEndPage.Upscaling);
+        FrontEnd front = On(FrontEndPage.Video);
 
         // The default, before anybody has narrowed it, is everything.
         var seen = new List<UpscalerKind>();
@@ -341,13 +382,13 @@ public sealed class DisplaySettingsTests
     [Fact]
     public void The_quality_rows_only_appear_when_something_is_upscaling()
     {
-        FrontEnd off = On(FrontEndPage.Upscaling);
+        FrontEnd off = On(FrontEndPage.Video);
 
         Assert.Null(Row(off, "ratio"));
         Assert.Null(Row(off, "sharpen"));
 
         FrontEnd on = On(
-            FrontEndPage.Upscaling, new Settings { Upscaler = UpscalerKind.Spatial });
+            FrontEndPage.Video, new Settings { Upscaler = UpscalerKind.Spatial });
 
         Assert.NotNull(Row(on, "ratio"));
         Assert.NotNull(Row(on, "sharpen"));
@@ -355,7 +396,7 @@ public sealed class DisplaySettingsTests
 
         // And the sharpness only when there is sharpening to set.
         FrontEnd blunt = On(
-            FrontEndPage.Upscaling,
+            FrontEndPage.Video,
             new Settings { Upscaler = UpscalerKind.Spatial, Sharpening = false });
 
         Assert.Null(Row(blunt, "sharpness"));
@@ -364,12 +405,12 @@ public sealed class DisplaySettingsTests
     [Fact]
     public void The_dlss_rows_only_appear_for_dlss()
     {
-        FrontEnd fsr = On(FrontEndPage.Upscaling, new Settings { Upscaler = UpscalerKind.Fsr });
+        FrontEnd fsr = On(FrontEndPage.Video, new Settings { Upscaler = UpscalerKind.Fsr });
 
         Assert.Null(Row(fsr, "preset"));
         Assert.Null(Row(fsr, "reconstruction"));
 
-        FrontEnd dlss = On(FrontEndPage.Upscaling, new Settings { Upscaler = UpscalerKind.Dlss });
+        FrontEnd dlss = On(FrontEndPage.Video, new Settings { Upscaler = UpscalerKind.Dlss });
 
         Assert.NotNull(Row(dlss, "preset"));
         Assert.NotNull(Row(dlss, "reconstruction"));
@@ -378,7 +419,7 @@ public sealed class DisplaySettingsTests
     [Fact]
     public void A_missing_runtime_says_which_files_and_where_they_go()
     {
-        FrontEnd front = On(FrontEndPage.Upscaling, new Settings { Upscaler = UpscalerKind.Fsr });
+        FrontEnd front = On(FrontEndPage.Video, new Settings { Upscaler = UpscalerKind.Fsr });
 
         string text = string.Join(" ", front.Items.Select(i => i.Text));
 
@@ -389,7 +430,7 @@ public sealed class DisplaySettingsTests
     [Fact]
     public void Ray_reconstruction_is_disabled_with_a_reason_rather_than_hidden()
     {
-        FrontEnd front = On(FrontEndPage.Upscaling, new Settings { Upscaler = UpscalerKind.Dlss });
+        FrontEnd front = On(FrontEndPage.Video, new Settings { Upscaler = UpscalerKind.Dlss });
 
         front.DlssRayReconstruction = false;
         front.DlssRayReconstructionNote = "the plugin is a variant this build cannot drive";
@@ -410,7 +451,7 @@ public sealed class DisplaySettingsTests
     [Fact]
     public void Frame_generation_is_disabled_until_a_runtime_can_do_it()
     {
-        FrontEnd front = On(FrontEndPage.Upscaling, new Settings { Upscaler = UpscalerKind.Dlss });
+        FrontEnd front = On(FrontEndPage.Video, new Settings { Upscaler = UpscalerKind.Dlss });
 
         front.DlssFrameGeneration = false;
         Assert.False(Row(front, "generation")!.Value.Enabled);
@@ -426,7 +467,7 @@ public sealed class DisplaySettingsTests
     public void The_page_says_the_two_resolutions_it_will_draw_at()
     {
         FrontEnd front = On(
-            FrontEndPage.Upscaling,
+            FrontEndPage.Video,
             new Settings { Upscaler = UpscalerKind.Fsr, UpscalerQuality = UpscalerQuality.Performance });
 
         front.Window = (2560, 1440);
@@ -447,7 +488,7 @@ public sealed class DisplaySettingsTests
             Upscaler = UpscalerKind.Dlss,
         };
 
-        foreach (FrontEndPage page in (FrontEndPage[])[FrontEndPage.Display, FrontEndPage.Upscaling])
+        foreach (FrontEndPage page in (FrontEndPage[])[FrontEndPage.Display, FrontEndPage.Video])
         {
             FrontEnd front = On(page, settings);
             front.DlssRayReconstruction = true;

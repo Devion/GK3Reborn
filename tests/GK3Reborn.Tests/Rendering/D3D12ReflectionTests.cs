@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering;
+﻿using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Direct3D12;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Materials;
@@ -56,8 +56,10 @@ public sealed unsafe class D3D12ReflectionTests
         using D3D12Pipeline pipeline = D3D12Pipeline.CreateCompute(
             context, compiler, source, "reflect." + which, ReflectLayout.Bindings);
 
-        // Nine views and one sampler out of ten bindings.
-        Assert.Equal(9u, pipeline.Signature.ViewDescriptorCount);
+        // Ten views and one sampler out of eleven bindings. The tenth view is the planar
+        // reflection: the room as this frame's floor sees it, which is what a floor shows
+        // and what the screen-space march can never find.
+        Assert.Equal(10u, pipeline.Signature.ViewDescriptorCount);
         Assert.Equal(1u, pipeline.Signature.SamplerDescriptorCount);
 
         Assert.DoesNotContain(

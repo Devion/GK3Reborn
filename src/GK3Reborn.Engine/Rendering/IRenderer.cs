@@ -129,6 +129,14 @@ public interface IRenderer : IDisposable
     /// <summary>What the display wants and how bright to drive it.</summary>
     OutputPlan Output { get; set; }
 
+    /// <summary>How much of a reflection to show, and where the floors get theirs from.</summary>
+    /// <remarks>
+    /// Read at the top of a frame, like the other two plans, so that every row on the
+    /// Picture page is something the player can watch happen rather than something that
+    /// waits for the next door.
+    /// </remarks>
+    ReflectionPlan Reflections { get; set; }
+
     /// <summary>Whether to wait for the display before presenting.</summary>
     bool VerticalSync { get; set; }
 

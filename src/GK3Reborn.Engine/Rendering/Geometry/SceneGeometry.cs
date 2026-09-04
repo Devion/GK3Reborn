@@ -2690,7 +2690,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// Decides which piece of glass in the room the frame's reflection is rendered for.
     /// </summary>
     /// <param name="eye">Where the camera is.</param>
-    /// <returns>The mirror, or null if the room has none facing the camera.</returns>
+    /// <param name="floors">
+    /// Whether a polished floor may be reflected where the room has no mirror in it. See
+    /// the remarks below for why the two cannot both be had in one frame.
+    /// </param>
+    /// <returns>The plane, or null if the room has nothing worth reflecting about.</returns>
     /// <remarks>
     /// <para>
     /// Called before <see cref="Draws"/> and remembered, because the two have to agree: the
@@ -2705,8 +2709,29 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// mirror. What separates them is flatness and the way the vertices' own normals point;
     /// see <see cref="MirrorSurfaces"/>.
     /// </para>
+    /// <para>
+    /// <b>A polished floor is reflected the same way, and only where the room has no
+    /// mirror.</b> What a floor shows is mostly what is above the camera — the ceiling, the
+    /// beams, the lamps hanging off them — and none of that is ever in the frame the
+    /// screen-space march has to work from, which is why a tiled hall reflected nothing
+    /// however smooth its material said it was. Rendering the room again from under the
+    /// floor has the ceiling because it drew it.
+    /// </para>
+    /// <para>
+    /// One plane a frame, so a room with both keeps its mirror: a mirror that stops
+    /// reflecting shows a painted fake of a room that is not there, and a floor that stops
+    /// reflecting shows a floor. No room in the game has a mirror over a floor polished
+    /// enough for this in any case.
+    /// </para>
+    /// <para>
+    /// <b>Which surfaces are the floor is the room's own answer, not a guess.</b> The
+    /// scene file names its floor object, and <see cref="KeepRelief"/> is already told the
+    /// textures on it — that is the set displacement is cut into. A floor is therefore a
+    /// batch drawn with one of those textures, smooth enough for a reflection to be worth
+    /// having, and mostly at one height.
+    /// </para>
     /// </remarks>
-    public MirrorSurface? ChooseMirror(Vector3 eye)
+    public MirrorSurface? ChooseMirror(Vector3 eye, bool floors = false)
     {
         List<MirrorSurface>? found = null;
         List<int>? owners = null;
@@ -2729,10 +2754,20 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             (owners ??= []).Add(index);
         }
 
+        bool ground = false;
+
+        if (found is null && floors && Floor() is { } level)
+        {
+            ground = true;
+            found = [level];
+            owners = [_floorBatch];
+        }
+
         if (found is null)
         {
             Mirror = null;
             _mirrorBatch = -1;
+            _planeBatch = -1;
 
             return null;
         }
@@ -2744,26 +2779,144 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // was the glass is the one thing about this that can be wrong while everything
         // reports success: a reflection rendered about the back of the box, or about one of
         // its edges, is a mirror full of the inside of a wall and nothing anywhere says so.
-        if (owner != _mirrorBatch)
+        if (owner != _planeBatch)
         {
+            string what = ground ? "Floor" : "Mirror";
+
             Log.Info(chosen is { } glass
                 ? string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    $"Mirror: {_batches[owner].Drawn}, {found.Count} candidate surface(s), " +
+                    $"{what}: {_batches[owner].Drawn}, {found.Count} candidate surface(s), " +
                     $"reflecting about ({glass.Plane.X:0.##}, {glass.Plane.Y:0.##}, " +
                     $"{glass.Plane.Z:0.##}) at ({glass.Center.X:0.#}, {glass.Center.Y:0.#}, " +
                     $"{glass.Center.Z:0.#}), {glass.Radius:0.#} units across")
-                : $"Mirror: none of {found.Count} candidate surface(s) faces the camera");
+                : $"{what}: none of {found.Count} candidate surface(s) faces the camera");
         }
 
         Mirror = chosen;
-        _mirrorBatch = owner;
+        _planeBatch = owner;
+
+        // <b>A floor is not drawn as a mirror, and that is the whole difference between the
+        // two.</b> The batch this flag is set on has its own texture thrown away and the
+        // reflection put in its place, which is right for glass and catastrophic for a
+        // floor: the church's tiles vanished and the room appeared upside down where they
+        // had been. A floor keeps its own surface and has the reflection added over it by
+        // the compositing pass, weighed by the angle it is seen at — which is what a
+        // polished floor does and what a mirror does not.
+        _mirrorBatch = ground ? -1 : owner;
 
         return chosen;
     }
 
-    /// <summary>Which batch <see cref="ChooseMirror"/> settled on, or -1.</summary>
+    /// <summary>
+    /// The plane this room's floor is reflected about, worked out once.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Cached, and the first version was not, and that cost two thirds of the frame.</b>
+    /// Fitting the plane walks every vertex of every polished piece of the floor three
+    /// times, and a room's floor object names more than the floor: the hotel lobby's is
+    /// eight textures, four of which are its panelling and its beams, so "every batch drawn
+    /// with one of the floor's textures" came to most of the room. Done every frame that is
+    /// three million transforms on one thread — the lobby went from 142 frames a second to
+    /// 35, and the <em>drawing</em> of the reflection was not what cost it: cutting the pass
+    /// out and leaving the fitting in still gave 38.
+    /// </para>
+    /// <para>
+    /// A floor does not move, so once is right. Recomputed when the number of batches
+    /// changes, which is the one thing that happens to a room after it has loaded — the
+    /// hidden models are replayed onto it, and the story shows and hides things.
+    /// </para>
+    /// </remarks>
+    private MirrorSurface? _floor;
+
+    /// <summary>How many batches the room had when that was last worked out.</summary>
+    private int _floorAt = -1;
+
+    /// <summary>Which batch to name when the floor's plane is reported.</summary>
+    private int _floorBatch = -1;
+
+    /// <summary>Whether this room has already said why it has no reflective floor.</summary>
+    private bool _floorReported;
+
+    /// <summary>
+    /// The plane this room's floor is reflected about, fitting it if that has not been done.
+    /// </summary>
+    /// <returns>The plane, or null when the room has no floor worth a pass.</returns>
+    /// <remarks>
+    /// The room has one floor and gets one plane. Fitted a piece at a time, the church chose
+    /// its tiled runner — the largest single piece — and the grey tiles either side sat a
+    /// little lower and were not on it, so the reflection appeared on a strip up the middle
+    /// of the nave and nowhere else.
+    /// </remarks>
+    private MirrorSurface? Floor()
+    {
+        if (_floorAt == _batches.Count)
+        {
+            return _floor;
+        }
+
+        _floorAt = _batches.Count;
+
+        List<(MeshVertex[] Shape, Matrix4x4 Transform)> pieces = [];
+        int widest = -1;
+        int spread = 0;
+
+        for (int index = 0; index < _batches.Count; index++)
+        {
+            Batch batch = _batches[index];
+
+            if (batch.Material is null || batch.Hidden ||
+                !_relief.Contains(batch.Drawn) ||
+                !Materials.Of(batch.Drawn).Reflects)
+            {
+                continue;
+            }
+
+            pieces.Add((batch.Shape, batch.Transform));
+
+            // Which piece to name in the log. The largest one, because a line that named
+            // whichever batch happened to come first would say a different thing about the
+            // same floor depending on the order the room loaded in.
+            if (batch.Shape.Length > spread)
+            {
+                spread = batch.Shape.Length;
+                widest = index;
+            }
+        }
+
+        _floor = pieces.Count > 0 ? MirrorSurfaces.Ground(pieces) : null;
+        _floorBatch = _floor is null ? -1 : widest;
+
+        // Said once a room, because a floor that is not reflecting looks exactly like a
+        // floor whose material is too rough to be asked, which looks exactly like a room
+        // whose floor object names surfaces that are not the floor. Three different things,
+        // one appearance, and the count tells them apart.
+        if (_floor is null && !_floorReported)
+        {
+            Log.Info(pieces.Count == 0
+                ? "Floor: nothing on this room's floor is polished enough to reflect"
+                : $"Floor: {pieces.Count} polished piece(s), and no one level holds enough " +
+                  "of them to be worth reflecting about");
+
+            _floorReported = true;
+        }
+
+        return _floor;
+    }
+
+    /// <summary>Which batch is drawn as glass, or -1 when none is.</summary>
     private int _mirrorBatch = -1;
+
+    /// <summary>
+    /// Which batch the frame's reflection plane came from, or -1.
+    /// </summary>
+    /// <remarks>
+    /// Apart from <see cref="_mirrorBatch"/> because a floor supplies a plane without being
+    /// drawn as glass. Kept only so that the line above is said once when it changes rather
+    /// than once a frame.
+    /// </remarks>
+    private int _planeBatch = -1;
 
     /// <summary>Works out what every loaded batch needs drawn, and with what.</summary>
     /// <param name="previousSeconds">

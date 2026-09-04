@@ -85,9 +85,13 @@ public sealed class FrontEndTests
         front.Illustrated = true;
         Assert.Equal(string.Empty, front.Title);
 
-        // Except where the picture is not showing: a settings page is a settings page.
+        // Except where the picture is not showing. One word for the whole settings screen,
+        // because the section's own name is already down the side of it in the list the
+        // player chose it from: a panel headed "Sound" with "Sound" highlighted beside it
+        // says the same thing twice.
         front.Show(FrontEndPage.Audio);
-        Assert.Equal("Sound", front.Title);
+        Assert.Equal("Settings", front.Title);
+        Assert.Equal("Sound", FrontEnd.Sections[front.Section].Text);
 
         // And paused, where what is behind is the room.
         front.Show(FrontEndPage.Main);
@@ -128,20 +132,18 @@ public sealed class FrontEndTests
     }
 
     [Fact]
-    public void Choosing_a_row_walks_into_its_page_and_escape_walks_back_out()
+    public void Choosing_the_settings_opens_them_and_escape_walks_back_out()
     {
         FrontEnd front = Front();
 
         Assert.Equal(FrontEndOutcome.Stay, front.Choose(new MenuAction("options")));
-        Assert.Equal(FrontEndPage.Options, front.Page);
+        Assert.True(front.OnSettings);
 
-        front.Choose(new MenuAction("audio"));
+        front.Choose(new MenuAction("tab:audio"));
         Assert.Equal(FrontEndPage.Audio, front.Page);
 
-        // Out of the sound page to the settings page, then to the top, and no further.
-        Assert.True(front.Back());
-        Assert.Equal(FrontEndPage.Options, front.Page);
-
+        // Out of the settings to the top, and no further. There is no level in between any
+        // more: the five sections are one screen rather than five pages off a sixth.
         Assert.True(front.Back());
         Assert.Equal(FrontEndPage.Main, front.Page);
 
@@ -269,7 +271,7 @@ public sealed class FrontEndTests
         FrontEnd front = Front();
 
         front.Choose(new MenuAction("options"));
-        front.Choose(new MenuAction("gameplay"));
+        front.Choose(new MenuAction("tab:gameplay"));
 
         Assert.False(front.Settings.FreeCamera);
         Assert.Equal("Off", Row(front, "freecamera").Value);
@@ -316,7 +318,7 @@ public sealed class FrontEndTests
         FrontEnd front = Front();
 
         front.Choose(new MenuAction("options"));
-        front.Choose(new MenuAction("gameplay"));
+        front.Choose(new MenuAction("tab:gameplay"));
 
         Assert.False(front.Settings.EasterEggs);
         Assert.Equal("Off", Row(front, "eggs").Value);
@@ -337,7 +339,7 @@ public sealed class FrontEndTests
         FrontEnd front = Front();
 
         front.Choose(new MenuAction("options"));
-        front.Choose(new MenuAction("gameplay"));
+        front.Choose(new MenuAction("tab:gameplay"));
 
         Assert.Equal(CutContentTier.None, front.Settings.RestoredContent);
         Assert.Equal("Off", Row(front, "restored").Value);
@@ -364,24 +366,33 @@ public sealed class FrontEndTests
     }
 
     [Fact]
-    public void The_things_that_make_the_game_easier_have_a_page_of_their_own()
+    public void The_things_that_make_the_game_easier_are_under_a_heading_of_their_own()
     {
-        // Away from Playing, because these are not preferences about presentation: each
-        // one changes what the story asks of the player.
+        // Set apart from the rest of Playing, because these are not preferences about
+        // presentation: each one changes what the story asks of the player. A page of their
+        // own used to do that and cost a screen to reach two rows; a heading does it in
+        // place.
         FrontEnd front = Front();
 
         front.Choose(new MenuAction("options"));
-        Assert.Contains(front.Items, i => i.Id == "assists");
+        front.Choose(new MenuAction("tab:gameplay"));
 
-        front.Choose(new MenuAction("assists"));
-        Assert.Equal(FrontEndPage.Assists, front.Page);
-        Assert.Equal("Made Easier", front.Title);
+        IReadOnlyList<MenuItem> rows = front.Items;
+        int heading = -1;
 
-        Assert.Equal(["moustache", "armour"], front.Items.Where(i => i.Value.Length > 0).Select(i => i.Id));
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (rows[i].Kind == MenuItemKind.Heading && rows[i].Text == "Made easier")
+            {
+                heading = i;
+            }
+        }
 
-        // And it is a child of the settings page rather than of the top one.
-        Assert.True(front.Back());
-        Assert.Equal(FrontEndPage.Options, front.Page);
+        Assert.True(heading >= 0, "Playing has no Made easier heading");
+
+        Assert.Equal(
+            ["moustache", "armour"],
+            rows.Skip(heading).Where(i => i.Selectable).Select(i => i.Id));
     }
 
     [Fact]
@@ -392,7 +403,7 @@ public sealed class FrontEndTests
         FrontEnd front = Front();
 
         front.Choose(new MenuAction("options"));
-        front.Choose(new MenuAction("assists"));
+        front.Choose(new MenuAction("tab:gameplay"));
 
         Assert.False(front.Settings.AlwaysWearsMoustache);
         Assert.False(front.Settings.PlotArmour);
@@ -437,7 +448,7 @@ public sealed class FrontEndTests
 
             // Walking through the pages is not a change.
             front.Choose(new MenuAction("options"));
-            front.Choose(new MenuAction("audio"));
+            front.Choose(new MenuAction("tab:audio"));
 
             Assert.False(front.Dirty);
             Assert.False(front.Commit(path));

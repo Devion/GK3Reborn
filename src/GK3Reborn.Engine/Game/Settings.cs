@@ -76,6 +76,71 @@ public sealed record Settings
     /// <summary>Whether to use the higher-resolution textures where they exist.</summary>
     public bool EnhancedTextures { get; init; } = true;
 
+    /// <summary>
+    /// Whether only real sources of light are allowed to light the room.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// GK3's rigs are <em>baking</em> rigs. The artists lit each room for an offline
+    /// renderer with no global illumination, and the way that was done in 1999 was to place
+    /// the lamps and then layer fills, ambients, bounces and warmers by hand until the
+    /// corners stopped being black — 429 of the corpus's 3,325 lights, about one in eight,
+    /// carry one of those four words in their name. <c>Game.RigBalance</c> already turns
+    /// them down in proportion to how much of the picture the rays are paying for, because
+    /// traced occlusion and an ambient floor are doing that job now and running both is the
+    /// same light twice.
+    /// </para>
+    /// <para>
+    /// This turns them off outright. What is left is what a photographer would call a
+    /// source: the sun, the sky through a window, a lamp, a fire. Rooms the artists were
+    /// propping up with invisible fills get darker — some of them a great deal darker — and
+    /// that is the point of it rather than a cost of it.
+    /// </para>
+    /// <para>
+    /// Off by default. It changes what the game looks like more than any other row on the
+    /// page, and the shipped look is the one somebody playing it for the first time should
+    /// meet. It also does nothing at all with no rays: with the bake lighting the room the
+    /// rig is only reaching the people standing in it, so there is nothing being counted
+    /// twice and nothing to take away.
+    /// </para>
+    /// </remarks>
+    public bool RealisticLighting { get; init; }
+
+    /// <summary>
+    /// Whether a polished floor shows the room standing on it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The screen-space pass can only return what is already in the frame, and what a floor
+    /// reflects is mostly what is above the camera: the ceiling, the beams, the chandelier.
+    /// None of that is ever on screen when the camera is looking down, so the march finds
+    /// nothing and a tiled hall reflects almost nothing however smooth its material says it
+    /// is. This puts the large flat reflective floors through the planar pass instead — the
+    /// same one the mirrors use — which renders the room a second time from under the floor
+    /// and therefore has the ceiling to give back.
+    /// </para>
+    /// <para>
+    /// It is a second draw of the room, so it is only offered where there is a ray budget
+    /// to spend: see <c>Rendering.MirrorSurfaces</c>.
+    /// </para>
+    /// </remarks>
+    public bool FloorReflections { get; init; } = true;
+
+    /// <summary>How strong a reflection off a polished surface is, from zero to two.</summary>
+    /// <remarks>
+    /// <para>
+    /// One is the physical answer — Schlick over a dielectric's own reflectance, which is
+    /// about four per cent looked at square on and everything at a glancing angle. That is
+    /// correct and it is fainter than most people mean by a reflective floor, because a real
+    /// polished floor is also being lit by whatever it is reflecting.
+    /// </para>
+    /// <para>
+    /// So it is a slider rather than a constant, and it stops at two: past that a floor
+    /// stops reading as stone with a shine on it and starts reading as water.
+    /// </para>
+    /// </remarks>
+    public float Reflectivity { get; init; } = 1f;
+
     /// <summary>Whether the window has a border, covers a monitor, or takes one over.</summary>
     /// <remarks>
     /// Windowed by default, which is the only one of the three that is right on a machine
@@ -460,6 +525,33 @@ public sealed record Settings
     /// </remarks>
     public CutContentTier RestoredContent { get; init; } = CutContentTier.None;
 
+    /// <summary>
+    /// Which key and which pad button do which job, or null where nobody has said.
+    /// </summary>
+    /// <remarks>
+    /// Only the differences from the defaults, which is why it is usually null and why a
+    /// default that improves in a later version reaches everybody who never had an opinion
+    /// about it. See <see cref="Platform.InputBindings"/>.
+    /// </remarks>
+    public StoredBindings? Bindings { get; init; }
+
+    /// <summary>Whether the gamepad's left stick moves the pointer.</summary>
+    /// <remarks>
+    /// <para>
+    /// This is a game played by pointing at things, so the one thing a pad has to be able
+    /// to do is point. The stick drives the cursor and the mouse takes it straight back the
+    /// moment it is touched, so there is no mode to be in and nothing to switch.
+    /// </para>
+    /// <para>
+    /// On by default, and it costs nothing when no pad is plugged in: a stick nobody is
+    /// pushing moves the pointer nowhere.
+    /// </para>
+    /// </remarks>
+    public bool GamepadCursor { get; init; } = true;
+
+    /// <summary>How fast it moves it, in logical pixels a second at full deflection.</summary>
+    public float GamepadCursorSpeed { get; init; } = 1200f;
+
     /// <summary>Where the settings live for this user.</summary>
     /// <remarks>
     /// <c>%AppData%\GK3Reborn</c> on Windows, <c>~/.config/GK3Reborn</c> on Linux and
@@ -639,7 +731,28 @@ public sealed record Settings
         PeakNits = Sensible(PeakNits, 1000f),
         SunNits = Sensible(SunNits, 800f),
         LightNits = Sensible(LightNits, 1000f),
+
+        Reflectivity = float.IsFinite(Reflectivity)
+            ? Math.Clamp(Reflectivity, 0f, MostReflective)
+            : 1f,
+
+        GamepadCursorSpeed = float.IsFinite(GamepadCursorSpeed)
+            ? Math.Clamp(GamepadCursorSpeed, SlowestCursor, FastestCursor)
+            : 1200f,
     };
+
+    /// <summary>The strongest a reflection may be made.</summary>
+    /// <remarks>
+    /// Named rather than written twice, so the slider on the settings page cannot offer a
+    /// value the file will clamp away the moment it is saved.
+    /// </remarks>
+    public const float MostReflective = 2f;
+
+    /// <summary>The slowest the stick may drive the pointer, in pixels a second.</summary>
+    public const float SlowestCursor = 300f;
+
+    /// <summary>And the fastest.</summary>
+    public const float FastestCursor = 3000f;
 
     /// <summary>A luminance that is at least a number, before the plan bounds it.</summary>
     private static float Sensible(float value, float fallback) =>

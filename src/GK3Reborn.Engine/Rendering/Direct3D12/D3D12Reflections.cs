@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -203,14 +203,28 @@ public sealed unsafe class D3D12Reflections : IDisposable
     /// <param name="normal">The frame's normals, with roughness in their alpha.</param>
     /// <param name="motion">The frame's motion vectors.</param>
     /// <param name="lit">The previous frame's finished picture.</param>
+    /// <param name="planar">
+    /// The room as this frame's reflection plane sees it, or null where there is no such
+    /// pass and the picture stands in for it.
+    /// </param>
     public void Bind(
-        D3D12Texture depth, D3D12Texture normal, D3D12Texture motion, D3D12Texture lit)
+        D3D12Texture depth,
+        D3D12Texture normal,
+        D3D12Texture motion,
+        D3D12Texture lit,
+        D3D12Texture? planar = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(depth);
         ArgumentNullException.ThrowIfNull(normal);
         ArgumentNullException.ThrowIfNull(motion);
         ArgumentNullException.ThrowIfNull(lit);
+
+        // Never nothing: a descriptor is read whether or not the branch behind it runs, and
+        // an unbound one is undefined behaviour rather than a black reflection. Where there
+        // is no planar pass the picture stands in for it, and the plane is noughts, so the
+        // branch never runs.
+        planar ??= lit;
 
         D3D12RootSignature signature = _downsample.Signature;
 
@@ -239,6 +253,7 @@ public sealed unsafe class D3D12Reflections : IDisposable
             result.DescribeWrite(_context, Slot(7));
             _pyramid.DescribeWrite(_context, Slot(8), level);
             _uniform.DescribeConstants(_context, Slot(9));
+            planar.Describe(_context, Slot(10));
         }
     }
 
@@ -250,6 +265,11 @@ public sealed unsafe class D3D12Reflections : IDisposable
     /// <param name="motion">The frame's motion vectors.</param>
     /// <param name="lit">The previous frame's finished picture.</param>
     /// <param name="roughest">The roughest surface still worth a ray.</param>
+    /// <param name="strength">How much of whatever is found to show.</param>
+    /// <param name="plane">
+    /// The plane this frame's planar reflection was rendered about, or all noughts when
+    /// there is none. A pixel lying on it takes the planar answer and is not marched.
+    /// </param>
     public void Record(
         ID3D12GraphicsCommandList4* list,
         Camera camera,
@@ -257,7 +277,9 @@ public sealed unsafe class D3D12Reflections : IDisposable
         D3D12Texture normal,
         D3D12Texture motion,
         D3D12Texture lit,
-        float roughest)
+        float roughest,
+        float strength = 1f,
+        Vector4 plane = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(list);
@@ -284,7 +306,8 @@ public sealed unsafe class D3D12Reflections : IDisposable
                 _height,
                 1f / _width,
                 1f / _height,
-                new Vector4(ReflectLayout.Thickness, roughest, ReflectLayout.Levels, 0f)),
+                new Vector4(ReflectLayout.Thickness, roughest, ReflectLayout.Levels, strength),
+                plane),
         ]);
 
         ID3D12DescriptorHeap** heaps = stackalloc ID3D12DescriptorHeap*[2];

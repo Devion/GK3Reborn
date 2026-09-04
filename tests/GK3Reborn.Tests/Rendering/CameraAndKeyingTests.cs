@@ -230,7 +230,9 @@ public sealed class CameraAndKeyingTests
 
         public bool IsHeld(CameraAction action) => false;
 
-        public bool WasPressed(CameraAction action) => false;
+        public InputBindings Bindings { get; set; } = InputBindings.Default;
+
+    public bool WasPressed(CameraAction action) => false;
 
         public Vector2 PointerPosition => Vector2.Zero;
 
@@ -295,7 +297,9 @@ public sealed class CameraAndKeyingTests
 
         public bool IsHeld(CameraAction action) => action == held;
 
-        public bool WasPressed(CameraAction action) => false;
+        public InputBindings Bindings { get; set; } = InputBindings.Default;
+
+    public bool WasPressed(CameraAction action) => false;
 
         public Vector2 PointerPosition => Vector2.Zero;
 

@@ -57,9 +57,16 @@ public static class ReflectionShaders
             ivec2 size;
             vec2 inverseSize;
 
-            // thickness, roughest surface worth a ray, mip count, unused
+            // thickness, roughest surface worth a ray, mip count, how much to show
             vec4 tuning;
+
+            // The plane this frame's planar reflection was rendered about, or noughts.
+            vec4 mirrorPlane;
         } settings;
+
+        // The room as that plane sees it. See PlanarReflection below for why a floor needs
+        // one and cannot be served by the march.
+        layout(set = 0, binding = 10) uniform texture2D planarReflection;
         """;
 
     /// <summary>One level of the min-depth pyramid the march walks.</summary>
@@ -348,6 +355,31 @@ public static class ReflectionShaders
             return border.x * border.y * depthFit * depthFit;
         }
 
+        // How far off the reflection plane a pixel may sit and still be on it, in scene
+        // units. A GK3 unit is about two and a half centimetres, so this is a couple of
+        // centimetres: enough for the depth buffer's own precision over a room-sized floor
+        // and far tighter than the step between a floor and anything standing on it.
+        const float kOnPlane = 1.0;
+
+        // Whether this point is on the plane the planar reflection was rendered about.
+        //
+        // <b>A geometric test rather than a flag, and that is the whole trick.</b> A planar
+        // reflection is the scene drawn from the camera reflected through the plane, and
+        // what makes it cheap to sample is that reflection fixes the plane pointwise: a
+        // point *on* the plane lands on the same pixel in both renders. So a pixel lying on
+        // the plane may read the reflection at its own screen position, with no matrix, no
+        // second set of texture coordinates and nothing per-surface passed through — and a
+        // pixel that is not on the plane must not, because for it the two renders disagree.
+        //
+        // That also makes the test free of the material system. Whatever the floor is made
+        // of, whatever batch it came from, the question "is this pixel on the plane the
+        // reflection was rendered for" is answered by the pixel's own world position.
+        bool OnPlane(vec3 world)
+        {
+            return settings.mirrorPlane.xyz != vec3(0.0) &&
+                   abs(dot(settings.mirrorPlane.xyz, world) + settings.mirrorPlane.w) <= kOnPlane;
+        }
+
         void main()
         {
             ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -378,6 +410,46 @@ public static class ReflectionShaders
             vec3 world = Unproject(vec3(uv, depth), settings.invViewProjection);
             vec3 view = normalize(world - settings.eyeAndSeed.xyz);
             vec3 normal = normalize(surface.xyz);
+
+            // Schlick, with the reflectance of an ordinary dielectric. Almost nothing
+            // reflects much when looked at square on — four per cent for stone or tile —
+            // and almost everything reflects at a glancing angle, which is why a polished
+            // floor shows the room ahead of you and not the one under your feet. Without
+            // this a reflection is a haze over the whole picture.
+            //
+            // Worked out here rather than after the march, because both answers below want
+            // it and they are the same surface.
+            float grazing = pow(1.0 - clamp(dot(normal, -view), 0.0, 1.0), 5.0);
+            float fresnel = kBaseReflectance + ((1.0 - kBaseReflectance) * grazing);
+
+            // And fading out as the surface roughens, rather than stopping dead at the
+            // threshold, so a floor and the wall beside it do not differ by a hard line.
+            // The root rather than the ratio: a mildly glossy surface should keep most of
+            // its reflection, not most of it taken away.
+            float polish = fresnel *
+                sqrt(max(1.0 - (roughness / max(settings.tuning.y, 0.001)), 0.0));
+
+            // A floor on the reflection plane is answered outright and the march is not
+            // run for it. What a floor reflects is mostly what is above the camera — the
+            // ceiling, the beams, the lamps hanging off them — and none of that is in the
+            // frame the march works from, so the march finds nothing and a tiled hall
+            // reflects nothing however smooth its material says it is. The planar pass has
+            // the ceiling because it drew the room a second time to get it.
+            //
+            // Written straight rather than blended with the history: this is not a sampled
+            // estimate that needs frames to settle, it is a rendered picture, and averaging
+            // it against a moving camera's history would only smear it.
+            if (OnPlane(world))
+            {
+                vec3 planar = textureLod(
+                    sampler2D(planarReflection, clampedSampler), uv, 0.0).rgb;
+
+                imageStore(
+                    reflection, pixel,
+                    vec4(planar, polish * max(settings.tuning.w, 0.0)));
+
+                return;
+            }
 
             // Roughness squared, because roughness is the perceptual number an artist
             // or an inference pass writes down and the distribution wants its square.
@@ -426,20 +498,11 @@ public static class ReflectionShaders
 
             float confidence = hit ? Confidence(landed, uv, direction) : 0.0;
 
-            // Schlick, with the reflectance of an ordinary dielectric. Almost nothing
-            // reflects much when looked at square on — four per cent for stone or tile —
-            // and almost everything reflects at a glancing angle, which is why a polished
-            // floor shows the room ahead of you and not the one under your feet. Without
-            // this a reflection is a haze over the whole picture.
-            float grazing = pow(1.0 - clamp(dot(normal, -view), 0.0, 1.0), 5.0);
-            float fresnel = kBaseReflectance + ((1.0 - kBaseReflectance) * grazing);
-
-            // And fading out as the surface roughens, rather than stopping dead at the
-            // threshold, so a floor and the wall beside it do not differ by a hard line.
-            // The root rather than the ratio: a mildly glossy surface should keep most of
-            // its reflection, not most of it taken away.
-            confidence *= fresnel *
-                sqrt(max(1.0 - (roughness / max(settings.tuning.y, 0.001)), 0.0));
+            // What the surface's own polish allows, and then what the player asked for. The
+            // physical answer is one; the row on the Picture page runs to twice that,
+            // because a real polished floor is also being lit by whatever it is reflecting
+            // and Schlick alone comes out fainter than anybody means by "reflective".
+            confidence *= polish * max(settings.tuning.w, 0.0);
 
             vec3 colour = vec3(0.0);
 

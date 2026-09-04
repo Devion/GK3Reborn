@@ -109,20 +109,59 @@ public static class RigBalance
     };
 
     /// <summary>
+    /// How much of an indirect light is kept, with the player's own answer taken into
+    /// account.
+    /// </summary>
+    /// <param name="quality">How much of the picture is being paid for.</param>
+    /// <param name="realistic">Whether only real sources may light the room.</param>
+    /// <returns>A multiplier for the intensity of the fills.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Nothing, when the player has asked for only real sources.</b> A sixth of a fill
+    /// is a deliberate compromise — enough that a corner the tracer over-darkens does not
+    /// go black — and somebody who has asked for the light in a room to come from the
+    /// windows and the lamps has said they would rather have the corner. What is left is
+    /// the sun, the sky through a window, a lamp, a fire and the tracer's own ambient floor
+    /// shaped by occlusion.
+    /// </para>
+    /// <para>
+    /// Still nothing at all with no rays, whatever the player asked for: the bake
+    /// <em>is</em> the room's lighting there and the rig only reaches the people standing in
+    /// it, so switching off the fills would darken the characters and leave the room they
+    /// stand in exactly as bright. That is not realism, it is a bug with a switch on it.
+    /// </para>
+    /// </remarks>
+    public static float Keep(RayTracingQuality quality, bool realistic) =>
+        realistic && quality != RayTracingQuality.None ? 0f : Keep(quality);
+
+    /// <summary>
     /// Balances a rig for the amount of tracing it is about to be evaluated under.
     /// </summary>
     /// <param name="rig">The room's lights.</param>
     /// <param name="quality">How much of the picture is being paid for.</param>
     /// <param name="dimmed">How many lights were turned down.</param>
+    /// <param name="realistic">
+    /// Whether the player has asked for only real sources, which takes the scaffolding out
+    /// altogether rather than turning it down.
+    /// </param>
     /// <returns>The rig, with its baking scaffolding turned down.</returns>
+    /// <remarks>
+    /// The dimmed lights are kept in the list at nought intensity rather than removed. A
+    /// light is addressed by its position in the rig — by the shadow budget, by anything
+    /// that names one — and renumbering the room's lights because a preference changed is a
+    /// way to make a scene look different depending on what the player did last.
+    /// </remarks>
     public static IReadOnlyList<AuthoredLight> For(
-        IReadOnlyList<AuthoredLight> rig, RayTracingQuality quality, out int dimmed)
+        IReadOnlyList<AuthoredLight> rig,
+        RayTracingQuality quality,
+        out int dimmed,
+        bool realistic = false)
     {
         ArgumentNullException.ThrowIfNull(rig);
 
         dimmed = 0;
 
-        float keep = Keep(quality);
+        float keep = Keep(quality, realistic);
 
         if (keep >= 1f)
         {

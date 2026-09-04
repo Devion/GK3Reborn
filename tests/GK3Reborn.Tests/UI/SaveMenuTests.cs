@@ -192,19 +192,25 @@ public sealed class SaveMenuTests
         Assert.Equal(FrontEndPage.Main, front.Page);
     }
 
-    /// <summary>And a settings page still goes back to the settings.</summary>
+    /// <summary>And a settings section goes back to the top of the menu.</summary>
+    /// <remarks>
+    /// This used to assert that Back from a settings page reached the Settings page. There
+    /// is no Settings page now — the five sections are one screen with a list down the side
+    /// — so what it asserts is that a section is one level down and not two, which is the
+    /// thing the sidebar was for.
+    /// </remarks>
     [Theory]
     [InlineData("video")]
     [InlineData("audio")]
     [InlineData("gameplay")]
-    public void Back_from_a_settings_page_returns_to_the_settings(string page)
+    [InlineData("controls")]
+    public void Back_from_a_settings_section_returns_to_the_top(string section)
     {
         FrontEnd front = Paused();
         front.Choose(Chose("options"));
-        front.Choose(Chose(page));
+        front.Choose(Chose("tab:" + section));
 
-        Assert.True(front.Back());
-        Assert.Equal(FrontEndPage.Options, front.Page);
+        Assert.True(front.OnSettings);
 
         Assert.True(front.Back());
         Assert.Equal(FrontEndPage.Main, front.Page);

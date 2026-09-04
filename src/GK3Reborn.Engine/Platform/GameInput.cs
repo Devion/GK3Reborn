@@ -125,6 +125,25 @@ public enum EditKey
     /// which no other part of this one wants.
     /// </remarks>
     Console,
+
+    /// <summary>Show the settings section before this one.</summary>
+    /// <remarks>
+    /// <para>
+    /// The settings are one screen with a list of sections down the side, so there has to
+    /// be a way to move between them that is not the pointer. Page Up and Page Down, which
+    /// is what a list of pages has answered to since before this game was written, and the
+    /// shoulder buttons on a pad, which is where every console game has put the same job.
+    /// </para>
+    /// <para>
+    /// Deliberately not Left and Right: those step the value of the row the player is on,
+    /// and a key that changed the volume on one row and the whole page on another is a key
+    /// nobody can use.
+    /// </para>
+    /// </remarks>
+    PreviousSection,
+
+    /// <summary>Show the settings section after this one.</summary>
+    NextSection,
 }
 
 public interface IGameInput
@@ -214,6 +233,78 @@ public interface IGameInput
     /// is not something anything above the platform layer should have to know.
     /// </remarks>
     bool WasPressed(EditKey key);
+
+    /// <summary>Which key and which pad button do which job.</summary>
+    /// <remarks>
+    /// Settable, because the whole point of it is that the player can change it. Replaced
+    /// wholesale rather than edited in place: <see cref="InputBindings"/> is immutable, so
+    /// nothing can be half-rebound while a frame is being read.
+    /// </remarks>
+    InputBindings Bindings { get; set; }
+
+    /// <summary>Whether a gamepad is plugged in.</summary>
+    /// <remarks>
+    /// <para>
+    /// Read by the settings screen, which says so rather than offering a page of pad
+    /// bindings with no pad to press. It can change while the game is running — that is
+    /// what a USB socket is — so it is asked every frame rather than at startup.
+    /// </para>
+    /// <para>
+    /// <b>This and the three below answer for themselves.</b> A pad is a capability rather
+    /// than a requirement, and "there is no pad, nothing was pressed and the sticks are
+    /// centred" is the correct answer for every input source that has not got one — which
+    /// includes every fake in the tests. <see cref="Bindings"/> deliberately has no default:
+    /// an implementation that quietly swallowed the bindings would be one where every key
+    /// the player rebound did nothing, and that is not a failure anybody would find.
+    /// </para>
+    /// </remarks>
+    bool HasGamepad => false;
+
+    /// <summary>Where the pad's sticks are pointing and how hard its triggers are pressed.</summary>
+    GamepadSticks Sticks => GamepadSticks.Still;
+
+    /// <summary>
+    /// How fast a stick pushed all the way moves the pointer, in logical pixels a second.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nought is the switch as well as the speed.</b> A stick that moves the cursor no
+    /// pixels a second is a stick that does not move the cursor, and a separate flag saying
+    /// the same thing would be a second thing to keep in step with this one.
+    /// </remarks>
+    float PointerSpeed
+    {
+        get => 0f;
+        set { }
+    }
+
+    /// <summary>
+    /// The key pressed since the last poll, for a settings page that is listening for one.
+    /// </summary>
+    /// <remarks>
+    /// Apart from <see cref="WasPressed(EditKey)"/> and from the actions because it is a
+    /// different question: those ask "was this particular thing pressed", and rebinding asks
+    /// "what was pressed". A page that had to ask the first question about a hundred keys to
+    /// answer the second would be a page that could only bind the keys somebody had thought
+    /// to list.
+    /// </remarks>
+    InputKey AnyKey => InputKey.None;
+
+    /// <summary>The pad button pressed since the last poll, for the same reason.</summary>
+    GamepadButton AnyButton => GamepadButton.None;
+
+    /// <summary>
+    /// Puts the pointer somewhere, without the mouse having moved.
+    /// </summary>
+    /// <param name="position">Where, in pixels from the top-left of the window.</param>
+    /// <remarks>
+    /// What lets a stick drive the cursor. The position is the game's from then on until
+    /// the mouse itself moves, at which point the mouse takes it back — so a player with
+    /// both a pad and a mouse on the desk can use either without a mode to switch between
+    /// them, and the cursor never fights itself.
+    /// </remarks>
+    void MovePointer(Vector2 position)
+    {
+    }
 
     /// <summary>Clears the per-frame state. Called once a frame, after reading it.</summary>
     void EndFrame();

@@ -4,6 +4,41 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. The faces were smeared, and it was not shadow acne (done 2026-09-04)
+
+**Reported:** 2026-09-04, as "RT high and some NPC's face shadowing, shadow acne I think?
+Grace has this significantly during most of her scenes". Poussin's tomb was offered as the
+place to look at it.
+
+**It is not shadow acne, and it is not the shadows.** Rendered with `--flat`, which takes
+away the normal maps and the relief and leaves the colour textures, Grace's face is clean.
+Rendered with `--relief 0`, which keeps the normal maps and takes away only the height
+march, the smear is still there. It is the **normal map**, and it is there at `--rt none` as
+well — the tracing only makes it easier to see, because it lights the face more evenly than
+the 1999 bake did.
+
+**A face's normal map is generated from its own colour texture, and a GK3 face has its
+shading painted into it.** The cheekbone, the blush, the shadow beside the nose: the
+inference pass read all of that as relief and wrote fully saturated lobes across both
+cheeks — visible as large red and green blobs in `enhanced/normals/GRA_FACE.PNG`. Under any
+lighting at all that comes out as a faceted grey smear that follows the triangle edges,
+which is exactly what shadow acne looks like.
+
+**Fixed in the material edit layer**, which is what it is for: `normalStrength` 0.25 on all
+86 face and forehead materials. Turned down rather than off — the eyes, the nostrils and the
+lips are real relief and worth keeping, and they survive a quarter strength while the
+painted shading stops being geometry. `tools/rooms/polished-floors.py` is the sibling script
+for the floors; the face edits were written the same way.
+
+The measurement that ruled the shadows out first: the same crop of Gabriel's face in R25 at
+110A scores 2.04% speckle at Medium, 1.91% at High and 4.18% with no rays at all. The
+tracing was never adding the noise.
+
+**Not reproducible at Poussin's tomb**, which is worth writing down: `POU207A`'s cast
+arrives in a van under a cutscene, so nothing is standing in front of any camera at frame
+eight. `CEM207A` places Grace outright, and
+`--eye 210,58,620 --aim 73.4,0` puts the camera in front of her face.
+
 ## 0. A grown tree is drawn but cannot be clicked, and the cards it replaced still can (done 2026-09-04)
 
 **Reported:** 2026-09-04, alongside the MCF clue note (see

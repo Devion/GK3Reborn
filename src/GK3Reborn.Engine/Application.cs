@@ -326,6 +326,25 @@ public static class Application
 
         Settings settings = Settings.Load(settingsPath);
 
+        // Two switches for the two rows on the Picture page that change what a room looks
+        // like rather than how sharply it is drawn, so that the same room can be
+        // photographed both ways without editing anybody's settings file. Both are
+        // overrides for this run and neither is written back.
+        if (args.Contains("--real-light", StringComparer.OrdinalIgnoreCase))
+        {
+            settings = settings with { RealisticLighting = true };
+        }
+
+        if (args.Contains("--no-real-light", StringComparer.OrdinalIgnoreCase))
+        {
+            settings = settings with { RealisticLighting = false };
+        }
+
+        if (args.Contains("--no-floor-reflections", StringComparer.OrdinalIgnoreCase))
+        {
+            settings = settings with { FloorReflections = false };
+        }
+
         // Content the game shipped with and cannot reach. Off unless asked for, because it
         // is content the developers switched off — a player who did not ask for it should
         // get the game as it was released, and a bug report about a line nobody else hears
@@ -1023,6 +1042,16 @@ public static class Application
             settings = chosen;
             chosen.ApplyTo(audio);
 
+            // Which key and which pad button do which job, and how fast a stick drives the
+            // cursor. Handed over here rather than read by the window, because the window is
+            // below the game and must not know what a settings file is.
+            window.Bindings = Platform.InputBindings.Restore(chosen.Bindings);
+
+            // Nought is the switch as well as the speed: a stick that moves the cursor no
+            // pixels a second is a stick that does not move the cursor, and a second flag
+            // saying the same thing is a second thing to keep in step.
+            window.PointerSpeed = chosen.GamepadCursor ? chosen.GamepadCursorSpeed : 0f;
+
             if (renderer.SupportsRayTracing)
             {
                 renderer.Quality = chosen.Quality;
@@ -1034,6 +1063,14 @@ public static class Application
             // pages something the player can watch happen.
             renderer.Upscaling = chosen.Upscaling;
             renderer.Output = chosen.Output;
+
+            // And what the two reflection rows on the Picture page ask for. A value, like
+            // the two above, so handing over one that has not changed does nothing and one
+            // that has takes effect at the top of the next frame.
+            renderer.Reflections = new ReflectionPlan(
+                chosen.Reflectivity,
+                chosen.FloorReflections &&
+                    !args.Contains("--no-floor-reflections", StringComparer.OrdinalIgnoreCase));
             renderer.VerticalSync = chosen.VerticalSync;
 
             window.Present(chosen.Display, chosen.DisplayWidth, chosen.DisplayHeight);
@@ -1679,7 +1716,8 @@ public static class Application
             // These are baking rigs: a room's fills, ambients and bounce lights are the
             // 1999 stand-in for the global illumination the tracer now computes, and
             // running both is the same light twice. See Game.RigBalance.
-            burning = Game.RigBalance.For(burning, renderer.Quality, out int dimmed);
+            burning = Game.RigBalance.For(
+                burning, renderer.Quality, out int dimmed, settings.RealisticLighting);
 
 
             renderer.SetLights(
@@ -1688,10 +1726,15 @@ public static class Application
 
             if (dimmed > 0)
             {
-                Log.Info(
-                    $"Rig: {dimmed} of {burning.Count} lights are the bake's own fill, " +
-                    $"turned down to {Game.RigBalance.Keep(renderer.Quality) * 100:F0}% " +
-                    "against the traced occlusion that replaces them");
+                float keep = Game.RigBalance.Keep(
+                    renderer.Quality, settings.RealisticLighting);
+
+                Log.Info(keep <= 0f
+                    ? $"Rig: {dimmed} of {burning.Count} lights are the bake's own fill, " +
+                      "switched off — only real sources light this room"
+                    : $"Rig: {dimmed} of {burning.Count} lights are the bake's own fill, " +
+                      $"turned down to {keep * 100:F0}% " +
+                      "against the traced occlusion that replaces them");
             }
 
             if (args.Contains("--emissive-list", StringComparer.OrdinalIgnoreCase))
@@ -5194,9 +5237,20 @@ public static class Application
 
         int drawn = 0;
 
+        // How long the last frame took, which is all the page needs to slide rather than
+        // jump. Read here rather than by the page itself, because reading the clock outside
+        // the platform layer is what ADR 0004 forbids and a menu page is not the platform
+        // layer.
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        double previous = 0;
+
         while (!window.IsClosing)
         {
             window.PumpEvents();
+
+            double now = elapsed.Elapsed.TotalSeconds;
+            float seconds = (float)Math.Clamp(now - previous, 0, 0.1);
+            previous = now;
 
             // What the picture pages need to be able to say, refreshed every frame because
             // every one of them can change while they are on screen: the window is
@@ -5214,6 +5268,13 @@ public static class Application
             front.FrameGenerationMaximum = renderer.FrameGenerationMaximum;
             front.LatencyControl = renderer.LatencyControl;
             front.RunningBackend = renderer.Backend;
+            front.HasGamepad = window.HasGamepad;
+
+            // The list down the side, and which of it is highlighted. Only on the settings
+            // screen: the title screen, the pause menu and the save slots are each a single
+            // list and a sidebar over one list is a margin.
+            pages.Sections = front.OnSettings ? Aside : [];
+            pages.Section = front.Section;
 
             IReadOnlyList<MenuItem> items = front.Items;
 
@@ -5246,6 +5307,34 @@ public static class Application
 
             MenuAction action = MenuAction.None;
 
+            // A row on the Controls page that is waiting to be told what to answer to takes
+            // the whole keyboard and the whole pad, because the answer may be any key on
+            // either — including the arrows, which would otherwise be walking the list.
+            if (front.Listening)
+            {
+                if (front.Captured(
+                        window.AnyKey,
+                        window.AnyButton,
+                        window.WasPressed(Platform.EditKey.Backspace)))
+                {
+                    apply(front.Settings);
+                }
+
+                pages.Build(
+                    front.Title,
+                    front.Items,
+                    window.FramebufferWidth,
+                    window.FramebufferHeight,
+                    pointer,
+                    seconds);
+
+                renderer.SetOverlay(pages.Overlay);
+                window.EndFrame();
+                renderer.DrawFrame(0f, 0f, 0f);
+
+                continue;
+            }
+
             if (window.WasPressed(Platform.EditKey.Up))
             {
                 pages.Move(items, -1);
@@ -5271,6 +5360,27 @@ public static class Application
                 action = pages.Chose(items);
             }
 
+            // Page Up and Page Down, and the shoulder buttons on a pad. Not the arrows:
+            // those step the value of the row the player is on, and a key that changed the
+            // volume on one row and the whole section on another is a key nobody can use.
+            if (window.WasPressed(Platform.EditKey.PreviousSection))
+            {
+                front.StepSection(-1);
+            }
+
+            if (window.WasPressed(Platform.EditKey.NextSection))
+            {
+                front.StepSection(1);
+            }
+
+            // The wheel scrolls the page rather than stepping the selection. Turning it to
+            // see what is further down a settings section should not change what pressing
+            // Enter would do.
+            if (window.ScrollDelta != 0)
+            {
+                pages.Wheel(window.ScrollDelta);
+            }
+
             if (window.WasClicked(Platform.PointerButton.Primary))
             {
                 action = pages.Click(pointer, items);
@@ -5280,6 +5390,14 @@ public static class Application
                 // Held rather than clicked: a volume is set by ear, which means hearing it
                 // move rather than hearing where it landed.
                 action = dragged;
+            }
+
+            // The one row the page draws that is not the front end's: the way out of the
+            // settings, which the sidebar carries so that somebody using nothing but the
+            // pointer has one.
+            if (action.Id == "tab:back")
+            {
+                action = new MenuAction("back");
             }
 
             FrontEndOutcome outcome = front.Choose(action);
@@ -5333,7 +5451,8 @@ public static class Application
                 front.Items,
                 window.FramebufferWidth,
                 window.FramebufferHeight,
-                pointer);
+                pointer,
+                seconds);
 
             renderer.SetOverlay(pages.Overlay);
 
@@ -5363,6 +5482,18 @@ public static class Application
         front.Commit();
         return FrontEndOutcome.Quit;
     }
+
+    /// <summary>
+    /// The settings screen's sections, and the way out under them.
+    /// </summary>
+    /// <remarks>
+    /// Back is in the sidebar rather than being the last row of every section. It is not a
+    /// setting, so a two-column grid would pair it with one; and it is the same act from
+    /// every section, so putting it in the one part of the screen that does not change is
+    /// where it belongs. Escape does it too, for anybody who would rather not aim.
+    /// </remarks>
+    private static readonly MenuSection[] Aside =
+        [.. FrontEnd.Sections, new MenuSection("back", "Back")];
 
     /// <summary>
     /// Puts the page where it does not cover what is behind it.

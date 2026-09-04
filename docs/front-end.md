@@ -110,6 +110,54 @@ player would actually ask about. Under `--bitmap-font` there is nothing to re-cu
 row moves which rung of GK3's ladder is asked for and how many screen pixels a sheet pixel
 covers; whole numbers only, so there it is a step rather than a slider.
 
+## One screen, five sections
+
+The settings used to be a menu of five buttons, each leading to a page, each with a Back
+row at the bottom of it. Comparing a row on Picture against a row on Display was four
+keystrokes; comparing the upscaler against the lighting quality it is being asked to
+reconstruct — which is a comparison somebody makes constantly — could not be done on one
+screen at all.
+
+They are now **one screen with the sections listed down its side**: Picture, Display,
+Sound, Playing, Controls, and Back under them. Every section is one click or one press of
+Page Down from every other. Two pages disappeared into the others in the process, and both
+had only ever been pages because a single column had no other way to group anything:
+
+* **Upscaling** is a group of rows on Picture. It is a picture setting, and a page of its
+  own cost two keystrokes each way to reach six rows.
+* **Made Easier** is a group of rows on Playing, under a heading of its own. The reasoning
+  for the separate page was right — everything else on Playing is a preference about how
+  the game is *presented*, and those two change what the story asks of the player — and the
+  page was the wrong answer to it. A heading says the same thing in the same place.
+
+**The rows are laid in two columns where that helps.** A section fills the left column
+downwards and then the right, so the order the keyboard walks is the order the eye reads
+and Left and Right are still free to step a value. A row too wide for a column takes the
+whole width instead; a section where more than a third of the rows are that wide gives the
+columns up and uses one wide one, because a grid where most rows span reads as a layout
+that has gone wrong rather than as a grid. Nothing is tuned per page — the same rule gives
+Picture and Controls two columns and gives Playing one, because that is what those sections
+are actually like.
+
+## The page moves only when it has to
+
+Reported as "the scroll loves to immediately jump, which for a user isn't nice". It did.
+The page kept a single row index and recomputed it from the selection every frame, growing
+a window of rows outwards from the chosen one — so the chosen row was always in the middle
+of the panel and **every** step of the selection scrolled the whole page by one row. The
+list moved and the cursor stood still, which is the wrong way round.
+
+The page now keeps its scroll in pixels, moves only when the selection would otherwise
+leave it, moves by the least it can, and takes about a fifth of a second to get there. A
+row in the middle of the page is stepped past without the page moving at all. The wheel
+scrolls the page and leaves the selection alone, and is not dragged back on the next frame:
+revealing happens when the selection *moves*, not every frame. Rows are clipped to the
+content, so a page part-way through a slide draws the top half of a row rather than a whole
+one hanging over the edge.
+
+`MenuScrollTests` holds all of that, against where the rows were actually drawn rather than
+against the arithmetic that put them there.
+
 ## What it is made of
 
 Three pieces, and the split is what makes any of it testable.
@@ -118,7 +166,8 @@ Three pieces, and the split is what makes any of it testable.
 | --- | --- |
 | `Game/Settings.cs` | what the player has chosen, and where it is kept |
 | `UI/Menu.cs` | `MenuItem`, `MenuAction`, and `MenuPage`, which draws a page and hit-tests it |
-| `UI/FrontEnd.cs` | which page is showing, what is on it, and what choosing a row does |
+| `UI/FrontEnd.cs` | which section is showing, what is on it, and what choosing a row does |
+| `Platform/InputBindings.cs` | which key and which pad button do which job |
 
 `FrontEnd` never mentions a window, a device or a renderer. It turns settings into rows
 and rows back into settings, which is the only way to check by test that a slider moves
@@ -150,6 +199,11 @@ destinations, and there are no others in the file.
 | Easter eggs | `GameState.EasterEggs`, which is the story's `EGG` flag: the built-in `EGG` action case and Sidney's sixth email |
 | Skip the cat-hair moustache | `BLACK_MOUSTACHE` in Gabriel's pocket at Day 1, 2pm, and `Faces.ComposedFrom` so he wears it |
 | Gabriel cannot be killed | `GameState.PlotArmour`, which `ScriptHost` reads on the way into every script function |
+| Only real light sources | `RigBalance.Keep`, taken to nought: the artists' fills, ambients and bounces are switched off rather than turned down |
+| Floors reflect the room | `ReflectionPlan.PlanarFloors`, which puts a large flat polished floor through the planar pass the mirrors use |
+| How strongly | `ReflectionPlan.Strength`, which scales every reflection in the picture; one is the physical answer |
+| Left stick moves the pointer | `IGameInput.PointerSpeed`, in logical pixels a second; nought is the switch as well as the speed |
+| Every row on Controls | `InputBindings`, and through it what a key press and a pad button mean |
 
 **Easter eggs are the game's own switch, finished.** `EGG` is one of the built-in cases an
 action file may be written against, and the original hard-codes it false with a note saying
@@ -166,11 +220,13 @@ turn it off.
 
 ## Made easier
 
-The last two rows are on a page of their own, and away from Playing on purpose: everything
-on Playing is a preference about how the game is *presented*, and these two change what the
-story asks of the player. Both are off by default, both name the puzzle they take away
-rather than saying "easier", and both work by changing what the shipped scripts do rather
-than by editing them. `Game/Assists.cs` is the whole of it — every item, flag and function
+The last two rows sit under a heading of their own at the foot of Playing, and are set
+apart on purpose: everything above them is a preference about how the game is *presented*,
+and these two change what the story asks of the player. They had a page to themselves until
+the settings became one screen; a heading says the same thing in the same place, without a
+second screen to find. Both are off by default, both name the puzzle they take away rather
+than saying "easier", and both work by changing what the shipped scripts do rather than by
+editing them. `Game/Assists.cs` is the whole of it — every item, flag and function
 name either of them touches is in that one file.
 
 **The moustache.** GK3's most notorious chain is spray the cat, tape the hole it squeezes
@@ -243,6 +299,57 @@ heard while its slider is being dragged. The two that cannot be say so on the pa
 than quietly doing nothing: the speaker layout is what the device was opened with, and the
 texture set is what the room standing round the player was built from, so one waits for
 the next start and the other for the next door.
+
+## Controls
+
+Which key does which job was a static table inside the windowing backend, which is the
+right place for a decision nobody can change and the wrong place for one everybody wants
+to. It is `Platform/InputBindings.cs` now: above the windowing library, named in the game's
+own `InputKey` rather than in Silk.NET's, and carried in the settings file with everything
+else the player has chosen.
+
+**Only the differences are written down.** A file that listed every binding would pin a
+player to whatever the defaults were on the day they first opened this page — a key added
+to an action in a later version would never reach anybody who had ever looked at Controls.
+What is stored is what the player changed, so a default that improves improves for
+everybody who did not have an opinion about it.
+
+Choosing a row stops the screen and waits for a key or a button. Escape leaves the binding
+alone and Backspace clears it; neither is bindable here, because they are the two things
+somebody has to be able to do when the screen has stopped and is waiting for them. A key
+given to one action is taken away from whatever else had it, in the same pass: two actions
+on one key is not a state the player can see or get out of. A key row answered with a pad
+button binds the pad button, because the row is a suggestion about which device is likelier
+and not a rule.
+
+## The gamepad
+
+**This is a game played by pointing at things, so the one thing a pad has to be able to do
+is point.** The left stick drives the cursor and the mouse takes it straight back the
+moment it is touched, so there is no mode to be in and nothing to switch. The push is
+squared, which is what every console cursor does about a stick that is otherwise either too
+slow to cross the screen with or too coarse to land on anything, and the real cursor is
+moved with it so the arrow the operating system draws is the one the game is acting on.
+
+The face buttons go to the pointer rather than to the free camera's movement, for the same
+reason: the button under the thumb should be the one that does the pointing. Bottom face
+does the thing, right face asks what it does, left face looks closely. The rest of the
+defaults are the shoulder buttons for the camera, the top face for the inventory, Back for
+the journal, the left trigger for the hotspots and Start for the menu — every one of them
+changeable on Controls.
+
+**What the pad does in a menu is fixed and is not a binding.** A player who has rebound the
+inventory to the bottom face button has said something about the game, not about the menu,
+and a menu whose Choose button moved when they did would be a menu they could not get out
+of. The D-pad and the left stick step the list, the bottom face chooses, the right face goes
+back, and the shoulders step between the settings sections — which is where every console
+game has put the same job for twenty years, and which Page Up and Page Down do on a
+keyboard.
+
+The buttons are named for where they are — "Bottom face", "Right shoulder" — rather than
+for what is printed on them. The same physical button is A on an Xbox pad, Cross on a
+PlayStation one and B on a Nintendo one, and a settings page that says "A" to somebody
+holding a DualSense is a settings page that is wrong about the hardware in their hands.
 
 ## Where the settings live
 

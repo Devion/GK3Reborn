@@ -145,6 +145,157 @@ public static class MirrorSurfaces
     }
 
     /// <summary>
+    /// How thick a band of heights counts as one level of a floor, in world units.
+    /// </summary>
+    /// <remarks>
+    /// Two units, about five centimetres, which is thinner than any step in the game and
+    /// thicker than the wobble a room-sized floor has from being triangulated. It has to
+    /// agree with the tolerance the reflection pass tests a pixel against, because the two
+    /// are the same question asked in two places: this decides where the plane goes and
+    /// that decides which pixels are on it.
+    /// </remarks>
+    public const float Level = 2f;
+
+    /// <summary>
+    /// How much of a floor has to be at one height before that height is worth a pass.
+    /// </summary>
+    /// <remarks>
+    /// A third. Below that the piece is a stair, a plinth or a slope rather than a floor,
+    /// and rendering the room again for it would buy a reflection in something nobody would
+    /// call a floor.
+    /// </remarks>
+    public const float Mostly = 1f / 3f;
+
+    /// <summary>
+    /// How wide a floor has to be before it is worth drawing the room again for, in units.
+    /// </summary>
+    /// <remarks>
+    /// A hundred and twenty units is about three metres across — a hall, a nave, a lobby.
+    /// A polished tabletop is smooth and flat and is not what this is for: the cost is a
+    /// whole second pass over the room, and it has to buy a reflection somebody notices.
+    /// </remarks>
+    public const float LeastFloor = 120f;
+
+    /// <summary>
+    /// Finds the level a room's floor mostly lies at, as a plane to reflect about.
+    /// </summary>
+    /// <param name="pieces">Every piece of the room's floor, each with where it stands.</param>
+    /// <returns>The plane, or null if there is no floor worth a pass.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Not <see cref="Fit"/>, and the difference is what a floor is like.</b> A mirror is
+    /// glass and glass is flat, so the fit rejects anything that wanders out of its own
+    /// plane. A room's floor is nothing like that: the church's is five textures across a
+    /// nave, a tiled runner up the middle and a step to the altar, and asking any of that to
+    /// be flat rejects every floor in the game.
+    /// </para>
+    /// <para>
+    /// So this asks a different question: <em>which height is most of the floor at</em>. The
+    /// answer is a horizontal plane, and the step up to the altar simply is not on it —
+    /// which is exactly right, because the reflection pass tests each pixel against the
+    /// plane and gives the reflection only to the pixels that are on it. A floor with a step
+    /// in it reflects on the lower level and not on the upper, which is what a floor with a
+    /// step in it does.
+    /// </para>
+    /// <para>
+    /// <b>All of the floor at once, not a piece at a time.</b> Fitted per piece, the church
+    /// chose the plane of its tiled runner — the largest single piece — and the grey tiles
+    /// either side of it sat a little lower and were not on it, so the reflection appeared
+    /// on a strip up the middle of the nave and nowhere else. The room has one floor and it
+    /// gets one plane.
+    /// </para>
+    /// <para>
+    /// Horizontal outright rather than fitted, because a floor is horizontal and a fitted
+    /// normal over a room-sized piece is a plane tilted by whatever the far corner does. A
+    /// sloping floor is a ramp and gets nothing.
+    /// </para>
+    /// </remarks>
+    public static MirrorSurface? Ground(
+        IReadOnlyList<(MeshVertex[] Shape, Matrix4x4 Transform)> pieces)
+    {
+        ArgumentNullException.ThrowIfNull(pieces);
+
+        // Which height most of it is at, by counting the vertices into bands. A dictionary
+        // rather than a sort: a room's floor is thousands of vertices and this runs once a
+        // frame over a list that only changes when the room does.
+        Dictionary<int, int> bands = [];
+        int commonest = 0;
+        int most = 0;
+        int total = 0;
+
+        foreach ((MeshVertex[] shape, Matrix4x4 transform) in pieces)
+        {
+            foreach (MeshVertex vertex in shape)
+            {
+                int band = (int)MathF.Floor(
+                    Vector3.Transform(vertex.Position, transform).Y / Level);
+
+                int count = bands.GetValueOrDefault(band) + 1;
+                bands[band] = count;
+                total++;
+
+                if (count > most)
+                {
+                    most = count;
+                    commonest = band;
+                }
+            }
+        }
+
+        if (total < 3 || most < total * Mostly)
+        {
+            return null;
+        }
+
+        // The plane goes through the mean of the vertices actually at that level, not
+        // through the middle of the band: a floor a hair above a band boundary would
+        // otherwise be reflected about a plane up to a whole band below itself.
+        Vector3 center = Vector3.Zero;
+        float height = 0f;
+        int counted = 0;
+
+        foreach ((MeshVertex[] shape, Matrix4x4 transform) in pieces)
+        {
+            foreach (MeshVertex vertex in shape)
+            {
+                Vector3 world = Vector3.Transform(vertex.Position, transform);
+
+                if ((int)MathF.Floor(world.Y / Level) != commonest)
+                {
+                    continue;
+                }
+
+                center += world;
+                height += world.Y;
+                counted++;
+            }
+        }
+
+        center /= counted;
+        height /= counted;
+        center.Y = height;
+
+        float radius = 0f;
+
+        foreach ((MeshVertex[] shape, Matrix4x4 transform) in pieces)
+        {
+            foreach (MeshVertex vertex in shape)
+            {
+                Vector3 world = Vector3.Transform(vertex.Position, transform);
+
+                if ((int)MathF.Floor(world.Y / Level) == commonest)
+                {
+                    radius = MathF.Max(radius, (world - center).Length());
+                }
+            }
+        }
+
+        return radius < LeastFloor
+            ? null
+            : new MirrorSurface(new Vector4(0f, 1f, 0f, -height), center, radius);
+    }
+
+    /// <summary>
     /// Picks the one mirror a frame is about, from everything in the room that is one.
     /// </summary>
     /// <param name="mirrors">Every piece of glass found, in any order.</param>

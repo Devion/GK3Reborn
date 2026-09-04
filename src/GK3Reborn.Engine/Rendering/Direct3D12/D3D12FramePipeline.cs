@@ -65,6 +65,13 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <summary>The room as this frame's mirror sees it, if the room has one.</summary>
     private D3D12Texture? _mirror;
 
+    /// <summary>How much of a reflection to show, and where the floors get theirs from.</summary>
+    /// <remarks>
+    /// Set by the renderer, which owns the plan; read here, which is where the passes are
+    /// recorded. Clamped by the plan itself.
+    /// </remarks>
+    public ReflectionPlan Reflections { get; set; } = ReflectionPlan.Default;
+
     private D3D12Texture? _empty;
     private D3D12Texture? _upscaled;
     private D3D12SkyboxPass? _skybox;
@@ -408,7 +415,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             return;
         }
 
-        if (scene.ChooseMirror(camera.Position) is not { } mirror)
+        if (scene.ChooseMirror(camera.Position, Reflections.PlanarFloors) is not { } mirror)
         {
             // Nothing in the room is a mirror this frame, so nothing will sample the
             // target — but it is still a descriptor the mesh pass binds, and a resource a
@@ -819,8 +826,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
                 // What it marches over is the finished picture of the frame before, which on
                 // the first frame after a resize is a target nothing has drawn into yet.
                 // Resize clears it for exactly that frame.
-                _reflections.Bind(_depth!, _gbuffer[1], _gbuffer[2], _lit!);
+                _reflections.Bind(_depth!, _gbuffer[1], _gbuffer[2], _lit!, _mirror);
 
+                // The plane, where the frame rendered one. A pixel lying on it takes the
+                // planar answer outright and is not marched, which is the whole of what
+                // makes a floor able to show the ceiling above it.
                 _reflections.Record(
                     list,
                     camera,
@@ -828,7 +838,9 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
                     _gbuffer[1],
                     _gbuffer[2],
                     _lit!,
-                    Materials.SurfaceFinish.Roughest);
+                    Materials.SurfaceFinish.Roughest,
+                    Reflections.Strength,
+                    scene?.Mirror is { } plane ? plane.Plane : Vector4.Zero);
 
                 reflected = _reflections.Reflected;
             }

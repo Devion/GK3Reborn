@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -180,7 +180,14 @@ internal sealed unsafe class Reflections : IDisposable
     /// <param name="normal">The frame's normals, with roughness in their alpha.</param>
     /// <param name="motion">The frame's motion vectors.</param>
     /// <param name="lit">The previous frame's finished picture.</param>
-    public void Bind(ImageView depth, ImageView normal, ImageView motion, ImageView lit)
+    /// <param name="planar">
+    /// The room as this frame's reflection plane sees it, or the lit picture again where
+    /// there is no such plane. Never a null handle: a descriptor is read whether or not the
+    /// branch behind it runs, and an unbound one is undefined behaviour rather than a black
+    /// reflection.
+    /// </param>
+    public void Bind(
+        ImageView depth, ImageView normal, ImageView motion, ImageView lit, ImageView planar)
     {
         _levelSets = Allocate(_downsample.SetLayout, Levels);
         _marchSets = Allocate(_march.SetLayout, 2);
@@ -189,6 +196,7 @@ internal sealed unsafe class Reflections : IDisposable
         var normalInfo = Read(normal);
         var motionInfo = Read(motion);
         var litInfo = Read(lit);
+        var planarInfo = Read(planar.Handle != 0 ? planar : lit);
         // Both of these are storage images the rest of the time, and a storage image
         // stays in General; a descriptor has to say the layout the image is actually in.
         var pyramidInfo = Write(_pyramidView);
@@ -239,6 +247,7 @@ internal sealed unsafe class Reflections : IDisposable
                 DescriptorType = DescriptorType.UniformBuffer,
                 PBufferInfo = &uniformInfo,
             });
+            writes.Add(Sampled(set, 10, &planarInfo));
 
             Commit(writes);
         }
@@ -248,7 +257,18 @@ internal sealed unsafe class Reflections : IDisposable
     /// <param name="command">Command buffer to record into.</param>
     /// <param name="camera">The camera the frame was drawn from.</param>
     /// <param name="roughest">The roughest surface still worth a ray.</param>
-    public void Record(CommandBuffer command, Camera camera, float roughest)
+    /// <param name="strength">How much of whatever is found to show.</param>
+    /// <param name="plane">
+    /// The plane this frame's planar reflection was rendered about, or all noughts when
+    /// there is none. A pixel lying on it takes the planar answer and is not marched: see
+    /// <c>ReflectionShaders</c>.
+    /// </param>
+    public void Record(
+        CommandBuffer command,
+        Camera camera,
+        float roughest,
+        float strength = 1f,
+        Vector4 plane = default)
     {
         ArgumentNullException.ThrowIfNull(camera);
 
@@ -276,7 +296,8 @@ internal sealed unsafe class Reflections : IDisposable
 
                 // How far behind a surface a hit may land and still be that surface. In
                 // scene units, where a hotel room is about a thousand across.
-                new Vector4(250f, roughest, Levels, 0f)),
+                new Vector4(250f, roughest, Levels, strength),
+                plane),
         ]);
 
         _vk.CmdBindPipeline(command, PipelineBindPoint.Compute, _downsample.Handle);

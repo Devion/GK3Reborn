@@ -683,6 +683,95 @@ which is drawn straight onto the screen after the copy so that it never appears 
 Measured on the church floor, reflections change it by a mean of 0.47 of an eight-bit step
 — visible as the pews mirrored under them, and nothing like a mirror.
 
+### A floor cannot be marched, and had to be rendered
+
+Reported as "the tile floor in the hotel, the tile floor in the church don't reflect much
+at all — they need some reflectivity, ie. see the ceiling in the floor type of thing".
+
+**The march can only return what is already in the frame, and what a floor shows is mostly
+what is above the camera**: the ceiling, the beams, the lamps hanging off them. None of
+that is ever on screen when the camera is looking down at a floor, so the march finds
+nothing, the confidence is nought and a tiled hall reflects nothing however smooth its
+material says it is. No amount of tuning fixes that; the information is not in the picture.
+
+So a large flat polished floor goes through the **planar pass the mirrors already use** —
+the room rendered a second time from the camera reflected through the plane — and the
+screen-space march is not run for it at all. What makes that cheap to sample is the same
+property that makes it cheap for a mirror: reflection fixes the plane pointwise, so a point
+*on* the plane lands on the same pixel in both renders and may read the reflection at its
+own screen position, with no matrix and nothing per-surface passed through.
+
+**Which pixels those are is a geometric test and not a flag.** `ReflectUniforms` carries
+the plane; a pixel whose world position is within a unit of it takes the planar answer.
+Whatever the floor is made of and whatever batch it came from, "is this pixel on the plane
+the reflection was rendered for" is answered by the pixel's own position.
+
+**Finding the plane.** `MirrorSurfaces.Ground` asks which height most of the room's floor is
+at, not whether the floor is flat. `MirrorSurfaces.Fit` rejects anything that wanders out of
+its own plane, which is right for glass and rejects every floor in the game: the church's is
+five textures across a nave, a tiled runner up the middle and a step to the altar. The
+answer is a horizontal plane at the commonest height, and the step up to the altar simply is
+not on it — which is exactly right, because a floor with a step in it reflects on the lower
+level and not on the upper.
+
+Which surfaces are the floor is the room's own answer rather than a guess: the scene file
+names its floor object, `KeepRelief` is already told the textures on it, and a floor is a
+batch drawn with one of those textures whose material is smooth enough to be worth a
+reflection at all.
+
+**One plane a frame, and a mirror wins.** A room with both keeps its mirror, because a
+mirror that stops reflecting shows a painted fake of a room that is not there and a floor
+that stops reflecting shows a floor. No room in the game has a mirror over a floor polished
+enough for this in any case.
+
+**A floor is not drawn as a mirror**, and that is the whole difference between the two. The
+batch carrying the mirror flag has its own texture thrown away and the reflection put in its
+place; done to a floor, the church's tiles vanished and the room appeared upside down where
+they had been. A floor keeps its own surface and has the reflection added over it by the
+compositing pass, weighed by the angle it is seen at — which is what a polished floor does
+and what a mirror does not.
+
+### What it costs, and the two thirds of a frame that was not the drawing
+
+| `LBY` at High, 1920×1080 | fps |
+| --- | --- |
+| no floor reflection | 92 |
+| the first version | 31 |
+| after the plane was cached | 84 |
+
+**Fitting the plane was costing three times what drawing the reflection did.** It walks
+every vertex of every polished piece of the floor three times, and a room's floor object
+names more than the floor: the hotel lobby's is eight textures, four of which are its
+panelling and its beams, so "every batch drawn with one of the floor's textures" came to
+most of the room. Done every frame that is about three million transforms on one thread.
+
+The measurement that settled it was cutting the *pass* out and leaving the fitting in: still
+38 frames a second. A floor does not move, so the plane is worked out once and kept, and
+recomputed only when the number of batches changes — which is the one thing that happens to
+a room after it has loaded.
+
+### Only real light sources
+
+Asked for as "an option to disable most of the fake lights and try to go realism by only
+allowing daylight and/or lamp sources to light the environment, this needs to be togglable
+as I expect some scenes might get a lot darker (which is fine)".
+
+`RigBalance` already had the classification and already turned the artists' scaffolding
+*down* in proportion to how much of the picture the rays are paying for — a sixth of it
+survives at High. The row takes that to nought. What is left is what a photographer would
+call a source: the sun, the sky through a window, a lamp, a fire, and the tracer's own
+ambient floor shaped by occlusion. Rooms the artists were propping up hardest get a great
+deal darker, and that is the point of it rather than a cost of it.
+
+It does nothing at all with no rays, whatever the row says. There the bake *is* the room's
+lighting and the rig only reaches the people standing in it, so switching off the fills
+would darken the characters and leave the room they stand in exactly as bright — which is
+not realism, it is a bug with a switch on it. The row is drawn dead at that tier rather
+than quietly doing nothing.
+
+`--real-light` and `--no-real-light` override it for one run, so the same room can be
+photographed both ways without editing anybody's settings file.
+
 ### Mirrors are not this pass, and were being marched by it
 
 A mirror on a wall facing the player shows what is **behind the camera**, which is the one

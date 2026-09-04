@@ -2712,7 +2712,9 @@ public sealed unsafe class VulkanRenderer : IRenderer
             _reflections?.Dispose();
             // The render extent, for the same reason the denoiser above takes it: it reads
             // the same depth, normals and motion and is composited before the upscale.
-            _reflections = Reflections.Create(
+            // Qualified, because this class now has a Reflections property of its own: the
+            // plan the settings page sets. The bare name would resolve to that.
+            _reflections = Vulkan.Reflections.Create(
                 _context,
                 _shaderCompiler,
                 (int)_renderExtent.Width,
@@ -2737,7 +2739,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
                 _depthView,
                 _extraViews[GBuffer.Normal - 1],
                 _extraViews[GBuffer.Motion - 1],
-                _litView);
+                _litView,
+                _mirrorView);
 
             _composite!.Bind(
                 _sceneView,
@@ -2799,7 +2802,16 @@ public sealed unsafe class VulkanRenderer : IRenderer
                 buffer, _litImage, ImageLayout.Undefined, ImageLayout.ShaderReadOnlyOptimal);
         }
 
-        _reflections!.Record(buffer, _camera!, Rendering.Materials.SurfaceFinish.Roughest);
+        // The plane, where the frame rendered one. A pixel lying on it takes the planar
+        // answer outright and is not marched — which is the whole of what makes a floor
+        // able to show the ceiling. Noughts where the room has no such plane, which is
+        // every room without a mirror or a polished floor in it.
+        _reflections!.Record(
+            buffer,
+            _camera!,
+            Rendering.Materials.SurfaceFinish.Roughest,
+            _reflectionPlan.Strength,
+            _scene?.Mirror is { } plane ? plane.Plane : Vector4.Zero);
 
         _context.Transition(
             buffer, _depthImage, ImageLayout.ShaderReadOnlyOptimal,
@@ -3011,6 +3023,20 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Read at the top of a frame like the other two plans, so that both rows on the
+    /// Picture page are things the player can watch happen rather than things that wait for
+    /// the next door.
+    /// </remarks>
+    public ReflectionPlan Reflections
+    {
+        get => _reflectionPlan;
+        set => _reflectionPlan = value.Sane();
+    }
+
+    private ReflectionPlan _reflectionPlan = ReflectionPlan.Default;
+
     /// <summary>
     /// Draws the room as this frame's mirror sees it, before the room itself is drawn.
     /// </summary>
@@ -3049,7 +3075,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
             return;
         }
 
-        if (_scene.ChooseMirror(_camera.Position) is not { } mirror)
+        if (_scene.ChooseMirror(_camera.Position, _reflectionPlan.PlanarFloors)
+            is not { } mirror)
         {
             // The image keeps whatever it last held, and nothing samples it: no surface in
             // the room carries the mirror flag this frame. What it must not be is

@@ -75,30 +75,117 @@ public enum WindowGraphics
 /// </remarks>
 public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32WindowSource, IGameInput
 {
-    private static readonly Dictionary<CameraAction, Key[]> Bindings = new()
+    /// <summary>
+    /// This game's key names, resolved to Silk.NET's own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="InputKey"/> is declared member for member against Silk's <see cref="Key"/>
+    /// precisely so that this is a name lookup and not a switch somebody has to keep in
+    /// step. Built once: <see cref="Enum.TryParse{TEnum}(string, bool, out TEnum)"/> is
+    /// reflection, and a key press is not the place for it.
+    /// </para>
+    /// <para>
+    /// A member with no Silk counterpart maps to nothing and simply never fires, which is
+    /// what a binding to a key this platform does not report should do.
+    /// </para>
+    /// </remarks>
+    private static readonly Key[] SilkKeys = BuildKeyMap();
+
+    /// <summary>And back the other way, for reporting which key was just pressed.</summary>
+    private static readonly Dictionary<Key, InputKey> Ours = BuildKeyNames();
+
+    /// <summary>Which of Silk's gamepad buttons is which of ours.</summary>
+    /// <remarks>
+    /// The face buttons are renamed on the way through. Silk calls them A, B, X and Y after
+    /// the Xbox pad; this game calls them by where they are, because the same physical
+    /// button is Cross on a PlayStation pad and B on a Nintendo one and a settings page has
+    /// to be right about the hardware in the player's hands.
+    /// </remarks>
+    private static readonly Dictionary<ButtonName, GamepadButton> Pad = new()
     {
-        [CameraAction.Forward] = [Key.W, Key.Up],
-        [CameraAction.Back] = [Key.S, Key.Down],
-        [CameraAction.Left] = [Key.A, Key.Left],
-        [CameraAction.Right] = [Key.D, Key.Right],
-        [CameraAction.Up] = [Key.E, Key.Space],
-        [CameraAction.Down] = [Key.Q, Key.ControlLeft],
-        [CameraAction.Fast] = [Key.ShiftLeft, Key.ShiftRight],
-        [CameraAction.Reset] = [Key.R],
-        [CameraAction.NextCamera] = [Key.Tab],
-        [CameraAction.CycleRayTracing] = [Key.F2],
-
-        // The original made the inventory a small target to click at the edge of the
-        // screen. A key is what a player reaches for.
-        [CameraAction.Inventory] = [Key.I],
-        [CameraAction.Journal] = [Key.J],
-        [CameraAction.ShowHotspots] = [Key.AltLeft, Key.AltRight],
-
-        // Where every adventure game has put them for thirty years.
-        [CameraAction.QuickSave] = [Key.F5],
-        [CameraAction.QuickLoad] = [Key.F9],
-        [CameraAction.Quit] = [Key.Escape],
+        [ButtonName.A] = GamepadButton.South,
+        [ButtonName.B] = GamepadButton.East,
+        [ButtonName.X] = GamepadButton.West,
+        [ButtonName.Y] = GamepadButton.North,
+        [ButtonName.LeftBumper] = GamepadButton.LeftShoulder,
+        [ButtonName.RightBumper] = GamepadButton.RightShoulder,
+        [ButtonName.LeftStick] = GamepadButton.LeftStick,
+        [ButtonName.RightStick] = GamepadButton.RightStick,
+        [ButtonName.Back] = GamepadButton.Back,
+        [ButtonName.Start] = GamepadButton.Start,
+        [ButtonName.Home] = GamepadButton.Home,
+        [ButtonName.DPadUp] = GamepadButton.DPadUp,
+        [ButtonName.DPadDown] = GamepadButton.DPadDown,
+        [ButtonName.DPadLeft] = GamepadButton.DPadLeft,
+        [ButtonName.DPadRight] = GamepadButton.DPadRight,
     };
+
+    /// <summary>
+    /// What the menu does with a pad, which is not a binding and is not meant to be.
+    /// </summary>
+    /// <remarks>
+    /// A player who has rebound the inventory to the bottom face button has said something
+    /// about the game, not about the menu, and a menu whose Choose key moved when they did
+    /// would be a menu they could not get out of. Every console settings screen for twenty
+    /// years has had the same fixed set, and this is it.
+    /// </remarks>
+    private static readonly (GamepadButton Button, EditKey Edit)[] Menu =
+    [
+        (GamepadButton.DPadUp, EditKey.Up),
+        (GamepadButton.DPadDown, EditKey.Down),
+        (GamepadButton.DPadLeft, EditKey.Left),
+        (GamepadButton.DPadRight, EditKey.Right),
+        (GamepadButton.South, EditKey.Enter),
+        (GamepadButton.East, EditKey.Escape),
+        (GamepadButton.LeftShoulder, EditKey.PreviousSection),
+        (GamepadButton.RightShoulder, EditKey.NextSection),
+    ];
+
+    /// <summary>Builds the map from this game's key names onto Silk's.</summary>
+    private static Key[] BuildKeyMap()
+    {
+        InputKey[] all = Enum.GetValues<InputKey>();
+        var map = new Key[(int)all.Max() + 1];
+
+        foreach (InputKey key in all)
+        {
+            map[(int)key] = Enum.TryParse(key.ToString(), out Key found) ? found : (Key)(-1);
+        }
+
+        return map;
+    }
+
+    /// <summary>And the map back the other way.</summary>
+    private static Dictionary<Key, InputKey> BuildKeyNames()
+    {
+        Dictionary<Key, InputKey> names = [];
+
+        foreach (InputKey key in Enum.GetValues<InputKey>())
+        {
+            if (key != InputKey.None && Enum.TryParse(key.ToString(), out Key found))
+            {
+                names[found] = key;
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>How far a trigger has to travel before it counts as a press.</summary>
+    /// <remarks>
+    /// Halfway. A trigger bound to an action is being used as a button, and a button that
+    /// fires on the first millimetre of travel is one nobody can rest a finger on.
+    /// </remarks>
+    private const float TriggerPress = 0.5f;
+
+    /// <summary>How far a stick has to travel before it counts as a press.</summary>
+    /// <remarks>
+    /// Further than the deadzone, and past the middle: this is only used for capturing a
+    /// binding and for stepping a menu, where an accidental nudge is worse than having to
+    /// push properly.
+    /// </remarks>
+    private const float StickPress = 0.6f;
 
     /// <summary>Which key does which editing job.</summary>
     /// <remarks>
@@ -119,6 +206,8 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         (EditKey.Right, Key.Right),
         (EditKey.Escape, Key.Escape),
         (EditKey.Console, Key.GraveAccent),
+        (EditKey.PreviousSection, Key.PageUp),
+        (EditKey.NextSection, Key.PageDown),
     ];
 
     private readonly IWindow _window;
@@ -145,6 +234,8 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     private readonly HashSet<EditKey> _edits = [];
     private readonly System.Text.StringBuilder _typed = new();
     private readonly Dictionary<PointerButton, (double At, Vector2 Where)> _lastClick = [];
+    private readonly HashSet<GamepadButton> _padPressed = [];
+    private readonly HashSet<GamepadButton> _padHeld = [];
     private IInputContext? _input;
     private IKeyboard? _keyboard;
     private IMouse? _mouse;
@@ -153,6 +244,24 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     private Vector2 _pressedAt;
     private int _scroll;
     private bool _hasPointer;
+
+    /// <summary>Where the mouse itself was, as against where the game thinks the pointer is.</summary>
+    /// <remarks>
+    /// The two part company the moment a stick moves the cursor, and come back together the
+    /// moment the mouse is touched. Keeping the mouse's own position separately is what
+    /// tells the difference between "the mouse moved" and "we moved the mouse", and without
+    /// it the stick and the mouse fight over the cursor every frame.
+    /// </remarks>
+    private Vector2 _mouseAt;
+
+    /// <summary>The key pressed this frame, for a page that is listening for one.</summary>
+    private InputKey _anyKey;
+
+    /// <summary>And the pad button.</summary>
+    private GamepadButton _anyButton;
+
+    /// <summary>When the last frame was, for moving the cursor at a speed rather than a rate.</summary>
+    private double _lastFrame;
 
     private SilkGameWindow(IWindow window)
     {
@@ -316,13 +425,79 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         });
 
     /// <inheritdoc/>
-    public bool IsHeld(CameraAction action) =>
-        _keyboard is not null &&
-        Bindings.TryGetValue(action, out Key[]? keys) &&
-        Array.Exists(keys, _keyboard.IsKeyPressed);
+    public bool IsHeld(CameraAction action)
+    {
+        if (_padHeld.Contains(Bindings.Button(action)))
+        {
+            return true;
+        }
+
+        if (_keyboard is null)
+        {
+            return false;
+        }
+
+        foreach (InputKey key in Bindings.Keys(action))
+        {
+            if (Held(key))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether one of this game's keys is down.</summary>
+    private bool Held(InputKey key)
+    {
+        Key which = Which(key);
+
+        return which >= 0 && _keyboard is not null && _keyboard.IsKeyPressed(which);
+    }
+
+    /// <summary>Silk's key for one of ours, or a negative value where it has none.</summary>
+    private static Key Which(InputKey key) =>
+        key > InputKey.None && (int)key < SilkKeys.Length ? SilkKeys[(int)key] : (Key)(-1);
 
     /// <inheritdoc/>
     public bool WasPressed(CameraAction action) => _pressed.Contains(action);
+
+    /// <inheritdoc/>
+    public InputBindings Bindings { get; set; } = InputBindings.Default;
+
+    /// <inheritdoc/>
+    public bool HasGamepad => _input is { Gamepads.Count: > 0 } &&
+        _input.Gamepads.Any(pad => pad.IsConnected);
+
+    /// <inheritdoc/>
+    public GamepadSticks Sticks { get; private set; } = GamepadSticks.Still;
+
+    /// <inheritdoc/>
+    public InputKey AnyKey => _anyKey;
+
+    /// <inheritdoc/>
+    public GamepadButton AnyButton => _anyButton;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Set from the settings, because the right speed depends on how large the window is
+    /// and on the person. The default crosses a 1080p screen in about a second and a half,
+    /// which is quick enough to reach a doorway and slow enough to land on a keyhole.
+    /// </remarks>
+    public float PointerSpeed { get; set; } = 1200f;
+
+    /// <inheritdoc/>
+    public void MovePointer(Vector2 position)
+    {
+        _lastPointer = position;
+
+        if (_mouse is not null)
+        {
+            _mouse.Position = position;
+            _mouseAt = position;
+        }
+    }
 
     /// <inheritdoc/>
     public void EndFrame() => Forget();
@@ -335,8 +510,11 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         _doubleClicked.Clear();
         _edits.Clear();
         _typed.Clear();
+        _padPressed.Clear();
         _pointerDelta = Vector2.Zero;
         _scroll = 0;
+        _anyKey = InputKey.None;
+        _anyButton = GamepadButton.None;
     }
 
     /// <inheritdoc/>
@@ -442,20 +620,221 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     {
         _window.DoEvents();
 
+        double now = _window.Time;
+        float seconds = _lastFrame > 0 ? (float)Math.Clamp(now - _lastFrame, 0, 0.1) : 0f;
+        _lastFrame = now;
+
+        Poll();
+
         // Pointer movement is tracked by difference rather than through the move event,
         // because raw motion is not delivered on every backend and a difference works the
         // same everywhere.
-        if (_mouse is not null)
+        if (_mouse is null)
         {
-            var position = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+            return;
+        }
 
+        var position = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+
+        // The mouse itself, if it has moved. It always wins: somebody who reaches for the
+        // mouse has said which device they want, and a cursor that had to be given back by
+        // putting the pad down would be a cursor with a mode in it.
+        if (!_hasPointer || (position - _mouseAt).LengthSquared() > 0.01f)
+        {
             if (_hasPointer)
             {
                 _pointerDelta += position - _lastPointer;
             }
 
             _lastPointer = position;
+            _mouseAt = position;
             _hasPointer = true;
+
+            return;
+        }
+
+        _mouseAt = position;
+
+        // Otherwise the left stick, if it is being pushed. Squared, so that a small push is
+        // a small movement: a linear stick is either too slow to cross the screen with or
+        // too coarse to land on anything, and the square is what every console cursor does
+        // about that.
+        Vector2 push = Sticks.Left;
+        float reach = push.Length();
+
+        if (seconds <= 0f || reach <= 0f || PointerSpeed <= 0f)
+        {
+            return;
+        }
+
+        Vector2 moved = push * (reach * PointerSpeed * seconds);
+
+        _lastPointer = new Vector2(
+            Math.Clamp(_lastPointer.X + moved.X, 0, Math.Max(0, _window.Size.X - 1)),
+            Math.Clamp(_lastPointer.Y + moved.Y, 0, Math.Max(0, _window.Size.Y - 1)));
+
+        _pointerDelta += moved;
+
+        // Put the real cursor where the stick has driven it, so that the arrow the operating
+        // system draws is the one the game is acting on, and record it as ours - otherwise
+        // the next frame reads it as the mouse having moved and the two chase each other.
+        _mouse.Position = _lastPointer;
+        _mouseAt = _lastPointer;
+    }
+
+    /// <summary>Reads the pad, once a frame.</summary>
+    /// <remarks>
+    /// <para>
+    /// Polled rather than taken from the events, because two of the four things a pad
+    /// reports are not events at all: a stick that is being held over is not moving, and a
+    /// trigger at forty per cent has not been pressed. The buttons arrive as events too and
+    /// are read here anyway, so that everything about the pad is answered from one place at
+    /// one moment in the frame.
+    /// </para>
+    /// <para>
+    /// The first connected pad and no others. Two people cannot play this game at once, and
+    /// a second pad plugged in for something else should not be able to move the cursor.
+    /// </para>
+    /// </remarks>
+    private void Poll()
+    {
+        IGamepad? pad = null;
+
+        if (_input is not null)
+        {
+            foreach (IGamepad candidate in _input.Gamepads)
+            {
+                if (candidate.IsConnected)
+                {
+                    pad = candidate;
+
+                    break;
+                }
+            }
+        }
+
+        if (pad is null)
+        {
+            Sticks = GamepadSticks.Still;
+            _padHeld.Clear();
+
+            return;
+        }
+
+        Vector2 left = Vector2.Zero;
+        Vector2 right = Vector2.Zero;
+
+        foreach (Thumbstick stick in pad.Thumbsticks)
+        {
+            var where = new Vector2(stick.X, stick.Y);
+
+            if (stick.Index == 0)
+            {
+                left = where;
+            }
+            else if (stick.Index == 1)
+            {
+                right = where;
+            }
+        }
+
+        float leftTrigger = 0f;
+        float rightTrigger = 0f;
+
+        foreach (Trigger trigger in pad.Triggers)
+        {
+            if (trigger.Index == 0)
+            {
+                leftTrigger = trigger.Position;
+            }
+            else if (trigger.Index == 1)
+            {
+                rightTrigger = trigger.Position;
+            }
+        }
+
+        Sticks = new GamepadSticks(left, right, leftTrigger, rightTrigger);
+
+        // What is down now, so that what has just gone down is the difference. Held is kept
+        // between frames and pressed is not, which is the same shape the keyboard has.
+        HashSet<GamepadButton> down = [];
+
+        foreach (Button button in pad.Buttons)
+        {
+            if (button.Pressed && Pad.TryGetValue(button.Name, out GamepadButton which))
+            {
+                down.Add(which);
+            }
+        }
+
+        if (leftTrigger >= TriggerPress)
+        {
+            down.Add(GamepadButton.LeftTrigger);
+        }
+
+        if (rightTrigger >= TriggerPress)
+        {
+            down.Add(GamepadButton.RightTrigger);
+        }
+
+        // The left stick steps a menu as well as moving the cursor, because a page of
+        // settings is a list and a list is walked rather than pointed at. Held over, it is
+        // the D-pad held over, so the same edge detection covers both and neither runs down
+        // the whole page in a third of a second.
+        if (left.Y <= -StickPress)
+        {
+            down.Add(GamepadButton.DPadUp);
+        }
+
+        if (left.Y >= StickPress)
+        {
+            down.Add(GamepadButton.DPadDown);
+        }
+
+        foreach (GamepadButton button in down)
+        {
+            if (_padHeld.Add(button))
+            {
+                Fell(button);
+            }
+        }
+
+        _padHeld.RemoveWhere(button => !down.Contains(button));
+    }
+
+    /// <summary>Notes a pad button that has just gone down, and what it means.</summary>
+    /// <remarks>
+    /// Every meaning at once, in the same way the keyboard records a key as an editing key
+    /// and as an action both and lets whoever is listening this frame decide which it was.
+    /// A pad in a menu is stepping a list; the same pad in a room is opening the inventory.
+    /// </remarks>
+    private void Fell(GamepadButton button)
+    {
+        _padPressed.Add(button);
+        _anyButton = button;
+
+        foreach ((GamepadButton which, EditKey edit) in Menu)
+        {
+            if (which == button)
+            {
+                _edits.Add(edit);
+            }
+        }
+
+        foreach (CameraAction action in InputBindings.Actions)
+        {
+            if (Bindings.Button(action) == button)
+            {
+                _pressed.Add(action);
+            }
+        }
+
+        foreach (PointerButton pointer in Enum.GetValues<PointerButton>())
+        {
+            if (Bindings.Button(pointer) == button)
+            {
+                _clicked.Add(pointer);
+            }
         }
     }
 
@@ -565,11 +944,20 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
                     }
                 }
 
-                foreach ((CameraAction action, Key[] keys) in Bindings)
+                // Which key it was, whatever it is bound to, for a Controls page that is
+                // waiting to hear one. Recorded before the bindings are consulted, because
+                // the key somebody presses to rebind an action is very often already bound
+                // to something else — that is rather the point of rebinding it.
+                if (Ours.TryGetValue(key, out InputKey ours))
                 {
-                    if (Array.IndexOf(keys, key) >= 0)
+                    _anyKey = ours;
+
+                    foreach (CameraAction action in InputBindings.Actions)
                     {
-                        _pressed.Add(action);
+                        if (Bindings.Keys(action).Contains(ours))
+                        {
+                            _pressed.Add(action);
+                        }
                     }
                 }
             };

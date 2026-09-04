@@ -9,32 +9,44 @@ using GK3Reborn.Content;
 
 namespace GK3Reborn.UI;
 
-/// <summary>Which page of the front end is showing.</summary>
+/// <summary>
+/// Which page of the front end is showing.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The five settings pages are sections of one screen and not pages in their own
+/// right.</b> They used to be reached by choosing a row on a Settings page and walking back
+/// out of it again, which is seven keystrokes to compare a row on the Picture page against
+/// a row on the Display one; now they are a list down the side of a single screen and the
+/// comparison is one keystroke. They stay separate members here because what is showing is
+/// still one of five things and the front end still has to say which.
+/// </para>
+/// <para>
+/// Upscaling was a page and is now a group of rows on Picture, and Made Easier was a page
+/// and is now a group of rows on Playing. Both were pages because a single column had no
+/// other way to group anything; a two-column page with headings does, so a page apiece for
+/// six rows and two rows was a page apiece too many.
+/// </para>
+/// </remarks>
 public enum FrontEndPage
 {
     /// <summary>The first thing the game shows.</summary>
     Main,
 
-    /// <summary>The three kinds of setting.</summary>
-    Options,
-
-    /// <summary>What the picture costs.</summary>
+    /// <summary>What the picture costs, and how it is drawn and enlarged.</summary>
     Video,
 
     /// <summary>The window, the monitor, and how bright the display goes.</summary>
     Display,
 
-    /// <summary>Drawing the room small and enlarging it.</summary>
-    Upscaling,
-
     /// <summary>How loud everything is.</summary>
     Audio,
 
-    /// <summary>How the game plays.</summary>
+    /// <summary>How the game plays, and what it will do for the player.</summary>
     Gameplay,
 
-    /// <summary>What the game will do for the player rather than ask of them.</summary>
-    Assists,
+    /// <summary>Which key and which pad button do which job.</summary>
+    Controls,
 
     /// <summary>The slots a game can be written to.</summary>
     Save,
@@ -209,35 +221,95 @@ public sealed class FrontEnd
     /// </remarks>
     public bool Illustrated { get; set; }
 
+    /// <summary>
+    /// The settings screen's sections, in the order they are listed down its side.
+    /// </summary>
+    /// <remarks>
+    /// Picture first because it is what most people came for, Controls last because it is
+    /// the one people set once. Sound sits in the middle rather than at the end, where the
+    /// original put it, on the grounds that a volume is the setting people come back to.
+    /// </remarks>
+    public static IReadOnlyList<MenuSection> Sections { get; } =
+    [
+        new("video", "Picture"),
+        new("display", "Display"),
+        new("audio", "Sound"),
+        new("gameplay", "Playing"),
+        new("controls", "Controls"),
+    ];
+
+    /// <summary>Which page each of those sections is.</summary>
+    private static readonly FrontEndPage[] SectionPages =
+    [
+        FrontEndPage.Video,
+        FrontEndPage.Display,
+        FrontEndPage.Audio,
+        FrontEndPage.Gameplay,
+        FrontEndPage.Controls,
+    ];
+
+    /// <summary>Whether what is showing is one of the settings sections.</summary>
+    public bool OnSettings => Array.IndexOf(SectionPages, Page) >= 0;
+
+    /// <summary>Which section is showing, or -1 when none is.</summary>
+    public int Section => Array.IndexOf(SectionPages, Page);
+
+    /// <summary>Shows the section before or after this one, wrapping round.</summary>
+    /// <param name="by">-1 for the one above, 1 for the one below.</param>
+    /// <returns>True when the section changed.</returns>
+    /// <remarks>
+    /// Round rather than stopping at the ends, the same way every list in this interface
+    /// does. Nothing at all when a settings section is not what is showing: the shoulder
+    /// buttons on the save screen belong to the save screen.
+    /// </remarks>
+    public bool StepSection(int by)
+    {
+        int at = Section;
+
+        if (at < 0 || by == 0)
+        {
+            return false;
+        }
+
+        int next = ((at + by) % SectionPages.Length + SectionPages.Length) %
+                   SectionPages.Length;
+
+        if (next == at)
+        {
+            return false;
+        }
+
+        Page = SectionPages[next];
+
+        return true;
+    }
+
     /// <summary>The heading for the page showing.</summary>
+    /// <remarks>
+    /// One word for the whole settings screen, because the section's own name is already
+    /// down the side of it in the list the player just chose it from. A panel headed
+    /// "Picture" with "Picture" highlighted beside it says the same thing twice.
+    /// </remarks>
     public string Title => Page switch
     {
         FrontEndPage.Main => InGame
             ? "Paused"
             : Illustrated ? string.Empty : "Gabriel Knight 3",
-        FrontEndPage.Options => "Settings",
-        FrontEndPage.Video => "Picture",
-        FrontEndPage.Display => "Display",
-        FrontEndPage.Upscaling => "Upscaling",
-        FrontEndPage.Audio => "Sound",
         FrontEndPage.Save => "Save Game",
         FrontEndPage.Load => "Restore Game",
-        FrontEndPage.Assists => "Made Easier",
-        _ => "Playing",
+        _ => "Settings",
     };
 
     /// <summary>The rows of the page showing.</summary>
     public IReadOnlyList<MenuItem> Items => Page switch
     {
         FrontEndPage.Main => Main(),
-        FrontEndPage.Options => Options(),
         FrontEndPage.Video => Video(),
         FrontEndPage.Display => Display(),
-        FrontEndPage.Upscaling => Upscaling(),
         FrontEndPage.Audio => Audio(),
+        FrontEndPage.Controls => Controls(),
         FrontEndPage.Save => Slots(writing: true),
         FrontEndPage.Load => Slots(writing: false),
-        FrontEndPage.Assists => Easier(),
         _ => Gameplay(),
     };
 
@@ -268,32 +340,12 @@ public sealed class FrontEnd
             case "quit":
                 return FrontEndOutcome.Quit;
 
+            // The settings screen, opened at whichever section was last looked at. Coming
+            // back to the row somebody left is worth more than being consistent about which
+            // section is the first one: a player who has just turned the music down and
+            // wants it down a little further should not have to find Sound again.
             case "options":
-                Page = FrontEndPage.Options;
-                return FrontEndOutcome.Stay;
-
-            case "video":
-                Page = FrontEndPage.Video;
-                return FrontEndOutcome.Stay;
-
-            case "display":
-                Page = FrontEndPage.Display;
-                return FrontEndOutcome.Stay;
-
-            case "upscaling":
-                Page = FrontEndPage.Upscaling;
-                return FrontEndOutcome.Stay;
-
-            case "audio":
-                Page = FrontEndPage.Audio;
-                return FrontEndOutcome.Stay;
-
-            case "gameplay":
-                Page = FrontEndPage.Gameplay;
-                return FrontEndOutcome.Stay;
-
-            case "assists":
-                Page = FrontEndPage.Assists;
+                Page = _lastSection;
                 return FrontEndOutcome.Stay;
 
             case "save":
@@ -309,6 +361,32 @@ public sealed class FrontEnd
                 return FrontEndOutcome.Stay;
 
             default:
+                // A section down the side of the settings screen, chosen with the pointer.
+                // The page reports it rather than deciding it, because which sections there
+                // are is a fact about the settings and not about how they are drawn.
+                if (action.Id.StartsWith("tab:", StringComparison.Ordinal))
+                {
+                    int which = IndexOfSection(action.Id[4..]);
+
+                    if (which >= 0)
+                    {
+                        Page = SectionPages[which];
+                    }
+
+                    return FrontEndOutcome.Stay;
+                }
+
+                // A row on the Controls page, which is not a setting to be stepped but a
+                // question to be answered by pressing something. See Listening.
+                if (action.Id.StartsWith("key:", StringComparison.Ordinal) ||
+                    action.Id.StartsWith("pad:", StringComparison.Ordinal) ||
+                    action.Id.StartsWith("ptr:", StringComparison.Ordinal))
+                {
+                    Listen(action.Id);
+
+                    return FrontEndOutcome.Stay;
+                }
+
                 // A slot. Which one travels back with the outcome, because the front end
                 // knows what the player pointed at and the host is the only thing that can
                 // read or write a game.
@@ -339,25 +417,53 @@ public sealed class FrontEnd
     /// <returns>True while there is still a menu showing.</returns>
     public bool Back()
     {
+        // Listening for a key is a state to get out of, and Escape is what everybody will
+        // press to do it. Answered before anything else, so that abandoning a rebind does
+        // not also leave the settings screen.
+        if (Listening)
+        {
+            Cancel();
+
+            return true;
+        }
+
         if (Page == FrontEndPage.Main)
         {
             return false;
         }
 
-        // Each page says where it came from. This used to read "anything that is not Options
-        // is a child of Options", which was true while the only pages below the top were the
-        // three kinds of setting — and sent Back from the save slots to the settings screen
-        // the moment saving was added.
-        Page = Page switch
+        // Out of whatever is showing and back to the top. There is no longer a level in
+        // between: the settings are one screen with five sections rather than a page of
+        // five buttons leading to five pages, so Back from a section is Back from the
+        // settings.
+        //
+        // Which section it was is remembered, so that opening the settings again opens them
+        // where they were left.
+        if (Section >= 0)
         {
-            FrontEndPage.Video or FrontEndPage.Display or FrontEndPage.Upscaling
-                or FrontEndPage.Audio or FrontEndPage.Gameplay or FrontEndPage.Assists =>
-                FrontEndPage.Options,
+            _lastSection = Page;
+        }
 
-            _ => FrontEndPage.Main,
-        };
+        Page = FrontEndPage.Main;
 
         return true;
+    }
+
+    /// <summary>Which section of the settings was last looked at.</summary>
+    private FrontEndPage _lastSection = FrontEndPage.Video;
+
+    /// <summary>Which section has a given name, or -1.</summary>
+    private static int IndexOfSection(string id)
+    {
+        for (int i = 0; i < Sections.Count; i++)
+        {
+            if (string.Equals(Sections[i].Id, id, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>Writes the settings if anything has changed.</summary>
@@ -657,6 +763,15 @@ public sealed class FrontEnd
     /// <summary>Whether Reflex loaded and can be driven.</summary>
     public bool LatencyControl { get; set; }
 
+    /// <summary>Whether a gamepad is plugged in.</summary>
+    /// <remarks>
+    /// Set by the host every frame, the same way the upscaler's runtime facts are, and for
+    /// the same reason: it can change while the settings screen is open, because that is
+    /// what a USB socket is. The Controls page says so rather than hiding its pad rows —
+    /// a player setting up a pad they are about to plug in should be able to.
+    /// </remarks>
+    public bool HasGamepad { get; set; }
+
     /// <summary>Which graphics API is drawing, as against the one that is chosen.</summary>
     /// <remarks>
     /// The two differ from the moment somebody steps the row until the next time the game
@@ -666,32 +781,85 @@ public sealed class FrontEnd
     /// </remarks>
     public RenderBackend RunningBackend { get; set; }
 
-    private static IReadOnlyList<MenuItem> Options() =>
-    [
-        MenuItem.Button("video", "Picture"),
-        MenuItem.Button("display", "Display"),
-        MenuItem.Button("upscaling", "Upscaling"),
-        MenuItem.Button("audio", "Sound"),
-        MenuItem.Button("gameplay", "Playing"),
-        MenuItem.Button("assists", "Made Easier"),
-        MenuItem.Button("back", "Back"),
-    ];
+    /// <summary>
+    /// Everything about what is drawn: how it is lit, what it is built from, and how it is
+    /// scaled up to the window.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Upscaling used to be a page of its own, one level further in. It is here because it
+    /// is a picture setting and because a page of its own cost two keystrokes each way to
+    /// reach six rows — and because comparing an upscaler against the lighting quality it
+    /// is being asked to reconstruct is a comparison somebody makes constantly and could
+    /// not make on one screen.
+    /// </para>
+    /// <para>
+    /// The headings are doing real work here rather than decorating. A page laid out in two
+    /// columns has no single line for the eye to follow, so a reader has no way to tell
+    /// where the lighting rows stop and the geometry rows begin without being told.
+    /// </para>
+    /// </remarks>
+    private List<MenuItem> Video()
+    {
+        List<MenuItem> rows =
+        [
+            MenuItem.Heading("Lighting"),
+            MenuItem.Choice("picture", "Lighting", Describe(Settings.Picture)),
 
-    private IReadOnlyList<MenuItem> Video() =>
-    [
-        MenuItem.Choice("picture", "Lighting", Describe(Settings.Picture)),
-        MenuItem.Toggle("enhanced", "Higher-resolution textures", Settings.EnhancedTextures),
-        MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
-        MenuItem.Toggle("terrain", "Reconstructed horizon", Settings.TerrainBackdrop),
-        MenuItem.Toggle("rooms", "Rounded room objects", Settings.ImprovedSceneGeometry),
-        MenuItem.Toggle("rails", "Solid railings and fences", Settings.ThickCutoutCards),
+            // Dead with no rays, because there is nothing for it to take away then: the
+            // bake is the room's lighting at that tier and the rig only reaches the people
+            // standing in it. A row that silently did nothing would be worse.
+            MenuItem.Toggle(
+                "realistic", "Only real light sources", Settings.RealisticLighting) with
+            {
+                Enabled = Settings.Quality != RayTracingQuality.None,
+            },
+        ];
 
-        // The one thing on this page a player cannot see for themselves: the room standing
-        // round them was built from whichever set was chosen when it loaded, and rebuilding
-        // it here would mean reloading the scene underneath them.
-        MenuItem.Label("The last five take effect at the next door."),
-        MenuItem.Button("back", "Back"),
-    ];
+        if (Settings.RealisticLighting && Settings.Quality != RayTracingQuality.None)
+        {
+            // What the player cannot find out by trying it in one room: the rooms this
+            // changes most are the ones the artists were propping up hardest, and a room
+            // going dark is the setting working rather than failing.
+            rows.Add(MenuItem.Label(
+                "The artists' fills, ambients and bounces are switched off. Rooms lit " +
+                "mostly by them get darker."));
+        }
+
+        rows.AddRange(
+        [
+            MenuItem.Heading("Reflections"),
+
+            MenuItem.Toggle(
+                "floorreflect", "Floors reflect the room", Settings.FloorReflections),
+
+            // A multiplier rather than a percentage, because one is the physical answer and
+            // the row is about departing from it. "50%" on a slider whose default is the
+            // middle reads as half of something; "1.0x" reads as what it is.
+            MenuItem.Slider(
+                "reflectivity",
+                "How strongly",
+                Settings.Reflectivity / GK3Reborn.Game.Settings.MostReflective,
+                string.Create(
+                    CultureInfo.InvariantCulture, $"{Settings.Reflectivity:F1}x")),
+
+            MenuItem.Heading("Detail"),
+            MenuItem.Toggle("enhanced", "Higher-resolution textures", Settings.EnhancedTextures),
+            MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
+            MenuItem.Toggle("terrain", "Reconstructed horizon", Settings.TerrainBackdrop),
+            MenuItem.Toggle("rooms", "Rounded room objects", Settings.ImprovedSceneGeometry),
+            MenuItem.Toggle("rails", "Solid railings and fences", Settings.ThickCutoutCards),
+
+            // The one thing in this group a player cannot see for themselves: the room
+            // standing round them was built from whichever set was chosen when it loaded,
+            // and rebuilding it here would mean reloading the scene underneath them.
+            MenuItem.Label("These five take effect at the next door."),
+        ]);
+
+        rows.AddRange(Upscaling());
+
+        return rows;
+    }
 
     /// <summary>
     /// The window, the monitor, and how bright the display is allowed to go.
@@ -789,8 +957,6 @@ public sealed class FrontEnd
             rows.Add(MenuItem.Choice("tonemap", "Tone curve", Describe(Settings.ToneMapping)));
         }
 
-        rows.Add(MenuItem.Button("back", "Back"));
-
         return rows;
     }
 
@@ -822,6 +988,7 @@ public sealed class FrontEnd
 
         List<MenuItem> rows =
         [
+            MenuItem.Heading("Upscaling"),
             MenuItem.Choice("upscaler", "Upscaler", Describe(Settings.Upscaler)),
         ];
 
@@ -925,8 +1092,6 @@ public sealed class FrontEnd
         {
             rows.Add(MenuItem.Label("Running: " + UpscalerRunning));
         }
-
-        rows.Add(MenuItem.Button("back", "Back"));
 
         return rows;
     }
@@ -1035,9 +1200,26 @@ public sealed class FrontEnd
         // player who changes this and hears no difference would reasonably conclude the
         // setting is broken. Every other row on this page is heard while it is dragged.
         MenuItem.Label("Speakers take effect at the next start."),
-        MenuItem.Button("back", "Back"),
     ];
 
+    /// <summary>
+    /// How the game plays, and the things it will do for the player rather than ask of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Made Easier used to be a page of its own, on the grounds that these two are not
+    /// preferences about presentation — each one changes what the story asks of the player,
+    /// and a switch that quietly does that should not sit in the same undifferentiated list
+    /// as the captions. That reasoning was right and the page was the wrong answer to it: a
+    /// heading says the same thing, in the same place, without a second screen to find.
+    /// </para>
+    /// <para>
+    /// Both are off by default, and both name the puzzle they take away <em>in the row
+    /// itself</em> rather than in a sentence under it. "Skip a puzzle" is no help to
+    /// somebody who has not met it yet and no reassurance to somebody who has; "skip the
+    /// cat-hair moustache" is both, and costs no second line.
+    /// </para>
+    /// </remarks>
     private IReadOnlyList<MenuItem> Gameplay() =>
     [
         MenuItem.Slider(
@@ -1052,7 +1234,7 @@ public sealed class FrontEnd
         // Named for what it does rather than for what it is for. "Free camera" is a word
         // somebody already looking for it will find, and "leave the room" is the half that
         // tells everybody else what turning it on will look like.
-        MenuItem.Toggle("freecamera", "Free camera, which may leave the room", Settings.FreeCamera),
+        MenuItem.Toggle("freecamera", "Free camera (may leave the room)", Settings.FreeCamera),
 
         MenuItem.Toggle("captions", "Write out what is said", Settings.Captions),
         MenuItem.Toggle("intro", "Play the intro on starting", Settings.PlayIntro),
@@ -1063,31 +1245,243 @@ public sealed class FrontEnd
         // will actually mean, which "on" and "off" could not.
         MenuItem.Choice("restored", "Cut content", Describe(Settings.RestoredContent)),
 
-        MenuItem.Button("back", "Back"),
+        MenuItem.Heading("Made easier"),
+        MenuItem.Toggle("moustache", "Skip the cat-hair moustache", Settings.AlwaysWearsMoustache),
+        MenuItem.Toggle("armour", "Gabriel cannot be killed", Settings.PlotArmour),
     ];
 
     /// <summary>
-    /// The two things the game will do for the player rather than ask of them.
+    /// Which key and which pad button do which job.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Their own page, and away from Playing, because these are not preferences about how
-    /// the game is presented: each one changes what the story asks of the player, and a
-    /// switch that quietly does that does not belong in the same list as the captions.
+    /// <b>Three groups, not one list of every control twice.</b> A row that offered a key
+    /// and a pad button at once would need two targets on one row, and a page laid out in
+    /// two columns has no room for that. Keys together and pad buttons together is also how
+    /// people actually use the page: somebody is rebinding a keyboard or setting up a pad,
+    /// almost never both in the same sitting.
     /// </para>
     /// <para>
-    /// Both off by default, and both name the puzzle they take away <em>in the row itself</em>
-    /// rather than in a sentence under it. "Skip a puzzle" is no help to somebody who has
-    /// not met it yet and no reassurance to somebody who has; "skip the cat-hair moustache"
-    /// is both, and costs no second line.
+    /// The pointer is first because it is what a gamepad most has to be able to do in this
+    /// game. GK3 is played by pointing at things; a pad that cannot click is a pad that
+    /// cannot play.
     /// </para>
     /// </remarks>
-    private IReadOnlyList<MenuItem> Easier() =>
-    [
-        MenuItem.Toggle("moustache", "Skip the cat-hair moustache", Settings.AlwaysWearsMoustache),
-        MenuItem.Toggle("armour", "Gabriel cannot be killed", Settings.PlotArmour),
-        MenuItem.Button("back", "Back"),
-    ];
+    private List<MenuItem> Controls()
+    {
+        InputBindings bound = Bindings;
+
+        List<MenuItem> rows =
+        [
+            MenuItem.Heading("Gamepad"),
+
+            MenuItem.Toggle(
+                "padcursor", "Left stick moves the pointer", Settings.GamepadCursor),
+
+            MenuItem.Slider(
+                "padspeed",
+                "How fast",
+                Fraction(
+                    Settings.GamepadCursorSpeed,
+                    GK3Reborn.Game.Settings.SlowestCursor,
+                    GK3Reborn.Game.Settings.FastestCursor),
+                MenuPage.Percent(Fraction(
+                    Settings.GamepadCursorSpeed,
+                    GK3Reborn.Game.Settings.SlowestCursor,
+                    GK3Reborn.Game.Settings.FastestCursor))) with
+            {
+                Enabled = Settings.GamepadCursor,
+            },
+        ];
+
+        // Said rather than left to be guessed at. Every row below this does nothing without
+        // a pad, and a page of dead-looking settings with no explanation is how somebody
+        // concludes the game has no gamepad support.
+        if (!HasGamepad)
+        {
+            rows.Add(MenuItem.Label("No gamepad is plugged in. These can still be set."));
+        }
+
+        rows.Add(MenuItem.Heading("Pointer, on the pad"));
+
+        foreach (PointerButton pointer in Enum.GetValues<PointerButton>())
+        {
+            rows.Add(MenuItem.Binding(
+                "ptr:" + pointer,
+                InputBindings.Name(pointer),
+                Waiting("ptr:" + pointer)
+                    ? "Press a button…"
+                    : GamepadButtons.Describe(bound.Button(pointer))));
+        }
+
+        rows.Add(MenuItem.Heading("Keys"));
+
+        foreach (CameraAction action in InputBindings.Actions)
+        {
+            rows.Add(MenuItem.Binding(
+                "key:" + action,
+                InputBindings.Name(action),
+                Waiting("key:" + action) ? "Press a key…" : bound.Describe(action)));
+        }
+
+        rows.Add(MenuItem.Heading("Buttons, on the pad"));
+
+        foreach (CameraAction action in InputBindings.Actions)
+        {
+            rows.Add(MenuItem.Binding(
+                "pad:" + action,
+                InputBindings.Name(action),
+                Waiting("pad:" + action)
+                    ? "Press a button…"
+                    : GamepadButtons.Describe(bound.Button(action))));
+        }
+
+        rows.Add(MenuItem.Button("bindreset", "Put every control back"));
+
+        // What the player cannot find out by trying it: which way out of a rebind there is,
+        // and that there is one at all. Everything else on this screen is a row that changes
+        // when it is chosen; this is the one place the screen stops and waits.
+        if (Listening)
+        {
+            rows.Add(MenuItem.Label(
+                "Escape leaves it alone. Backspace clears it."));
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// The bindings as they now stand, read back out of the settings.
+    /// </summary>
+    /// <remarks>
+    /// Rebuilt from what is stored rather than kept beside it, so that there is one answer
+    /// to what a key does and it is the one that was saved. Cached against the stored form
+    /// it came from, because the Controls page asks for it once per row per frame and
+    /// rebuilding a set of dictionaries fifty times a frame to draw a menu is not a trade
+    /// worth making.
+    /// </remarks>
+    public InputBindings Bindings
+    {
+        get
+        {
+            if (!ReferenceEquals(_storedBindings, Settings.Bindings) || _bindings is null)
+            {
+                _storedBindings = Settings.Bindings;
+                _bindings = InputBindings.Restore(Settings.Bindings);
+            }
+
+            return _bindings;
+        }
+    }
+
+    private StoredBindings? _storedBindings;
+    private InputBindings? _bindings;
+
+    /// <summary>Which row is waiting to be told what to answer to, or empty for none.</summary>
+    private string _listening = string.Empty;
+
+    /// <summary>Whether the screen is waiting for a key or a button to be pressed.</summary>
+    /// <remarks>
+    /// Read by the host, which stops feeding the page arrow keys while it is true and feeds
+    /// it whatever was pressed instead. A rebind that could be interrupted by the Up arrow
+    /// moving the selection would be a rebind nobody could give the Up arrow to.
+    /// </remarks>
+    public bool Listening => _listening.Length > 0;
+
+    /// <summary>Whether one particular row is the one waiting.</summary>
+    private bool Waiting(string id) =>
+        string.Equals(_listening, id, StringComparison.Ordinal);
+
+    /// <summary>Starts waiting for a key or a button for one row.</summary>
+    private void Listen(string id) => _listening = id;
+
+    /// <summary>Stops waiting, and leaves the binding alone.</summary>
+    public void Cancel() => _listening = string.Empty;
+
+    /// <summary>
+    /// Binds whatever the player just pressed to whatever they were rebinding.
+    /// </summary>
+    /// <param name="key">The key pressed, or <see cref="InputKey.None"/> for none.</param>
+    /// <param name="button">The pad button pressed, or none.</param>
+    /// <param name="clear">Whether Backspace was pressed, which unbinds it.</param>
+    /// <returns>True when something was bound and the page should be redrawn.</returns>
+    /// <remarks>
+    /// <para>
+    /// Takes both at once because the player may answer either question with either device
+    /// and there is no reason to refuse them. A key row answered with a pad button binds the
+    /// pad button; the row is a suggestion about which is likelier, not a rule.
+    /// </para>
+    /// <para>
+    /// <b>Escape is not a bindable key here and neither is Backspace.</b> They are the way
+    /// out and the way to clear, which are the two things somebody has to be able to do when
+    /// the screen has stopped and is waiting for them. Escape is already bound to the menu
+    /// and Backspace to nothing, so neither is a loss.
+    /// </para>
+    /// </remarks>
+    public bool Captured(InputKey key, GamepadButton button, bool clear = false)
+    {
+        if (!Listening)
+        {
+            return false;
+        }
+
+        string id = _listening;
+
+        if (key == InputKey.Escape)
+        {
+            Cancel();
+
+            return true;
+        }
+
+        if (clear || key == InputKey.Backspace)
+        {
+            key = InputKey.None;
+            button = GamepadButton.None;
+        }
+        else if (key == InputKey.None && button == GamepadButton.None)
+        {
+            return false;
+        }
+
+        InputBindings bound = Bindings;
+        string what = id[..3];
+        string named = id[4..];
+
+        if (what == "ptr" && Enum.TryParse(named, out PointerButton pointer))
+        {
+            bound = bound.With(pointer, button);
+        }
+        else if (Enum.TryParse(named, out CameraAction action))
+        {
+            // A key row answered with a pad button, or the other way round, binds what was
+            // actually pressed. Refusing it would be the page telling the player they had
+            // pressed the wrong kind of thing, which is never true.
+            bound = button != GamepadButton.None
+                ? bound.With(action, button)
+                : bound.With(action, key);
+        }
+
+        Adopt(bound);
+        Cancel();
+
+        return true;
+    }
+
+    /// <summary>Puts a set of bindings into the settings.</summary>
+    private void Adopt(InputBindings bound)
+    {
+        Settings before = Settings;
+
+        Settings = Settings with { Bindings = bound.Store() };
+        _storedBindings = Settings.Bindings;
+        _bindings = bound;
+
+        if (Settings != before)
+        {
+            Dirty = true;
+        }
+    }
 
     private void Change(MenuAction action)
     {
@@ -1260,6 +1654,28 @@ public sealed class FrontEnd
 
             "armour" => Settings with { PlotArmour = !Settings.PlotArmour },
 
+            "realistic" => Settings with { RealisticLighting = !Settings.RealisticLighting },
+            "floorreflect" => Settings with { FloorReflections = !Settings.FloorReflections },
+
+            "reflectivity" => Settings with
+            {
+                Reflectivity = GK3Reborn.Game.Settings.MostReflective *
+                    Level(Settings.Reflectivity / GK3Reborn.Game.Settings.MostReflective, action),
+            },
+
+            "padcursor" => Settings with { GamepadCursor = !Settings.GamepadCursor },
+
+            "padspeed" => Settings with
+            {
+                GamepadCursorSpeed = Between(
+                    Settings.GamepadCursorSpeed,
+                    GK3Reborn.Game.Settings.SlowestCursor,
+                    GK3Reborn.Game.Settings.FastestCursor,
+                    action),
+            },
+
+            "bindreset" => Settings with { Bindings = null },
+
             _ => Settings,
         };
 
@@ -1338,6 +1754,15 @@ public sealed class FrontEnd
 
         return MathF.Round((low + ((high - low) * part)) / 10f) * 10f;
     }
+
+    /// <summary>Where a slider between two plain numbers ends up.</summary>
+    /// <remarks>
+    /// The luminances have <see cref="Nits(float, float, float, MenuAction)"/> of their own
+    /// because they are rounded to ten candelas. Everything else that is a number rather
+    /// than a fraction wants this.
+    /// </remarks>
+    private static float Between(float current, float low, float high, MenuAction action) =>
+        low + ((high - low) * Level(Fraction(current, low, high), action));
 
     /// <summary>How a luminance reads.</summary>
     private static string Nits(float value) =>

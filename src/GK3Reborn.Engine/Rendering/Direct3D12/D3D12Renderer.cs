@@ -234,6 +234,25 @@ public sealed unsafe class D3D12Renderer : IRenderer
     }
 
     /// <summary>What the display wants and how bright to drive it.</summary>
+    /// <inheritdoc/>
+    public ReflectionPlan Reflections
+    {
+        get => _reflectionPlan;
+
+        set
+        {
+            _reflectionPlan = value.Sane();
+
+            if (_pipeline is not null)
+            {
+                _pipeline.Reflections = _reflectionPlan;
+            }
+        }
+    }
+
+    private ReflectionPlan _reflectionPlan = ReflectionPlan.Default;
+
+    /// <inheritdoc/>
     public OutputPlan Output
     {
         get => _output_;
