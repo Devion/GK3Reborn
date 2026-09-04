@@ -87,6 +87,16 @@ public sealed record LoadedScene(
     /// </remarks>
     public IReadOnlySet<int>? ReplacedSurfaces { get; init; }
 
+    /// <summary>
+    /// The silhouette painted on each of the room's hit-test textures, by texture name.
+    /// </summary>
+    /// <remarks>
+    /// Wanted by the picker and by nothing else — a hit test is never drawn, so what is on
+    /// it is not a picture but a statement about which part of the quad is the thing. See
+    /// <see cref="SceneLoader.ReadHitTestMasks"/>.
+    /// </remarks>
+    public IReadOnlyDictionary<string, Rendering.CutoutMask>? HitTestMasks { get; init; }
+
     /// <summary>The modelled trees grown over those cards, and where they stand.</summary>
     /// <remarks>
     /// Kept for the same reason <see cref="Placed"/> is: the geometry the renderer holds
@@ -861,6 +871,10 @@ public sealed class SceneLoader
             // screen rather than the card that used to be.
             ReplacedSurfaces = replaced,
             Woods = [.. _woods],
+
+            // What is painted on the room's hit tests, which is the only thing that tells
+            // four quads in the same place apart. See ReadHitTestMasks.
+            HitTestMasks = ReadHitTestMasks(init, bsp),
         };
 
         // The walk boundary, the action files, the soundtracks and the camera shell, all
@@ -1155,6 +1169,87 @@ public sealed class SceneLoader
 
     private static bool IsHitTest(SceneModel model) =>
         string.Equals(model.Type, "hittest", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The silhouettes drawn on the room's hit tests, by texture name.
+    /// </summary>
+    /// <param name="init">What the scene files say the room contains.</param>
+    /// <param name="bsp">The room's geometry, for which texture is on which object.</param>
+    /// <returns>
+    /// A mask for each keyed hit-test texture, or null when the room has no such thing —
+    /// which most rooms do not.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A hit test's texture is a mask and nothing else.</b> It is never drawn, so what is
+    /// painted on it can only be saying which part of the quad is the thing: the church's
+    /// four angels are four quads in the same place, one behind another a half-unit apart,
+    /// each 64 texels of magenta with one angel's outline in it. A ray that stops at the
+    /// front one names the same angel wherever the player points, which is a square that can
+    /// never be traced — the first touch lights its dot and every touch after it is the same
+    /// touch. See <c>ScenePicker</c> for the other half.
+    /// </para>
+    /// <para>
+    /// Read from the archives rather than from the loaded set: a hit test is not drawn, so
+    /// its texture is not on the device and no enhanced set replaces it. A corpus sweep
+    /// finds <b>73 distinct hit-test textures and five of them keyed</b> — the four angels
+    /// and <c>DINFIREPLACE</c>, which the dining room leaves on <c>din_watermarks</c> and
+    /// whose every action <c>DIN_ALL.NVC</c> has commented out — so this is one 64-square
+    /// bitmap in two rooms and nothing at all in the other 108.
+    /// </para>
+    /// </remarks>
+    private Dictionary<string, CutoutMask>? ReadHitTestMasks(
+        SceneDefinition init, BspFile? bsp)
+    {
+        if (bsp is null)
+        {
+            return null;
+        }
+
+        HashSet<string> tests = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (SceneModel model in init.Models())
+        {
+            if (IsHitTest(model))
+            {
+                tests.Add(model.Name);
+            }
+        }
+
+        if (tests.Count == 0)
+        {
+            return null;
+        }
+
+        Dictionary<string, CutoutMask> masks = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> tried = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (BspSurface surface in bsp.Surfaces)
+        {
+            if (surface.ObjectIndex < 0 ||
+                surface.ObjectIndex >= bsp.ObjectNames.Count ||
+                !tests.Contains(bsp.ObjectNames[surface.ObjectIndex]) ||
+                !tried.Add(surface.TextureName))
+            {
+                continue;
+            }
+
+            byte[]? bytes = _archives.Read(surface.TextureName) ??
+                            _archives.Read(surface.TextureName + ".BMP");
+
+            if (bytes is null || !BitmapDecoder.CanDecode(bytes))
+            {
+                continue;
+            }
+
+            if (CutoutMask.Silhouette(BitmapDecoder.Decode(bytes, surface.TextureName)) is { } mask)
+            {
+                masks[surface.TextureName] = mask;
+            }
+        }
+
+        return masks.Count > 0 ? masks : null;
+    }
 
     /// <summary>Whether a model refers to geometry inside the BSP rather than a file.</summary>
     /// <remarks>

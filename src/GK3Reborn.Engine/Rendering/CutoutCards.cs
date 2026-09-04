@@ -279,6 +279,101 @@ public sealed class CutoutMask
     public bool At(int x, int y) =>
         x >= 0 && y >= 0 && x < Width && y < Height && Opaque[(y * Width) + x];
 
+    /// <summary>Whether the texture is painted at a texture coordinate.</summary>
+    /// <param name="uv">Where on the texture, in the usual 0-1 with V down.</param>
+    /// <returns>True where the drawing is, false where the key shows through.</returns>
+    /// <remarks>
+    /// Wrapped rather than clamped, because GK3's surfaces tile — a coordinate of 3.25 is a
+    /// quarter of the way across the fourth repeat, and clamping it would make every repeat
+    /// past the first read as the edge texel.
+    /// </remarks>
+    public bool Covers(System.Numerics.Vector2 uv) =>
+        At(Wrapped(uv.X, Width), Wrapped(uv.Y, Height));
+
+    /// <summary>One axis of a texture coordinate, as a texel of a tiling texture.</summary>
+    private static int Wrapped(float coordinate, int texels)
+    {
+        int at = (int)MathF.Floor(coordinate * texels) % texels;
+
+        return at < 0 ? at + texels : at;
+    }
+
+    /// <summary>
+    /// Every hole a keyed texture has, whatever shape they are.
+    /// </summary>
+    /// <param name="image">The decoded texture, <em>after</em> the colour key was applied.</param>
+    /// <returns>The mask, or null when the drawing has no holes to speak of.</returns>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Measure"/> asks a narrower question — is this a lattice of bars, and how
+    /// wide are they — and answers no for anything else, which is right for the pass it
+    /// serves and wrong for a mask that is only ever a silhouette. The church's four angels
+    /// are four such: <c>CHU_ANG1</c> to <c>4</c> are 64 square, magenta but for one angel's
+    /// outline, and each is the whole of what tells that angel apart from the three behind
+    /// it. A lattice test rejects all four.
+    /// </para>
+    /// <para>
+    /// No feature width, no scan of the rim, and no lattice heuristics: the caller wants to
+    /// know whether a point is on the drawing, so the answer is the drawing itself, reduced
+    /// to the resolution it was authored at.
+    /// </para>
+    /// </remarks>
+    public static CutoutMask? Silhouette(DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image.Pixels);
+
+        int width = image.Width;
+        int height = image.Height;
+
+        if (width < 2 || height < 2)
+        {
+            return null;
+        }
+
+        byte[] pixels = image.Pixels;
+        bool[] opaque = new bool[width * height];
+        int keyed = 0;
+
+        for (int i = 0; i < opaque.Length; i++)
+        {
+            int at = i * 4;
+
+            // The same test Measure makes, and for the same reason: alpha is authoritative
+            // because TextureKeying has run, and the magenta backstop catches whatever the
+            // conversion missed.
+            bool hole = pixels[at + 3] < 128 ||
+                        (pixels[at] >= 231 && pixels[at + 2] >= 231 && pixels[at + 1] <= 24);
+
+            opaque[i] = !hole;
+
+            if (hole)
+            {
+                keyed++;
+            }
+        }
+
+        // Nothing keyed means the texture covers its whole surface, which is what a caller
+        // assumes when it has no mask — so saying so costs it a lookup and tells it nothing.
+        if (keyed == 0)
+        {
+            return null;
+        }
+
+        while (Math.Max(width, height) > ReferenceTexels && width >= 8 && height >= 8)
+        {
+            opaque = Halve(opaque, ref width, ref height);
+        }
+
+        return new CutoutMask
+        {
+            Width = width,
+            Height = height,
+            Opaque = opaque,
+            FeatureTexels = 0f,
+            KeyedFraction = (float)keyed / (image.Width * image.Height),
+        };
+    }
+
     /// <summary>
     /// How far each drawn texel is from the nearest hole, in texels.
     /// </summary>

@@ -4,6 +4,64 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. The church's four angels could not be traced (done 2026-09-04)
+
+**Reported:** 2026-09-04, as "I can't seem to do the tracing? trace once gives it the grace
+voice over line but after that nothing happens (I see 1 red dot?)".
+
+**Every point on the statue picked the same angel.** `CHU.SIF` declares the four as four
+`hittest` objects — `chu_ang1` is `FOUR_ANGELS4`, `chu_ang02` is `FOUR_ANGELS3`, `chu_ang03`
+is `FOUR_ANGELS1`, `chu_ang04` is `FOUR_ANGELS2` — and they are **four flat quads over
+exactly the same rectangle**, x -48.13 to -27.68 by y 57.39 to 86.27, stacked along z at
+-0.52, 0.08, 0.69 and 1.28. A ray from in front meets the front-most one wherever it is
+aimed, so the pointer named `FOUR_ANGELS4` over every pixel of the statue, and
+`AngelTracing.Touch` was being handed the same angel every time: `Between(3, 3)` is null,
+so the dot lit once and no line was ever drawn.
+
+**What tells them apart is painted on them.** `CHU_ANG1.BMP` to `CHU_ANG4.BMP` are 64
+square, magenta but for one angel's silhouette each. A hit test is never drawn, so its
+texture is not a picture but a statement about which part of the quad is the thing, and the
+ray has to pass through the key. `ScenePicker` gathered positions only and consulted no
+texture at all.
+
+`CutoutMask.Silhouette` is the mask for it — `Measure` asks a narrower question, is this a
+lattice of bars, and rightly answers no for a figure. `SceneLoader.ReadHitTestMasks` reads
+one per keyed hit-test texture from the archives, and the picker carries a coordinate per
+corner and a mask per triangle **only for objects that have one**, so no wall in the game
+pays for it. `Meets` hands back its two barycentric weights, which it already had.
+
+**Measured over the corpus: 73 distinct hit-test textures, five of them keyed.** Four are
+the angels; the fifth is `DINFIREPLACE` on the dining room's `din_watermarks`, whose every
+action `DIN_ALL.NVC` has commented out and which `CutContent` does not restore. So this
+changes what the player can reach in exactly one room. `check-scenes --deep` reports the
+same 65,594 pickable things before and after.
+
+Reproducing it needs the pointer rather than `--do`, which addresses a noun directly and so
+never met the fault: `GK3Reborn.exe --scene CHU --timeblock 205P --do FOUR_ANGELS1:TRACE
+--pointer 745,250 --frames 150` moves the camera to the close-up and reports what is under
+that point. The four now come back as `FOUR_ANGELS1` at the top, `2` right, `3` bottom,
+`4` left; before, all seven points tried came back `FOUR_ANGELS4`.
+
+## 0. Two things held for the same moment happened in reverse (done 2026-09-04)
+
+**Found** while reproducing the above. `SceneUpdate.StepLater` walked `_later` backwards —
+which is the safe way to remove from a list while iterating it, and also means two waits
+that come due in the same frame run newest first.
+
+In play it is nearly invisible, because a player asks for one thing at a time. It is not
+invisible from the command line: `--do "A;B"` runs both through `ActionRunner`, both defer
+behind the approach walk, and B then performed before A — which is backwards for the switch
+whose whole purpose is "one action is often the setup for the one worth looking at". Tracing
+the four angels through it drew the square from the last one back, and an erase asked for
+last happened first and left the line it was supposed to rub out.
+
+The list is stepped over in full before any of it is run, and the due ones then run in the
+order they were asked for. Stepping first is what taking them from the end used to get right
+by accident: a wait that ends now is allowed to hold something else back, and that belongs
+to the next frame. `Cancel` from inside one is handled by removing each from `_later` as it
+is reached rather than up front, so a held action that leaves the room still forgets what
+was queued beside it — which the backwards loop would have indexed off the end of.
+
 ## 0. The faces were smeared, and it was not shadow acne (done 2026-09-04)
 
 **Reported:** 2026-09-04, as "RT high and some NPC's face shadowing, shadow acne I think?

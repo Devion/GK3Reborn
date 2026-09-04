@@ -3534,11 +3534,21 @@ public sealed class SceneUpdate
     public void Cancel() => _later.Clear();
 
     /// <summary>Runs whatever has waited long enough.</summary>
+    /// <remarks>
+    /// <b>Oldest first.</b> Two things held for the same moment are two things asked for in
+    /// that order, and running them backwards runs the second one's setup after it: four
+    /// angels touched while the walk to them was still going traced the square from the
+    /// last one back. Which means the clock is stepped over the whole list before any of it
+    /// is run, because a wait that is over is allowed to hold something else back and that
+    /// belongs to the next frame, not this one — which is what taking them from the end
+    /// used to get right by accident.
+    /// </remarks>
     private void StepLater(double seconds, List<string> happened)
     {
-        for (int i = _later.Count - 1; i >= 0; i--)
+        List<Held>? due = null;
+
+        foreach (Held held in _later)
         {
-            Held held = _later[i];
             held.Remaining -= seconds;
 
             // The clock first because it is the cheap half, and then the scripts: a wait
@@ -3548,7 +3558,23 @@ public sealed class SceneUpdate
                 continue;
             }
 
-            _later.RemoveAt(i);
+            (due ??= []).Add(held);
+        }
+
+        if (due is null)
+        {
+            return;
+        }
+
+        foreach (Held held in due)
+        {
+            // Gone already, so there is nothing to run: one of the earlier ones left the
+            // room, and Cancel forgets everything it was still holding — the rest of this
+            // list included.
+            if (!_later.Remove(held))
+            {
+                continue;
+            }
 
             try
             {

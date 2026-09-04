@@ -626,4 +626,151 @@ public sealed class ScenePickerTests
         Assert.True(camera.RayThrough(32, 4, 65, 65).Direction.Y > 0f);
         Assert.True(camera.RayThrough(32, 60, 65, 65).Direction.Y < 0f);
     }
+
+    /// <summary>
+    /// A room of upright slabs stacked one behind another, each with its own texture and
+    /// each mapped to one whole tile of it.
+    /// </summary>
+    /// <param name="walls">Object name, the Z it stands at, and the texture on it.</param>
+    /// <remarks>
+    /// The shape the church's four angels are in: four quads over the same rectangle, a
+    /// half-unit apart, telling themselves apart by what is painted on them and by nothing
+    /// else.
+    /// </remarks>
+    private static BspFile Stack(params (string Name, float Z, string Texture)[] walls)
+    {
+        List<string> names = [];
+        List<BspSurface> surfaces = [];
+        List<BspPolygon> polygons = [];
+        List<Vector3> vertices = [];
+        List<Vector2> coordinates = [];
+        List<ushort> indices = [];
+
+        foreach ((string name, float z, string texture) in walls)
+        {
+            int at = vertices.Count;
+
+            vertices.Add(new Vector3(-50, -50, z));
+            vertices.Add(new Vector3(-50, 50, z));
+            vertices.Add(new Vector3(50, 50, z));
+            vertices.Add(new Vector3(50, -50, z));
+
+            // U across the slab, V down it, one tile over the whole quad.
+            coordinates.Add(new Vector2(0f, 1f));
+            coordinates.Add(new Vector2(0f, 0f));
+            coordinates.Add(new Vector2(1f, 0f));
+            coordinates.Add(new Vector2(1f, 1f));
+
+            polygons.Add(new BspPolygon
+            {
+                VertexIndexOffset = indices.Count,
+                VertexIndexCount = 4,
+                SurfaceIndex = surfaces.Count,
+            });
+
+            indices.AddRange([(ushort)at, (ushort)(at + 1), (ushort)(at + 2), (ushort)(at + 3)]);
+
+            surfaces.Add(new BspSurface
+            {
+                ObjectIndex = names.Count,
+                TextureName = texture,
+                LightmapUvOffset = Vector2.Zero,
+                LightmapUvScale = Vector2.One,
+                Flags = 0,
+            });
+
+            names.Add(name);
+        }
+
+        return BspFile.FromParts(
+            "test", names, surfaces, polygons, [.. vertices], [.. coordinates], [.. indices]);
+    }
+
+    /// <summary>A mask four texels across, drawn in exactly one of them.</summary>
+    private static CutoutMask Quarter(int drawn) => new()
+    {
+        Width = 4,
+        Height = 1,
+        Opaque = [drawn == 0, drawn == 1, drawn == 2, drawn == 3],
+        FeatureTexels = 0f,
+        KeyedFraction = 0.75f,
+    };
+
+    /// <summary>What a ray straight down +Z from a point on the slabs meets.</summary>
+    private static ScenePick? Through(ScenePicker picker, float x) =>
+        picker.Pick(new Ray(new Vector3(x, 0f, 0f), Vector3.UnitZ));
+
+    [Fact]
+    public void A_ray_goes_through_the_keyed_part_of_a_hit_test()
+    {
+        // What the church's four angels need. Each quad covers the whole statue and is
+        // painted with one angel, so a picker that stops at the front-most one names the
+        // same angel wherever the pointer is - the square can be started and never drawn.
+        LoadedScene scene = Scene(
+            Stack(("near", 10f, "left"), ("middle", 20f, "second"), ("far", 30f, "third")),
+            """
+            model=near,   noun=NEAR,   type=hittest
+            model=middle, noun=MIDDLE, type=hittest
+            model=far,    noun=FAR,    type=hittest
+            """) with
+        {
+            HitTestMasks = new Dictionary<string, CutoutMask>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["left"] = Quarter(0),
+                ["second"] = Quarter(1),
+                ["third"] = Quarter(2),
+            },
+        };
+
+        var picker = new ScenePicker(scene);
+
+        // A quarter of the way across is where the nearest slab is painted; half way across
+        // it is keyed and the ray carries on to the one behind.
+        Assert.Equal("NEAR", Assert.NotNull(Through(picker, -37.5f)).Noun);
+        Assert.Equal("MIDDLE", Assert.NotNull(Through(picker, -12.5f)).Noun);
+        Assert.Equal("FAR", Assert.NotNull(Through(picker, 12.5f)).Noun);
+
+        // And where none of the three is painted, the ray meets nothing at all rather than
+        // the front one.
+        Assert.Null(Through(picker, 37.5f));
+    }
+
+    [Fact]
+    public void A_hit_test_with_nothing_painted_on_it_is_solid_all_over()
+    {
+        // The ordinary case, and the reason the mask is only carried where the loader found
+        // one: a slab across a doorway is a slab, not a stencil.
+        var picker = new ScenePicker(Scene(
+            Stack(("near", 10f, "plain"), ("far", 30f, "plain")),
+            """
+            model=near, noun=NEAR, type=hittest
+            model=far,  noun=FAR,  type=hittest
+            """));
+
+        Assert.Equal("NEAR", Assert.NotNull(Through(picker, -37.5f)).Noun);
+        Assert.Equal("NEAR", Assert.NotNull(Through(picker, 37.5f)).Noun);
+    }
+
+    [Fact]
+    public void What_is_painted_on_a_wall_is_a_picture_and_does_not_let_a_ray_through()
+    {
+        // Only hit tests are stencils. A mask is read for one because it is never drawn, so
+        // the drawing on it can only be saying which part of the quad is the thing; the same
+        // texture on a wall is wallpaper, and a hole in the wallpaper is not a hole.
+        LoadedScene scene = Scene(
+            Stack(("near", 10f, "left"), ("far", 30f, "third")),
+            """
+            model=near, noun=NEAR, type=scene
+            model=far,  noun=FAR,  type=hittest
+            """) with
+        {
+            HitTestMasks = new Dictionary<string, CutoutMask>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["left"] = Quarter(0),
+                ["third"] = Quarter(2),
+            },
+        };
+
+        Assert.Equal("NEAR", Assert.NotNull(Through(new ScenePicker(scene), 12.5f)).Noun);
+    }
 }

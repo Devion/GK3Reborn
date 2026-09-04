@@ -103,7 +103,7 @@ public sealed class ScenePicker
 
         if (scene.Geometry is { } bsp)
         {
-            AddGeometry(bsp, declared, scene.ReplacedSurfaces);
+            AddGeometry(bsp, declared, scene.ReplacedSurfaces, scene.HitTestMasks);
         }
 
         foreach (GrownStand stand in scene.Woods ?? [])
@@ -304,6 +304,9 @@ public sealed class ScenePicker
     /// <param name="replaced">
     /// Surfaces a grown tree stands in for, which the renderer was told not to draw.
     /// </param>
+    /// <param name="masks">
+    /// What is painted on each hit-test texture, by texture name. See <see cref="Drawn"/>.
+    /// </param>
     /// <remarks>
     /// <b>A card a tree replaced is not there.</b> It is still in the BSP — nothing rewrites
     /// the geometry — and the room simply stops drawing it, so a ray that went on meeting it
@@ -313,9 +316,20 @@ public sealed class ScenePicker
     private void AddGeometry(
         BspFile bsp,
         Dictionary<string, SceneModel> declared,
-        IReadOnlySet<int>? replaced)
+        IReadOnlySet<int>? replaced,
+        IReadOnlyDictionary<string, CutoutMask>? masks)
     {
+        // Which objects carry a silhouette, decided before a triangle is gathered so that
+        // the coordinates and the masks below stay in step with the triangles without being
+        // padded. Only hit tests: what is painted on one is a statement about which part of
+        // the quad is the thing, where on a wall it is a picture. Empty in 108 of the 110
+        // rooms — see SceneLoader.ReadHitTestMasks for the count — which is what keeps a
+        // coordinate per corner off every wall in the game.
+        HashSet<int> masked = Masked(bsp, declared, masks);
+
         Dictionary<int, List<Vector3>> byObject = [];
+        Dictionary<int, List<Vector2>> coordinates = [];
+        Dictionary<int, List<CutoutMask?>> cutouts = [];
 
         foreach (BspPolygon polygon in bsp.Polygons)
         {
@@ -325,7 +339,8 @@ public sealed class ScenePicker
                 continue;
             }
 
-            int objectIndex = bsp.Surfaces[polygon.SurfaceIndex].ObjectIndex;
+            BspSurface surface = bsp.Surfaces[polygon.SurfaceIndex];
+            int objectIndex = surface.ObjectIndex;
 
             if (objectIndex < 0 || objectIndex >= bsp.ObjectNames.Count)
             {
@@ -338,11 +353,36 @@ public sealed class ScenePicker
                 byObject[objectIndex] = triangles;
             }
 
+            bool carries = masked.Contains(objectIndex);
+
+            if (carries && !coordinates.ContainsKey(objectIndex))
+            {
+                coordinates[objectIndex] = [];
+                cutouts[objectIndex] = [];
+            }
+
+            // Null where this particular surface of a masked object has no mask of its own,
+            // which reads as "solid all over" — the same answer an object with no mask gets.
+            CutoutMask? cutout =
+                carries && masks?.TryGetValue(surface.TextureName, out CutoutMask? found) == true
+                    ? found
+                    : null;
+
             foreach ((ushort a, ushort b, ushort c) in bsp.Triangulate(polygon))
             {
                 triangles.Add(bsp.Vertices[a]);
                 triangles.Add(bsp.Vertices[b]);
                 triangles.Add(bsp.Vertices[c]);
+
+                if (!carries)
+                {
+                    continue;
+                }
+
+                coordinates[objectIndex].Add(bsp.TexCoordFor(a));
+                coordinates[objectIndex].Add(bsp.TexCoordFor(b));
+                coordinates[objectIndex].Add(bsp.TexCoordFor(c));
+                cutouts[objectIndex].Add(cutout);
             }
         }
 
@@ -360,14 +400,50 @@ public sealed class ScenePicker
                 continue;
             }
 
+            Part part = coordinates.TryGetValue(objectIndex, out List<Vector2>? uvs)
+                ? new Part(-1, [.. triangles], [.. uvs], [.. cutouts[objectIndex]])
+                : new Part(-1, [.. triangles]);
+
             _targets.Add(new Target(
                 name,
                 NounOf(model),
                 model?.Verb,
                 IsHitTest(model) ? PickKind.HitTest : PickKind.Geometry,
-                [.. triangles],
+                [part],
                 FrontFacingOnly: true));
         }
+    }
+
+    /// <summary>Which of the room's objects have a silhouette painted on them.</summary>
+    /// <param name="bsp">The room's parsed geometry.</param>
+    /// <param name="declared">What the scene files say about each object, by name.</param>
+    /// <param name="masks">The silhouettes the loader read, by texture name.</param>
+    /// <returns>Object indices, empty when the room has no masked hit test.</returns>
+    private static HashSet<int> Masked(
+        BspFile bsp,
+        Dictionary<string, SceneModel> declared,
+        IReadOnlyDictionary<string, CutoutMask>? masks)
+    {
+        HashSet<int> masked = [];
+
+        if (masks is null || masks.Count == 0)
+        {
+            return masked;
+        }
+
+        foreach (BspSurface surface in bsp.Surfaces)
+        {
+            if (surface.ObjectIndex >= 0 &&
+                surface.ObjectIndex < bsp.ObjectNames.Count &&
+                masks.ContainsKey(surface.TextureName) &&
+                declared.TryGetValue(bsp.ObjectNames[surface.ObjectIndex], out SceneModel? on) &&
+                IsHitTest(on))
+            {
+                masked.Add(surface.ObjectIndex);
+            }
+        }
+
+        return masked;
     }
 
     /// <summary>How many cells a stand's triangles are sorted into, along each axis.</summary>
@@ -648,17 +724,86 @@ public sealed class ScenePicker
                 continue;
             }
 
-            if (Meets(ray, a, b, c) is { } distance && distance < (best ?? limit))
+            if (Meets(ray, a, b, c) is not { } hit || hit.Distance >= (best ?? limit))
             {
-                best = distance;
+                continue;
             }
+
+            if (!Drawn(part, i / 3, hit))
+            {
+                continue;
+            }
+
+            best = hit.Distance;
         }
 
         return best;
     }
 
+    /// <summary>
+    /// Whether the ray met the drawing on a triangle rather than a hole in it.
+    /// </summary>
+    /// <param name="part">The part the triangle belongs to.</param>
+    /// <param name="triangle">Which triangle of it, counting from zero.</param>
+    /// <param name="hit">Where the ray met it.</param>
+    /// <returns>True when there is something there to be hit.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A hit test's texture is a mask.</b> The church stacks four of them a half-unit
+    /// apart over the same rectangle — <c>chu_ang1</c>, <c>chu_ang02</c>, <c>chu_ang03</c>,
+    /// <c>chu_ang04</c>, one per angel — and each is magenta but for the outline of the
+    /// angel it stands for. A ray that stops at the front-most quad therefore names the same
+    /// angel wherever the pointer is, and the four-angels puzzle becomes untraceable: the
+    /// first touch lights its dot and every touch after it is the same touch again, drawing
+    /// no line. Reported as "trace once gives the line, then nothing happens, one red dot".
+    /// </para>
+    /// <para>
+    /// So a keyed texel is a hole and the ray carries on through it, which is the only
+    /// reason those four quads are where they are. Only hit tests carry a mask at all, and
+    /// across the corpus only two rooms have one: the church, and the dining room's
+    /// <c>din_watermarks</c>, whose every action is commented out in <c>DIN_ALL.NVC</c>. So
+    /// this decides the four angels and nothing else the player can reach — see
+    /// <c>SceneLoader.ReadHitTestMasks</c>.
+    /// </para>
+    /// </remarks>
+    private static bool Drawn(Part part, int triangle, Meeting hit)
+    {
+        if (part.Cutouts is not { } cutouts ||
+            triangle >= cutouts.Length ||
+            cutouts[triangle] is not { } mask ||
+            part.Coordinates is not { } coordinates)
+        {
+            return true;
+        }
+
+        int corner = triangle * 3;
+
+        if (corner + 2 >= coordinates.Length)
+        {
+            return true;
+        }
+
+        // Möller-Trumbore hands back the weights of the second and third corners; the first
+        // takes what is left.
+        Vector2 uv = ((1f - hit.U - hit.V) * coordinates[corner]) +
+                     (hit.U * coordinates[corner + 1]) +
+                     (hit.V * coordinates[corner + 2]);
+
+        return mask.Covers(uv);
+    }
+
+    /// <summary>Where along a ray a triangle was met, and where on the triangle.</summary>
+    /// <param name="Distance">How far along the ray, in the space the test was made in.</param>
+    /// <param name="U">Weight of the triangle's second corner.</param>
+    /// <param name="V">Weight of its third.</param>
+    private readonly record struct Meeting(float Distance, float U, float V);
+
     /// <summary>Möller–Trumbore, without the culling: the caller decides about faces.</summary>
-    private static float? Meets(Ray ray, Vector3 a, Vector3 b, Vector3 c)
+    /// <remarks>
+    /// The two barycentric weights come back with the distance because a keyed hit test
+    /// needs them — see <see cref="Drawn"/> — and they are already computed here.
+    /// </remarks>
+    private static Meeting? Meets(Ray ray, Vector3 a, Vector3 b, Vector3 c)
     {
         const float epsilon = 1e-7f;
 
@@ -691,7 +836,7 @@ public sealed class ScenePicker
 
         float distance = Vector3.Dot(ac, along) * inverse;
 
-        return distance > epsilon ? distance : null;
+        return distance > epsilon ? new Meeting(distance, u, v) : null;
     }
 
     /// <summary>Whether the ray enters a box before a distance it has already beaten.</summary>
@@ -753,9 +898,17 @@ public sealed class ScenePicker
     private sealed record Part
     {
         public Part(int mesh, Vector3[] triangles)
+            : this(mesh, triangles, null, null)
+        {
+        }
+
+        public Part(
+            int mesh, Vector3[] triangles, Vector2[]? coordinates, CutoutMask?[]? cutouts)
         {
             Mesh = mesh;
             Triangles = triangles;
+            Coordinates = coordinates;
+            Cutouts = cutouts;
 
             Vector3 minimum = new(float.MaxValue);
             Vector3 maximum = new(float.MinValue);
@@ -775,6 +928,23 @@ public sealed class ScenePicker
         public int Mesh { get; }
 
         public Vector3[] Triangles { get; }
+
+        /// <summary>
+        /// A texture coordinate per corner, in step with <see cref="Triangles"/>, or null.
+        /// </summary>
+        /// <remarks>
+        /// Only carried where something needs them — see <see cref="Cutouts"/>. A room is
+        /// fifteen thousand triangles and nearly none of them are ever asked this.
+        /// </remarks>
+        public Vector2[]? Coordinates { get; }
+
+        /// <summary>
+        /// The silhouette each triangle is drawn on, one per triangle, or null.
+        /// </summary>
+        /// <remarks>
+        /// Null for a triangle that is solid all over, which is nearly all of them.
+        /// </remarks>
+        public CutoutMask?[]? Cutouts { get; }
 
         public Vector3 Minimum { get; }
 

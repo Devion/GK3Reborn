@@ -824,6 +824,62 @@ public sealed class SceneUpdateTests
     }
 
     [Fact]
+    public void Things_held_for_the_same_moment_happen_in_the_order_they_were_asked_for()
+    {
+        // Two actions asked for while the walk to them is still going are two actions in
+        // that order. Taken backwards, the second one's setup runs after it — the church's
+        // four angels traced their square from the last one back.
+        (SceneUpdate update, _, _, _) = World();
+
+        List<string> order = [];
+
+        update.After(1.0, () => order.Add("first"));
+        update.After(1.0, () => order.Add("second"));
+        update.After(1.0, () => order.Add("third"));
+
+        update.Advance(1.0);
+
+        Assert.Equal(["first", "second", "third"], order);
+    }
+
+    [Fact]
+    public void Something_held_back_by_a_wait_that_is_over_waits_for_the_next_frame()
+    {
+        // The whole list is stepped before any of it is run, so a wait that ends now
+        // cannot start one that ends in the same breath.
+        (SceneUpdate update, _, _, _) = World();
+
+        int done = 0;
+
+        update.After(1.0, () => update.After(1.0, () => done++));
+
+        update.Advance(1.0);
+        Assert.Equal(0, done);
+        Assert.Equal(1, update.Later);
+
+        update.Advance(1.0);
+        Assert.Equal(1, done);
+    }
+
+    [Fact]
+    public void Leaving_a_room_from_inside_a_wait_forgets_the_waits_beside_it()
+    {
+        // A held action can be the one that opens the door. What was queued beside it
+        // belongs to the room being left, and Cancel is how the room says so.
+        (SceneUpdate update, _, _, _) = World();
+
+        int done = 0;
+
+        update.After(1.0, update.Cancel);
+        update.After(1.0, () => done++);
+
+        update.Advance(1.0);
+
+        Assert.Equal(0, done);
+        Assert.Equal(0, update.Later);
+    }
+
+    [Fact]
     public void Leaving_a_room_forgets_what_was_waiting_to_happen_in_it()
     {
         // An action script belongs to the room that offered it. Letting one run into the

@@ -526,4 +526,48 @@ public sealed class CutoutCardTests
         Assert.DoesNotContain("CS3STAIRRAIL", CutoutCards.Leaves);
         Assert.DoesNotContain("RC1IRONFENCE", CutoutCards.Leaves);
     }
+
+    [Fact]
+    public void A_silhouette_keeps_a_shape_a_lattice_test_throws_away()
+    {
+        // The church's four angels: 64 texels of key with one figure drawn on it. Measure
+        // is right to refuse it — it is nobody's railing — and a hit test needs it anyway,
+        // because that outline is the whole of what tells one angel from the three stacked
+        // behind it.
+        DecodedImage angel = Picture(64, 64, (x, y) => x is >= 20 and < 44 && y is >= 8 and < 56);
+
+        Assert.Null(CutoutMask.Measure(angel));
+
+        CutoutMask? mask = CutoutMask.Silhouette(angel);
+
+        Assert.NotNull(mask);
+        Assert.Equal(64, mask.Width);
+        Assert.Equal(64, mask.Height);
+        Assert.True(mask.At(32, 32));
+        Assert.False(mask.At(4, 32));
+    }
+
+    [Fact]
+    public void A_texture_with_no_holes_has_no_silhouette_to_speak_of()
+    {
+        // Nothing keyed means the drawing covers its whole surface, which is the answer a
+        // caller with no mask already assumes.
+        Assert.Null(CutoutMask.Silhouette(Picture(32, 32, (_, _) => true)));
+    }
+
+    [Fact]
+    public void A_silhouette_is_read_at_a_texture_coordinate_and_tiles()
+    {
+        CutoutMask? mask = CutoutMask.Silhouette(Picture(4, 4, (x, _) => x == 1));
+
+        Assert.NotNull(mask);
+        Assert.True(mask.Covers(new Vector2(0.3f, 0.5f)));
+        Assert.False(mask.Covers(new Vector2(0.1f, 0.5f)));
+
+        // A surface that repeats its texture four times over reads the same column in every
+        // repeat, and a negative coordinate wraps rather than clamping to the first texel.
+        Assert.True(mask.Covers(new Vector2(3.3f, 0.5f)));
+        Assert.True(mask.Covers(new Vector2(-0.7f, 0.5f)));
+        Assert.False(mask.Covers(new Vector2(-0.9f, 0.5f)));
+    }
 }
