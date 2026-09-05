@@ -392,6 +392,39 @@ public sealed class FontAndSoundTests
         Assert.Contains(bag.Items, d => d.Code == "GK3R1121");
     }
 
+    [Theory]
+
+    // Inside the range, which is every sample of a recording that was not mastered hot.
+    [InlineData(0f, 0)]
+    [InlineData(0.5f, 16384)]
+    [InlineData(-0.5f, -16384)]
+    [InlineData(1f, 32767)]
+    [InlineData(-1f, -32767)]
+
+    // Outside it, which is where the crackle was. An MP3 is a lossy reconstruction and its
+    // output overshoots the waveform that was encoded; a clip mastered near full scale
+    // therefore decodes to values above one, and a cast sends those round to the *bottom*
+    // of the range. That is a full-scale spike one sample wide, and a run of them is what a
+    // player hears as crackle.
+    [InlineData(1.05f, 32767)]
+    [InlineData(1.9f, 32767)]
+    [InlineData(-1.05f, -32768)]
+    [InlineData(-40f, -32768)]
+
+    // And nothing a decoder can hand back may become a loud noise.
+    [InlineData(float.NaN, 0)]
+    [InlineData(float.PositiveInfinity, 0)]
+    public void A_decoded_sample_past_full_scale_is_held_there_rather_than_wrapped(
+        float sample, short wanted)
+    {
+        // Nobody could hear this in English: the English lines a player actually hears are
+        // the restored 24-bit masters, which peak around -3 dB. The 1999 dubs are hot —
+        // measured on the French recording of A0144J44, thirty-one samples at full scale
+        // and a one-sample swing of 65,503 out of a possible 65,535, against a peak of
+        // 16,808 and no jump over 3,913 in the English recording of the same line.
+        Assert.Equal(wanted, WavFile.Clamped(sample));
+    }
+
     [Fact]
     public void Something_that_is_not_a_riff_file_is_refused()
     {

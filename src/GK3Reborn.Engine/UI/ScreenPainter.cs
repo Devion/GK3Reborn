@@ -162,6 +162,18 @@ public sealed class ScreenPainter
     /// </remarks>
     public Game.GameStrings Names { get; set; } = Game.GameStrings.None;
 
+    /// <summary>
+    /// The port's own words, in the language the game is being played in.
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="Names"/> and not the same thing: that is GK3's own string table
+    /// and answers what a place, a timeblock or a pocketed thing is called, all of which
+    /// Sierra translated. This is what the port itself says — the screen titles, the way
+    /// out, the sentence under an empty list — none of which the 1999 game had. See
+    /// <see cref="UiText"/>.
+    /// </remarks>
+    public UiText Text { get; set; } = UiText.English;
+
     /// <summary>How much bigger than the letters everything else is.</summary>
     public float Scale => Math.Max(1f, Overlay.LineHeight / 19f);
 
@@ -270,7 +282,11 @@ public sealed class ScreenPainter
                 break;
 
             default:
-                Overlay.Text("Nothing to show.", body.X + (20 * unit), top, Dim);
+                Overlay.Text(
+                    Text.Say("screen.nothing", "Nothing to show."),
+                    body.X + (20 * unit),
+                    top,
+                    Dim);
                 break;
         }
     }
@@ -306,7 +322,7 @@ public sealed class ScreenPainter
         Overlay.Text(Title(view), body.X + (20 * unit), y, Accent);
 
         // One way out, in the same place on every screen, and Escape does the same thing.
-        string close = "CLOSE";
+        string close = Text.Say("screen.close", "CLOSE");
         float closeWidth = Overlay.Measure(close) + (20 * unit);
         var closeAt = new Vector4(
             body.X + body.Z - closeWidth - (16 * unit), y - (6 * unit), closeWidth, row + (12 * unit));
@@ -332,15 +348,17 @@ public sealed class ScreenPainter
 
     private string Title(ScreenView view) => view.Screen.Kind switch
     {
-        ScreenKind.Inventory => "CARRYING",
+        ScreenKind.Inventory => Text.Say("screen.carrying", "CARRYING"),
         ScreenKind.InventoryInspect => Owned(view.Screen.Subject ?? view.Held ?? "ITEM"),
-        ScreenKind.Binoculars => "BINOCULARS",
-        ScreenKind.Water => "THE HOSE",
-        ScreenKind.Driving => "WHERE TO?",
-        ScreenKind.Fingerprint => "FINGERPRINT KIT",
+        ScreenKind.Binoculars => Text.Say("screen.binoculars", "BINOCULARS"),
+        ScreenKind.Water => Text.Say("screen.hose", "THE HOSE"),
+        ScreenKind.Driving => Text.Say("screen.driving", "WHERE TO?"),
+        ScreenKind.Fingerprint => Text.Say("screen.fingerprints", "FINGERPRINT KIT"),
+
+        // Sidney is the machine's own name and every release keeps it.
         ScreenKind.Sidney => "SIDNEY",
-        ScreenKind.Journal => "JOURNAL",
-        _ => "SCREEN",
+        ScreenKind.Journal => Text.Say("screen.journal", "JOURNAL"),
+        _ => Text.Say("screen.other", "SCREEN"),
     };
 
     /// <summary>Everything the player is carrying, as a grid.</summary>
@@ -354,7 +372,7 @@ public sealed class ScreenPainter
     {
         if (view.Inventory.Count == 0)
         {
-            Overlay.Text("Nothing.", body.X + (20 * unit), top, Dim);
+            Overlay.Text(Text.Say("carrying.nothing", "Nothing."), body.X + (20 * unit), top, Dim);
 
             return;
         }
@@ -412,7 +430,7 @@ public sealed class ScreenPainter
         // player's intention — holding a thing is not something anybody sets out to do, and
         // an item with one action now simply performs it.
         Overlay.Text(
-            "Click an item to use it.",
+            Text.Say("carrying.hint", "Click an item to use it."),
             body.X + (20 * unit),
             body.Y + body.W - Overlay.LineHeight - (12 * unit),
             Dim);
@@ -553,10 +571,10 @@ public sealed class ScreenPainter
 
         Overlay.Text(
             water.Progress >= 1f
-                ? "The nest gives way."
+                ? Text.Say("hose.done", "The nest gives way.")
                 : water.OnTarget
-                    ? "Hold it there."
-                    : "The water goes wide.",
+                    ? Text.Say("hose.hold", "Hold it there.")
+                    : Text.Say("hose.wide", "The water goes wide."),
             barLeft,
             barTop + barTall + (6 * unit),
             Ink);
@@ -564,7 +582,7 @@ public sealed class ScreenPainter
         // A way out, drawn rather than assumed. Every other screen here has one and the
         // rule in docs/screens.md is that an interface owes the player one; without it this
         // is a modal panel with a reticle on it and no visible way back to the street.
-        const string Away = "Put the hose down";
+        string Away = Text.Say("hose.away", "Put the hose down");
 
         float away = Overlay.Measure(Away) + (24 * unit);
         var button = new Vector4(
@@ -600,14 +618,15 @@ public sealed class ScreenPainter
 
         Overlay.Text(
             view.Prints < 0
-                ? "A fine brush, and a roll of tape."
+                ? Text.Say("prints.ready", "A fine brush, and a roll of tape.")
                 : view.Prints == 0
-                    ? "The powder settles. Nothing shows up."
+                    ? Text.Say("prints.none", "The powder settles. Nothing shows up.")
                     : view.Prints == 1
-                        ? "The powder settles on a clear print."
-                        : string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"The powder settles on {view.Prints} distinct prints."),
+                        ? Text.Say("prints.one", "The powder settles on a clear print.")
+                        : Text.Say(
+                            "prints.many",
+                            "The powder settles on {0} distinct prints.",
+                            view.Prints.ToString(CultureInfo.InvariantCulture)),
             x,
             y,
             Ink);
@@ -615,10 +634,10 @@ public sealed class ScreenPainter
         y += (line * 2) + (6 * unit);
 
         (string id, string label) = view.Prints < 0
-            ? ("fp:brush", "Brush for prints")
+            ? ("fp:brush", Text.Say("prints.brush", "Brush for prints"))
             : view.Prints > 0
-                ? ("fp:lift", "Lift with tape")
-                : ("close", "Put the kit away");
+                ? ("fp:lift", Text.Say("prints.lift", "Lift with tape"))
+                : ("close", Text.Say("prints.away", "Put the kit away"));
 
         float wide = Overlay.Measure(label) + (24 * unit);
         var button = new Vector4(x, y, wide, line + (12 * unit));
@@ -681,7 +700,8 @@ public sealed class ScreenPainter
 
         if (days.Count == 0)
         {
-            Overlay.Text("Nothing yet.", body.X + (20 * unit), top, Dim);
+            Overlay.Text(
+                Text.Say("journal.nothing", "Nothing yet."), body.X + (20 * unit), top, Dim);
 
             return;
         }
@@ -706,13 +726,19 @@ public sealed class ScreenPainter
                 // The heading carries the tally, because "4 of 11" answers "am I nearly
                 // done here" without the player counting ticks.
                 Overlay.Text(
-                    chapter.Current ? chapter.Title + "  (now)" : chapter.Title,
+                    chapter.Current
+                        ? chapter.Title + Text.Say("journal.now", "  (now)")
+                        : chapter.Title,
                     x,
                     y,
                     chapter.Current ? Accent : Dim);
 
                 Overlay.Text(
-                    $"{chapter.Achieved} of {chapter.Total}",
+                    Text.Say(
+                        "journal.tally",
+                        "{0} of {1}",
+                        chapter.Achieved.ToString(CultureInfo.InvariantCulture),
+                        chapter.Total.ToString(CultureInfo.InvariantCulture)),
                     x + width - (90 * unit),
                     y,
                     Dim);
@@ -760,7 +786,15 @@ public sealed class ScreenPainter
                         int of = entry.Quest.Scores.Count;
                         int done = (int)MathF.Round(entry.Progress * of);
 
-                        Overlay.Text($"{done} of {of}", x + width - (90 * unit), y, Dim);
+                        Overlay.Text(
+                            Text.Say(
+                                "journal.tally",
+                                "{0} of {1}",
+                                done.ToString(CultureInfo.InvariantCulture),
+                                of.ToString(CultureInfo.InvariantCulture)),
+                            x + width - (90 * unit),
+                            y,
+                            Dim);
                     }
 
                     // The way to ask for help, offered only where there is help left to give
@@ -772,7 +806,8 @@ public sealed class ScreenPainter
 
                         Overlay.Rect(hint.X, hint.Y, hint.Z, hint.W, PanelLit);
                         Overlay.Rect(hint.X, hint.Y, hint.Z, 1, Rule);
-                        Overlay.Text("hint", hint.X + (10 * unit), y, Accent);
+                        Overlay.Text(
+                            Text.Say("journal.hint", "hint"), hint.X + (10 * unit), y, Accent);
 
                         _hits.Add(("hint:" + Journal.Key(entry.Quest), hint));
                     }
@@ -886,7 +921,7 @@ public sealed class ScreenPainter
         // The name, and the way out, in the corners they occupy on every other screen.
         Overlay.Text(Owned(subject), margin, margin, Accent);
 
-        const string close = "CLOSE";
+        string close = Text.Say("screen.close", "CLOSE");
         float closeWidth = Overlay.Measure(close) + (20 * unit);
         var closeAt = new Vector4(
             width - margin - closeWidth, margin - (6 * unit), closeWidth, row);
@@ -933,7 +968,7 @@ public sealed class ScreenPainter
         else
         {
             Overlay.Text(
-                "Nobody painted a picture of this one.",
+                Text.Say("closeup.nopicture", "Nobody painted a picture of this one."),
                 frame.X,
                 frame.Y + ((frame.W - Overlay.LineHeight) / 2),
                 Dim);
@@ -1190,7 +1225,7 @@ public sealed class ScreenPainter
                 new DrivingStop("dm_" + sighted.Scene.ToLowerInvariant(), sighted.Scene, 0, 0, false))
                 ?? sighted.Scene;
 
-            const string zoom = "LOOK CLOSER";
+            string zoom = Text.Say("binoculars.closer", "LOOK CLOSER");
             float w = Overlay.Measure(zoom) + (24 * unit);
             var bounds = new Vector4(centreX - (w / 2), centreY + (radius * 0.55f), w, Overlay.LineHeight + (12 * unit));
 
@@ -1205,14 +1240,15 @@ public sealed class ScreenPainter
         }
         else if (panorama is { Any: true })
         {
-            const string hint = "Pan to find something worth a closer look.";
+            string hint = Text.Say(
+                "binoculars.hint", "Pan to find something worth a closer look.");
             float hintWidth = Overlay.Measure(hint);
 
             Overlay.Text(hint, centreX - (hintWidth / 2), readout, Dim);
         }
 
         // The way out, in the same corner it is on every other screen.
-        const string close = "LOWER";
+        string close = Text.Say("binoculars.lower", "LOWER");
         float closeWidth = Overlay.Measure(close) + (20 * unit);
         var closeAt = new Vector4(
             width - closeWidth - (20 * unit), (20 * unit), closeWidth, Overlay.LineHeight + (12 * unit));
@@ -1280,7 +1316,7 @@ public sealed class ScreenPainter
                 top,
                 unit,
                 "drive",
-                "Nowhere to ride to yet.");
+                Text.Say("driving.nowhere", "Nowhere to ride to yet."));
 
             return;
         }
@@ -1377,7 +1413,7 @@ public sealed class ScreenPainter
         }
 
         Overlay.Text(
-            "Click a place to ride there.",
+            Text.Say("driving.hint", "Click a place to ride there."),
             body.X + (20 * unit),
             top + mapHeight + (10 * unit),
             Dim);
@@ -1600,24 +1636,6 @@ public sealed class ScreenPainter
 
         return y;
     }
-
-    private static string Label(SidneyAction action) => action switch
-    {
-        SidneyAction.Analyse => "START ANALYSIS",
-        SidneyAction.ExtractAnomalies => "EXTRACT ANOMALIES",
-        SidneyAction.AnalyseText => "ANALYZE TEXT",
-        SidneyAction.Translate => "TRANSLATE",
-        SidneyAction.ViewGeometry => "VIEW GEOMETRY",
-        SidneyAction.RotateShape => "ROTATE SHAPE",
-        SidneyAction.ZoomAndClarify => "ZOOM & CLARIFY",
-        SidneyAction.EnterPoints => "ENTER POINTS",
-        SidneyAction.ClearPoints => "CLEAR POINTS",
-        SidneyAction.DrawGrid => "DRAW GRID",
-        SidneyAction.EraseGrid => "ERASE GRID",
-        SidneyAction.UseShape => "USE SHAPE",
-        SidneyAction.EraseShape => "ERASE SHAPE",
-        _ => action.ToString().ToUpperInvariant(),
-    };
 
     /// <summary>A noun as a person would write it.</summary>
     private static string Pretty(string noun) =>

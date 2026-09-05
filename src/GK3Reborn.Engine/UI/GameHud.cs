@@ -597,8 +597,11 @@ public sealed class GameHud
         // The two screens a player opens by hand, where the eye already goes for the score.
         // Both have a key — I and J — and a key nobody is told about is a key nobody presses,
         // which is how the quest log came to be a feature with no way in.
-        right = Button(state, "Journal", right, height, unit, "open:journal");
-        Button(state, "Pockets", right, height, unit, "open:inventory");
+        right = Button(
+            state, Text.Say("hud.journal", "Journal"), right, height, unit, "open:journal");
+
+        Button(
+            state, Text.Say("hud.pockets", "Pockets"), right, height, unit, "open:inventory");
     }
 
     /// <summary>One word in the top bar that answers to a click.</summary>
@@ -945,7 +948,7 @@ public sealed class GameHud
 
         foreach ((string noun, Vector2 at) in spots)
         {
-            string label = Pretty(noun);
+            string label = Thing(noun);
             float wide = Overlay.Measure(label) + (12 * unit);
 
             float x = Math.Clamp(at.X - (wide / 2), 0, Math.Max(0, width - wide));
@@ -999,8 +1002,8 @@ public sealed class GameHud
             return;
         }
 
-        string subject = Pretty(noun);
-        string? action = state.Verb is { Length: > 0 } verb ? Pretty(verb) : null;
+        string subject = Thing(noun);
+        string? action = state.Verb is { Length: > 0 } verb ? Verb(verb) : null;
 
         // Two runs rather than one string with a separator in it. GK3's fonts are Latin-1
         // and have no dash beyond the hyphen, so anything typographic comes out as the
@@ -1054,7 +1057,7 @@ public sealed class GameHud
         // often longer than any verb offered for it — "Coffee Pot" over Look and Pour —
         // so measuring only the verbs sizes the panel to the wrong thing and the heading
         // runs off the end of its own background.
-        string heading = Pretty(state.Noun ?? string.Empty);
+        string heading = Thing(state.Noun ?? string.Empty);
         float w = Overlay.Measure(heading);
 
         // The verbs, and then one row standing for everything in the bag that this noun
@@ -1204,8 +1207,8 @@ public sealed class GameHud
     public const string UseRow = "\u0001use";
 
     /// <summary>What a menu row reads as.</summary>
-    private static string Label(string verb) =>
-        verb == UseRow ? "Use..." : Pretty(verb);
+    private string Label(string verb) =>
+        verb == UseRow ? Text.Say("verb.use", "Use...") : Verb(verb);
 
     /// <summary>
     /// What one of the player's things reads as.
@@ -1216,7 +1219,61 @@ public sealed class GameHud
     /// tidied identifier otherwise. It is the only per-object text GK3 ever localised; see
     /// <see cref="Game.GameStrings.Item"/>.
     /// </remarks>
+    /// <summary>
+    /// The port's own words, in the language the game is being played in.
+    /// </summary>
+    /// <remarks>
+    /// Beside <see cref="Names"/>: that is GK3's own string table, and this is what the
+    /// port says that GK3 never did — the toolbar, and the ninety verbs the original drew
+    /// as pictures. See <see cref="UiText"/>.
+    /// </remarks>
+    public UiText Text { get; set; } = UiText.English;
+
     private string Owned(string item) => Names.Item(item) ?? Pretty(item);
+
+    /// <summary>
+    /// What a thing in the room is called.
+    /// </summary>
+    /// <param name="noun">Its noun, as the action files spell it: <c>MASKING_TAPE</c>.</param>
+    /// <returns>The game's own name for it, or the tidied identifier.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The same table the bag reads.</b> GK3's tooltips are keyed on the noun rather
+    /// than on the inventory — <c>v_masking_tape</c> is "Morceau de scotch" in French —
+    /// and the roll of tape on the desk is the same noun as the roll of tape in the
+    /// pocket. The label under the cursor was drawing the identifier with its underscores
+    /// taken out instead, so a French game pointed at "Masking Tape" and a French bag held
+    /// a "Morceau de scotch".
+    /// </para>
+    /// <para>
+    /// Most of the room is not in that table — <c>DRESSER</c> is scenery and GK3 never
+    /// named it in any language — and those fall through to the tidied noun, which is what
+    /// every label was before this.
+    /// </para>
+    /// </remarks>
+    private string Thing(string noun) => Names.Item(noun) ?? Pretty(noun);
+
+    /// <summary>
+    /// What a verb is called under the cursor and in the menu.
+    /// </summary>
+    /// <param name="verb">Its noun, as the action files spell it: <c>PICK_UP</c>.</param>
+    /// <returns>The word, in the player's own language where there is one.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>GK3 has no table of verb names and never needed one</b>: the original drew them
+    /// as icons, so the word "LOOK" is not written anywhere in its data in any language.
+    /// The port draws them as words, so it has to have them — and this is the text a player
+    /// reads more often than anything else in the game, because it is under the cursor.
+    /// </para>
+    /// <para>
+    /// A closed set: <c>VERBS.TXT</c> lists 287 entries and 90 of them are verbs, the rest
+    /// being the things the player carries — which <em>are</em> in the string table and are
+    /// answered by <see cref="Owned"/>. So ninety keys cover it, and a verb some mod adds
+    /// falls back to its own tidied name.
+    /// </para>
+    /// </remarks>
+    private string Verb(string verb) =>
+        verb.Length == 0 ? verb : Text.Say("verb." + verb.ToUpperInvariant(), Pretty(verb));
 
     /// <summary>
     /// The strip along the bottom, which is no longer drawn.

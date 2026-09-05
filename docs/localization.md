@@ -101,6 +101,58 @@ For French, the breakdown by family:
 | `.TXT` | 10 | the string table, the screen layouts, Sidney's data |
 | `.MOD` `.MUL` `.ACT` `.NVC` `.FON` `.WAV` `.DOC` | 11 | the rest |
 
+## The port's own interface
+
+**One JSON a language, and the keys are the same in all of them.** That is the shape GK3's
+own `ESIDNEY.TXT` uses, and the reason its files survived being translated eight times: the
+identifier is stable and only the value moves.
+
+```
+src/GK3Reborn.Engine/Assets/Ui/interface-en.json     275 phrases
+                              interface-de.json      the same 275, in German
+                              interface-es.json      … es, fr, it, pt
+```
+
+They are **carried inside the assembly**, so a player with no packs at all still has every
+language the port ships — the same rule that makes the game start in English without one.
+They are **also written into each language's volume** by `pack-content`, as a manifest
+entry called `interface.json`, and a pack's copy is read in front of the assembly's. So a
+translation can be corrected, or one written for a language the port carries nothing for,
+by shipping a pack rather than rebuilding the game. `Reborn_RU.rebarn` with an
+`interface.json` in it is a Russian interface.
+
+There is one source and two places it is read from: the packer asks the assembly for the
+bytes and writes them into `build/interface/<CODE>` on its way past. Nothing is hand-edited
+in the workspace, and nothing under `enhanced/` is written to.
+
+**The English stays in the source beside the key.** `Text.Say("picture.trees", "Modelled
+trees")` reads as what it draws; `Text.Say("picture.trees")` reads as nothing at all, and
+this codebase is meant to be read. The price is two copies of every phrase, and
+`UiTextTests` pays it: it scans the engine's own sources for every `Say` call and fails if
+the file and the source disagree. It also checks the six files hold exactly the same keys,
+because a key present in five of them is a row that reads English in one language and in no
+other — which nobody sees until they are playing in it.
+
+What is covered: the title menu and the pause menu, all five settings sections and every
+value on them, the save and restore slots, the toolbar, the journal, every screen's title
+and its way out, the binoculars, the hose, the fingerprint kit, the driving map, and the
+**ninety verbs**. Those last are the text a player reads most often in the whole game and
+the one family GK3 could not help with: the original drew verbs as icons, so the word
+"LOOK" is not written anywhere in its data in any language.
+
+A key nobody has translated falls back to the English the call site carries, so a partial
+translation costs that row and not the screen.
+
+**Sidney is separate and came first.** Its buttons are 1999 strings in `ESIDNEY.TXT` that
+the port was ignoring; see [sidney.md](sidney.md). Only the dozen sentences it says that
+the 1999 game never had a place for are written rather than extracted.
+
+**What is still English in every language**: the journal's 142 objectives and the
+walkthrough lines behind its hint button, which are `Assets/Story/Quests.txt` and
+`Walkthrough.txt` — five hundred lines of prose about this game's puzzles, and a different
+size of job from a settings screen. The nouns under the cursor are English too, and have
+no table anywhere in the data to read from.
+
 ## What the interface can say, and what it cannot
 
 GK3 localised exactly one family of per-object text: the 293 names of the things the player
@@ -421,12 +473,26 @@ It ships with .NET 10 and needs no package.
 
 ## Changing language
 
-It takes effect at the next start, and the row says so. The language decides which pack the
-archives were opened through, which letter every voice-over carries, which code page the
-text was decoded in and which of the enhanced textures carries words — and all four were
-settled before the window existed. Swapping them live would mean rebuilding the string
-table, the fonts, the animation and sound caches, the interface atlas and the room, which is
-a larger thing to own than the row is worth.
+**It takes effect at once, including the pictures.** The pack is the door everything comes
+through, so swapping `archives.Localization` is most of the job: the string table, Sidney's
+documents, every recorded line, every YAK that lip-syncs one and every bitmap with words
+painted into it all answer differently the moment it moves.
+
+What has already been read has to be forgotten with it — the sounds and the fonts are cached
+by name and a name means a different file now — and the letter in front of every voice-over
+is the language's own. Then **the room is loaded again**, which is what brings the pictures
+back: a texture is uploaded when its room loads, so the sign over the shop is the one that
+was on the wall when the player walked in. The reload is the same door a restored save goes
+through, so the story, the inventory and where the player is standing all survive it.
+
+```
+Language: now German; 349 interface phrase(s) from Reborn_DE.rebarn:interface.json,
+          472 names from GSTRINGS.TXT
+Language: loading R25 again for it.
+```
+
+The one thing that does not move is the window's own colour space and the upscaler, which
+have nothing to do with language.
 
 The startup log says what was asked for and what is actually answering, because a French
 game running on the English archives because the pack was not built looks exactly like a

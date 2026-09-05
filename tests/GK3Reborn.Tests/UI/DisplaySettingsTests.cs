@@ -99,8 +99,21 @@ public sealed class DisplaySettingsTests
 
         Assert.Equal(FrontEndPage.Video, front.Page);
 
+        // Back one from wherever Picture sits, which is written as a fact about the list
+        // rather than as the name of a page: the order of the sidebar is a design decision
+        // and this test is not about it.
+        int before = FrontEnd.Sections.Count - 1;
+
+        for (int i = 0; i < FrontEnd.Sections.Count; i++)
+        {
+            if (FrontEnd.Sections[i].Id == "video")
+            {
+                before = (i + FrontEnd.Sections.Count - 1) % FrontEnd.Sections.Count;
+            }
+        }
+
         front.StepSection(-1);
-        Assert.Equal(FrontEndPage.Controls, front.Page);
+        Assert.Equal(before, front.Section);
 
         // And nothing at all where there are no sections to step.
         FrontEnd main = On(FrontEndPage.Main);

@@ -350,9 +350,13 @@ public static class Application
         // Null when there is no pack for the chosen language, and that is the ordinary case
         // for English: the installation already answers to the English spellings under
         // every locale Sierra shipped, so English needs no pack to be playable.
+        //
+        // Neither is fixed for the life of the process: the Language row swaps both while
+        // the game is running, and the room is reloaded underneath so that every picture
+        // with a word painted into it comes back in the new language. See Relanguage.
         GameLanguage language = GameLanguage.Of(settings.Language);
         var languageDiagnostics = new DiagnosticBag();
-        using LocalizedContent? localized =
+        LocalizedContent? localized =
             LocalizedContent.Open(packDirectory, language, languageDiagnostics);
 
         foreach (Diagnostic diagnostic in languageDiagnostics.Items)
@@ -788,6 +792,13 @@ public static class Application
         // the corner of the screen reads "LBY - 110A", which is two codes and no help.
         GameStrings strings = GameStrings.Open(archives);
 
+        // The port's own interface, in the language the game is being played in. GK3's own
+        // strings come out of the archives through the pack; these never existed in 1999,
+        // so they are carried per language and read here — see UI/UiText.cs.
+        UiText words = UiText.Of(archives.Localization?.Language, archives.Localization);
+
+        Log.Info($"Interface: {words.Count} phrase(s) from {words.Source}");
+
         if (strings.Count > 0)
         {
             Log.Info($"Names: {strings.Count} from {strings.File}");
@@ -919,7 +930,12 @@ public static class Application
                 : Magnification(atlas.Font, wantedGlyph);
 
             renderer.SetOverlayAtlas(atlas);
-            hud = new GameHud(new Overlay(atlas) { Magnify = magnify }) { Names = strings };
+            hud = new GameHud(new Overlay(atlas) { Magnify = magnify })
+            {
+                Names = strings,
+                Text = words,
+            };
+
             screens = new ScreenPainter(new Overlay(atlas) { Magnify = magnify })
             {
                 // The game's own names for the player's things, in the player's own
@@ -927,6 +943,7 @@ public static class Application
                 // strip along the top of the room name the same objects, and two of them
                 // disagreeing would be worse than either name on its own.
                 Names = strings,
+                Text = words,
             };
 
             // Sidney's map, the survey the whole puzzle is played on. Beside the driving
@@ -1168,6 +1185,8 @@ public static class Application
             // What the Language row may step through: the packs that are actually beside
             // the game, plus English, which every installation can read without one.
             Languages = languages,
+
+            Text = words,
         };
 
         MenuPage? pages = hud is null
@@ -1175,9 +1194,101 @@ public static class Application
             : new MenuPage(new Overlay(Cut(menu: true) ?? hud.Overlay.Atlas)
             {
                 Magnify = hud.Overlay.Magnify,
-            });
+            })
+            {
+                Text = words,
+            };
 
         SceneUpdate? live = null;
+
+        // Set when the Language row moves, cleared when the room has been reloaded for it.
+        bool relanguage = false;
+
+        // Whether the language has moved since this was last asked. A question rather than
+        // a flag the frame loop can see, because the frame loop is another method and the
+        // pack, the string table and the words are all locals of this one. Asking clears it,
+        // so one change reloads one room.
+        bool Relanguaged()
+        {
+            bool moved = relanguage;
+
+            relanguage = false;
+
+            return moved;
+        }
+
+        // Reads the game in another language, without restarting it.
+        //
+        // The pack is the door everything comes through, so swapping it is most of the job:
+        // the string table, Sidney's documents, every recorded line, every YAK that
+        // lip-syncs one and every bitmap with words painted into it are all read through
+        // archives.Localization and answer differently the moment it moves.
+        //
+        // What has already been read has to be forgotten with it. The sounds and the fonts
+        // are cached by name and a name means a different file now; the string table, the
+        // port's own words and Sidney's text were parsed from the old pack; and the letter
+        // in front of every voice-over is the language's own.
+        //
+        // The room is then loaded again, which is what brings the pictures back: a texture
+        // is uploaded when its room loads, so the sign over the shop is the one that was on
+        // the wall when the player walked in. The reload is the same door a restored save
+        // goes through, so nothing of the story is lost by it.
+        void Relanguage(GameLanguage wanted)
+        {
+            var bag = new DiagnosticBag();
+            LocalizedContent? opened = LocalizedContent.Open(packDirectory, wanted, bag);
+
+            foreach (Diagnostic diagnostic in bag.Items)
+            {
+                Log.Report(diagnostic);
+            }
+
+            localized?.Dispose();
+            localized = opened;
+            language = wanted;
+
+            archives.Localization = opened;
+            sounds.Forget();
+            fonts.Forget();
+
+            api.Animations.Language = wanted.Prefix;
+
+            strings = GameStrings.Open(archives);
+            words = UiText.Of(wanted, opened);
+
+            if (api.Sidney is { } machine)
+            {
+                machine.Library = Game.Sidney.SidneyLibrary.Open(archives);
+                machine.Search = Game.Sidney.SidneySearch.Open(archives);
+                machine.Names = strings;
+                machine.Language = wanted.Code;
+            }
+
+            if (hud is not null)
+            {
+                hud.Names = strings;
+                hud.Text = words;
+            }
+
+            if (screens is not null)
+            {
+                screens.Names = strings;
+                screens.Text = words;
+            }
+
+            front.Text = words;
+
+            if (pages is not null)
+            {
+                pages.Text = words;
+            }
+
+            Log.Info(
+                $"Language: now {wanted.Name}; {words.Count} interface phrase(s) from "
+                + $"{words.Source}, {strings.Count} names from {strings.File}");
+
+            relanguage = true;
+        }
 
         void Apply(Settings chosen)
         {
@@ -1199,9 +1310,8 @@ public static class Application
             // same voices would reasonably conclude the row is broken.
             if (!string.Equals(chosen.Language, settings.Language, StringComparison.Ordinal))
             {
-                Log.Info(
-                    $"Language: {GameLanguage.Of(chosen.Language).Name} chosen; it takes "
-                    + "effect at the next start.");
+                settings = chosen;
+                Relanguage(GameLanguage.Of(chosen.Language));
             }
 
             settings = chosen;
@@ -2525,7 +2635,7 @@ public static class Application
                 room, movies, hud, Cut, api, screens, Icon, CloseUp, VerbIcon, Artwork,
                 burning, sidney,
                 map, binoculars, api.State, console,
-                front, pages, Apply, args, strings, journal);
+                front, pages, Apply, Relanguaged, args, strings, journal);
 
             result = exit.Code;
 
@@ -2673,6 +2783,7 @@ public static class Application
         }
 
         audio?.Dispose();
+        localized?.Dispose();
 
         // What a temporal filter would read. Reported rather than drawn: a motion vector is
         // not visible in the picture and is wrong in ways that look plausible, so the only
@@ -3554,6 +3665,12 @@ public static class Application
     /// <param name="front">The menu, which Escape opens.</param>
     /// <param name="pages">What draws it, or null when there is no font to draw with.</param>
     /// <param name="apply">What to do with a setting the moment it changes.</param>
+    /// <param name="relanguaged">
+    /// Asks whether the language was changed since it was last asked, and forgets that it
+    /// was. The room is loaded again when it says yes: everything read through the pack has
+    /// already been swapped, and what is left is the pictures with words painted into them,
+    /// which are uploaded when their room loads.
+    /// </param>
     /// <param name="options">The command line, for the debugging switches.</param>
     /// <param name="strings">
     /// What the game calls places and times, for the corner of the screen.
@@ -3598,6 +3715,7 @@ public static class Application
         FrontEnd front,
         MenuPage? pages,
         Action<Settings> apply,
+        Func<bool> relanguaged,
         string[] options,
         GameStrings strings,
         Game.Story.Journal journal)
@@ -4152,6 +4270,24 @@ public static class Application
                 if (chose is FrontEndOutcome.Quit)
                 {
                     break;
+                }
+
+                // The language moved while the menu was up. Everything read through the
+                // pack has already been swapped; what is left is the pictures, and a
+                // texture is uploaded when its room loads — so the room loads again. The
+                // same door a restored save goes through, which keeps the story, the
+                // inventory and where the player is standing.
+                if (relanguaged())
+                {
+                    if (story.Location is { Length: > 0 } again)
+                    {
+                        Log.Info($"Language: loading {again} again for it.");
+
+                        update.Cancel();
+                        renderer.SetOverlay(null);
+
+                        return new RoomExit(0, again);
+                    }
                 }
 
                 // Whatever the interface last drew belonged to the menu.
@@ -5707,6 +5843,11 @@ public static class Application
 
         int drawn = 0;
 
+        // Which slider row a held pointer grabbed, and whether it was held last frame. A
+        // drag has to have grabbed something, and what it grabbed is decided once.
+        int grabbed = -1;
+        bool heldLast = false;
+
         // How long the last frame took, which is all the page needs to slide rather than
         // jump. Read here rather than by the page itself, because reading the clock outside
         // the platform layer is what ADR 0004 forbids and a menu page is not the platform
@@ -5743,7 +5884,7 @@ public static class Application
             // The list down the side, and which of it is highlighted. Only on the settings
             // screen: the title screen, the pause menu and the save slots are each a single
             // list and a sidebar over one list is a margin.
-            pages.Sections = front.OnSettings ? Aside : [];
+            pages.Sections = front.OnSettings ? Aside(front) : [];
             pages.Section = front.Section;
 
             IReadOnlyList<MenuItem> items = front.Items;
@@ -5851,11 +5992,29 @@ public static class Application
                 pages.Wheel(window.ScrollDelta);
             }
 
+            // What a drag grabbed, decided on the edge of the press and held until the
+            // button comes up. Without it a drag moved whichever row the pointer had last
+            // hovered, so pressing a tab in the sidebar with a volume row under the pointer
+            // set that volume to nought on the way to the other page.
+            bool holding = window.IsHeld(Platform.PointerButton.Primary);
+
+            if (holding && !heldLast)
+            {
+                grabbed = pages.Grabbed(pointer, items);
+            }
+            else if (!holding)
+            {
+                grabbed = -1;
+            }
+
+            heldLast = holding;
+
             if (window.WasClicked(Platform.PointerButton.Primary))
             {
                 action = pages.Click(pointer, items);
             }
-            else if (window.IsDragging && pages.Drag(pointer, items) is { Happened: true } dragged)
+            else if (window.IsDragging &&
+                pages.Drag(pointer, items, grabbed) is { Happened: true } dragged)
             {
                 // Held rather than clicked: a volume is set by ear, which means hearing it
                 // move rather than hearing where it landed.
@@ -5962,8 +6121,10 @@ public static class Application
     /// every section, so putting it in the one part of the screen that does not change is
     /// where it belongs. Escape does it too, for anybody who would rather not aim.
     /// </remarks>
-    private static readonly MenuSection[] Aside =
-        [.. FrontEnd.Sections, new MenuSection("back", "Back")];
+    /// <param name="front">The front end, for what its sections are called.</param>
+    /// <returns>The sections and the way out.</returns>
+    private static MenuSection[] Aside(FrontEnd front) =>
+        [.. front.Tabs, new MenuSection("back", front.Text.Say("menu.back", "Back"))];
 
     /// <summary>
     /// Puts the page where it does not cover what is behind it.
@@ -6171,7 +6332,10 @@ public static class Application
                 hint.Film(
                     saying ? movies.Caption : null,
                     saying ? movies.Speaker : null,
-                    skipping ? "Hold the mouse button or press Enter to skip" : null,
+                    skipping
+                        ? hint.Text.Say(
+                            "film.skip", "Hold the mouse button or press Enter to skip")
+                        : null,
                     (float)(held / HoldToSkipFilm),
                     window.FramebufferWidth,
                     window.FramebufferHeight);

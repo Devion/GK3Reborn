@@ -280,9 +280,81 @@ public sealed class ContentPackStage
                 0,
                 volume,
                 Cache: $"localtextures/{code}"));
+
+            // The port's own interface in this language, written out of the assembly a
+            // moment ago by InterfaceWords. It is the one thing in a language pack that
+            // GK3 never had a file for: the settings screen, the toolbar and the ninety
+            // verbs the original drew as pictures.
+            plan.Add(new(
+                RebarnKind.Manifest,
+                $"build/interface/{code}",
+                null,
+                false,
+                0,
+                volume,
+                "interface.json"));
         }
 
         return plan;
+    }
+
+    /// <summary>
+    /// Writes each language's interface words where the plan expects to find them.
+    /// </summary>
+    /// <param name="workspace">The content workspace root.</param>
+    /// <param name="plan">The plan about to be packed.</param>
+    /// <returns>How many languages were written.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>One source, two places it is read from.</b> The words live in the engine's own
+    /// assets and are carried inside the assembly, so a player with no packs at all still
+    /// has every language the port ships. They are also written into each language's
+    /// volume, so a translation can be corrected — or a language nobody has built yet
+    /// added — by editing a pack rather than by rebuilding the game.
+    /// </para>
+    /// <para>
+    /// Written into <c>build/</c> rather than into <c>enhanced/</c> because it is a
+    /// generated file and <c>enhanced/</c> is where the hand-made things live. That
+    /// distinction is not decorative: <c>enhanced/localtextures</c> is hand-curated and a
+    /// stage that wrote into it once put thirty-four deliberately deleted pictures back.
+    /// </para>
+    /// </remarks>
+    public int WriteInterfaceWords(string workspace, IReadOnlyList<PackKind> plan)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspace);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        int written = 0;
+
+        foreach (GK3Reborn.Content.GameLanguage language in GK3Reborn.Content.GameLanguage.Known)
+        {
+            string code = language.FileCode;
+            string source = $"build/interface/{code}";
+
+            if (!plan.Any(kind => string.Equals(kind.Source, source, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            if (GK3Reborn.UI.UiText.CarriedBytes(language.Code) is not { Length: > 0 } bytes)
+            {
+                _log($"Interface: nothing written for {language.Name}; the port carries no "
+                    + "words for it.");
+
+                continue;
+            }
+
+            string into = Path.Combine(
+                workspace, "build", "interface", code);
+
+            Directory.CreateDirectory(into);
+            File.WriteAllBytes(
+                Path.Combine(into, GK3Reborn.UI.UiText.FileName), bytes);
+
+            written++;
+        }
+
+        return written;
     }
 
     /// <summary>Encodes and packs.</summary>
@@ -315,6 +387,12 @@ public sealed class ContentPackStage
 
         IReadOnlyList<PackKind> kinds = plan ?? DefaultPlan;
         string encoder = texconv ?? FindTexconv(workspace);
+
+        // Before anything is globbed, because what it writes is what the plan then finds.
+        if (WriteInterfaceWords(workspace, kinds) is > 0 and int languages)
+        {
+            _log($"Interface: {languages} language(s) of the port's own words");
+        }
 
         // A size for each texture rather than one for each kind, worked out from the world
         // area it covers. It applies to every channel, because a normal map for a texture

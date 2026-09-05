@@ -787,6 +787,47 @@ public sealed class MenuPageTests
     }
 
     [Fact]
+    public void A_drag_moves_the_bar_it_grabbed_and_no_other()
+    {
+        // Reported: with a volume row under the pointer, pressing a tab in the sidebar set
+        // that volume to nought on the way to the other page. The drag was reading the row
+        // the pointer had last *hovered* rather than the row the press had grabbed, and the
+        // sidebar is left of the bar, so the fraction under the press was zero.
+        MenuPage page = Page();
+        IReadOnlyList<MenuItem> items = Items();
+
+        page.Sections = [new MenuSection("audio", "Sound"), new MenuSection("back", "Back")];
+        page.Build("Title", items, 800, 600, Vector2.Zero);
+
+        float y = Enumerable.Range(0, 600)
+            .First(row => page.Click(new Vector2(400, row), items).Id == "music");
+
+        // Hovering picks the row, which is what put the slider under Index in the first
+        // place — and is correct on its own.
+        page.Build("Title", items, 800, 600, new Vector2(400, y));
+
+        int grabbed = page.Grabbed(new Vector2(400, y), items);
+
+        Assert.True(grabbed >= 0, "a press on the bar grabbed nothing");
+        Assert.Equal("music", page.Drag(new Vector2(400, y), items, grabbed).Id);
+
+        // And a press that landed anywhere else grabs nothing, so the drag that follows it
+        // moves nothing — whatever the pointer was hovering a moment before.
+        foreach (Vector2 elsewhere in new[]
+        {
+            new Vector2(4, y),          // the sidebar, which is where the tabs are
+            new Vector2(400, 4),        // the title
+            new Vector2(796, 596),      // outside the panel altogether
+        })
+        {
+            int nothing = page.Grabbed(elsewhere, items);
+
+            Assert.Equal(-1, nothing);
+            Assert.False(page.Drag(elsewhere, items, nothing).Happened);
+        }
+    }
+
+    [Fact]
     public void The_page_stays_inside_the_window()
     {
         MenuPage page = Page();

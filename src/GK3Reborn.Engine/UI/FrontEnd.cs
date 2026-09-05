@@ -188,6 +188,16 @@ public sealed class FrontEnd
         (3840, 2160),
     ];
 
+    /// <summary>
+    /// The port's own words, in the language the game is being played in.
+    /// </summary>
+    /// <remarks>
+    /// Set by the host from the language pack. Left as English by every test and by a run
+    /// with no pack, which is the fallback each call site carries anyway — see
+    /// <see cref="UiText"/>.
+    /// </remarks>
+    public UiText Text { get; set; } = UiText.English;
+
     /// <summary>Creates a front end over some settings.</summary>
     /// <param name="settings">What the player has chosen so far.</param>
     /// <param name="inGame">Whether there is a room to go back to.</param>
@@ -240,26 +250,44 @@ public sealed class FrontEnd
     /// The settings screen's sections, in the order they are listed down its side.
     /// </summary>
     /// <remarks>
-    /// Picture first because it is what most people came for, Controls last because it is
-    /// the one people set once. Sound sits in the middle rather than at the end, where the
-    /// original put it, on the grounds that a volume is the setting people come back to.
+    /// General first: it is the language, the subtitles, the captions and what the game
+    /// will do for a player who is stuck, which is the section somebody opens the settings
+    /// for before they have decided anything about the picture. Picture next because it is
+    /// what most people came for, Controls last because it is the one people set once.
+    /// Sound in the middle rather than at the end, where the original put it, on the
+    /// grounds that a volume is the setting people come back to.
     /// </remarks>
     public static IReadOnlyList<MenuSection> Sections { get; } =
     [
+        new("gameplay", "General"),
         new("video", "Picture"),
         new("display", "Display"),
         new("audio", "Sound"),
-        new("gameplay", "Playing"),
         new("controls", "Controls"),
+    ];
+
+    /// <summary>
+    /// The same sections, named in the player's own language.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Sections"/> stays as it is because its identifiers are what a click
+    /// answers to and what the tests address a section by; only the words move.
+    /// </remarks>
+    public IReadOnlyList<MenuSection> Tabs =>
+    [
+        .. Sections.Select(section => section with
+        {
+            Text = Text.Say("settings.section." + section.Id, section.Text),
+        }),
     ];
 
     /// <summary>Which page each of those sections is.</summary>
     private static readonly FrontEndPage[] SectionPages =
     [
+        FrontEndPage.Gameplay,
         FrontEndPage.Video,
         FrontEndPage.Display,
         FrontEndPage.Audio,
-        FrontEndPage.Gameplay,
         FrontEndPage.Controls,
     ];
 
@@ -307,12 +335,13 @@ public sealed class FrontEnd
     /// </remarks>
     public string Title => Page switch
     {
+        // The game's own name is not translated, because it is a name.
         FrontEndPage.Main => InGame
-            ? "Paused"
+            ? Text.Say("menu.title.paused", "Paused")
             : Illustrated ? string.Empty : "Gabriel Knight 3",
-        FrontEndPage.Save => "Save Game",
-        FrontEndPage.Load => "Restore Game",
-        _ => "Settings",
+        FrontEndPage.Save => Text.Say("menu.title.save", "Save Game"),
+        FrontEndPage.Load => Text.Say("menu.title.load", "Restore Game"),
+        _ => Text.Say("menu.title.settings", "Settings"),
     };
 
     /// <summary>The rows of the page showing.</summary>
@@ -465,7 +494,7 @@ public sealed class FrontEnd
     }
 
     /// <summary>Which section of the settings was last looked at.</summary>
-    private FrontEndPage _lastSection = FrontEndPage.Video;
+    private FrontEndPage _lastSection = FrontEndPage.Gameplay;
 
     /// <summary>Which section has a given name, or -1.</summary>
     private static int IndexOfSection(string id)
@@ -539,14 +568,34 @@ public sealed class FrontEnd
     /// </remarks>
     public string Naming { get; set; } = string.Empty;
 
+    /// <summary>
+    /// A row that is on or off, reading in the player's own language.
+    /// </summary>
+    /// <param name="id">What a click on it answers to.</param>
+    /// <param name="text">What it is called.</param>
+    /// <param name="on">Whether it is on.</param>
+    /// <returns>The row.</returns>
+    /// <remarks>
+    /// <see cref="MenuItem.Toggle"/> writes "On" and "Off" itself, and a record of four
+    /// fields has no business knowing what language the game is in. So every toggle on
+    /// every page comes through here instead — which is also the only place those two
+    /// words are written, where the plain factory had them in one place and the front end
+    /// had no way to reach it.
+    /// </remarks>
+    private MenuItem Toggle(string id, string text, bool on) =>
+        MenuItem.Toggle(id, text, on) with
+        {
+            Value = on ? Text.Say("value.on", "On") : Text.Say("value.off", "Off"),
+        };
+
     private IReadOnlyList<MenuItem> Main() => InGame
 
         // Paused. No intro from here: the player is in the middle of the game, and the row
         // they want first is the one that gives it back to them.
         ? [
-            MenuItem.Button("resume", "Resume"),
-            MenuItem.Button("save", "Save"),
-            MenuItem.Button("load", "Restore"),
+            MenuItem.Button("resume", Text.Say("menu.resume", "Resume")),
+            MenuItem.Button("save", Text.Say("menu.save", "Save")),
+            MenuItem.Button("load", Text.Say("menu.load", "Restore")),
 
             // A room can wedge: an approach walk far longer than anybody will sit through,
             // a script that parked and never came back, a clip on the player that never
@@ -557,22 +606,22 @@ public sealed class FrontEnd
             // So it is a row here rather than a setting: it is a thing done once, to the
             // room the player is stuck in, and the menu is the only place they can still
             // reach. It costs nothing of the story; see SceneUpdate.Unstick.
-            MenuItem.Button("unstick", "Get Unstuck"),
+            MenuItem.Button("unstick", Text.Say("menu.unstick", "Get Unstuck")),
 
-            MenuItem.Button("options", "Settings"),
-            MenuItem.Button("quit", "Leave the Game"),
+            MenuItem.Button("options", Text.Say("menu.options", "Settings")),
+            MenuItem.Button("quit", Text.Say("menu.leave", "Leave the Game")),
         ]
 
         // The original's own five, in its own order. Intro first because it is what the
         // game opens with and somebody who skipped it may want it back.
         : [
-            MenuItem.Button("intro", "Intro"),
-            MenuItem.Button("play", "Play"),
+            MenuItem.Button("intro", Text.Say("menu.intro", "Intro")),
+            MenuItem.Button("play", Text.Say("menu.play", "Play")),
 
-            MenuItem.Button("load", "Restore"),
+            MenuItem.Button("load", Text.Say("menu.load", "Restore")),
 
-            MenuItem.Button("options", "Settings"),
-            MenuItem.Button("quit", "Quit"),
+            MenuItem.Button("options", Text.Say("menu.options", "Settings")),
+            MenuItem.Button("quit", Text.Say("menu.quit", "Quit")),
         ];
 
     /// <summary>
@@ -649,7 +698,7 @@ public sealed class FrontEnd
             }
         }
 
-        rows.Add(MenuItem.Button("back", "Back"));
+        rows.Add(MenuItem.Button("back", Text.Say("menu.back", "Back")));
 
         return rows;
     }
@@ -675,14 +724,15 @@ public sealed class FrontEnd
     {
         string name = slot switch
         {
-            SaveStore.QuickSlot => "Quick save",
-            SaveStore.AutoSlot => "Autosave",
-            _ when IsNumbered(slot) => "Slot " + slot.TrimStart('0'),
+            SaveStore.QuickSlot => Text.Say("save.quick", "Quick save"),
+            SaveStore.AutoSlot => Text.Say("save.auto", "Autosave"),
+            _ when IsNumbered(slot) =>
+                Text.Say("save.slot", "Slot {0}", slot.TrimStart('0')),
 
             // A game the 1999 original wrote, brought across under its own file name.
             // Saying so is worth a word: it is why the row is there and not numbered.
             _ when slot.StartsWith("gk3-", StringComparison.OrdinalIgnoreCase) =>
-                "Original save",
+                Text.Say("save.original", "Original save"),
 
             // Anything else somebody has put in the folder, under whatever they called it.
             _ => slot,
@@ -690,7 +740,7 @@ public sealed class FrontEnd
 
         if (Written(slot) is not { } save)
         {
-            return name + "  -  empty";
+            return name + Text.Say("save.empty", "  -  empty");
         }
 
         string called = save.Title is { Length: > 0 } titled ? titled : save.Summary;
@@ -818,14 +868,17 @@ public sealed class FrontEnd
     {
         List<MenuItem> rows =
         [
-            MenuItem.Heading("Lighting"),
-            MenuItem.Choice("picture", "Lighting", Describe(Settings.Picture)),
+            MenuItem.Heading(Text.Say("picture.lighting", "Lighting")),
+            MenuItem.Choice(
+                "picture", Text.Say("picture.lighting", "Lighting"), Describe(Settings.Picture)),
 
             // Dead with no rays, because there is nothing for it to take away then: the
             // bake is the room's lighting at that tier and the rig only reaches the people
             // standing in it. A row that silently did nothing would be worse.
-            MenuItem.Toggle(
-                "realistic", "Only real light sources", Settings.RealisticLighting) with
+            Toggle(
+                "realistic",
+                Text.Say("picture.realistic", "Only real light sources"),
+                Settings.RealisticLighting) with
             {
                 Enabled = Settings.Quality != RayTracingQuality.None,
             },
@@ -836,39 +889,61 @@ public sealed class FrontEnd
             // What the player cannot find out by trying it in one room: the rooms this
             // changes most are the ones the artists were propping up hardest, and a room
             // going dark is the setting working rather than failing.
-            rows.Add(MenuItem.Label(
-                "The artists' fills, ambients and bounces are switched off. Rooms lit " +
-                "mostly by them get darker."));
+            rows.Add(MenuItem.Label(Text.Say(
+                "picture.realistic.note",
+                "The artists' fills, ambients and bounces are switched off. Rooms lit "
+                + "mostly by them get darker.")));
         }
 
         rows.AddRange(
         [
-            MenuItem.Heading("Reflections"),
+            MenuItem.Heading(Text.Say("picture.reflections", "Reflections")),
 
-            MenuItem.Toggle(
-                "floorreflect", "Floors reflect the room", Settings.FloorReflections),
+            Toggle(
+                "floorreflect",
+                Text.Say("picture.floorreflect", "Floors reflect the room"),
+                Settings.FloorReflections),
 
             // A multiplier rather than a percentage, because one is the physical answer and
             // the row is about departing from it. "50%" on a slider whose default is the
             // middle reads as half of something; "1.0x" reads as what it is.
             MenuItem.Slider(
                 "reflectivity",
-                "How strongly",
+                Text.Say("picture.reflectivity", "How strongly"),
                 Settings.Reflectivity / GK3Reborn.Game.Settings.MostReflective,
                 string.Create(
                     CultureInfo.InvariantCulture, $"{Settings.Reflectivity:F1}x")),
 
-            MenuItem.Heading("Detail"),
-            MenuItem.Toggle("enhanced", "Higher-resolution textures", Settings.EnhancedTextures),
-            MenuItem.Toggle("trees", "Modelled trees", Settings.ModelledTrees),
-            MenuItem.Toggle("terrain", "Reconstructed horizon", Settings.TerrainBackdrop),
-            MenuItem.Toggle("rooms", "Rounded room objects", Settings.ImprovedSceneGeometry),
-            MenuItem.Toggle("rails", "Solid railings and fences", Settings.ThickCutoutCards),
+            MenuItem.Heading(Text.Say("picture.detail", "Detail")),
+
+            Toggle(
+                "enhanced",
+                Text.Say("picture.enhanced", "Higher-resolution textures"),
+                Settings.EnhancedTextures),
+
+            Toggle(
+                "trees", Text.Say("picture.trees", "Modelled trees"), Settings.ModelledTrees),
+
+            Toggle(
+                "terrain",
+                Text.Say("picture.terrain", "Reconstructed horizon"),
+                Settings.TerrainBackdrop),
+
+            Toggle(
+                "rooms",
+                Text.Say("picture.rooms", "Rounded room objects"),
+                Settings.ImprovedSceneGeometry),
+
+            Toggle(
+                "rails",
+                Text.Say("picture.rails", "Solid railings and fences"),
+                Settings.ThickCutoutCards),
 
             // The one thing in this group a player cannot see for themselves: the room
             // standing round them was built from whichever set was chosen when it loaded,
             // and rebuilding it here would mean reloading the scene underneath them.
-            MenuItem.Label("These five take effect at the next door."),
+            MenuItem.Label(
+                Text.Say("picture.detail.note", "These five take effect at the next door.")),
         ]);
 
         rows.AddRange(Upscaling());
@@ -906,30 +981,37 @@ public sealed class FrontEnd
         // teaches somebody the game has settings that do nothing.
         if (RenderBackends.IsPossible(RenderBackend.Direct3D12))
         {
-            rows.Add(MenuItem.Choice("backend", "Graphics API", DescribeBackend()));
+            rows.Add(MenuItem.Choice(
+                "backend", Text.Say("display.backend", "Graphics API"), DescribeBackend()));
         }
 
         rows.AddRange(
         [
-            MenuItem.Choice("window", "Window", Describe(Settings.Display)),
+            MenuItem.Choice(
+                "window", Text.Say("display.window", "Window"), Describe(Settings.Display)),
 
             // Dead rather than explained. A borderless window is the size of the monitor
             // by definition, so there is no size to choose; a row the player cannot land
             // on says that in no words at all, where the sentence it replaces cost three
             // lines of the page.
-            MenuItem.Choice("size", "Resolution", DescribeSize()) with
+            MenuItem.Choice("size", Text.Say("display.size", "Resolution"), DescribeSize()) with
             {
                 Enabled = Settings.Display != WindowMode.BorderlessFullscreen,
             },
 
             MenuItem.Slider(
                 "textsize",
-                "Text size",
+                Text.Say("display.textsize", "Text size"),
                 Fraction(Settings.TextScale, SmallestText, LargestText),
                 DescribeTextScale()),
 
-            MenuItem.Toggle("vsync", "Wait for the display", Settings.VerticalSync),
-            MenuItem.Toggle("hdr", "High dynamic range", Settings.HighDynamicRange),
+            Toggle(
+                "vsync", Text.Say("display.vsync", "Wait for the display"), Settings.VerticalSync),
+
+            Toggle(
+                "hdr",
+                Text.Say("display.hdr", "High dynamic range"),
+                Settings.HighDynamicRange),
         ]);
 
         if (Settings.HighDynamicRange)
@@ -938,38 +1020,46 @@ public sealed class FrontEnd
             // either gave back the colour space or it did not, and a switch shown on over a
             // monitor in SDR mode is the least useful true statement available.
             rows.Add(MenuItem.Label(HighDynamicRangeActive
-                ? "The display took it."
-                : "Asked for, and this display did not offer it."));
+                ? Text.Say("display.hdr.took", "The display took it.")
+                : Text.Say(
+                    "display.hdr.refused",
+                    "Asked for, and this display did not offer it.")));
 
-            rows.Add(MenuItem.Choice("transfer", "Encoding", Describe(Settings.HdrTransfer)));
+            rows.Add(MenuItem.Choice(
+                "transfer",
+                Text.Say("display.transfer", "Encoding"),
+                Describe(Settings.HdrTransfer)));
 
             rows.Add(MenuItem.Slider(
                 "paperwhite",
-                "Paper white",
+                Text.Say("display.paperwhite", "Paper white"),
                 Fraction(Settings.PaperWhiteNits, 80f, 400f),
                 Nits(Settings.PaperWhiteNits)));
 
             rows.Add(MenuItem.Slider(
                 "peak",
-                "Brightest the display goes",
+                Text.Say("display.peak", "Brightest the display goes"),
                 Fraction(Settings.PeakNits, 400f, 4000f),
                 Nits(Settings.PeakNits)));
 
             rows.Add(MenuItem.Slider(
                 "sun",
-                "Sunlight",
+                Text.Say("display.sun", "Sunlight"),
                 Fraction(Settings.SunNits, 200f, 4000f),
                 Nits(Settings.SunNits)));
 
             rows.Add(MenuItem.Slider(
                 "lights",
-                "Lamps and windows",
+                Text.Say("display.lights", "Lamps and windows"),
                 Fraction(Settings.LightNits, 200f, 4000f),
                 Nits(Settings.LightNits)));
         }
         else
         {
-            rows.Add(MenuItem.Choice("tonemap", "Tone curve", Describe(Settings.ToneMapping)));
+            rows.Add(MenuItem.Choice(
+                "tonemap",
+                Text.Say("display.tonemap", "Tone curve"),
+                Describe(Settings.ToneMapping)));
         }
 
         return rows;
@@ -1003,20 +1093,27 @@ public sealed class FrontEnd
 
         List<MenuItem> rows =
         [
-            MenuItem.Heading("Upscaling"),
-            MenuItem.Choice("upscaler", "Upscaler", Describe(Settings.Upscaler)),
+            MenuItem.Heading(Text.Say("picture.upscaling", "Upscaling")),
+            MenuItem.Choice(
+                "upscaler",
+                Text.Say("picture.upscaler", "Upscaler"),
+                Describe(Settings.Upscaler)),
         ];
 
         if (Settings.Upscaler is UpscalerKind.Fsr or UpscalerKind.Dlss && !files.Present)
         {
-            rows.Add(MenuItem.Label(
-                $"Not installed: copy {List(files.Missing)} into the game's libs folder."));
+            rows.Add(MenuItem.Label(Text.Say(
+                "picture.upscaler.missing",
+                "Not installed: copy {0} into the game's libs folder.",
+                List(files.Missing))));
         }
         else if (Settings.Upscaler == UpscalerKind.Dlss && !DlssAvailable)
         {
             // Installed and refused, which is a different sentence: there is nothing to
             // download and nothing the player did wrong.
-            rows.Add(MenuItem.Label("Installed, and this card cannot run it: DLSS needs a GeForce RTX."));
+            rows.Add(MenuItem.Label(Text.Say(
+                "picture.upscaler.wrongcard",
+                "Installed, and this card cannot run it: DLSS needs a GeForce RTX.")));
         }
 
         if (Settings.Upscaler != UpscalerKind.Off)
@@ -1024,7 +1121,9 @@ public sealed class FrontEnd
             bool pinned = Settings.Upscaler == UpscalerKind.Dlss && Settings.NeuralUplift;
 
             rows.Add(MenuItem.Choice(
-                "ratio", "Quality", Describe(Settings.UpscalerQuality)) with
+                "ratio",
+                Text.Say("picture.ratio", "Quality"),
+                Describe(Settings.UpscalerQuality)) with
             {
                 Enabled = !pinned,
             });
@@ -1033,20 +1132,22 @@ public sealed class FrontEnd
             // network will not scale, not because the setting stopped working.
             if (pinned)
             {
-                rows.Add(MenuItem.Label(
-                    "Neural uplift draws at the window's own size; it reworks the picture " +
-                    "rather than enlarging it."));
+                rows.Add(MenuItem.Label(Text.Say(
+                    "picture.ratio.pinned",
+                    "Neural uplift draws at the window's own size; it reworks the picture "
+                    + "rather than enlarging it.")));
             }
 
-            rows.Add(MenuItem.Label(Settings.Upscaling.Describe(Window.Width, Window.Height)));
+            rows.Add(MenuItem.Label(Between(Settings.Upscaling)));
 
-            rows.Add(MenuItem.Toggle("sharpen", "Sharpen", Settings.Sharpening));
+            rows.Add(Toggle(
+                "sharpen", Text.Say("picture.sharpen", "Sharpen"), Settings.Sharpening));
 
             if (Settings.Sharpening)
             {
                 rows.Add(MenuItem.Slider(
                     "sharpness",
-                    "How much",
+                    Text.Say("picture.sharpness", "How much"),
                     Settings.Sharpness,
                     MenuPage.Percent(Settings.Sharpness)));
             }
@@ -1055,10 +1156,14 @@ public sealed class FrontEnd
         if (Settings.Upscaler == UpscalerKind.Dlss)
         {
             rows.Add(MenuItem.Choice(
-                "preset", "Model", DlssPresets.Describe(Settings.DlssPreset)));
+                "preset",
+                Text.Say("picture.preset", "Model"),
+                DescribePreset(Settings.DlssPreset)));
 
-            rows.Add(MenuItem.Toggle(
-                "reconstruction", "Ray reconstruction", Settings.RayReconstruction) with
+            rows.Add(Toggle(
+                "reconstruction",
+                Text.Say("picture.reconstruction", "Ray reconstruction"),
+                Settings.RayReconstruction) with
             {
                 Enabled = DlssRayReconstruction,
             });
@@ -1069,8 +1174,10 @@ public sealed class FrontEnd
             {
                 rows.Add(MenuItem.Label(
                     DlssRayReconstructionNote is { Length: > 0 } why
-                        ? "Not available: " + why + "."
-                        : "Needs sl.dlss_d.dll and nvngx_dlssd.dll in the libs folder."));
+                        ? Text.Say("picture.reconstruction.no", "Not available: {0}.", why)
+                        : Text.Say(
+                            "picture.reconstruction.missing",
+                            "Needs sl.dlss_d.dll and nvngx_dlssd.dll in the libs folder.")));
             }
 
             rows.AddRange(Neural());
@@ -1084,28 +1191,33 @@ public sealed class FrontEnd
         };
 
         rows.Add(MenuItem.Choice(
-            "generation", "Frame generation", Settings.FrameGeneration.Describe()) with
+            "generation",
+            Text.Say("picture.generation", "Frame generation"),
+            DescribeGeneration(Settings.FrameGeneration)) with
         {
             Enabled = generation,
         });
 
         if (!generation)
         {
-            rows.Add(MenuItem.Label(
-                "Needs FSR or DLSS, and their frame-generation runtime, in the libs folder."));
+            rows.Add(MenuItem.Label(Text.Say(
+                "picture.generation.missing",
+                "Needs FSR or DLSS, and their frame-generation runtime, in the libs folder.")));
         }
         // No line of its own, and neither does the row above. What a card will generate
         // limits the row rather than being written under it: a factor that is not offered
         // needs no sentence explaining that it is not offered, and Reflex comes out of the
         // same bundle the line above already names.
-        rows.Add(MenuItem.Choice("latency", "Low latency", Describe(Settings.Latency)) with
+        rows.Add(MenuItem.Choice(
+            "latency", Text.Say("picture.latency", "Low latency"), Describe(Settings.Latency)) with
         {
             Enabled = LatencyControl,
         });
 
         if (UpscalerRunning is { Length: > 0 })
         {
-            rows.Add(MenuItem.Label("Running: " + UpscalerRunning));
+            rows.Add(MenuItem.Label(
+                Text.Say("picture.running", "Running: {0}", UpscalerRunning)));
         }
 
         return rows;
@@ -1130,7 +1242,8 @@ public sealed class FrontEnd
 
         List<MenuItem> rows =
         [
-            MenuItem.Toggle("neural", "Neural uplift", Settings.NeuralUplift) with
+            Toggle(
+                "neural", Text.Say("picture.neural", "Neural uplift"), Settings.NeuralUplift) with
             {
                 Enabled = installed,
             },
@@ -1138,8 +1251,9 @@ public sealed class FrontEnd
 
         if (!installed)
         {
-            rows.Add(MenuItem.Label(
-                "Needs nvngx_dlssnr.dll in the game's libs folder."));
+            rows.Add(MenuItem.Label(Text.Say(
+                "picture.neural.missing",
+                "Needs nvngx_dlssnr.dll in the game's libs folder.")));
 
             return rows;
         }
@@ -1151,70 +1265,105 @@ public sealed class FrontEnd
 
         rows.Add(MenuItem.Slider(
             "nrstrength",
-            "Strength",
+            Text.Say("picture.nrstrength", "Strength"),
             Settings.NeuralIntensity,
             MenuPage.Percent(Settings.NeuralIntensity)));
 
         rows.Add(MenuItem.Slider(
             "nrtone",
-            "Local contrast",
+            Text.Say("picture.nrtone", "Local contrast"),
             Settings.NeuralLocalTone,
             MenuPage.Percent(Settings.NeuralLocalTone)));
 
         rows.Add(MenuItem.Slider(
             "nrglobal",
-            "Overall tone",
+            Text.Say("picture.nrglobal", "Overall tone"),
             Settings.NeuralGlobalTone,
             MenuPage.Percent(Settings.NeuralGlobalTone)));
 
         rows.Add(MenuItem.Slider(
             "nrstructure",
-            "Fine detail",
+            Text.Say("picture.nrstructure", "Fine detail"),
             Settings.NeuralLocalStructure,
             MenuPage.Percent(Settings.NeuralLocalStructure)));
 
-        rows.Add(MenuItem.Toggle(
-            "nrskinfollow", "Skin follows detail", Settings.NeuralSkinFollowsStructure));
+        rows.Add(Toggle(
+            "nrskinfollow",
+            Text.Say("picture.nrskinfollow", "Skin follows detail"),
+            Settings.NeuralSkinFollowsStructure));
 
         if (!Settings.NeuralSkinFollowsStructure)
         {
             rows.Add(MenuItem.Slider(
                 "nrskin",
-                "Skin detail",
+                Text.Say("picture.nrskin", "Skin detail"),
                 Settings.NeuralSkinStructure,
                 MenuPage.Percent(Settings.NeuralSkinStructure)));
         }
 
-        rows.Add(MenuItem.Toggle("nrskinmask", "Find skin", Settings.NeuralAutoSkinMask));
+        rows.Add(Toggle(
+            "nrskinmask",
+            Text.Say("picture.nrskinmask", "Find skin"),
+            Settings.NeuralAutoSkinMask));
 
         rows.Add(MenuItem.Choice(
-            "nrpreset", "Network", NeuralUplift.Describe(Settings.NeuralPreset)));
+            "nrpreset",
+            Text.Say("picture.nrpreset", "Network"),
+            DescribeNetwork(Settings.NeuralPreset)));
 
         rows.Add(MenuItem.Choice(
-            "nrstyle", "Look", NeuralUplift.Describe(Settings.NeuralStyle)));
+            "nrstyle",
+            Text.Say("picture.nrstyle", "Look"),
+            DescribeNetwork(Settings.NeuralStyle)));
 
         // What the player cannot find out by trying it: a network that ships one set of
         // weights answers both of those rows with the same picture, and there is no way to
         // tell that from a setting that is not working.
-        rows.Add(MenuItem.Label(
-            "Network and look do nothing unless the installed file carries more than one."));
+        rows.Add(MenuItem.Label(Text.Say(
+            "picture.neural.oneweight",
+            "Network and look do nothing unless the installed file carries more than one.")));
 
         return rows;
     }
 
     private IReadOnlyList<MenuItem> Audio() =>
     [
-        MenuItem.Slider("master", "Overall", Settings.MasterVolume, MenuPage.Percent(Settings.MasterVolume)),
-        MenuItem.Slider("music", "Music and cutscenes", Settings.MusicVolume, MenuPage.Percent(Settings.MusicVolume)),
-        MenuItem.Slider("ambience", "Room tone", Settings.AmbienceVolume, MenuPage.Percent(Settings.AmbienceVolume)),
-        MenuItem.Slider("effects", "Effects", Settings.EffectsVolume, MenuPage.Percent(Settings.EffectsVolume)),
-        MenuItem.Slider("dialogue", "Speech", Settings.DialogueVolume, MenuPage.Percent(Settings.DialogueVolume)),
-        MenuItem.Choice("speakers", "Speakers", Describe(Settings.Speakers)),
+        MenuItem.Slider(
+            "master",
+            Text.Say("sound.master", "Overall"),
+            Settings.MasterVolume,
+            MenuPage.Percent(Settings.MasterVolume)),
+
+        MenuItem.Slider(
+            "music",
+            Text.Say("sound.music", "Music and cutscenes"),
+            Settings.MusicVolume,
+            MenuPage.Percent(Settings.MusicVolume)),
+
+        MenuItem.Slider(
+            "ambience",
+            Text.Say("sound.ambience", "Room tone"),
+            Settings.AmbienceVolume,
+            MenuPage.Percent(Settings.AmbienceVolume)),
+
+        MenuItem.Slider(
+            "effects",
+            Text.Say("sound.effects", "Effects"),
+            Settings.EffectsVolume,
+            MenuPage.Percent(Settings.EffectsVolume)),
+
+        MenuItem.Slider(
+            "dialogue",
+            Text.Say("sound.dialogue", "Speech"),
+            Settings.DialogueVolume,
+            MenuPage.Percent(Settings.DialogueVolume)),
+
+        MenuItem.Choice("speakers", Text.Say("sound.speakers", "Speakers"), Describe(Settings.Speakers)),
 
         // Said rather than quietly not done. The device is opened once at startup, and a
         // player who changes this and hears no difference would reasonably conclude the
         // setting is broken. Every other row on this page is heard while it is dragged.
-        MenuItem.Label("Speakers take effect at the next start."),
+        MenuItem.Label(Text.Say("sound.speakers.note", "Speakers take effect at the next start.")),
     ];
 
     /// <summary>
@@ -1245,48 +1394,77 @@ public sealed class FrontEnd
         // Offered even when there is only English to offer, with the sentence under it
         // saying why. A row that appears when a second pack is dropped in and is absent
         // until then is a row nobody knows to look for.
-        MenuItem.Choice("language", "Language", Describe(Language)),
+        MenuItem.Choice("language", Text.Say("general.language", "Language"), Describe(Language)),
 
         Languages.Count > 1
-            ? MenuItem.Label("Language takes effect at the next start.")
-            : MenuItem.Label(
+            ? MenuItem.Label(Text.Say(
+                "general.language.note", "Language takes effect at the next start."))
+            : MenuItem.Label(Text.Say(
+                "general.language.only",
                 "Only English is installed. Other languages need their own pack beside "
-                + "the game."),
+                + "the game.")),
 
         MenuItem.Slider(
             "hurry",
-            "Hurrying pace",
+            Text.Say("general.hurry", "Hurrying pace"),
             (Settings.HurryFactor - 1f) / 3f,
             string.Create(CultureInfo.InvariantCulture, $"{Settings.HurryFactor:F1}x")),
 
-        MenuItem.Toggle("glide", "Camera travels between angles", Settings.CameraGlide),
-        MenuItem.Toggle("cinematics", "Let the story move the camera", Settings.Cinematics),
+        Toggle(
+            "glide",
+            Text.Say("general.glide", "Camera travels between angles"),
+            Settings.CameraGlide),
+
+        Toggle(
+            "cinematics",
+            Text.Say("general.cinematics", "Let the story move the camera"),
+            Settings.Cinematics),
 
         // Named for what it does rather than for what it is for. "Free camera" is a word
         // somebody already looking for it will find, and "leave the room" is the half that
         // tells everybody else what turning it on will look like.
-        MenuItem.Toggle("freecamera", "Free camera (may leave the room)", Settings.FreeCamera),
+        Toggle(
+            "freecamera",
+            Text.Say("general.freecamera", "Free camera (may leave the room)"),
+            Settings.FreeCamera),
 
-        MenuItem.Toggle("captions", "Write out what is said", Settings.Captions),
+        Toggle(
+            "captions", Text.Say("general.captions", "Write out what is said"), Settings.Captions),
 
         // Its own row, immediately under the one it pairs with, because the two are
         // different decisions: a caption is small and beside whoever is speaking, and a
         // subtitle is across the bottom of a full-screen film. Somebody may well want one
         // and not the other. The parallel wording is what says they are related.
-        MenuItem.Toggle(
-            "filmcaptions", "Write out what is said in films", Settings.MovieSubtitles),
-        MenuItem.Toggle("intro", "Play the intro on starting", Settings.PlayIntro),
-        MenuItem.Toggle("eggs", "Easter eggs", Settings.EasterEggs),
+        Toggle(
+            "filmcaptions",
+            Text.Say("general.filmcaptions", "Write out what is said in films"),
+            Settings.MovieSubtitles),
+
+        Toggle(
+            "intro", Text.Say("general.intro", "Play the intro on starting"), Settings.PlayIntro),
+
+        Toggle("eggs", Text.Say("general.eggs", "Easter eggs"), Settings.EasterEggs),
 
         // Named for what it gives rather than for what it is. "Cut content" is what
         // somebody looking for this will search for; the values say what turning it on
         // will actually mean, which "on" and "off" could not.
-        MenuItem.Choice("restored", "Cut content", Describe(Settings.RestoredContent)),
+        MenuItem.Choice(
+            "restored", Text.Say("general.restored", "Cut content"), Describe(Settings.RestoredContent)),
 
-        MenuItem.Heading("Made easier"),
-        MenuItem.Toggle("moustache", "Skip the cat-hair moustache", Settings.AlwaysWearsMoustache),
-        MenuItem.Toggle("armour", "Gabriel cannot be killed", Settings.PlotArmour),
-        MenuItem.Toggle("catch", "Gabriel catches the pendulum", Settings.CatchesPendulum),
+        MenuItem.Heading(Text.Say("general.easier", "Made easier")),
+
+        Toggle(
+            "moustache",
+            Text.Say("general.moustache", "Skip the cat-hair moustache"),
+            Settings.AlwaysWearsMoustache),
+
+        Toggle(
+            "armour", Text.Say("general.armour", "Gabriel cannot be killed"), Settings.PlotArmour),
+
+        Toggle(
+            "catch",
+            Text.Say("general.catch", "Gabriel catches the pendulum"),
+            Settings.CatchesPendulum),
     ];
 
     /// <summary>
@@ -1312,14 +1490,16 @@ public sealed class FrontEnd
 
         List<MenuItem> rows =
         [
-            MenuItem.Heading("Gamepad"),
+            MenuItem.Heading(Text.Say("controls.gamepad", "Gamepad")),
 
-            MenuItem.Toggle(
-                "padcursor", "Left stick moves the pointer", Settings.GamepadCursor),
+            Toggle(
+                "padcursor",
+                Text.Say("controls.padcursor", "Left stick moves the pointer"),
+                Settings.GamepadCursor),
 
             MenuItem.Slider(
                 "padspeed",
-                "How fast",
+                Text.Say("controls.padspeed", "How fast"),
                 Fraction(
                     Settings.GamepadCursorSpeed,
                     GK3Reborn.Game.Settings.SlowestCursor,
@@ -1338,52 +1518,56 @@ public sealed class FrontEnd
         // concludes the game has no gamepad support.
         if (!HasGamepad)
         {
-            rows.Add(MenuItem.Label("No gamepad is plugged in. These can still be set."));
+            rows.Add(MenuItem.Label(Text.Say(
+                "controls.nopad", "No gamepad is plugged in. These can still be set.")));
         }
 
-        rows.Add(MenuItem.Heading("Pointer, on the pad"));
+        rows.Add(MenuItem.Heading(Text.Say("controls.pointer", "Pointer, on the pad")));
 
         foreach (PointerButton pointer in Enum.GetValues<PointerButton>())
         {
             rows.Add(MenuItem.Binding(
                 "ptr:" + pointer,
-                InputBindings.Name(pointer),
+                Named(pointer),
                 Waiting("ptr:" + pointer)
-                    ? "Press a button…"
-                    : GamepadButtons.Describe(bound.Button(pointer))));
+                    ? Text.Say("controls.pressbutton", "Press a button…")
+                    : Named(bound.Button(pointer))));
         }
 
-        rows.Add(MenuItem.Heading("Keys"));
+        rows.Add(MenuItem.Heading(Text.Say("controls.keys", "Keys")));
 
         foreach (CameraAction action in InputBindings.Actions)
         {
             rows.Add(MenuItem.Binding(
                 "key:" + action,
-                InputBindings.Name(action),
-                Waiting("key:" + action) ? "Press a key…" : bound.Describe(action)));
+                Named(action),
+                Waiting("key:" + action)
+                    ? Text.Say("controls.presskey", "Press a key…")
+                    : Bound(bound, action)));
         }
 
-        rows.Add(MenuItem.Heading("Buttons, on the pad"));
+        rows.Add(MenuItem.Heading(Text.Say("controls.buttons", "Buttons, on the pad")));
 
         foreach (CameraAction action in InputBindings.Actions)
         {
             rows.Add(MenuItem.Binding(
                 "pad:" + action,
-                InputBindings.Name(action),
+                Named(action),
                 Waiting("pad:" + action)
-                    ? "Press a button…"
-                    : GamepadButtons.Describe(bound.Button(action))));
+                    ? Text.Say("controls.pressbutton", "Press a button…")
+                    : Named(bound.Button(action))));
         }
 
-        rows.Add(MenuItem.Button("bindreset", "Put every control back"));
+        rows.Add(MenuItem.Button(
+            "bindreset", Text.Say("controls.reset", "Put every control back")));
 
         // What the player cannot find out by trying it: which way out of a rebind there is,
         // and that there is one at all. Everything else on this screen is a row that changes
         // when it is chosen; this is the one place the screen stops and waits.
         if (Listening)
         {
-            rows.Add(MenuItem.Label(
-                "Escape leaves it alone. Backspace clears it."));
+            rows.Add(MenuItem.Label(Text.Say(
+                "controls.listening", "Escape leaves it alone. Backspace clears it.")));
         }
 
         return rows;
@@ -1780,7 +1964,7 @@ public sealed class FrontEnd
     private string DescribeSize() =>
         Settings.Display == WindowMode.BorderlessFullscreen ||
         Settings.DisplayWidth <= 0 || Settings.DisplayHeight <= 0
-            ? "The monitor's own"
+            ? Text.Say("display.size.monitor", "The monitor's own")
             : string.Create(
                 CultureInfo.InvariantCulture,
                 $"{Settings.DisplayWidth}x{Settings.DisplayHeight}");
@@ -1812,8 +1996,10 @@ public sealed class FrontEnd
         low + ((high - low) * Level(Fraction(current, low, high), action));
 
     /// <summary>How a luminance reads.</summary>
-    private static string Nits(float value) =>
-        string.Create(CultureInfo.InvariantCulture, $"{value:F0} nits");
+    private string Nits(float value) => Text.Say(
+        "display.nits",
+        "{0} nits",
+        value.ToString("F0", CultureInfo.InvariantCulture));
 
     /// <summary>The next index round a list of a given length, either way.</summary>
     private static int Wrapped(int at, int length) => ((at % length) + length) % length;
@@ -1824,11 +2010,13 @@ public sealed class FrontEnd
     /// it reads like a machine wrote it, which on a page asking somebody to go and download
     /// three files is exactly the wrong impression.
     /// </remarks>
-    private static string List(IReadOnlyList<string> names) => names.Count switch
+    private string List(IReadOnlyList<string> names) => names.Count switch
     {
-        0 => "nothing",
+        0 => Text.Say("picture.upscaler.nothing", "nothing"),
         1 => names[0],
-        _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
+        _ => string.Join(Text.Say("list.comma", ", "), names.Take(names.Count - 1))
+            + Text.Say("list.and", " and ")
+            + names[^1],
     };
 
     /// <summary>Where a slider ends up: dragged outright, or stepped a twentieth.</summary>
@@ -1878,6 +2066,115 @@ public sealed class FrontEnd
         return all[next < 0 ? next + all.Count : next];
     }
 
+    /// <summary>
+    /// The two sizes the picture is drawn between.
+    /// </summary>
+    /// <param name="plan">What is upscaling, and by how much.</param>
+    /// <returns>The reading, as "1280x720 to 1920x1080".</returns>
+    /// <remarks>
+    /// The numbers are numbers; the word between them is not, and the plan itself belongs
+    /// to the renderer, which has no idea what language the game is in.
+    /// </remarks>
+    private string Between(UpscalePlan plan)
+    {
+        string both = plan.Describe(Window.Width, Window.Height);
+
+        return both.Split(" to ") is [string drawn, string shown]
+            ? Text.Say("picture.upscaler.sizes", "{0} to {1}", drawn, shown)
+            : both;
+    }
+
+    /// <summary>
+    /// What one of NVIDIA's presets is called on the page.
+    /// </summary>
+    /// <param name="preset">Nought for the runtime's own choice, else 1 for A and up.</param>
+    /// <returns>The label.</returns>
+    /// <remarks>
+    /// The letter is a letter. What is around it is a word — "Preset" — and a note out of
+    /// the runtime's own release notes, and both read as English on a French page.
+    /// </remarks>
+    private string DescribePreset(int preset)
+    {
+        if (preset is <= 0 or > DlssPresets.Highest)
+        {
+            return Text.Say("picture.preset.runtime", "Whatever the runtime prefers");
+        }
+
+        string letter = string.Create(
+            CultureInfo.InvariantCulture, $"{(char)('A' + preset - 1)}");
+
+        string note = preset switch
+        {
+            10 => Text.Say("picture.preset.transformer", " (transformer)"),
+            11 => Text.Say("picture.preset.best", " (transformer, best picture)"),
+            12 => Text.Say("picture.preset.steadiest", " (transformer, steadiest)"),
+            13 => Text.Say("picture.preset.fastest", " (transformer, fastest)"),
+            _ => string.Empty,
+        };
+
+        return Text.Say("picture.preset.letter", "Preset {0}", letter) + note;
+    }
+
+    /// <summary>What one of the neural network's weights is called on the page.</summary>
+    /// <param name="ordinal">Nought for the network's own choice, else which one.</param>
+    /// <returns>The label.</returns>
+    private string DescribeNetwork(int ordinal) => ordinal <= 0
+        ? Text.Say("picture.nrpreset.network", "Whatever the network prefers")
+        : Text.Say(
+            "picture.nrpreset.number",
+            "Number {0}",
+            ordinal.ToString(CultureInfo.InvariantCulture));
+
+    /// <summary>How many frames are generated for each drawn one.</summary>
+    /// <param name="generation">The setting.</param>
+    /// <returns>The label, which is a multiplier or the word for none.</returns>
+    private string DescribeGeneration(FrameGeneration generation) =>
+        generation == FrameGeneration.Off
+            ? Text.Say("value.off", "Off")
+            : generation.Describe();
+
+    /// <summary>What one of the game's actions is called on the Controls page.</summary>
+    /// <param name="action">The action.</param>
+    /// <returns>Its name.</returns>
+    /// <remarks>
+    /// Keyed on the action rather than written out here, so a new one falls back to the
+    /// English <see cref="InputBindings.Name(CameraAction)"/> already gives it rather than
+    /// to its enum spelling. The same shape the verbs use.
+    /// </remarks>
+    private string Named(CameraAction action) =>
+        Text.Say("action." + action, InputBindings.Name(action));
+
+    /// <summary>What clicking a mouse button means in this game.</summary>
+    private string Named(PointerButton button) =>
+        Text.Say("pointer." + button, InputBindings.Name(button));
+
+    /// <summary>Where a gamepad button is on the pad.</summary>
+    private string Named(GamepadButton button) =>
+        Text.Say("pad." + button, GamepadButtons.Describe(button));
+
+    /// <summary>
+    /// Which keys an action is bound to.
+    /// </summary>
+    /// <param name="bound">The bindings.</param>
+    /// <param name="action">The action.</param>
+    /// <returns>The keys, joined, or a dash where there are none.</returns>
+    /// <remarks>
+    /// <b>Each key separately, not the joined string.</b> <c>InputBindings.Describe</c>
+    /// joins them itself, and a key whose name is a word rather than a legend — Left
+    /// Shift, Page Up, Keypad Enter — has to be translated before the joining rather than
+    /// after. A key whose name is what is printed on it is left alone by having no entry.
+    /// </remarks>
+    private string Bound(InputBindings bound, CameraAction action)
+    {
+        IReadOnlyList<InputKey> keys = bound.Keys(action);
+
+        return keys.Count == 0
+            ? "—"
+            : string.Join(
+                Text.Say("list.comma", ", "),
+                keys.Select(key => Text.Say("key." + key, InputKeys.Describe(key))));
+    }
+
     /// <summary>What a language is called in the menu.</summary>
     /// <remarks>
     /// In itself, and in English beside it where the two differ. Somebody looking for
@@ -1895,45 +2192,49 @@ public sealed class FrontEnd
     /// out of the implementation; "things to look at" is the row telling somebody who has
     /// never read the documentation what turning it on will do to their game.
     /// </remarks>
-    private static string Describe(CutContentTier tier) => tier switch
+    private string Describe(CutContentTier tier) => tier switch
     {
-        CutContentTier.Observation => "Things to look at",
-        CutContentTier.All => "Everything, puzzles included",
-        CutContentTier.Reconstructed => "And objects rebuilt from scratch",
-        _ => "Off",
+        CutContentTier.Observation => Text.Say("general.restored.look", "Things to look at"),
+        CutContentTier.All => Text.Say("general.restored.all", "Everything, puzzles included"),
+        CutContentTier.Reconstructed =>
+            Text.Say("general.restored.rebuilt", "And objects rebuilt from scratch"),
+        _ => Text.Say("value.off", "Off"),
     };
 
-    private static string Describe(PictureQuality quality) => quality switch
+    private string Describe(PictureQuality quality) => quality switch
     {
-        PictureQuality.Original => "As it was",
-        PictureQuality.Improved => "Shadows",
-        PictureQuality.High => "Shadows and shading",
-        _ => "Everything",
+        PictureQuality.Original => Text.Say("picture.lighting.original", "As it was"),
+        PictureQuality.Improved => Text.Say("picture.lighting.improved", "Shadows"),
+        PictureQuality.High => Text.Say("picture.lighting.high", "Shadows and shading"),
+        _ => Text.Say("picture.lighting.everything", "Everything"),
     };
 
-    private static string Describe(WindowMode mode) => mode switch
+    private string Describe(WindowMode mode) => mode switch
     {
-        WindowMode.BorderlessFullscreen => "Borderless, filling the monitor",
-        WindowMode.ExclusiveFullscreen => "Fullscreen",
-        _ => "A window",
+        WindowMode.BorderlessFullscreen =>
+            Text.Say("display.window.borderless", "Borderless, filling the monitor"),
+        WindowMode.ExclusiveFullscreen => Text.Say("display.window.full", "Fullscreen"),
+        _ => Text.Say("display.window.windowed", "A window"),
     };
 
-    private static string Describe(UpscalerKind kind) => kind switch
+    // The two vendors' names are names. What is translated is the third row, which is a
+    // description of what the game itself does.
+    private string Describe(UpscalerKind kind) => kind switch
     {
-        UpscalerKind.Spatial => "Built in",
+        UpscalerKind.Spatial => Text.Say("picture.upscaler.builtin", "Built in"),
         UpscalerKind.Fsr => "FSR (AMD)",
         UpscalerKind.Dlss => "DLSS (NVIDIA)",
-        _ => "Off",
+        _ => Text.Say("value.off", "Off"),
     };
 
-    private static string Describe(UpscalerQuality quality) => quality switch
+    private string Describe(UpscalerQuality quality) => quality switch
     {
-        UpscalerQuality.Native => "Native (anti-aliasing only)",
-        UpscalerQuality.UltraQuality => "Ultra quality",
-        UpscalerQuality.Quality => "Quality",
-        UpscalerQuality.Balanced => "Balanced",
-        UpscalerQuality.Performance => "Performance",
-        _ => "Ultra performance",
+        UpscalerQuality.Native => Text.Say("picture.ratio.native", "Native (anti-aliasing only)"),
+        UpscalerQuality.UltraQuality => Text.Say("picture.ratio.ultraquality", "Ultra quality"),
+        UpscalerQuality.Quality => Text.Say("picture.ratio.quality", "Quality"),
+        UpscalerQuality.Balanced => Text.Say("picture.ratio.balanced", "Balanced"),
+        UpscalerQuality.Performance => Text.Say("picture.ratio.performance", "Performance"),
+        _ => Text.Say("picture.ratio.ultraperformance", "Ultra performance"),
     };
 
     /// <summary>The chosen graphics API, and whether it is the one drawing.</summary>
@@ -1955,11 +2256,11 @@ public sealed class FrontEnd
         RenderBackend chosen = RenderBackends.Resolve(Settings.Backend);
 
         string name = Settings.Backend == RenderBackend.Automatic
-            ? $"Automatic ({Describe(chosen)})"
+            ? Text.Say("display.backend.automatic", "Automatic ({0})", Describe(chosen))
             : Describe(chosen);
 
         return RunningBackend != RenderBackend.Automatic && RunningBackend != chosen
-            ? name + ", next start"
+            ? name + Text.Say("display.backend.nextstart", ", next start")
             : name;
     }
 
@@ -1969,32 +2270,33 @@ public sealed class FrontEnd
         _ => "Vulkan",
     };
 
-    private static string Describe(LatencyMode latency) => latency switch
+    private string Describe(LatencyMode latency) => latency switch
     {
-        LatencyMode.On => "On",
-        LatencyMode.Boost => "On + boost",
-        _ => "Off",
+        LatencyMode.On => Text.Say("value.on", "On"),
+        LatencyMode.Boost => Text.Say("picture.latency.boost", "On + boost"),
+        _ => Text.Say("value.off", "Off"),
     };
 
-    private static string Describe(HdrTransfer transfer) => transfer switch
+    // HDR10 and scRGB are the colour spaces' own names and stay as they are.
+    private string Describe(HdrTransfer transfer) => transfer switch
     {
         HdrTransfer.PerceptualQuantiser => "HDR10",
         HdrTransfer.ExtendedLinear => "scRGB",
-        _ => "Whichever the display prefers",
+        _ => Text.Say("display.transfer.either", "Whichever the display prefers"),
     };
 
-    private static string Describe(ToneMapping curve) => curve switch
+    private string Describe(ToneMapping curve) => curve switch
     {
-        ToneMapping.Reinhard => "Rolled off",
-        ToneMapping.Filmic => "Filmic",
-        _ => "Clipped, as it was",
+        ToneMapping.Reinhard => Text.Say("display.tonemap.rolled", "Rolled off"),
+        ToneMapping.Filmic => Text.Say("display.tonemap.filmic", "Filmic"),
+        _ => Text.Say("display.tonemap.clipped", "Clipped, as it was"),
     };
 
-    private static string Describe(SpeakerLayout layout) => layout switch
+    private string Describe(SpeakerLayout layout) => layout switch
     {
-        SpeakerLayout.Headphones => "Headphones",
-        SpeakerLayout.Stereo21 => "Stereo and a subwoofer",
-        SpeakerLayout.Surround51 => "Surround, 5.1",
-        _ => "Stereo",
+        SpeakerLayout.Headphones => Text.Say("sound.speakers.headphones", "Headphones"),
+        SpeakerLayout.Stereo21 => Text.Say("sound.speakers.stereo21", "Stereo and a subwoofer"),
+        SpeakerLayout.Surround51 => Text.Say("sound.speakers.surround", "Surround, 5.1"),
+        _ => Text.Say("sound.speakers.stereo", "Stereo"),
     };
 }

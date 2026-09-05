@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Audio;
+﻿using GK3Reborn.Formats.Audio;
 using GK3Reborn.Foundation.Diagnostics;
 
 namespace GK3Reborn.Content;
@@ -25,6 +25,16 @@ public sealed class SoundLibrary
     private readonly Func<string, byte[]?> _open;
     private readonly Func<string, bool> _exists;
     private readonly Dictionary<string, WavFile?> _read = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Forgets every sound it has decoded.
+    /// </summary>
+    /// <remarks>
+    /// For the one thing that changes what a name means: the language. Every line in the
+    /// game is a different recording in French, and a cache keyed on the name alone would
+    /// go on answering with the English one for the rest of the session.
+    /// </remarks>
+    public void Forget() => _read.Clear();
 
     /// <summary>Creates a library.</summary>
     /// <param name="archives">The game's archives.</param>

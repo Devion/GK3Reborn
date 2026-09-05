@@ -353,6 +353,15 @@ public sealed class MenuPage
     /// </remarks>
     public IReadOnlyList<MenuSection> Sections { get; set; } = [];
 
+    /// <summary>
+    /// The port's own words, in the language the game is being played in.
+    /// </summary>
+    /// <remarks>
+    /// The page itself is handed everything it draws, so this is here for the one thing it
+    /// is asked to draw without being told: how to skip a film. See <see cref="UiText"/>.
+    /// </remarks>
+    public UiText Text { get; set; } = UiText.English;
+
     /// <summary>Which of them is showing.</summary>
     public int Section { get; set; }
 
@@ -1383,30 +1392,79 @@ public sealed class MenuPage
         return MenuAction.None;
     }
 
-    /// <summary>Where a drag across a slider row has reached.</summary>
-    /// <param name="point">Where the pointer is.</param>
+    /// <summary>
+    /// Which row a press landed on, for a drag that is about to begin.
+    /// </summary>
+    /// <param name="point">Where the pointer went down.</param>
     /// <param name="items">The rows as last drawn.</param>
-    /// <returns>The action, or none when the pointer is not on a slider.</returns>
-    public MenuAction Drag(Vector2 point, IReadOnlyList<MenuItem> items)
+    /// <returns>The row's index, or minus one where the press was not on a slider.</returns>
+    /// <remarks>
+    /// <b>A drag is a grab, and a grab has to have grabbed something.</b> Asked once, when
+    /// the button goes down, so that what follows moves the bar that was pressed and
+    /// nothing else. See <see cref="Drag"/> for what went wrong without it.
+    /// </remarks>
+    public int Grabbed(Vector2 point, IReadOnlyList<MenuItem> items)
     {
         ArgumentNullException.ThrowIfNull(items);
 
-        if (Index < 0 || Index >= items.Count)
+        if (!Inside(point, _content))
+        {
+            return -1;
+        }
+
+        foreach ((int at, _, Vector4 bounds, MenuItemKind kind) in _rows)
+        {
+            if (kind == MenuItemKind.Slider &&
+                at < items.Count &&
+                items[at].Selectable &&
+                Inside(point, bounds))
+            {
+                return at;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Where a drag across a slider row has reached.
+    /// </summary>
+    /// <param name="point">Where the pointer is.</param>
+    /// <param name="items">The rows as last drawn.</param>
+    /// <param name="row">Which row the drag grabbed, from <see cref="Grabbed"/>.</param>
+    /// <returns>The action, or none when the drag grabbed no slider.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>It moves the row the drag began on, not the row the pointer last hovered.</b> It
+    /// used to take <see cref="Index"/>, which the pointer sets by hovering — so with a
+    /// volume row under the pointer, pressing anything outside the content was read as a
+    /// drag of that volume to wherever the press was. Pressing a tab in the sidebar is the
+    /// case somebody hits: the sidebar is left of the bar, so the volume went to nought on
+    /// the way to another page.
+    /// </para>
+    /// <para>
+    /// Found by item rather than taken at the same position, because a page that scrolls
+    /// draws the eleventh setting fourth. Dragging a slider off the top of a scrolled page
+    /// then moved a different one.
+    /// </para>
+    /// </remarks>
+    public MenuAction Drag(Vector2 point, IReadOnlyList<MenuItem> items, int row)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+
+        if (row < 0 || row >= items.Count)
         {
             return MenuAction.None;
         }
 
-        // Found by item rather than taken at the same position, because a page that scrolls
-        // draws the eleventh setting fourth. Dragging a slider off the top of a scrolled
-        // page then moved a different one.
         foreach ((int at, string id, Vector4 bounds, MenuItemKind kind) in _rows)
         {
-            if (at != Index)
+            if (at != row)
             {
                 continue;
             }
 
-            return kind == MenuItemKind.Slider && items[Index].Selectable
+            return kind == MenuItemKind.Slider && items[row].Selectable
                 ? new MenuAction(id, Fraction: FractionAt(point.X, bounds))
                 : MenuAction.None;
         }

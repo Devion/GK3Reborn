@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
@@ -276,6 +276,24 @@ public sealed partial class LocalizedContent : IDisposable
 
     /// <summary>Every 1999 name the pack holds, in a stable order.</summary>
     public IReadOnlyList<string> ArchiveNames => Names(RebarnKind.Localized);
+
+    /// <summary>
+    /// One of the pack's JSON manifests.
+    /// </summary>
+    /// <param name="name">Its file name.</param>
+    /// <returns>The bytes, or null when the pack holds no such manifest.</returns>
+    /// <remarks>
+    /// Two things are read this way. The manifest that says which language the pack is for,
+    /// which is what makes a file name a claim rather than a guess; and
+    /// <c>interface.json</c>, the port's own words in this language — the one family of
+    /// text here that is a translation somebody wrote rather than an asset Sierra shipped.
+    /// See <see cref="UI.UiText"/>.
+    /// </remarks>
+    public byte[]? ReadManifest(string? name) =>
+        name is { Length: > 0 } &&
+        _entries.TryGetValue(RebarnFormat.Key(RebarnKind.Manifest, name), out RebarnEntry? found)
+            ? _pack.Read(found)
+            : null;
 
     /// <summary>How many entries of one kind there are.</summary>
     /// <param name="kind">The kind.</param>

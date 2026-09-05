@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using GK3Reborn.Foundation.Diagnostics;
@@ -267,11 +267,19 @@ public sealed class WavFile
 
             int channels = Math.Clamp(mpeg.Channels, 1, 2);
 
-            // ReadSamplesInt16, not ReadSamples: the byte overload of ReadSamples writes
-            // *floats* into the buffer. Reading those as 16-bit gives exactly twice as many
-            // samples as the sound has, each one the bit pattern of half a float — which
-            // sounds like static and measures as a clip of the right name and the wrong
-            // length.
+            // <b>Decoded as floats and clamped here, not by the decoder.</b> An MP3 is a
+            // lossy reconstruction and its output routinely overshoots the waveform that
+            // was encoded, so a clip mastered near full scale decodes to values above one.
+            // NLayer's own 16-bit conversion lets those wrap: a sample riding at +32700
+            // comes back as -32742, which is a full-scale spike one sample wide, and a run
+            // of them is what a crackle is.
+            //
+            // Nobody could hear it in English. The English lines a player actually hears
+            // are the restored masters in enhanced/audio, which are 24-bit PCM and peak
+            // around -3 dB; it is the 1999 dubs that are hot. Measured on the French
+            // A0144J44.N61: 31 samples at full scale and a one-sample swing of 65,503 out
+            // of a possible 65,535, against a peak of 16,808 and no jump over 3,913 in the
+            // English recording of the same line. German and Italian are dubs too.
             //
             // Always into a block, always at index 0. Decoding straight into the destination
             // is the obvious way to write this and it is wrong twice over: asked for a whole
@@ -281,21 +289,21 @@ public sealed class WavFile
             // is right to the sample either way, which is why this is worth the copy.
             int expected = (int)(mpeg.Duration.TotalSeconds * mpeg.SampleRate) * channels;
             short[] samples = new short[Math.Max(expected + mpeg.SampleRate, Block / 2)];
-            byte[] block = new byte[Block];
+            float[] block = new float[Block / sizeof(float)];
             int count = 0;
-            int read;
+            int got;
 
-            while ((read = mpeg.ReadSamplesInt16(block, 0, Block)) > 0)
+            while ((got = mpeg.ReadSamples(block, 0, block.Length)) > 0)
             {
-                int got = read / 2;
-
                 if (count + got > samples.Length)
                 {
                     Array.Resize(ref samples, Math.Max(samples.Length * 2, count + got));
                 }
 
-                MemoryMarshal.Cast<byte, short>(block.AsSpan(0, got * 2))
-                    .CopyTo(samples.AsSpan(count));
+                for (int i = 0; i < got; i++)
+                {
+                    samples[count + i] = Clamped(block[i]);
+                }
 
                 count += got;
             }
@@ -316,6 +324,24 @@ public sealed class WavFile
             return null;
         }
     }
+
+    /// <summary>
+    /// One decoded sample as signed 16-bit, held inside the range rather than wrapped.
+    /// </summary>
+    /// <param name="sample">The sample, nominally between -1 and 1.</param>
+    /// <returns>The sample, clamped.</returns>
+    /// <remarks>
+    /// <b>Clamped, because the alternative is a spike.</b> Anything above full scale has to
+    /// go somewhere, and the two places it can go are the top of the range or the bottom of
+    /// it. A cast puts it at the bottom, which is a discontinuity of the whole range in one
+    /// sample; this puts it at the top, which is where the waveform was already heading.
+    /// The overshoot itself is the encoder's, not the recording's, and no decoder can
+    /// avoid it.
+    /// </remarks>
+    internal static short Clamped(float sample) => float.IsFinite(sample)
+        ? (short)Math.Clamp(
+            MathF.Round(sample * 32767f), short.MinValue, short.MaxValue)
+        : (short)0;
 
     /// <summary>
     /// Widens the sample data to signed 16-bit.

@@ -26,6 +26,14 @@ public sealed class FontLibrary
     private readonly GameArchives _archives;
     private readonly Dictionary<string, FontFile?> _read = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Forgets every font it has read, for a language change.</summary>
+    /// <remarks>
+    /// Two of the game's fonts are re-cut per language — French's <c>SID_TEXT_14_WHT</c>
+    /// carries the accented letters English's does not — so a cache keyed on the name goes
+    /// on answering with the wrong one.
+    /// </remarks>
+    public void Forget() => _read.Clear();
+
     /// <summary>Creates a library over a set of archives.</summary>
     /// <param name="archives">Where the fonts are.</param>
     public FontLibrary(GameArchives archives)

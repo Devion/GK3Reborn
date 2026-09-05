@@ -82,7 +82,7 @@ public enum SidneyAction
 /// </remarks>
 public sealed class SidneyMachine
 {
-    private readonly SidneyLibrary _library;
+    private SidneyLibrary _library;
     private readonly GameState _state;
     private readonly HashSet<string> _done = new(StringComparer.OrdinalIgnoreCase);
 
@@ -269,8 +269,28 @@ public sealed class SidneyMachine
     /// <summary>What the last operation said, or null.</summary>
     public SidneyResult? Showing { get; private set; }
 
-    /// <summary>The game's own text, for whatever draws this.</summary>
-    public SidneyLibrary Library => _library;
+    /// <summary>
+    /// The game's own text, for whatever draws this.
+    /// </summary>
+    /// <remarks>
+    /// Settable because the language can be changed while the game is running, and every
+    /// word on these eight screens comes out of <c>ESIDNEY.TXT</c> — which is a different
+    /// file in the new language. Nothing the machine remembers is in here: the files, the
+    /// map, what has been matched and what has been read are all flags on the story.
+    /// </remarks>
+    public SidneyLibrary Library
+    {
+        get => _library;
+
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            _library = value;
+            _translator = null;
+            _words = null;
+        }
+    }
 
     /// <summary>
     /// The string table, for what the player's own things are called.

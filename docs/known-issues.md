@@ -76,12 +76,78 @@ underscores taken away, the clock reads the timeblock's own name, and two flags 
 — the printed identity and a figure on the map — no longer spell themselves in whatever
 language they were made in. See [sidney.md](sidney.md).
 
-## 0. The port's own interface text is not localised (feature)
+## 0. The French dub crackled, and the English never could (done 2026-09-05)
+
+Every line in the game is an MP3 wearing a RIFF header — 7,656 of GK3's 7,852 sounds — and
+NLayer's own 16-bit conversion does not clamp. An MP3 is a lossy reconstruction and its
+output overshoots the waveform that was encoded, so a clip mastered near full scale decodes
+to values above one, and the cast sends those round to the *bottom* of the range: a
+full-scale spike one sample wide, and a run of them is what a player hears as crackle.
+
+Measured on the French recording of `A0144J44`: peak 32,767, thirty-one samples at full
+scale, and a one-sample swing of **65,503** out of a possible 65,535 — a waveform riding at
++32,700 with individual samples at −32,742. The English recording of the same line: peak
+16,808, no jump over 3,913.
+
+**Nobody could hear it in English**, which is why it survived. The English lines a player
+actually hears are the restored masters in `enhanced/audio`, 24-bit PCM peaking around −3 dB;
+it is Sierra's 1999 dubs that are hot, and French, German and Italian are dubs.
+
+`WavFile.Mpeg` decodes to floats and clamps them itself now. The same file comes back with a
+biggest jump of 4,087 — the same order as the English recording — and the samples that were
+above full scale sit at the rail, which is where the waveform was already heading. What is
+left is 27 consecutive samples pinned at the top in one passage, which is the master being
+hot and is not something a decoder can undo.
+
+## 0. Every noun under the cursor was English (done 2026-09-05)
+
+GK3's tooltips are keyed on the *noun*, not on the inventory — `v_masking_tape` is "Morceau
+de scotch" in French — and the roll of tape on the desk is the same noun as the roll of tape
+in the pocket. The bag read that table and the label under the cursor did not: it drew the
+identifier with its underscores taken out, so a French game pointed at "Masking Tape" beside
+a bag holding a "Morceau de scotch". The hover label, the hotspot labels and the verb menu's
+heading all read the table now.
+
+Most of a room is still not in it — `DRESSER` is scenery and GK3 never named it in any
+language — and those fall through to the tidied noun, which is what every label was before.
+
+## 0. A volume slider was set to nought on the way to another tab (done 2026-09-05)
+
+Reported: with a volume row selected on the Sound page, clicking another tab in the sidebar
+set that volume to zero before the page changed.
+
+`MenuPage.Drag` moved the row at `Index` — and `Index` is set by *hovering*, not by
+pressing. So any drag anywhere was read as a drag of whatever the pointer had last been
+over, and the sidebar is left of the bar, so the fraction under the press was nought. It
+needed the pointer to be held, which a click's own press is.
+
+A drag has to have grabbed something. `MenuPage.Grabbed` is asked once, on the edge of the
+press, and answers which slider row the press landed on or minus one; `Drag` takes that row
+rather than `Index`. A press that landed on the title, the sidebar or outside the panel
+grabs nothing and the drag that follows moves nothing.
+
+## 0. The port's own interface text is not localised (done 2026-09-05)
+
+**Done**, except the journal's contents. One JSON a language, carried in the assembly and
+written into each language's volume by `pack-content`; the English stays in the source
+beside its key so the code can be read, and a test scans the sources to keep the two in
+step. 275 phrases in six languages: the menus, all five settings sections and their values,
+the save slots, the toolbar, the journal's chrome, every screen's title and way out, and the
+ninety verbs the original drew as icons. See [localization.md](localization.md).
+
+**What is left** is the journal's 142 objectives and the walkthrough lines behind its hint
+button — `Assets/Story/Quests.txt` and `Walkthrough.txt`, five hundred lines of prose about
+this game's puzzles — and the nouns under the cursor, which have no table anywhere in the
+data. The mechanism holds them whenever somebody writes them.
+
+## 0. The port's own interface text is not localised — as it stood
 
 GK3's own strings are: the string table, Sidney's documents, the screen layouts, the 293
 names of the things the player carries, every recorded line and every bitmap with a word
 painted on it. A French game reads "Chambre de Gabriel - Jour 1, 10.00 - 12.00" in the corner
 and calls the binoculars "Jumelles".
+
+*The entry below is what this looked like before it was done, kept for the reasoning.*
 
 **Sidney is done and is not one of these**: it is a 1999 screen with 1999 strings, and the
 port was ignoring them. The dozen sentences it says that GK3 never had a place for are a
