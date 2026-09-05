@@ -482,6 +482,40 @@ public sealed class Pendulum : SceneMechanism
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <para>
+    /// <b>Only the drop, and only while he is hanging.</b> Every other move in this room is
+    /// a click on a thing that is plainly there — the platform in front of him, the blade
+    /// coming at him — and putting a button up for those would be answering a question the
+    /// player has not got. The drop is the exception: he is hanging off a blade over a
+    /// shaft, the camera is on <c>LONG_ALTAR</c>, and the only click that does anything is
+    /// on the altar itself, which from up there is a slab of stone among slabs of stone.
+    /// Nothing tells the player that, and a room whose one exit cannot be found is a room
+    /// the game ends in.
+    /// </para>
+    /// <para>
+    /// Live only inside <c>startSafe</c>, which is the same window <see cref="ClaimsClick"/>
+    /// advertises on the altar and the same one <see cref="Drop"/> enforces. So the button
+    /// lighting up is the timing cue and no more than that: it says he may let go, not that
+    /// letting go now lands him on the altar. <c>endSafe</c> is narrower and stays the
+    /// player's to judge, which is the whole tension of the moment.
+    /// </para>
+    /// </remarks>
+    public override MechanismButton? Offers =>
+        _doing == Doing.Holding
+            ? new MechanismButton(Dropping, MathF.Abs(Angle()) < _allowed)
+            : null;
+
+    /// <inheritdoc/>
+    public override void Press()
+    {
+        if (_doing == Doing.Holding)
+        {
+            Drop();
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <b>Nothing in this room is walked to.</b> There is no floor to speak of — a doorway,
     /// a turning ring and a shaft — so every click is a jump, a grab, a drop, or nothing.
     /// </remarks>

@@ -228,6 +228,17 @@ public sealed class ActionRunner
 
                 statements[i] = statements[i] with { Seconds = seconds };
 
+                // Whatever happens to the rest of the action, the action itself is not over
+                // while a script it waited on is still running. Said here rather than in the
+                // deferral below because the deferral needs somewhere to resume and an
+                // action whose last statement is the waited call has nowhere — which is
+                // both of the temple's arrivals, and is why the headset lit up eight
+                // seconds into a cutscene nobody had finished watching.
+                if (statements[i].Waited && started.Count > 0)
+                {
+                    _api.Awaits?.Invoke(started);
+                }
+
                 // And if that is still going, the rest of the action is not this frame's
                 // business. Only when the script said to wait: an unwaited CallSheep is
                 // one the script deliberately left running behind it, and 640 of the

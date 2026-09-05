@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using System.Reflection;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Game;
@@ -888,6 +889,112 @@ public sealed class SceneMechanismTests
             .Invoke(null, [across, along]);
 
     /// <summary>The swinging blade, as the scene names its model.</summary>
+    [Fact]
+    public void Letting_go_of_the_blade_is_offered_as_a_button_of_its_own()
+    {
+        // Reported as there being no way to drop off the pendulum at all. There is one --
+        // a click on te3_hpaltar -- but from up there the altar is a slab of stone among
+        // slabs of stone, a long way below and behind him, and nothing on the screen says
+        // so. The exit existed and could not be found.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var pendulum = new Pendulum(world, api);
+
+        pendulum.Begin();
+
+        // In the doorway, on the ring, and on the altar there is nothing to ask for: every
+        // move in those states is a click on something the player can see and point at.
+        Assert.Null(pendulum.Offers);
+
+        Hanging(pendulum);
+
+        Assert.Equal("LET GO", pendulum.Offers?.Verb);
+    }
+
+    [Fact]
+    public void The_button_lights_up_for_the_window_it_may_be_pressed_in()
+    {
+        // startSafe out of PENDULUM.TXT, which is the same window ClaimsClick advertises on
+        // the altar and the same one Drop enforces. Drawn dim rather than taken away either
+        // side of it: a button that comes and goes is a timing cue to be learnt, and one
+        // that lights up is the same cue where the player is already looking.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var pendulum = new Pendulum(world, api);
+
+        pendulum.Begin();
+        Hanging(pendulum);
+
+        // At the end of its arc the blade is 24.5 degrees off vertical and letting go is
+        // not allowed at all. A quarter of the way through -- the bottom of the swing, the
+        // eased middle of one half of it -- it hangs straight down and it is.
+        Swung(pendulum, 0.0);
+        Assert.False(pendulum.Offers?.Ready);
+
+        Swung(pendulum, Cycle(pendulum) / 4.0);
+        Assert.True(pendulum.Offers?.Ready);
+    }
+
+    [Fact]
+    public void Pressing_it_is_the_same_drop_a_click_on_the_altar_performs()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var pendulum = new Pendulum(world, api);
+
+        pendulum.Begin();
+        Hanging(pendulum);
+        Swung(pendulum, Cycle(pendulum) / 4.0);
+
+        pendulum.Press();
+        world.Advance(0.1);
+
+        // Off the blade and onto the altar, which is the room's own Drop rather than
+        // anything this button invented: the clip, the landing and the flag the rest of TE3
+        // reads are all still the mechanism's.
+        Assert.True(api.State.GetFlag("Te3GabeAtAltar"));
+
+        // And pressing it at the end of the arc does nothing at all, which is why it is
+        // drawn dim there rather than taken away.
+        (SceneUpdate other, Gk3SheepApi another) = World();
+        var swinging = new Pendulum(other, another);
+
+        swinging.Begin();
+        Hanging(swinging);
+        Swung(swinging, 0.0);
+        swinging.Press();
+        other.Advance(0.1);
+
+        Assert.False(another.State.GetFlag("Te3GabeAtAltar"));
+    }
+
+    [Fact]
+    public void Nothing_is_offered_where_the_room_has_no_move_to_ask_for()
+    {
+        // Every other mechanism leaves it alone. The button exists for a move that pointing
+        // at the room will not find, and there is exactly one of those.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+
+        Assert.Null(new Chessboard(world, api).Offers);
+        Assert.Null(new Bridge(world, api).Offers);
+        Assert.Null(new LaserHeads(world, api).Offers);
+    }
+
+    /// <summary>Puts Gabriel on the blade, which is the one state the button is drawn in.</summary>
+    private static void Hanging(Pendulum pendulum) =>
+        typeof(Pendulum)
+            .GetField("_doing", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(pendulum, 3);
+
+    /// <summary>Puts the blade that far through its swing.</summary>
+    private static void Swung(Pendulum pendulum, double seconds) =>
+        typeof(Pendulum)
+            .GetField("_swung", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(pendulum, seconds);
+
+    /// <summary>How long the blade takes to go out and come back.</summary>
+    private static double Cycle(Pendulum pendulum) =>
+        (double)typeof(Pendulum)
+            .GetProperty("Cycle", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(pendulum)!;
+
     private static ScenePick Blade() =>
         new("te3_pendulum_center_code", "PENDULUM", null, 1f, Vector3.Zero, PickKind.Prop);
 

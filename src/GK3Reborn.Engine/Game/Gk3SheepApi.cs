@@ -334,6 +334,25 @@ public sealed class Gk3SheepApi : ISheepApi
     public Func<IReadOnlyList<SheepThread>, Action, bool>? DefersUntil { get; set; }
 
     /// <summary>
+    /// What is told which scripts an action has waited on, if anything is listening.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="DefersUntil"/> answers the same question but only where the action has a
+    /// statement left to run: with nothing after it there is nothing to hold back, so the
+    /// runner returns and the story reads as idle while the script it waited on plays out.
+    /// That is most of the temple — <c>SCENE, ENTER</c> in TE5 and TE6 both end on a waited
+    /// <c>CallSheep</c>, and the whole arrival is inside it.
+    /// </para>
+    /// <para>
+    /// Told rather than asked, and told on every waited call rather than only the deferring
+    /// ones, so that <see cref="SceneUpdate.Acting"/> can answer <c>IsActionPlaying</c> for
+    /// the case where there is no continuation to hang the answer off.
+    /// </para>
+    /// </remarks>
+    public Action<IReadOnlyList<SheepThread>>? Awaits { get; set; }
+
+    /// <summary>
     /// What plays an animation, when there is a room to play it in.
     /// </summary>
     /// <remarks>

@@ -695,6 +695,93 @@ public sealed class SceneUpdateTests
         Assert.True(state.GetFlag("arrived"));
     }
 
+    [Fact]
+    public void An_action_is_playing_until_the_script_it_waited_on_is_over()
+    {
+        // Reported from TE6: the headset lit up eight seconds into the arrival cutscene and
+        // Grace was radioed about a demon that had not woken up yet. The room's SCENE:ENTER
+        // ends on a waited CallSheep, so there is no statement after it to hold back and the
+        // runner returned in the frame the cutscene began -- the story read as idle for the
+        // whole of it.
+        //
+        // Occupied does say the room is busy here, and cannot be used for it: its last term
+        // is "more scripts are parked than were parked when an action last started", and
+        // every temple room parks a background loop that runs for as long as the room stands.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+
+        host.Scheduler = scheduler;
+
+        var resolver = new ActionResolver(api);
+
+        // The temple's own shape: a background loop left running behind it, and then an
+        // arrival waited on with nothing after it.
+        resolver.Add(NvcFile.Parse(
+            """
+            SCENE, ENTER, ALL, script={CallSheep("TE", "Background$"); wait CallSheep("TE", "Arrival$");}
+            """,
+            "test.nvc",
+            new DiagnosticBag()));
+
+        host.Add(SheepCompiler.Compile(
+            """
+            code
+            {
+                Background$()
+                {
+                    wait SetTimerSeconds(600.0);
+                }
+
+                Arrival$()
+                {
+                    wait SetTimerSeconds(2.0);
+                    SetFlag("arrived");
+                }
+            }
+            """,
+            "TE.SHP",
+            Signatures(
+                ("SetTimerSeconds", SheepSignatures.Void, [SheepSignatures.Float]),
+                ("SetFlag", SheepSignatures.Void, [SheepSignatures.String]))));
+
+        var update = new SceneUpdate(
+            Scene(),
+            api,
+            new Glances(),
+            new Watcher(),
+            resolver,
+            new ActionRunner(api),
+            scheduler);
+
+        api.Starts = update.Starting;
+        api.DefersUntil = update.Until;
+        api.Awaits = update.Awaiting;
+
+        new ActionRunner(api).Run(resolver.Find("SCENE", "ENTER")!);
+
+        Assert.True(update.Acting, "the arrival is an action playing");
+
+        for (int frame = 0; frame < 60; frame++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.True(update.Acting, "a second in, the arrival is still playing");
+
+        for (int frame = 0; frame < 60 * 3; frame++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        // Over, and the player may act again -- while Occupied is still true and will stay
+        // true for as long as the background loop is parked, which is the whole point.
+        Assert.True(state.GetFlag("arrived"));
+        Assert.False(update.Acting, "the arrival is over");
+        Assert.True(update.Occupied, "the background loop is still parked");
+    }
+
     private static SheepSignatures Signatures(
         params (string Name, sbyte Returns, sbyte[] Args)[] functions)
     {

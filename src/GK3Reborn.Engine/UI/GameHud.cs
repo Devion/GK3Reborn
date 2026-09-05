@@ -66,6 +66,11 @@ namespace GK3Reborn.UI;
 /// </param>
 /// <param name="RadioOpen">Whether the list of topics is showing.</param>
 /// <param name="RadioIndex">Which of them is picked out.</param>
+/// <param name="Prompt">
+/// The one control the room itself is asking for, drawn large under the picture. Null in
+/// every room but the ones whose mechanism has a move the player cannot find by pointing at
+/// the room; see <see cref="Game.Mechanisms.SceneMechanism.Offers"/>.
+/// </param>
 public readonly record struct HudState(
     string? Noun,
     IReadOnlyList<string> Verbs,
@@ -91,7 +96,8 @@ public readonly record struct HudState(
     bool RadioWorn = false,
     IReadOnlyList<Game.RadioTopic>? Radio = null,
     bool RadioOpen = false,
-    int RadioIndex = 0);
+    int RadioIndex = 0,
+    Game.Mechanisms.MechanismButton? Prompt = null);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -221,6 +227,10 @@ public sealed class GameHud
         // there had to be tested against it first. The pockets are a key away and a screen of
         // their own, which is where a list of twelve things belongs.
         _strip = default;
+
+        // Before the captions, which are laid out from the foot of the screen upwards and
+        // have to start above it rather than under it.
+        Prompt(state, width, height);
         Captions(state, width, height);
 
         // Last, so it is over everything: it is attached to the pointer and the pointer is
@@ -604,6 +614,73 @@ public sealed class GameHud
 
     /// <summary>What the headset button is called when it is clicked.</summary>
     public const string RadioButton = "open:radio";
+
+    /// <summary>And what the room's own button is called.</summary>
+    public const string PromptButton = "do:mechanism";
+
+    /// <summary>How much of the foot of the screen the room's button took.</summary>
+    private float _reserved;
+
+    /// <summary>
+    /// The one thing the room is asking the player to do, across the foot of the picture.
+    /// </summary>
+    /// <param name="state">What the game is doing.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Deliberately the largest thing on the screen.</b> Every other control here is a
+    /// label the player finds by pointing at the room; this one exists because there is
+    /// something to do that pointing at the room will not find, so it goes where the eye
+    /// already is at a size that cannot be missed — centred, low, and as wide as its own
+    /// words plus a wide margin.
+    /// </para>
+    /// <para>
+    /// Dim while it may not be pressed, and registered as a button either way: a control
+    /// that vanishes between presses reads as a bug, and one that quietly swallows the
+    /// press reads as a worse one. The mechanism decides which state it is in and
+    /// <see cref="Game.Mechanisms.SceneMechanism.Press"/> decides what a press does.
+    /// </para>
+    /// </remarks>
+    private void Prompt(HudState state, int width, int height)
+    {
+        _reserved = 0f;
+
+        if (state.Prompt is not { Verb.Length: > 0 } asked)
+        {
+            return;
+        }
+
+        float unit = Scale;
+        float row = Overlay.LineHeight;
+        float h = row + (22f * unit);
+        float w = Math.Min(
+            width - (48f * unit),
+            Math.Max(220f * unit, Overlay.Measure(asked.Verb) + (72f * unit)));
+
+        float x = (width - w) / 2f;
+        float y = height - InventoryHeight - h - (24f * unit);
+
+        bool under = Inside(state.At, new Vector4(x, y, w, h));
+
+        Overlay.Rect(x, y, w, h, asked.Ready && under ? PanelLit : Panel);
+
+        // A rule along the top edge rather than a border all the way round: the same accent
+        // the caption panel wears, so the two read as one interface rather than as a game
+        // with a dialog box over it.
+        Overlay.Rect(x, y, w, 3 * unit, asked.Ready ? Accent : Rule);
+
+        Overlay.Text(
+            asked.Verb,
+            x + ((w - Overlay.Measure(asked.Verb)) / 2f),
+            y + (11f * unit),
+            asked.Ready ? Accent : Dim);
+
+        _buttons.Add((PromptButton, new Vector4(x, y, w, h)));
+
+        // What the captions have to keep clear of, the gap under it included.
+        _reserved = h + (24f * unit);
+    }
 
     /// <summary>How big the headset is drawn, in units of a line.</summary>
     /// <remarks>
@@ -1187,7 +1264,7 @@ public sealed class GameHud
 
         List<string> lines = Wrap(caption, usable);
         float h = (row * lines.Count) + (20f * unit);
-        float y = height - InventoryHeight - h - (12f * unit);
+        float y = height - InventoryHeight - _reserved - h - (12f * unit);
 
         Overlay.Rect(margin, y, width - (margin * 2), h, Panel);
         Overlay.Rect(margin, y, 3 * unit, h, Accent);

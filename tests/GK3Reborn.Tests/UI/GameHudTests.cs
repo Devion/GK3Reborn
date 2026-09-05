@@ -62,6 +62,80 @@ public sealed class GameHudTests
             caption is null ? null : "GABRIEL", caption, carrying ?? [], null,
             InventoryOpen: true, "R25 - 110A", null, null, items, null, icons, verbIcons);
 
+    /// <summary>A room asking for a control of its own, as TE3 does while he hangs.</summary>
+    private static HudState Asking(string verb, bool ready, Vector2 at = default) =>
+        State(at: at) with
+        {
+            Prompt = new GK3Reborn.Game.Mechanisms.MechanismButton(verb, ready),
+        };
+
+    [Fact]
+    public void The_rooms_own_button_is_centred_across_the_foot_of_the_picture()
+    {
+        // TE3's drop. It is on the screen because pointing at the room will not find it, so
+        // it goes where the eye already is and is hit-tested from the same pass that drew
+        // it -- the rule the verb menu is laid out under, for the same reason.
+        GameHud hud = Hud();
+        hud.Build(Asking("LET GO", ready: true), 800, 600);
+
+        Assert.Equal(GameHud.PromptButton, hud.ButtonAt(new Vector2(400, 560)));
+        Assert.True(hud.OverInterface(new Vector2(400, 560)));
+
+        // And nowhere else: the rest of the foot of the screen is still the room.
+        Assert.Null(hud.ButtonAt(new Vector2(60, 560)));
+        Assert.Null(hud.ButtonAt(new Vector2(400, 300)));
+    }
+
+    [Fact]
+    public void It_is_still_a_button_while_it_may_not_be_pressed()
+    {
+        // Drawn dim rather than taken away. A control that vanishes between presses reads
+        // as a bug, and the mechanism is the one that decides a dim press does nothing.
+        GameHud hud = Hud();
+        hud.Build(Asking("LET GO", ready: false), 800, 600);
+
+        Assert.Equal(GameHud.PromptButton, hud.ButtonAt(new Vector2(400, 560)));
+    }
+
+    [Fact]
+    public void A_line_of_dialogue_moves_up_out_of_the_buttons_way()
+    {
+        // Both are laid out from the foot of the screen upwards, so without this the
+        // caption panel is drawn over the button and the player reads half a sentence with
+        // a control they were told to press underneath it.
+        GameHud hud = Hud();
+
+        hud.Build(State(caption: "Hold on"), 800, 600);
+        float alone = Foot(hud);
+
+        hud.Build(
+            Asking("LET GO", ready: true) with { Caption = "Hold on", Speaker = "GABRIEL" },
+            800,
+            600);
+
+        float asked = Foot(hud);
+
+        Assert.True(
+            asked < alone,
+            $"the caption stayed at {alone} with a button under it");
+
+        // Above the button rather than merely somewhere else.
+        Assert.Null(hud.ButtonAt(new Vector2(400, asked)));
+    }
+
+    /// <summary>
+    /// How far down the caption panel reached, which is the one thing drawn at the foot of
+    /// the screen that has to give way.
+    /// </summary>
+    /// <remarks>
+    /// Found by the left margin it is drawn at rather than by colour: it is the full width
+    /// of the window less 48 units either side, and nothing else here starts there.
+    /// </remarks>
+    private static float Foot(GameHud hud) =>
+        hud.Overlay.Quads
+            .Where(q => Math.Abs(q.Destination.X - (48f * hud.Scale)) < 0.5f)
+            .Max(q => q.Destination.Y + q.Destination.W);
+
     [Fact]
     public void An_empty_room_still_draws_the_bars_that_are_always_there()
     {

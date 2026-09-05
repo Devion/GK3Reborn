@@ -3531,7 +3531,11 @@ public sealed class SceneUpdate
     /// the room being left, and letting one run into the next room is how a door opens
     /// twice.
     /// </remarks>
-    public void Cancel() => _later.Clear();
+    public void Cancel()
+    {
+        _later.Clear();
+        _awaited.Clear();
+    }
 
     /// <summary>Runs whatever has waited long enough.</summary>
     /// <remarks>
@@ -3726,6 +3730,14 @@ public sealed class SceneUpdate
         // What is left of the action that is running. Counted down here so that everything
         // below sees one answer for the frame.
         _api.ActionSeconds = Math.Max(0, _api.ActionSeconds - seconds);
+
+        // What an action was waiting on, forgotten as soon as none of it is running. This
+        // is what keeps the list short: a room where nothing is happening is a room where
+        // it is empty.
+        if (_awaited.Count > 0 && _scripts?.Outstanding(_awaited) != true)
+        {
+            _awaited.Clear();
+        }
 
         // The scripts first: one carrying on from a wait may cut the camera or set a
         // timer, and it should take effect in the frame it happened rather than the next.
@@ -4233,12 +4245,56 @@ public sealed class SceneUpdate
     /// The last of those is what covers <c>wait CallSheep(…)</c>, whose length is another
     /// script rather than a number of seconds — which is most of what the triggers run.
     /// </para>
+    /// <para>
+    /// <b>It is deliberately generous and cannot be made otherwise.</b> That last term is a
+    /// count against a baseline, so a room that parks a script and leaves it parked is busy
+    /// for as long as it stands — which every temple room does. Ask <see cref="Acting"/>
+    /// instead wherever the answer decides what the player is allowed to do.
+    /// </para>
     /// </remarks>
-    public bool Occupied =>
+    public bool Occupied => Acting || (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);
+
+    /// <summary>The scripts an action has said it is waiting on.</summary>
+    private readonly List<SheepThread> _awaited = [];
+
+    /// <summary>
+    /// Whether an action is playing, by the signals that go away again.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Occupied"/> without its last term. That term — "more scripts are parked
+    /// than were parked when an action last started" — is the only one of the four that
+    /// covers a <c>wait CallSheep</c> whose length nothing can price, and in the temple it is
+    /// true from the moment the room opens and never clears: every one of those rooms parks
+    /// background loops that run for as long as the room stands. Anything that has to know
+    /// whether the player may act <em>now</em> has to ask something narrower, and this is it.
+    /// </para>
+    /// <para>
+    /// The fourth term here is what stands in for it: the threads an action actually waited
+    /// on, which the runner reports through <see cref="Gk3SheepApi.Awaits"/> and which stop
+    /// being outstanding when that script ends. Precise where the count is a guess.
+    /// </para>
+    /// </remarks>
+    public bool Acting =>
         _later.Count > 0 ||
         _api.ActionSeconds > 0 ||
         Performing(_api.State.Ego) ||
-        (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);
+        _scripts?.Outstanding(_awaited) == true;
+
+    /// <summary>Notes the scripts an action has waited on.</summary>
+    /// <param name="scripts">The threads its call started.</param>
+    /// <remarks>
+    /// Added to rather than replaced, because an action may wait on several calls in turn and
+    /// a second action may start over the top of a first whose script is still speaking. The
+    /// list is emptied the moment none of it is outstanding, which is every frame in a room
+    /// where nothing is happening, so it stays as short as the story is deep.
+    /// </remarks>
+    public void Awaiting(IReadOnlyList<SheepThread> scripts)
+    {
+        ArgumentNullException.ThrowIfNull(scripts);
+
+        _awaited.AddRange(scripts);
+    }
 
     /// <summary>
     /// Whether the story is holding the camera rather than the player.

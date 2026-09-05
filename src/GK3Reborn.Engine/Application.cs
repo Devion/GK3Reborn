@@ -4230,21 +4230,25 @@ public static class Application
             // where he is not wearing it.
             List<Game.RadioTopic> topics = [];
 
-            // Not while Gabriel is performing something and not while a line is playing,
-            // which is the reference's rule for this button (<c>SetCanInteract(!actionActive)</c>)
-            // in the two terms that matter here: asking Grace something in the middle of her
-            // answering the last thing would stack two voice-overs. The button dims and the
-            // list closes itself for as long as it lasts.
+            // Not while an action is playing and not while a line is playing, which is the
+            // reference's rule for this button — <c>SetCanInteract(!actionActive)</c> — in
+            // the terms this engine has. The button dims and the list closes itself for as
+            // long as it lasts.
             //
-            // <b>Two wrong signals were tried first and both were wrong all the time.</b>
-            // <c>update.Occupied</c> is four conditions, one of them "the story has scripts
-            // outstanding", which in the temple is true from the moment the room opens and
-            // never clears — TE3 offered nothing at all. And <c>SceneAudio.Speaker</c> is
-            // set by an animation's caption and is not cleared when that animation ends, so
-            // TE1 read as Mosely speaking for the rest of the room. <c>Talking</c> is the
-            // one that is about a line that is playing now.
+            // <b>Three wrong signals were tried first.</b> <c>update.Occupied</c> is four
+            // conditions, one of them "more scripts are parked than were parked when an
+            // action last started", which in the temple is true from the moment the room
+            // opens and never clears — TE3 offered nothing at all. <c>SceneAudio.Speaker</c>
+            // is set by an animation's caption and is not cleared when that animation ends,
+            // so TE1 read as Mosely speaking for the rest of the room. And
+            // <c>Performing(ego)</c> plus <c>Talking</c>, which is what replaced them, is
+            // about Gabriel rather than about the story: TE6's arrival is Montreaux
+            // speaking over a script Gabriel is not in, so the headset lit up eight seconds
+            // into it and Grace was radioed about a demon that had not woken up yet. That
+            // is what <c>update.Acting</c> is for — it is <c>Occupied</c> with the term
+            // that never clears replaced by the scripts an action actually waited on.
             if (Game.Radio.WornAt(story.Timeblock) &&
-                !update.Performing(story.Ego) &&
+                !update.Acting &&
                 room?.Talking != true &&
                 scene.Actions is { } radioActions)
             {
@@ -4725,6 +4729,17 @@ public static class Application
                 radioOpen = false;
             }
 
+            // The room's own button, which is a move the mechanism has asked for outright
+            // because pointing at the room will not find it. Answered before the top bar's,
+            // since it is the one the player is being told to press.
+            else if (!console.Open &&
+                window.WasClicked(Platform.PointerButton.Primary) &&
+                hud?.ButtonAt(pointer) == GameHud.PromptButton)
+            {
+                api.Mechanism?.Press();
+                menu = null;
+            }
+
             // The top bar's two buttons, which are the only way in that a player who has not
             // read a key list will find.
             else if (!console.Open &&
@@ -5055,7 +5070,8 @@ public static class Application
                         Game.Radio.WornAt(story.Timeblock),
                         topics,
                         radioOpen,
-                        radioIndex),
+                        radioIndex,
+                        api.Mechanism?.Offers),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 

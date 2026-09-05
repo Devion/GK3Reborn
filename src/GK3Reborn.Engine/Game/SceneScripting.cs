@@ -1854,6 +1854,12 @@ public static class SceneScripting
         // seconds. Both are the room saying it has a clock; a tool leaves them null.
         api.DefersUntil = world.Until;
 
+        // And what an action tells about every script it waits on, deferring or not. Without
+        // it a waited call with no statement after it is invisible: the runner has nothing
+        // to hold back, so it returns, and the room reads as idle for the whole of an
+        // arrival cutscene.
+        api.Awaits = world.Awaiting;
+
         // And what makes an action that waits on a script count as the story being busy for
         // as long as that script runs. The room is where the scheduler is, so the room is
         // the only thing that can tell.

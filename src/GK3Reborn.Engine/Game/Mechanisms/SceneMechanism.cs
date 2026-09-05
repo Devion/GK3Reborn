@@ -4,6 +4,14 @@ using GK3Reborn.Sheep;
 
 namespace GK3Reborn.Game.Mechanisms;
 
+/// <summary>A control a mechanism asks the interface to draw for it.</summary>
+/// <param name="Verb">What it says, in the words the verb bar uses: LET GO, GRAB.</param>
+/// <param name="Ready">
+/// Whether pressing it now would do anything. False draws it dim and swallows the press,
+/// which is what a control the player is waiting for a moment to use has to do.
+/// </param>
+public readonly record struct MechanismButton(string Verb, bool Ready);
+
 /// <summary>
 /// The code a room needs that its data cannot express.
 /// </summary>
@@ -266,6 +274,38 @@ public abstract class SceneMechanism
     /// </para>
     /// </remarks>
     public virtual string? ClaimsClick(Interaction.ScenePick? under) => null;
+
+    /// <summary>
+    /// A button of its own the mechanism asks the interface to put on the screen.
+    /// </summary>
+    /// <returns>What to offer and whether it may be taken yet, or null for nothing.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>For the one thing a player has no way of finding.</b> Everything else a mechanism
+    /// offers is attached to something in the room — the blade says GRAB while it is within
+    /// reach, a chess tile is a tile — and sweeping the pointer over the room is how a
+    /// player finds it. That fails where the thing to click is neither near the pointer nor
+    /// recognisable as a target: hanging off TE3's blade over the shaft, the only way on is
+    /// a click on the altar, a small stone slab a long way below and behind him. Nothing
+    /// says so, and the room's one exit was in practice unreachable.
+    /// </para>
+    /// <para>
+    /// Drawn dim rather than taken away while it may not be taken yet. A button that comes
+    /// and goes is a timing cue the player has to learn to read; one that lights up is the
+    /// same cue where they are already looking.
+    /// </para>
+    /// </remarks>
+    public virtual MechanismButton? Offers => null;
+
+    /// <summary>Performs whatever <see cref="Offers"/> is offering.</summary>
+    /// <remarks>
+    /// Asked only when the player pressed the button. It may still decline — the button is
+    /// drawn for the whole of a moment and live for part of it, and which part is the
+    /// mechanism's business rather than the interface's.
+    /// </remarks>
+    public virtual void Press()
+    {
+    }
 
     /// <summary>
     /// Takes a click that would otherwise fall through to the room.
