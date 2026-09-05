@@ -272,11 +272,20 @@ function that stops the music, puts up the death screen and resets the puzzle be
 that name, and the only ones with the `Restart` and `PostDeath` pair the death screen calls
 back into when the player chooses to try again.
 
-So the assistance answers that one door differently: `ScriptHost` runs `Restart` and then
-`PostDeath` — the puzzle reset, and then started running again — and never enters `Die` at
-all. That is exactly what the original does after a death, without the death and without the
-screen. Both halves are checked before intervening, so a script with a `Die` and nowhere to
-restart is left alone rather than half-run.
+So the assistance answers that one door differently: `ScriptHost` stops every soundtrack,
+then runs `Restart` and then `PostDeath` — the room silenced, the puzzle reset, and then
+started running again — and never enters `Die` at all. That is exactly what the original does
+after a death, without the death and without the screen. Both halves are checked before
+intervening, so a script with a `Die` and nowhere to restart is left alone rather than
+half-run.
+
+The stop is not decoration. Every `Die` begins with `StopAllSoundTracks` and every `PostDeath`
+starts the room's soundtracks again afterwards — TE1 its fire and the porch, TE6 the demon —
+so the two are one gesture, and skipping `Die` skipped the first half of it. A soundtrack
+already running is not started a second time either, which made `PostDeath`'s half a no-op as
+well, so the room's audio ran straight on through every retry. `TE6Demon.STK` is a single
+looping growl: a player saved from the demon heard it repeating over and over with nothing
+left in the room able to stop it.
 
 The staging still plays. He falls, or the pendulum swings, or the demon strikes: that is the
 scene telling the player what went wrong, and it is over by the time the game says he is

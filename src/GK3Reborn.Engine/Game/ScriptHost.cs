@@ -207,6 +207,14 @@ public sealed class ScriptHost
             // one that killed him.
             Log.Info($"Plot armour: {AssetId.From(scriptName)} would have killed Gabriel");
 
+            // The one thing Die does that is neither the death screen nor the reset:
+            // silence. Every PostDeath starts the room's soundtracks again and none of
+            // them stops one first, because in the original Die already had — and a
+            // soundtrack that is already running is not started twice, so leaving this out
+            // left the room playing whatever it was playing when he was struck down, for
+            // ever and through every retry. TE6's is a looping growl.
+            _api.Invoke(Assists.Silence, []);
+
             SheepThread? instead = null;
 
             foreach (string step in Assists.Survive)

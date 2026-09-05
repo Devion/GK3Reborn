@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Animation;
+﻿using GK3Reborn.Formats.Animation;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Sheep;
@@ -207,6 +207,62 @@ public sealed class AssistTests
         host.Run("somethingelse", "Die");
 
         Assert.True(state.GetFlag("Died"));
+    }
+
+    /// <summary>A temple script that plays its room again after the reset.</summary>
+    /// <remarks>
+    /// Which is what all five do: <c>Die$</c> stops every soundtrack and <c>PostDeath$</c>
+    /// starts the ones the room needs. TE6's is the demon's growl, and it is the one a
+    /// player saved by plot armour heard for ever.
+    /// </remarks>
+    private static SheepScriptFile TempleWithMusic(string name) =>
+        TestScripts.Build(name, builder =>
+        {
+            builder.Import("SetFlag", 0, 3);
+            builder.Import("PlaySoundTrack", 0, 3);
+
+            int resumed = builder.String("Resumed");
+            int growl = builder.String("TE6Demon.STK");
+
+            builder.Function("Die$").Op(SheepOpcode.ReturnV);
+            builder.Function("Restart$").Op(SheepOpcode.ReturnV);
+
+            builder.Function("PostDeath$")
+                .Op(SheepOpcode.PushS, growl)
+                .Op(SheepOpcode.GetString)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 1)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.PushS, resumed)
+                .Op(SheepOpcode.GetString)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 0)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.ReturnV);
+        });
+
+    [Fact]
+    public void Surviving_silences_the_room_the_way_the_death_would_have()
+    {
+        // Reported from TE6: saved from the demon, and its growl went on repeating with
+        // nothing left able to stop it. Every Die begins with StopAllSoundTracks and every
+        // PostDeath starts the room again afterwards, so skipping Die skipped the stop —
+        // and a soundtrack already running is not started twice, which made PostDeath's
+        // half a no-op too. The room simply never reset.
+        var state = new GameState { PlotArmour = true };
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        host.Add(TempleWithMusic("TE6.SHP"));
+
+        host.Run("te6", "Die");
+
+        Assert.True(state.GetFlag("Resumed"));
+
+        // The stop first, then the room started again from the top. The other way round
+        // would silence the thing it had just begun.
+        Assert.Equal(
+            [Assists.Silence, "PlaySoundTrack"],
+            api.Events.Select(e => e.Name));
     }
 
     [Fact]

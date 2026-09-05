@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -73,6 +73,24 @@ public static class Assists
     /// music, show the death screen, put the puzzle back to the beginning.
     /// </remarks>
     public const string Death = "Die";
+
+    /// <summary>The first thing every death does, before the screen or the reset.</summary>
+    /// <remarks>
+    /// <para>
+    /// All five <c>Die$</c> bodies open with <c>StopAllSoundTracks</c>, and every
+    /// <c>PostDeath$</c> starts the room's soundtracks again afterwards — TE1 its fire and
+    /// the porch, TE4 its fire and the temple, TE3 the pendulum, TE5 and TE6 their own. The
+    /// pair is one gesture: silence the room, then start it playing from the top.
+    /// </para>
+    /// <para>
+    /// Plot armour never enters <c>Die</c>, so for a long time nothing did the first half —
+    /// and a soundtrack already running is not started a second time, so <c>PostDeath</c>'s
+    /// half did nothing either and the room's audio simply ran on across every retry. In TE6
+    /// that is <c>TE6Demon.STK</c>, a single looping growl, and a player saved from the demon
+    /// heard it repeating over and over with nothing able to stop it.
+    /// </para>
+    /// </remarks>
+    public const string Silence = "StopAllSoundTracks";
 
     /// <summary>What the death screen's restart button calls back into.</summary>
     /// <remarks>
@@ -176,7 +194,9 @@ public static class Assists
     /// <remarks>
     /// The same pair, in the same order, that the original's death screen runs when the
     /// player chooses to try again — so what plot armour removes is the screen and the
-    /// dying, and not the retry the game already knew how to give.
+    /// dying, and not the retry the game already knew how to give. <see cref="Silence"/>
+    /// comes first, because in the original the room has been quiet since <c>Die</c> by
+    /// the time the player presses the button.
     /// </remarks>
     public static IReadOnlyList<string> Survive => [Restart, Resume];
 
