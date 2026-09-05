@@ -1248,6 +1248,7 @@ public sealed class FrontEnd
         MenuItem.Heading("Made easier"),
         MenuItem.Toggle("moustache", "Skip the cat-hair moustache", Settings.AlwaysWearsMoustache),
         MenuItem.Toggle("armour", "Gabriel cannot be killed", Settings.PlotArmour),
+        MenuItem.Toggle("catch", "Gabriel catches the pendulum", Settings.CatchesPendulum),
     ];
 
     /// <summary>
@@ -1653,6 +1654,7 @@ public sealed class FrontEnd
             },
 
             "armour" => Settings with { PlotArmour = !Settings.PlotArmour },
+            "catch" => Settings with { CatchesPendulum = !Settings.CatchesPendulum },
 
             "realistic" => Settings with { RealisticLighting = !Settings.RealisticLighting },
             "floorreflect" => Settings with { FloorReflections = !Settings.FloorReflections },

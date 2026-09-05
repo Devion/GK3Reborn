@@ -807,6 +807,90 @@ public sealed class SceneMechanismTests
         Tile($"te1floor{(char)('a' + column)}{(char)('1' + row)}");
 
     /// <summary>A pick of one of the room's own objects, as the pointer would report it.</summary>
+    [Fact]
+    public void The_blade_is_grabbed_before_the_action_files_are_asked()
+    {
+        // Reported as the pendulum being impossible to jump to. The scene gives the blade
+        // noun=PENDULUM and TE3309P.NVC gives PENDULUM a LOOK for ALL, so every click on it
+        // resolved an action and TakesClick -- which is only asked once a click has failed
+        // to resolve one -- was never reached. The original never consults the action files
+        // here at all: its whole TE3 handler is keyed on the model name.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var pendulum = new Pendulum(world, api);
+
+        pendulum.Begin();
+
+        // In the doorway the room is the player's, blade included: nothing is claimed, so a
+        // LOOK at it is a LOOK at it.
+        Assert.Null(pendulum.ClaimsClick(Blade()));
+        Assert.Null(pendulum.ClaimsClick(Tile("te3_altar")));
+    }
+
+    [Fact]
+    public void Nothing_in_the_shaft_is_pokeable_once_he_has_left_the_doorway()
+    {
+        // He is on a turning platform with a blade coming at him. The scales on the far
+        // side of the room are not his to poke at, and the original claims every click in
+        // the room for the same reason.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var pendulum = new Pendulum(world, api);
+
+        pendulum.Begin();
+        pendulum.TakesClick(Tile("te3_r01"));
+        world.Advance(0.1);
+
+        Assert.NotNull(pendulum.ClaimsClick(Tile("te3_altar")));
+
+        // But not once he is standing on the altar: the scales are up there, and that
+        // puzzle is the rest of the room.
+        typeof(Pendulum)
+            .GetField("_doing", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(pendulum, 4);
+
+        Assert.Null(pendulum.ClaimsClick(Tile("te3_counter")));
+    }
+
+    [Fact]
+    public void A_diagonal_on_the_bridge_has_a_clip_of_its_own()
+    {
+        // Four jump clips ship and only three were used: diagonals went through the
+        // one-square clip, which is authored for a shorter jump. Three of the eight moves
+        // along the path are diagonals.
+        //
+        // The shape decides the clip and the heading decides the direction, which is why a
+        // jump backwards needs no clip of its own. The original keeps a table of every move
+        // on the board -- twenty-one entries, eleven distinct -- and they pair off exactly:
+        // going one square forward and going one square back are two entries against one
+        // animation, and the same holds for the diagonal, the two-square hop and both
+        // knight's moves.
+        Assert.Equal("GABTE5JUMP01SQ", Leap(0, 1));
+        Assert.Equal("GABTE5JUMP02SQ", Leap(0, 2));
+        Assert.Equal("GABTE5JUMP45", Leap(1, 1));
+        Assert.Equal("GABTE5JUMP26KNIGHT", Leap(1, 2));
+        Assert.Equal("GABTE5JUMP26KNIGHT", Leap(2, 1));
+
+        // Backwards is the same jump the other way round, and reaches the same clip.
+        Assert.Equal("GABTE5JUMP45", Leap(-1, -1));
+        Assert.Equal("GABTE5JUMP02SQ", Leap(0, -2));
+
+        // And anything else is a jump he cannot make, which is a death rather than a
+        // refusal: the player is getting it wrong and the game lets them find out.
+        Assert.Null(Leap(2, 2));
+        Assert.Null(Leap(0, 3));
+        Assert.Null(Leap(3, 1));
+        Assert.Null(Leap(0, 0));
+    }
+
+    /// <summary>The bridge's own move table, which is private and worth checking directly.</summary>
+    private static string? Leap(int across, int along) =>
+        (string?)typeof(Bridge)
+            .GetMethod("Leap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, [across, along]);
+
+    /// <summary>The swinging blade, as the scene names its model.</summary>
+    private static ScenePick Blade() =>
+        new("te3_pendulum_center_code", "PENDULUM", null, 1f, Vector3.Zero, PickKind.Prop);
+
     private static ScenePick Tile(string name) =>
         new(name, null, null, 1f, Vector3.Zero, PickKind.Geometry);
 

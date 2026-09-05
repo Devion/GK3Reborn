@@ -2,6 +2,7 @@
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Ini;
+using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game.Interaction;
 using GK3Reborn.Game.Navigation;
 using GK3Reborn.Sheep;
@@ -242,6 +243,31 @@ public sealed class Pendulum : SceneMechanism
         Swing();
         Turn();
         Ride();
+        Reach();
+    }
+
+    /// <summary>
+    /// Catches the blade for him, where the player has asked not to have to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// After <see cref="Swing"/> rather than before it, so that a frame which is both the
+    /// last of the reach and the first of the killing is still the killing: the assistance
+    /// is a pair of hands, not a second kind of plot armour, and a player who has both on
+    /// should see the same room either way round. In practice the reach runs out a platform
+    /// before the blade arrives, so the two never meet.
+    /// </para>
+    /// <para>
+    /// It is the same <see cref="Grab"/> the click performs — the score, the camera cut and
+    /// the climb are all the room's, and none of them is skipped.
+    /// </para>
+    /// </remarks>
+    private void Reach()
+    {
+        if (Story.CatchesPendulum && _doing == Doing.Riding && _danger != 0 && WithinReach())
+        {
+            Grab();
+        }
     }
 
     /// <summary>Puts the blade where its clock says it is, and kills anybody under it.</summary>
@@ -401,6 +427,59 @@ public sealed class Pendulum : SceneMechanism
     public override void Pointing(ScenePick? under, bool busy) =>
         _under = under?.Name ?? string.Empty;
 
+    /// <summary>What the player is offered when the blade can be caught.</summary>
+    /// <remarks>
+    /// A verb rather than a noun, because the noun is already on the screen and does not
+    /// change: the blade says PENDULUM whether it is halfway across the room or buried in
+    /// the slot beside you. What the player has no way of knowing is <em>when</em>, and the
+    /// window is a couple of seconds. The reference puts a grab cursor up for the same
+    /// reason; this port has no cursor art, so it says so instead.
+    /// </remarks>
+    private const string Grabbing = "GRAB";
+
+    /// <summary>And when he is hanging off it over the altar.</summary>
+    private const string Dropping = "LET GO";
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The blade has a noun and the room has a rule for it.</b> Without this the click
+    /// resolved <c>PENDULUM:LOOK</c> every time and <see cref="TakesClick"/> was never
+    /// reached, so the grab — the only way out of this room — could not be performed.
+    /// </para>
+    /// <para>
+    /// Once he has left the doorway the whole room is claimed, advertised or not. He is on
+    /// a turning platform with a blade coming at him and the scales on the far side are not
+    /// his to poke at; the original claims every click in the room for the same reason.
+    /// </para>
+    /// </remarks>
+    public override string? ClaimsClick(ScenePick? under)
+    {
+        string name = under?.Name ?? _under;
+
+        return _doing switch
+        {
+            // In the doorway nothing is claimed: the platforms carry no noun and reach
+            // TakesClick on their own, and everything else in the room answers to the
+            // action files as it does in any other.
+            Doing.Waiting => null,
+
+            // And once he is standing on the altar the room is his again. The scales are up
+            // there -- te3_counter, te3_gldbrick and the six shapes, all of them nouns with
+            // scripts of their own -- and that puzzle is the rest of the room. Claiming
+            // clicks here would end the game on the pillar he just landed on.
+            Doing.Arrived => null,
+
+            Doing.Riding when _danger != 0 && IsBlade(name) && WithinReach() => Grabbing,
+
+            Doing.Holding when name.Equals(
+                _altar?.Name ?? "te3_hpaltar", StringComparison.OrdinalIgnoreCase) &&
+                MathF.Abs(Angle()) < _allowed => Dropping,
+
+            _ => string.Empty,
+        };
+    }
+
     /// <inheritdoc/>
     /// <remarks>
     /// <b>Nothing in this room is walked to.</b> There is no floor to speak of — a doorway,
@@ -488,7 +567,7 @@ public sealed class Pendulum : SceneMechanism
             _on = Slot();
 
             World.Carry(Story.Ego, Where(_on), Walker.Heading(-Where(_on)));
-            World.Play("TE3_DOORCLOSE");
+            World.Play(Animation);
 
             double end = World.Play("GABTE3JUMPFE");
 
@@ -667,8 +746,22 @@ public sealed class Pendulum : SceneMechanism
         Story.ClearFlag("Te3GabeAtAltar");
 
         // And the door he came through is open again: its opening frame is the open one.
-        World.Pose("TE3_DOORCLOSE", ["te3_door"], atEnd: false);
+        //
+        // The scene calls it te3_stonedoor. Naming it te3_door posed nothing at all --
+        // Pose matches the clip's own model name and answers with a count nobody read --
+        // so every retry, and every death survived under plot armour, put Gabriel back in
+        // a doorway that was still shut behind him.
+        if (World.Pose(Animation, [Door], atEnd: false) == 0)
+        {
+            Log.Warning($"TE3: nothing in {Animation} is called {Door}; the door stays shut.");
+        }
     }
+
+    /// <summary>The door out of the entryway, as the scene file names it.</summary>
+    private const string Door = "te3_stonedoor";
+
+    /// <summary>The animation that shuts it, whose first frame is it standing open.</summary>
+    private const string Animation = "TE3_DOORCLOSE";
 
     /// <summary>Runs one of the room's own scripts.</summary>
     private void Call(string function) => Api.Invoke(

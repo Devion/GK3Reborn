@@ -504,6 +504,31 @@ public sealed record Settings
     /// </remarks>
     public bool PlotArmour { get; init; }
 
+    /// <summary>Whether Gabriel catches the pendulum himself.</summary>
+    /// <remarks>
+    /// <para>
+    /// The one puzzle in the game that is a reaction test. Everything else GK3 asks for is
+    /// thinking, looking and remembering, and can be done at whatever pace suits the
+    /// player; TE3 asks them to click a swinging blade inside a window of about two
+    /// seconds, from a platform that is itself moving, having first worked out that
+    /// grabbing it is the thing to do at all. Somebody who has understood the room can
+    /// still be shut out of it by their hands.
+    /// </para>
+    /// <para>
+    /// With this on he takes hold of the blade the moment it comes within reach, and the
+    /// player rides the ring rather than fighting it. <b>It does not finish the puzzle.</b>
+    /// Letting go over the altar is still theirs, and that is the half with a decision in
+    /// it — the game states the two angles, one where the jump is allowed and one where it
+    /// is survivable, and the gap between them is the whole point of the moment.
+    /// </para>
+    /// <para>
+    /// Separate from <see cref="PlotArmour"/> on purpose: that one removes the consequence
+    /// of failing, this one removes the dexterity, and a player may well want the second
+    /// without the first.
+    /// </para>
+    /// </remarks>
+    public bool CatchesPendulum { get; init; }
+
     /// <summary>
     /// How much of the content the game shipped with and cannot reach is put back.
     /// </summary>

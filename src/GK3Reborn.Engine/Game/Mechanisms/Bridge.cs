@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Numerics;
 using GK3Reborn.Game.Interaction;
+using GK3Reborn.Rendering;
 using GK3Reborn.Sheep;
 
 namespace GK3Reborn.Game.Mechanisms;
@@ -77,6 +78,21 @@ public sealed class Bridge : SceneMechanism
 
         /// <summary>Gone, for a while.</summary>
         Sleeping,
+
+        /// <summary>
+        /// Stood on once, and solid from then on.
+        /// </summary>
+        /// <remarks>
+        /// <b>A deliberate divergence, and the only one in this room.</b> The original puts
+        /// a tile out again a few seconds after Gabriel lands on it and drops him if he is
+        /// still there, which makes the crossing a sequence of timed jumps: the player must
+        /// read the pattern ahead <em>and</em> keep moving, and a moment's thought about
+        /// where to go next is fatal. The reading is the puzzle; the hurrying is a reaction
+        /// test laid over it. This keeps the first and drops the second — a plate he has
+        /// found stays found, and the tiles he has not reached yet still come and go, so
+        /// there is still a pattern to read and still a wrong jump to make.
+        /// </remarks>
+        Held,
     }
 
     /// <summary>One tile.</summary>
@@ -108,6 +124,14 @@ public sealed class Bridge : SceneMechanism
 
     /// <summary>Whether a jump is under way.</summary>
     private bool _jumping;
+
+    /// <summary>Which way he is looking, kept between jumps.</summary>
+    /// <remarks>
+    /// Only ever read where a jump has no direction to take one from, which is a jump of no
+    /// distance -- something the move table cannot produce, and a value rather than a throw
+    /// if it ever does.
+    /// </remarks>
+    private float _facing;
 
     /// <summary>Whether the opening cutscene has been played.</summary>
     private bool _greeted;
@@ -184,6 +208,8 @@ public sealed class Bridge : SceneMechanism
             }
         }
 
+        _clock += seconds;
+
         for (int i = 0; i < Count; i++)
         {
             Step(i, seconds);
@@ -199,7 +225,7 @@ public sealed class Bridge : SceneMechanism
         // can be seen can be landed on, and nothing else can.
         if (tile.Model is { } prop)
         {
-            World.Show(prop, tile.Doing is Phase.Glinting or Phase.Glowing);
+            World.Show(prop, tile.Doing is Phase.Glinting or Phase.Glowing or Phase.Held);
         }
 
         tile.Since += seconds;
@@ -218,13 +244,11 @@ public sealed class Bridge : SceneMechanism
                 break;
 
             case Phase.Glowing when tile.Since >= tile.Lasts:
-                Sleep(index, SleepSeconds);
-
-                // And if he is still standing on it, there is nothing under him any more.
-                if (!_jumping && _standing == index)
-                {
-                    Fall(inTheAir: false);
-                }
+                // Where the original puts the tile out and drops whoever is on it, this
+                // keeps it. Only a tile he has landed on ever glows, so every tile that
+                // reaches here is one he has found -- see Phase.Held for why.
+                tile.Doing = Phase.Held;
+                tile.Since = 0;
 
                 break;
 
@@ -246,6 +270,349 @@ public sealed class Bridge : SceneMechanism
 
     /// <summary>How long a tile stays away before it catches the light again.</summary>
     private const double SleepSeconds = 2.0;
+
+    /// <summary>How long the whole room has been running, for the shimmer's phase.</summary>
+    private double _clock;
+
+    /// <summary>
+    /// A ghost of the plates that are not there.
+    /// </summary>
+    /// <param name="eye">Where the camera is, for sorting.</param>
+    /// <returns>The sprites, farthest first.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The bridge asks the player to read a pattern they cannot see.</b> A tile that is
+    /// out is drawn as nothing at all, so the chasm gives away neither the shape of the path
+    /// nor the fact that there is one. This puts a trace of them back: enough to say
+    /// <em>something is here</em>, not enough to say <em>stand on it</em>.
+    /// </para>
+    /// <para>
+    /// <b>Two things, and they do different jobs.</b> A body of cloud says where the plate
+    /// would be and has no shape worth reading; an outline says what shape it is, and is the
+    /// half that has to look like glass rather than like smoke. Drawn in that order, so the
+    /// edge sits in front of its own haze.
+    /// </para>
+    /// <para>
+    /// <b>Smoke, not embers.</b> The particle pass draws a sprite two ways and the choice is
+    /// the sprite's additiveness: at or above a half it is a plain soft disc, which is what
+    /// an ember wants and is why the first attempt at this read as a grid of glowing dots.
+    /// Below a half the fragment stage cuts two octaves of value noise out of the disc — see
+    /// <c>ParticleShaders</c> — and overlapping sprites stop being circles and become one
+    /// body of cloud. The cloud is on that side of the line and the outline is on the other,
+    /// which is the whole of why one looks like fog and the other like a lit edge.
+    /// </para>
+    /// <para>
+    /// <b>The flatness is in the layout, not in the sprite.</b> Every sprite faces the
+    /// camera, so no arrangement of them is a flat plate seen edge-on — but a mat of them
+    /// lying in the tile's own plane reads as haze lying in the chasm, which is how ground
+    /// fog is drawn anywhere it is drawn with sprites at all. A tile-shaped translucent quad
+    /// carrying a shader of its own would be the other way to do it, and would mean a second
+    /// blended pipeline in both backends to draw what this pass already blends.
+    /// </para>
+    /// <para>
+    /// <b>Nothing here is still.</b> Each puff creeps round its own slow ellipse, rises and
+    /// sinks on its own beat, swells and shrinks, and turns — the noise is cut in the
+    /// sprite's own frame, so turning it churns the cloud from inside rather than sliding it
+    /// across the screen. The rates deliberately do not divide each other: anything that does
+    /// comes back into step and starts to pulse, and a pulse reads as a mechanism.
+    /// </para>
+    /// <para>
+    /// <b>It ends the moment the plate is real.</b> Only a tile that is out or sleeping is
+    /// haunted; one catching the light, one lit under his feet and one he has already found
+    /// are drawn as geometry, and a haze over any of them would blunt the one signal the
+    /// puzzle has. Nothing here may be mistaken for a glint — so it is cold, dim and drifting
+    /// where a glint is warm, bright and a hard-edged slab of lit geometry, and it stays
+    /// under the alpha at which a cloud stops looking like air and starts looking like a
+    /// surface.
+    /// </para>
+    /// </remarks>
+    public override IReadOnlyList<Particle> Particles(Vector3 eye)
+    {
+        var ghost = new List<Particle>(Count * (Puffs + RimPoints));
+
+        for (int i = 0; i < Count; i++)
+        {
+            if (_tiles[i].Doing is not (Phase.Out or Phase.Sleeping))
+            {
+                continue;
+            }
+
+            // A swell that travels along the bridge rather than everything breathing at
+            // once, so the chasm looks like it is being crossed by something.
+            float tide = (float)((_clock * TideRate) - (i * TideLag));
+
+            Haze(ghost, _tiles[i].Where, tide, i);
+            Rim(ghost, _tiles[i].Where, tide, i);
+        }
+
+        // Farthest first. The cloud takes a little of the light behind it rather than being
+        // purely additive, so the order is load-bearing here in a way it is not for CS2's
+        // laser beams.
+        ghost.Sort((a, b) =>
+            Vector3.DistanceSquared(b.Position, eye)
+                .CompareTo(Vector3.DistanceSquared(a.Position, eye)));
+
+        return ghost;
+    }
+
+    /// <summary>The body of cloud that says a plate belongs here.</summary>
+    /// <param name="into">Where the sprites go.</param>
+    /// <param name="where">The middle of the tile.</param>
+    /// <param name="tide">How far through the travelling swell this tile is.</param>
+    /// <param name="tile">Which tile, so no two churn in step.</param>
+    private void Haze(List<Particle> into, Vector3 where, float tide, int tile)
+    {
+        for (int puff = 0; puff < Puffs; puff++)
+        {
+            // Laid on a golden-angle spiral rather than on a grid. A grid of anything is a
+            // grid however soft each thing on it is, and the eye finds the rows.
+            float turn = puff * GoldenAngle;
+            float from = MathF.Sqrt((puff + 0.5f) / Puffs) * Spacing * Reach;
+
+            // Its own slow ellipse, on two rates that do not divide each other, so a puff
+            // never retraces the path it took a moment ago.
+            float own = (float)(_clock * DriftRate) + (puff * 1.31f);
+
+            float x = (MathF.Cos(turn) * from) + (MathF.Cos(own) * Drift);
+            float z = (MathF.Sin(turn) * from) + (MathF.Sin(own * 0.73f) * Drift);
+
+            // And its own rise and fall, so the mat has a little body and does not read as a
+            // decal lying on nothing.
+            float lift = Rise *
+                (0.5f + (0.5f * MathF.Sin((float)(_clock * RiseRate) + (puff * 2.17f))));
+
+            // Swelling and shrinking. Wide enough that neighbours overlap several deep
+            // whatever the phase, which is what makes them one cloud rather than many.
+            float size = Wide *
+                (0.72f + (0.42f * MathF.Sin((float)(_clock * SwellRate) + (puff * 0.87f))));
+
+            // Thinner towards the edge of the mat, so the cloud has no rim of its own. A
+            // cloud with a rim is a disc, which is the thing this is trying to stop being —
+            // and the only edge that should be legible is the outline drawn over it.
+            float fade = 1f - (0.55f * (from / (Spacing * Reach)));
+            float breath = 0.55f + (0.45f * MathF.Sin(tide + (puff * 1.61f)));
+
+            into.Add(new Particle(
+                where + new Vector3(x, Above + lift, z),
+                size,
+
+                // Colder and faintly green where it is thickest. Nothing else in this room
+                // is green, and it is what keeps the cloud from reading as ordinary blue
+                // haze at the edge of a light.
+                //
+                // Alpha is also the noise's seed in the fragment stage, so two puffs at the
+                // same alpha are the same lump of cloud. They never are here: the breath,
+                // the fade and the tide all feed it.
+                new Vector4(
+                    Vector3.Lerp(Thin, Deep, breath),
+                    CloudAlpha * fade * breath),
+
+                // Turned, and turning.
+                (float)(_clock * SpinRate) + (puff * 0.55f) + (tile * 0.9f),
+
+                // Under a half: the noise-cut cloud rather than the plain disc an ember
+                // gets. Only just under, so what it mostly does is glow — at this alpha the
+                // coverage it writes takes almost nothing away from the chasm behind.
+                Cloudy));
+        }
+    }
+
+    /// <summary>The glassy edge of the plate that is not there.</summary>
+    /// <param name="into">Where the sprites go.</param>
+    /// <param name="where">The middle of the tile.</param>
+    /// <param name="tide">How far through the travelling swell this tile is.</param>
+    /// <param name="tile">Which tile, so no two edges catch the light together.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Fully additive, so it is light and not fog.</b> That also puts it back on the
+    /// smooth-disc side of the fragment stage's test, which is what makes it read as glass:
+    /// an edge caught by a light is clean, and the noise that makes the cloud look like
+    /// cloud would make this look like more cloud.
+    /// </para>
+    /// <para>
+    /// <b>What sells the glass is the highlight running round it.</b> A square drawn at one
+    /// brightness is a neon sign; a square with a bright point travelling round its
+    /// perimeter is something with a surface, catching a light that is moving relative to
+    /// it. Raised to a high power so the highlight is a short arc rather than a slow bulge.
+    /// </para>
+    /// <para>
+    /// And the edge is not rigid: it lifts and settles along its length on a wave that is
+    /// not the perimeter's own period, so the outline never holds one shape.
+    /// </para>
+    /// </remarks>
+    private void Rim(List<Particle> into, Vector3 where, float tide, int tile)
+    {
+        for (int point = 0; point < RimPoints; point++)
+        {
+            // Once round the square. Four sides, walked in order, so the highlight below
+            // travels rather than jumping between them.
+            float round = (float)point / RimPoints;
+            float along = round * 4f;
+            int side = Math.Min((int)along, 3);
+            float across = ((along - side) * 2f * Edge) - Edge;
+
+            (float X, float Z) at = side switch
+            {
+                0 => (across, -Edge),
+                1 => (Edge, across),
+                2 => (-across, Edge),
+                _ => (-Edge, -across),
+            };
+
+            // The edge breathes along its length, on a wave that does not divide the
+            // perimeter — an outline that came back into shape every lap would read as a
+            // rotating object rather than as something insubstantial.
+            float wave = MathF.Sin((round * MathF.Tau * RimWaves) + (float)(_clock * RimRate) + tile);
+
+            // A short bright arc travelling round. sin is only positive for half the lap and
+            // the power narrows that to a fraction of it, so most of the outline is dim and
+            // one part of it is catching something.
+            float sweep = MathF.Sin((round - (float)(_clock * SweepRate) - (tile * 0.13f)) * MathF.Tau);
+            float glint = MathF.Pow(MathF.Max(sweep, 0f), SweepFocus);
+
+            float breath = 0.6f + (0.4f * MathF.Sin(tide + (round * 3.1f)));
+
+            into.Add(new Particle(
+                where + new Vector3(at.X, Above + (wave * RimLift), at.Z),
+                RimWide * (0.85f + (0.3f * glint)),
+
+                // Pale and cold at rest, and towards white where the highlight passes. Glass
+                // does not take a colour of its own; what it shows is whatever is catching
+                // it, and here that is nothing anybody can see.
+                new Vector4(
+                    Vector3.Lerp(Glass, Caught, glint),
+                    RimAlpha * breath * (0.45f + (0.9f * glint))),
+
+                (float)(_clock * SpinRate * 0.5f) + (point * 0.4f),
+
+                // Wholly additive: a plain soft disc that adds its light and hides nothing.
+                1f));
+        }
+    }
+
+    /// <summary>How many puffs make up one tile's cloud.</summary>
+    /// <remarks>
+    /// Sixteen, with twenty-four more round the edge, and at most nine tiles are out at once
+    /// — 360 sprites at the very worst against a buffer that holds eight hundred. They have
+    /// to overlap several deep to read as one body: the first attempt used nine, spaced
+    /// further apart than they were wide, and looked like nine dots because that is exactly
+    /// what it was.
+    /// </remarks>
+    private const int Puffs = 16;
+
+    /// <summary>And how many points trace the outline.</summary>
+    /// <remarks>
+    /// Six a side. Fewer and the corners are the only thing the eye finds; many more and the
+    /// travelling highlight stops being a point of light and becomes a lit segment.
+    /// </remarks>
+    private const int RimPoints = 24;
+
+    /// <summary>The angle a spiral turns by so that it never lines up with itself.</summary>
+    private const float GoldenAngle = 2.39996323f;
+
+    /// <summary>How far out the cloud spreads, as a fraction of a tile's pitch.</summary>
+    /// <remarks>
+    /// Wider than the plate, and wider than the outline, so the edge is drawn over its own
+    /// haze rather than beside it.
+    /// </remarks>
+    private const float Reach = 0.58f;
+
+    /// <summary>How far the outline sits from the middle.</summary>
+    /// <remarks>
+    /// A little inside the pitch: the plates do not touch, and an outline drawn at the full
+    /// spacing would make the bridge look like a paved floor with the paving missing rather
+    /// than like nine separate things.
+    /// </remarks>
+    private const float Edge = Spacing * 0.40f;
+
+    /// <summary>How wide one puff of cloud is.</summary>
+    private const float Wide = 15f;
+
+    /// <summary>And one point of the outline, which is far tighter.</summary>
+    private const float RimWide = 4.5f;
+
+    /// <summary>How far a puff creeps from where it belongs.</summary>
+    private const float Drift = 6f;
+
+    /// <summary>And how far it rises.</summary>
+    private const float Rise = 7f;
+
+    /// <summary>How far the outline lifts and settles along its length.</summary>
+    private const float RimLift = 3f;
+
+    /// <summary>How far above the grid all of it lies.</summary>
+    private const float Above = 3f;
+
+    /// <summary>How thick the cloud is at its thickest.</summary>
+    /// <remarks>
+    /// Low. Sixteen of these lie over each other, so what one puff contributes is nothing
+    /// like what the tile shows — and the cloud has to stay under the alpha at which it
+    /// stops looking like air and starts looking like a surface somebody could stand on.
+    /// </remarks>
+    private const float CloudAlpha = 0.085f;
+
+    /// <summary>And how bright the outline is.</summary>
+    private const float RimAlpha = 0.30f;
+
+    /// <summary>How fast the swell travels along the bridge, in radians a second.</summary>
+    private const float TideRate = 0.9f;
+
+    /// <summary>And how far behind the tile before it each tile is.</summary>
+    private const float TideLag = 0.8f;
+
+    /// <summary>How fast a puff creeps round its ellipse.</summary>
+    private const float DriftRate = 0.37f;
+
+    /// <summary>How fast it rises and sinks.</summary>
+    private const float RiseRate = 0.29f;
+
+    /// <summary>How fast it swells and shrinks.</summary>
+    private const float SwellRate = 0.53f;
+
+    /// <summary>And how fast it turns.</summary>
+    private const float SpinRate = 0.11f;
+
+    /// <summary>How many times the outline waves over one lap of itself.</summary>
+    /// <remarks>Not a whole number, so the wave never closes on itself.</remarks>
+    private const float RimWaves = 2.6f;
+
+    /// <summary>How fast that wave runs along it.</summary>
+    private const float RimRate = 0.8f;
+
+    /// <summary>How fast the highlight travels round, in laps a second.</summary>
+    private const float SweepRate = 0.22f;
+
+    /// <summary>How tight it is: higher is a shorter, brighter arc.</summary>
+    private const float SweepFocus = 6f;
+
+    /// <summary>
+    /// How much of an ember there is in the cloud, which is what picks the sprite's shape.
+    /// </summary>
+    /// <remarks>
+    /// Just under the half the fragment stage tests against, so the cloud noise is cut out of
+    /// it while it stays very nearly a light rather than a fog. Take it over a half and every
+    /// puff becomes the smooth disc this began as.
+    /// </remarks>
+    private const float Cloudy = 0.46f;
+
+    /// <summary>
+    /// The colour where the cloud is thinnest.
+    /// </summary>
+    /// <remarks>
+    /// Cold and faint on purpose. The glint the tiles use is the room's own warm gold, and
+    /// the two must not be confusable at a glance — a player who reads this as "solid" walks
+    /// into the chasm.
+    /// </remarks>
+    private static readonly Vector3 Thin = new(0.13f, 0.19f, 0.30f);
+
+    /// <summary>And where it is thickest.</summary>
+    private static readonly Vector3 Deep = new(0.10f, 0.26f, 0.28f);
+
+    /// <summary>The outline at rest.</summary>
+    private static readonly Vector3 Glass = new(0.22f, 0.40f, 0.52f);
+
+    /// <summary>And where the highlight is passing over it.</summary>
+    private static readonly Vector3 Caught = new(0.78f, 0.92f, 1.00f);
 
     /// <summary>Whether the puzzle is under way at all.</summary>
     private bool InThePuzzle() => _standing >= 0 || AtTheEdge();
@@ -442,6 +809,27 @@ public sealed class Bridge : SceneMechanism
             }
         }
 
+        // Which way he is looking while he does it. Every clip is authored along his own
+        // facing, so this is what aims the jump: without it he leapt down the bridge
+        // whatever was clicked and arrived sideways at the tile, which is most of the eight
+        // moves on the path and looks like the animation has come loose from the game.
+        Vector3 standing = World.Where(Story.Ego) ?? landing;
+        Vector3 away = landing - standing;
+
+        // Flat: the tiles are all at one height and a heading is a compass bearing, so the
+        // two-unit step up onto a tile top must not tilt it.
+        away.Y = 0;
+
+        float heading = away.LengthSquared() > 0.01f
+            ? Navigation.Walker.Heading(away)
+            : _facing;
+
+        // Snapped rather than turned. Turn is an animated pivot that takes about a second,
+        // and the jump has already started: he would take off facing the old way and swing
+        // round in mid-air.
+        World.Place(Story.Ego, standing, heading);
+
+        _facing = heading;
         _towards = index;
         _jumping = true;
 
@@ -459,21 +847,22 @@ public sealed class Bridge : SceneMechanism
             _standing = index;
             _towards = -1;
 
-            World.Place(Story.Ego, landing, 0f);
+            World.Place(Story.Ego, landing, heading);
 
             if (index >= 0 && index < Count)
             {
                 Glow(index);
             }
 
-            // Straight ahead again: every one of these clips is authored from Gabriel
-            // facing down the bridge, and a few jumps of drift makes the next one miss.
-            double standing = World.Play("GABTE5STAND");
+            // He keeps the way he jumped rather than being squared up to the bridge. The
+            // clip that follows is a landing, not a turn, and the next jump sets its own
+            // heading from where it is going -- so nothing accumulates and nothing drifts.
+            double settling = World.Play("GABTE5STAND");
 
-            Then(standing, () =>
+            Then(settling, () =>
             {
                 _jumping = false;
-                World.Place(Story.Ego, landing, 0f);
+                World.Place(Story.Ego, landing, heading);
 
                 if (index == Count)
                 {
@@ -488,30 +877,40 @@ public sealed class Bridge : SceneMechanism
     /// Which clip carries Gabriel a given distance, or null when nothing does.
     /// </summary>
     /// <remarks>
-    /// Three kinds of jump exist and no more: straight along, along a diagonal, and a
-    /// knight's move. Anything else is a jump he cannot make.
+    /// <para>
+    /// Four kinds of jump exist and no more: one square along, two squares along, a
+    /// diagonal, and a knight's move. Anything else is a jump he cannot make.
+    /// </para>
+    /// <para>
+    /// <b>The shape decides the clip and the heading decides the direction</b>, which is
+    /// why a diagonal has a clip of its own and a jump backwards has none. The original
+    /// keeps a table of every move on the board — twenty-one of them, eleven distinct — and
+    /// they pair off exactly: the entry for going one square forward and the entry for
+    /// going one square back are two different entries, and the game ships one animation.
+    /// The same holds for the diagonal, for the two-square hop and for both knight's moves,
+    /// and there are only ever four clips. So a clip is authored along whichever way Gabriel
+    /// is looking, and turning him to look at the tile he is jumping to is what makes it
+    /// carry him there.
+    /// </para>
+    /// <para>
+    /// <c>GABTE5JUMP45</c> is the diagonal, and was going unused: diagonals were being sent
+    /// through the one-square clip, which is authored for a shorter jump. Three of the eight
+    /// moves along the path are diagonals.
+    /// </para>
     /// </remarks>
     private static string? Leap(int across, int along)
     {
         int sideways = Math.Abs(across);
         int forward = Math.Abs(along);
 
-        if (sideways == 0 && forward > 0)
+        return (sideways, forward) switch
         {
-            return forward > 1 ? "GABTE5JUMP02SQ" : "GABTE5JUMP01SQ";
-        }
-
-        if (sideways == forward && sideways > 0)
-        {
-            return "GABTE5JUMP01SQ";
-        }
-
-        if (sideways > 0 && forward > 0 && sideways + forward == 3)
-        {
-            return "GABTE5JUMP26KNIGHT";
-        }
-
-        return null;
+            (0, 1) => "GABTE5JUMP01SQ",
+            (0, 2) => "GABTE5JUMP02SQ",
+            (1, 1) => "GABTE5JUMP45",
+            (1, 2) or (2, 1) => "GABTE5JUMP26KNIGHT",
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -559,9 +958,17 @@ public sealed class Bridge : SceneMechanism
             _jumping = false;
             _greeted = false;
 
+            // What he has already found, he keeps. The plates he has stood on are knowledge
+            // the player has earned, and making them walk the known half of the bridge again
+            // is the tedium this room is being relieved of -- the same reason a plate stays
+            // solid in the first place. Entering the room afresh still lays them all out:
+            // see Begin, which is the one place the bridge starts from nothing.
             for (int i = 0; i < Count; i++)
             {
-                _tiles[i].Doing = Phase.Out;
+                if (_tiles[i].Doing != Phase.Held)
+                {
+                    _tiles[i].Doing = Phase.Out;
+                }
             }
         });
     }

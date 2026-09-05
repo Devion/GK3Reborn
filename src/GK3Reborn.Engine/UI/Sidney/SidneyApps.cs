@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -656,15 +656,50 @@ public static class SidneyApps
         ];
 
         float lineRow = surface.Line + surface.Em(8);
-        float tall = (surface.Line * 5) + ((linked.Count + loose.Count) * (lineRow + surface.Em(4)));
+
+        // The portrait is three lines tall and the three facts beside it are three lines, so
+        // the block is the taller of the two plus the blank line under it. Counted before
+        // the scroll rather than after, because BeginScroll is told how far the pane can be
+        // dragged and a portrait taller than the text it sits beside would otherwise hang
+        // over the bottom of a file with nothing linked to it.
+        float portrait = (surface.Line * 3) + surface.Em(4);
+        float head = MathF.Max(surface.Line * 3, portrait) + surface.Line;
+
+        float tall = head + surface.Line +
+            ((linked.Count + loose.Count) * (lineRow + surface.Em(4)));
 
         float paneOffset = surface.BeginScroll("suspect", detail, tall);
         float width2 = surface.Room(detail, tall);
         float at = detail.Y - paneOffset;
 
+        // The face again, and bigger, beside the three lines that say who this is. The row
+        // in the list is a thumbnail for picking somebody out of ten; this is the file the
+        // player has opened, and a file on a person should show the person. Three lines tall
+        // so the portrait and the facts it belongs to are one block -- the name, where they
+        // are from and what they drive sit against it, and the linked evidence begins below
+        // both.
+        float column = detail.X;
+        int face2 = view.Pictures?.Invoke(suspect.Portrait) ?? 0;
+
+        if (face2 > 0 && detail.Z > portrait * 2.4f)
+        {
+            var frame = new Vector4(detail.X, at, portrait, portrait);
+
+            surface.Overlay.Picture(
+                face2, frame.X, frame.Y, frame.Z, frame.W, Vector4.One);
+
+            surface.Frame(frame, SidneyPalette.Amber);
+
+            // Only the three facts are indented. Everything after them goes back to the
+            // pane's own edge, because the linked-files list is as wide as it can get and
+            // stepping it in to clear a portrait it has already passed wastes the column.
+            column = frame.X + portrait + surface.Em(10);
+            width2 -= column - detail.X;
+        }
+
         surface.Write(
             $"{machine.Library.Say("Name", "Suspects Screen")} {suspect.Name}",
-            detail.X,
+            column,
             at,
             SidneyPalette.Ink);
 
@@ -672,7 +707,7 @@ public static class SidneyApps
 
         surface.Write(
             $"{machine.Library.Say("Nationality", "Suspects Screen")} {suspect.Nationality}",
-            detail.X,
+            column,
             at,
             SidneyPalette.Dim);
 
@@ -687,12 +722,15 @@ public static class SidneyApps
         surface.WriteIn(
             $"{machine.Library.Say("Vehicle", "Suspects Screen")} "
             + (knows ? suspect.Vehicle : "Unknown"),
-            detail.X,
+            column,
             at,
             width2,
             knows ? SidneyPalette.Dim : SidneyPalette.Rule);
 
-        at += surface.Line * 2;
+        // Past the portrait: whichever is lower, the three lines or the picture beside them.
+        at = MathF.Max(at + surface.Line, detail.Y - paneOffset + portrait);
+        width2 = surface.Room(detail, tall);
+        at += surface.Line;
 
         // Wrapped: the game's own "There are no linked files for this suspect." is longer
         // than this column, and a heading that stops at "for this sus" reads as a fault.

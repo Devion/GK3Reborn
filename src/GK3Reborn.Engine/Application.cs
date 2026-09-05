@@ -805,8 +805,18 @@ public static class Application
             EnhancedTextures? better = Pictures(
                 settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides);
 
+            // Loose files first, then the packs. Both, because the interface's own pictures
+            // are enhanced content like any other and the shipped form of enhanced content
+            // is a pack: reading only the loose set meant they were there in a development
+            // tree with ContentWorkspace beside it and gone from every actual installation.
+            // The map and the driving sprites survived that -- they fall back to the 1999
+            // bitmap and merely lose the upscale -- but the portraits have no original to
+            // fall back to and simply were not drawn.
+            Formats.Bitmaps.DecodedImage? Enhanced(string name) =>
+                better?.Read(name) ?? Packed(packs, name);
+
             Formats.Bitmaps.DecodedImage? survey =
-                better?.Read(Game.Sidney.SidneyMap.Picture) ??
+                Enhanced(Game.Sidney.SidneyMap.Picture) ??
                 Decoded(archives, Game.Sidney.SidneyMap.Picture + ".BMP");
 
             if (survey is { } drawn)
@@ -815,15 +825,22 @@ public static class Application
             }
 
             // The suspects' faces, rendered from their own heads by the offline tool. They
-            // are enhanced content and nothing else: an installation without the enhanced
-            // set draws the names alone, which is what the original does anyway.
+            // are enhanced content and nothing else: an installation with neither the packs
+            // nor the loose set draws the names alone, which is what the original does.
+            int portraits = 0;
+
             foreach (string portrait in Game.Sidney.SidneySuspect.Portraits)
             {
-                if (better?.Read(portrait) is { } likeness)
+                if (Enhanced(portrait) is { } likeness &&
+                    renderer.AddOverlayPicture(portrait, likeness) > 0)
                 {
-                    renderer.AddOverlayPicture(portrait, likeness);
+                    portraits++;
                 }
             }
+
+            Log.Info(portraits > 0
+                ? $"Sidney: {portraits} of {Game.Sidney.SidneySuspect.Portraits.Count} suspect portraits"
+                : "Sidney: no suspect portraits; the list draws names alone.");
 
             // The driving map's own art. After the atlas, because setting an atlas rebuilds
             // the pipeline the pictures hang off and would throw them away.
@@ -831,11 +848,7 @@ public static class Application
             // The enhanced set is preferred where it has one: the markers are upscaled
             // there and the map is drawn at whatever size the window affords, so the
             // 55-pixel original is exactly the case an upscale is for.
-            LoadMapArt(
-                archives,
-                renderer,
-                screens,
-                Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides));
+            LoadMapArt(archives, renderer, screens, Enhanced);
 
             Log.Info(
                 $"Interface: {atlas.Name}, {atlas.Count} glyphs at {atlas.Height}px" +
@@ -1079,6 +1092,7 @@ public static class Application
             api.State.CinematicsEnabled = chosen.Cinematics;
             api.State.EasterEggs = chosen.EasterEggs;
             api.State.PlotArmour = chosen.PlotArmour;
+            api.State.CatchesPendulum = chosen.CatchesPendulum;
 
             // And the moustache, if the story has reached the afternoon it belongs to.
             // Here as well as on the way into each room, so that turning the assistance on
@@ -3264,6 +3278,29 @@ public static class Application
         }
     }
 
+    /// <summary>
+    /// Whether the player is spelling something into Sidney rather than playing the game.
+    /// </summary>
+    /// <param name="story">The game, for what is on top of the screen stack.</param>
+    /// <param name="sidney">Grace's computer, or null in a run that has none.</param>
+    /// <returns>True while one of its two text boxes has the keyboard.</returns>
+    /// <remarks>
+    /// <para>
+    /// The same test the boxes themselves are fed by, in one place so that the question
+    /// "has somebody else got the keyboard" has a single answer. Two boxes: the search
+    /// subject, and the string that finishes the Arcadia inscription.
+    /// </para>
+    /// <para>
+    /// <b>Being inside Sidney is not enough.</b> Its other screens have nothing to type
+    /// into, and a player looking at their email should still be able to open their pockets
+    /// — so this asks what is showing rather than where the player is.
+    /// </para>
+    /// </remarks>
+    private static bool Spelling(GameState story, Game.Sidney.SidneyMachine? sidney) =>
+        sidney is { } machine &&
+        story.Screens.Top?.Kind == ScreenKind.Sidney &&
+        (machine.Screen == Game.Sidney.SidneyScreen.Search || machine.Appending);
+
     /// <summary>Hands a frame's keyboard to the console.</summary>
     /// <param name="input">Where the keys come from.</param>
     /// <param name="console">What reads them.</param>
@@ -3750,7 +3787,15 @@ public static class Application
             //
             // Taken before the toggle, not after: Escape closes the console, and asking
             // afterwards would find it closed and take the same press as "leave the room".
-            bool typing = console.Open;
+            //
+            // Sidney's two text boxes are the other place the keyboard is spoken for, and
+            // for the same reason: the player is spelling a word, and every letter in it is
+            // also a binding. Typing a subject into the search box opened the inventory on
+            // the I, the quest log on the J, reset the camera on the R and drove it about
+            // the room on the W, A, S and D — none of which is what somebody typing
+            // "MEROVINGIAN" meant. Only while a box is actually showing: elsewhere in
+            // Sidney there is nothing to type into and the bindings are the player's.
+            bool typing = console.Open || Spelling(story, sidney);
 
             if (window.WasPressed(Platform.EditKey.Console))
             {
@@ -4072,7 +4117,10 @@ public static class Application
             // flying off during a cutscene, and the next thing the script cut to snapped
             // the view back across the room from wherever they had got to — which reads as
             // the camera losing its place rather than as the player having moved it.
-            if (!console.Open && !(update.Directing && !Flying()))
+            // Whoever has the keyboard, not just the console: W, A, S and D are movement
+            // keys and they are also four letters, so a subject typed into Sidney's search
+            // box flew the camera off across the room behind it and left it there.
+            if (!typing && !(update.Directing && !Flying()))
             {
                 camera.Update(window, delta);
             }
@@ -4109,6 +4157,14 @@ public static class Application
             // legal knight's move before it is clicked, because that answer is what the
             // action file's case reads to choose which of three scripts the click runs.
             api.Mechanism?.Pointing(hover.Pick, update.Occupied || menu is not null);
+
+            // And whether it wants the click outright, which is a different question from
+            // TakesClick below: that one is asked once a click has failed to resolve an
+            // action, and a thing the scene gives a noun to never fails. TE3's blade is
+            // PENDULUM and the action files give PENDULUM a LOOK, so without this the only
+            // way out of that room resolved to Gabriel remarking on it. Null means "not
+            // mine"; a word means "mine, and this is what it does".
+            string? claimed = api.Mechanism?.ClaimsClick(hover.Pick);
 
             // What the player sees, not the noun behind it: the numbered exits are drawn
             // as the place they lead to, and a log that says EXIT3 cannot be matched
@@ -4809,11 +4865,28 @@ public static class Application
 
                 barTookAVerb = menu is not null && chosenRow is { Length: > 0 } && !openingBag;
 
-                ActionOutcome? did = menu is { } open
-                    ? chosenRow is { Length: > 0 } && !openingBag
-                        ? interaction.Do(open, chosenRow, hurry)
-                        : null
-                    : interaction.Do(hover, hurry: hurry);
+                // The room's own machinery gets first refusal, ahead of the action files.
+                // Only where it has said it wants this click — see ClaimsClick — and never
+                // while the verb bar is up, because a click on the bar is a click on the
+                // interface and belongs to whatever the player picked.
+                bool roomTook = menu is null &&
+                    claimed is not null &&
+                    hud?.OverInterface(pointer) != true &&
+                    api.Mechanism?.TakesClick(hover.Pick) == true;
+
+                ActionOutcome? did = roomTook
+                    ? null
+                    : menu is { } open
+                        ? chosenRow is { Length: > 0 } && !openingBag
+                            ? interaction.Do(open, chosenRow, hurry)
+                            : null
+                        : interaction.Do(hover, hurry: hurry);
+
+                if (roomTook)
+                {
+                    Log.Info($"{story.Ego}: the room claimed the click" +
+                        (claimed is { Length: > 0 } what ? $" — {what}" : string.Empty));
+                }
 
                 // Nothing to do to the thing clicked, so ask whether it was the ground and
                 // go there. Three things have to be true. No verb menu was open, because
@@ -4830,7 +4903,11 @@ public static class Application
                 // Before the floor: a room may claim a click the action files leave
                 // unanswered. TE1's tile floor carries no noun, so nothing resolves on it,
                 // and the board wants it to mean "jump back off me" rather than "walk".
-                if (did is null &&
+                if (roomTook)
+                {
+                    // Already dealt with above, before the action files were asked.
+                }
+                else if (did is null &&
                     menu is null &&
                     window.WasClicked(Platform.PointerButton.Primary) &&
                     hud?.OverInterface(pointer) != true &&
@@ -4931,13 +5008,24 @@ public static class Application
             {
                 Hover showing = menu ?? hover;
 
+                // What the room claims outranks what the action files offer, and it is the
+                // only thing on the bar while it does. TE3's blade answers to LOOK all the
+                // time and to a grab for about two seconds either side of the slot; a
+                // player given LOOK during those two seconds has no way of knowing the
+                // window is open, and the reference puts a grab cursor up for exactly this.
+                // An empty claim advertises nothing: the room has taken the click, and
+                // there is nothing useful to say about it.
+                bool advertised = menu is null && claimed is { Length: > 0 };
+
                 hud.Build(
                     new HudState(
                         showing.Label,
-                        [.. showing.Actions
-                            .Where(a => !IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs))
-                            .Select(a => a.LocalizedVerb)],
-                        hover.Default,
+                        advertised
+                            ? [claimed!]
+                            : [.. showing.Actions
+                                .Where(a => !IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs))
+                                .Select(a => a.LocalizedVerb)],
+                        advertised ? claimed : hover.Default,
                         pointer,
                         menu is not null,
                         menuIndex,
@@ -5882,12 +5970,43 @@ public static class Application
     }
 
     /// <summary>
+    /// An interface picture out of the packs, expanded to something the overlay can draw.
+    /// </summary>
+    /// <param name="packs">The ReBarn volumes, which may hold none.</param>
+    /// <param name="name">The texture's name, as the enhanced set keys it.</param>
+    /// <returns>The picture, or null when no pack has it.</returns>
+    /// <remarks>
+    /// <para>
+    /// The overlay takes a decoded image and a pack holds compressed blocks, so this is the
+    /// one place they are expanded on purpose. It costs a decode per picture at startup and
+    /// there are twelve of them -- the survey, the ten faces and the driving background --
+    /// against a texture path for the room that never decodes anything at all.
+    /// </para>
+    /// <para>
+    /// Overrides come through here too: <see cref="RebarnContent.ReadTexture"/> answers from
+    /// <c>overrides/</c> before it looks in a volume, so a player's own portrait beats the
+    /// packed one exactly as it does everywhere else.
+    /// </para>
+    /// </remarks>
+    private static Formats.Bitmaps.DecodedImage? Packed(Content.RebarnContent packs, string name)
+    {
+        ArgumentNullException.ThrowIfNull(packs);
+
+        return packs.ReadTexture(Formats.Rebarn.RebarnKind.Texture, name) is { } blocks
+            ? Formats.Bitmaps.BlockDecoder.Decode(blocks)
+            : null;
+    }
+
+    /// <summary>
     /// Hands the driving map's own pictures to the interface.
     /// </summary>
     /// <param name="archives">The game's data, which is where the art is.</param>
     /// <param name="renderer">What holds the pictures.</param>
     /// <param name="screens">What draws them, and needs to know how big each one is.</param>
-    /// <param name="enhanced">Upscaled textures to prefer, or null to use the archives'.</param>
+    /// <param name="enhanced">
+    /// Asks for the upscaled form of a picture, from the loose set or the packs, and
+    /// answers null where there is none -- in which case the archive's own is drawn.
+    /// </param>
     /// <remarks>
     /// <para>
     /// Seventeen pictures — the map and its sixteen markers — read once at startup and
@@ -5906,7 +6025,7 @@ public static class Application
         GameArchives archives,
         Rendering.IRenderer renderer,
         ScreenPainter screens,
-        EnhancedTextures? enhanced)
+        Func<string, Formats.Bitmaps.DecodedImage?> enhanced)
     {
         int loaded = 0;
         int upscaled = 0;
@@ -5924,7 +6043,7 @@ public static class Application
                 Formats.Bitmaps.DecodedImage original =
                     Formats.Bitmaps.BitmapDecoder.Decode(bytes, key);
 
-                Formats.Bitmaps.DecodedImage? better = enhanced?.Read(key);
+                Formats.Bitmaps.DecodedImage? better = enhanced(key);
 
                 if (better is not null)
                 {

@@ -391,12 +391,12 @@ public sealed class FrontEndTests
         Assert.True(heading >= 0, "Playing has no Made easier heading");
 
         Assert.Equal(
-            ["moustache", "armour"],
+            ["moustache", "armour", "catch"],
             rows.Skip(heading).Where(i => i.Selectable).Select(i => i.Id));
     }
 
     [Fact]
-    public void Neither_assistance_is_on_until_the_player_asks_for_it()
+    public void No_assistance_is_on_until_the_player_asks_for_it()
     {
         // GK3 as it shipped is a hard game on purpose, and somebody meeting it for the
         // first time should meet it that way.
@@ -407,22 +407,31 @@ public sealed class FrontEndTests
 
         Assert.False(front.Settings.AlwaysWearsMoustache);
         Assert.False(front.Settings.PlotArmour);
+        Assert.False(front.Settings.CatchesPendulum);
         Assert.Equal("Off", Row(front, "moustache").Value);
         Assert.Equal("Off", Row(front, "armour").Value);
+        Assert.Equal("Off", Row(front, "catch").Value);
 
         front.Choose(new MenuAction("moustache"));
         front.Choose(new MenuAction("armour"));
+        front.Choose(new MenuAction("catch"));
 
         Assert.True(front.Settings.AlwaysWearsMoustache);
         Assert.True(front.Settings.PlotArmour);
+        Assert.True(front.Settings.CatchesPendulum);
         Assert.Equal("On", Row(front, "moustache").Value);
         Assert.Equal("On", Row(front, "armour").Value);
+        Assert.Equal("On", Row(front, "catch").Value);
 
-        // And each is its own switch: turning one back off leaves the other alone.
+        // And each is its own switch: turning one back off leaves the others alone. The
+        // pendulum and the plot armour are the pair most easily confused -- one removes the
+        // dexterity and the other the consequence -- and a player may want either alone.
         front.Choose(new MenuAction("moustache"));
+        front.Choose(new MenuAction("armour"));
 
         Assert.False(front.Settings.AlwaysWearsMoustache);
-        Assert.True(front.Settings.PlotArmour);
+        Assert.False(front.Settings.PlotArmour);
+        Assert.True(front.Settings.CatchesPendulum);
     }
 
     [Fact]

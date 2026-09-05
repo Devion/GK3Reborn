@@ -238,6 +238,36 @@ public abstract class SceneMechanism
     }
 
     /// <summary>
+    /// Claims a click <em>before</em> the action files are consulted.
+    /// </summary>
+    /// <param name="under">What is under the pointer, or null for empty air.</param>
+    /// <returns>
+    /// Null to leave the click alone; otherwise the mechanism takes it, and the string is
+    /// what to offer the player as the thing the click will do — empty for a click that
+    /// is swallowed rather than advertised.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b><see cref="TakesClick"/> is not enough for a thing that has a noun.</b> That hook
+    /// is asked only once a click has failed to resolve an action, which is the right rule
+    /// for the chessboard — its tiles carry no noun and nothing else wants them. It is the
+    /// wrong rule wherever the object the mechanism needs is also an object the action
+    /// files answer for, because the action always wins and the mechanism never hears about
+    /// it. TE3's blade is exactly that: the scene gives it <c>noun=PENDULUM</c> and
+    /// <c>TE3309P.NVC</c> gives PENDULUM a LOOK for ALL, so every click on the swinging
+    /// blade played Gabriel's line about it and the grab could not be performed at all.
+    /// </para>
+    /// <para>
+    /// The original has no such problem because it never asks the action files: TE3's whole
+    /// click handler is one function keyed on the model name, which recognises
+    /// <c>te3_pendulum_center_code</c>, grabs, and returns "handled". This is that, kept to
+    /// the moments the mechanism actually wants — the room stays the player's the rest of
+    /// the time.
+    /// </para>
+    /// </remarks>
+    public virtual string? ClaimsClick(Interaction.ScenePick? under) => null;
+
+    /// <summary>
     /// Takes a click that would otherwise fall through to the room.
     /// </summary>
     /// <param name="under">What was clicked, or null for empty air.</param>
@@ -246,7 +276,8 @@ public abstract class SceneMechanism
     /// Asked after the click has failed to find an action to perform and before it is
     /// treated as somewhere to walk. The chessboard is the caller: its tile floor carries
     /// no noun, so a click on it resolves nothing, and the room wants it to mean "jump back
-    /// off the board".
+    /// off the board". Where the thing clicked <em>does</em> carry a noun, this is never
+    /// reached and <see cref="ClaimsClick"/> is the hook.
     /// </remarks>
     public virtual bool TakesClick(Interaction.ScenePick? under) => false;
 

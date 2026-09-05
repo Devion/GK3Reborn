@@ -187,6 +187,15 @@ public sealed class GameState
     /// </remarks>
     public bool PlotArmour { get; set; }
 
+    /// <summary>Whether Gabriel catches TE3's blade himself.</summary>
+    /// <remarks>
+    /// A preference, held and restored exactly like <see cref="PlotArmour"/>: the player
+    /// asked for it, the story did not earn it, and a save made with it on must not turn it
+    /// on for somebody who loads that save with it off. See
+    /// <see cref="Settings.CatchesPendulum"/> for what it costs the puzzle.
+    /// </remarks>
+    public bool CatchesPendulum { get; set; }
+
     /// <summary>Actions the story has asked for later.</summary>
     /// <remarks>
     /// Story state rather than scene state: a minute set in the lobby has to still be
@@ -921,6 +930,7 @@ public sealed class GameState
         // EasterEggs and PlotArmour.
         bool eggs = EasterEggs;
         bool armour = PlotArmour;
+        bool catches = CatchesPendulum;
 
         _variables.Clear();
         _flags.Clear();
@@ -979,6 +989,7 @@ public sealed class GameState
 
         EasterEggs = eggs;
         PlotArmour = armour;
+        CatchesPendulum = catches;
 
         Fill(_variables, save.Variables);
         Fill(_nounVerbCounts, save.NounVerbCounts);
@@ -1101,6 +1112,7 @@ public sealed class GameState
         builder.Append(CultureInfo.InvariantCulture, $"forcedcuts={ForcedCameraCuts}\n");
         builder.Append(CultureInfo.InvariantCulture, $"cinematics={CinematicsEnabled}\n");
         builder.Append(CultureInfo.InvariantCulture, $"plotarmour={PlotArmour}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"catchespendulum={CatchesPendulum}\n");
         builder.Append(
             CultureInfo.InvariantCulture,
             $"screens={string.Join(">", Screens.Open)}\n");
