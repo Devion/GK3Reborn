@@ -165,10 +165,18 @@ public sealed partial class LocalizedContent : IDisposable
     /// <param name="diagnostics">Receives a diagnostic when the pack will not open.</param>
     /// <returns>The layer, or null when there is no pack for that language.</returns>
     /// <remarks>
+    /// <para>
     /// Null rather than an empty layer, and null all the way down: every reader below tests
     /// this to decide whether the localisation door exists at all, so an empty one handed
     /// out instead would have each of them consulting a dictionary that can never answer,
     /// on the path of every asset the game reads.
+    /// </para>
+    /// <para>
+    /// Every language opens, English included: <c>Reborn_EN.rebarn</c> is what turns a
+    /// French or German installation into an English game, which is the mirror of what the
+    /// French pack does to an English one. Whether its 1999 assets are then <em>read</em> is
+    /// a separate question, and <see cref="RepeatsInstallation"/> answers it.
+    /// </para>
     /// </remarks>
     public static LocalizedContent? Open(
         string directory, GameLanguage language, DiagnosticBag? diagnostics = null)
@@ -252,10 +260,70 @@ public sealed partial class LocalizedContent : IDisposable
         }
     }
 
+    /// <summary>
+    /// Whether the pack's 1999 assets would only repeat the installation, and are skipped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set by <see cref="RepeatsInstallation"/>. It silences the 1999 half of the pack and
+    /// nothing else: the repainted textures, the movies and the manifests still answer,
+    /// because those are the remake's own work and no installation has them.
+    /// </para>
+    /// </remarks>
+    public bool ArchivesRepeatInstallation { get; private set; }
+
+    /// <summary>
+    /// Works out whether this pack's 1999 assets are the installation's own, and skips them
+    /// if they are.
+    /// </summary>
+    /// <param name="installed">
+    /// Reads a name straight out of the installation, with no localisation layer in front
+    /// of it. <see cref="GameArchives.Read"/> reads this pack first, so it cannot be used.
+    /// </param>
+    /// <returns>True when the assets were found to repeat and are now skipped.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A pack is redundant when the game is already installed in its language.</b> A
+    /// German pack on a German installation cannot say anything the archives do not already
+    /// say — and it does not say it for free, because the layer sits in front of both the
+    /// archives and the shared enhanced set. The one that matters is English on an English
+    /// installation, which is nearly every player: the English release sourced here is a
+    /// <em>dumped tree</em>, and a dump has thrown away which archive an entry came from, so
+    /// its <c>WOODTILE.BMP</c> is a foliage card rather than the hotel lobby's floor.
+    /// </para>
+    /// <para>
+    /// <b>Decided by one file rather than by guessing what the installation is.</b> The
+    /// pack's own string table — <c>GSTRINGS.TXT</c> for German, <c>FSTRINGS.TXT</c> for
+    /// French — against the installation's copy of that same name. Byte-identical means the
+    /// disc this pack was derived from and the disc that is installed are the same
+    /// localisation. Reading the letter off a file name cannot do this: Portuguese ships
+    /// <c>ESTRINGS.TXT</c>, exactly as English does, and its contents are not English.
+    /// </para>
+    /// <para>
+    /// Only the 1999 assets are skipped. A language's repainted textures are the remake's
+    /// own and are in no installation anywhere, so they go on answering.
+    /// </para>
+    /// </remarks>
+    public bool RepeatsInstallation(Func<string, byte[]?> installed)
+    {
+        ArgumentNullException.ThrowIfNull(installed);
+
+        if (Read(Language.StringTable) is not { } mine ||
+            installed(Language.StringTable) is not { } theirs)
+        {
+            return false;
+        }
+
+        ArchivesRepeatInstallation = mine.AsSpan().SequenceEqual(theirs);
+
+        return ArchivesRepeatInstallation;
+    }
+
     /// <summary>Whether the pack holds an asset of the 1999 game.</summary>
     /// <param name="name">Its whole name, extension included.</param>
     /// <returns>True when it does.</returns>
     public bool HasArchive(string? name) =>
+        !ArchivesRepeatInstallation &&
         name is { Length: > 0 } &&
         _entries.ContainsKey(RebarnFormat.Key(RebarnKind.Localized, name));
 
@@ -269,6 +337,7 @@ public sealed partial class LocalizedContent : IDisposable
     /// question about <c>GAB_FACE.MOD</c>.
     /// </remarks>
     public byte[]? Read(string? name) =>
+        !ArchivesRepeatInstallation &&
         name is { Length: > 0 } &&
         _entries.TryGetValue(RebarnFormat.Key(RebarnKind.Localized, name), out RebarnEntry? entry)
             ? _pack.Read(entry)

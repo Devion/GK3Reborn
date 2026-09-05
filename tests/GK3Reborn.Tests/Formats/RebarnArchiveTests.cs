@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using GK3Reborn.Content;
 using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
@@ -449,6 +449,53 @@ public sealed class RebarnArchiveTests : IDisposable
 
         Assert.Equal(1, set.Count);
         Assert.Equal(64, set.Read("R25WALLS")!.Value.Width);
+    }
+
+    [Fact]
+    public void TheLanguagesOwnPictureBeatsTheSharedPackAndSaysSo()
+    {
+        // A picture with words painted into it is the one kind of texture whose being wrong
+        // is a bug rather than a preference, so the language pack goes above the shared one
+        // -- and the loader has to be able to tell which of them answered, because a sign
+        // the language repaints and the shared set does not must fall to the 1999 bitmap
+        // rather than to an English upscale of it. See SceneLoader.ShadowsLanguage.
+        var shared = new RebarnBuilder();
+        shared.AddBytes(RebarnKind.Texture, "PANEL1.DDS", Dds(64, 64, 7, 99, 16), RebarnPayload.Dds);
+        shared.AddBytes(RebarnKind.Texture, "R25WALLS.DDS", Dds(64, 64, 7, 99, 16), RebarnPayload.Dds);
+        shared.Write(Path("Reborn.rebarn"));
+
+        GameLanguage german = GameLanguage.Of("de");
+
+        var language = new RebarnBuilder();
+        language.AddBytes(
+            RebarnKind.Manifest,
+            LocalizedContent.ManifestName + ".json",
+            Encoding.UTF8.GetBytes("""{"language":"de","prefix":"G","name":"German","assets":1}"""));
+
+        // A different size, so which one answered is visible in the result.
+        language.AddBytes(
+            RebarnKind.Texture, "PANEL1.DDS", Dds(128, 128, 8, 99, 16), RebarnPayload.Dds);
+
+        language.Write(Path(LocalizedContent.FileNameOf(german)));
+
+        using RebarnContent packs = RebarnContent.Open(_directory);
+        using LocalizedContent? pack = LocalizedContent.Open(_directory, german);
+        Assert.NotNull(pack);
+
+        CompressedTextures set = CompressedTextures.Open(string.Empty, packs, null, pack);
+
+        // Both names are in the set, and only one of them is the language's own.
+        Assert.Equal(2, set.Count);
+        Assert.Equal(128, set.Read("PANEL1")!.Value.Width);
+        Assert.Equal(64, set.Read("R25WALLS")!.Value.Width);
+
+        Assert.True(set.IsLocalized("PANEL1"));
+        Assert.False(set.IsLocalized("R25WALLS"));
+        Assert.False(set.IsOverridden("PANEL1"));
+
+        // And the read is counted separately, because a run where the language pack
+        // answered nothing looks exactly like one where it answered everything.
+        Assert.Equal(1, set.FromLanguagePack);
     }
 
     /// <summary>A DDS with a DX10 header and a full chain of blocks that are not zero.</summary>

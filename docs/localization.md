@@ -295,7 +295,115 @@ ContentWorkspace/enhanced/localtextures/FR/27KASHAF.png
 ```
 
 A PNG there stands in front of the shared enhanced texture of the same name, for that
-language only.
+language only. `pack-content` encodes it like any other colour texture — at the same size
+the size plan gives the shared one, because it is the same surface at the same on-screen
+density — and writes it into `Reborn_<CODE>.rebarn` as a `textures` entry. It needs a cache
+of its own under `build/rebarn/localtextures/<CODE>`: its name *is* the shared set's name,
+and without that the French sign and the English one are the same file in
+`build/rebarn/textures` and which reaches which pack is down to which was encoded second.
+
+### What answers for a surface, in order
+
+The layers below are asked in this order, and the two localised ones are the reason the list
+is not simply "best picture wins".
+
+| | Layer | |
+| --- | --- | --- |
+| 1 | `overrides/` | the player naming the file they want |
+| 2 | **`Reborn_<CODE>.rebarn`** — its repaints, then its 1999 bitmaps | anything the language pack holds |
+| 3 | `enhanced/textures`, loose or out of `Reborn.rebarn` | the shared enhanced picture |
+| 4 | the archives | the installation's own |
+
+**The language pack comes first, whatever kind of answer it has.** This is the whole point
+and it is easy to get backwards. The enhanced set is shared by every language and its words
+are English, so where `Reborn_<CODE>.rebarn` carries a 1999 bitmap for a name nobody has
+repainted, the shared enhanced picture is not an improvement on it — it is the wrong words at
+four times the resolution, which is worse than the right words at 1999's. A sign in the wrong
+language is a bug; a sign at 1999 resolution is only a 1999 sign.
+
+**A pack stops answering for 1999 when the game is already installed in its language.** A
+German pack on a German installation cannot say anything the archives do not already say, and
+it does not say it for free — the layer sits in front of both the archives and the shared
+enhanced set. The case that matters is English on an English installation, which is nearly
+every player: the English release sourced here is a *dumped tree*, and a dump has thrown away
+which archive an entry came from, so its `WOODTILE.BMP` is a foliage card rather than the
+hotel lobby's floor.
+
+`LocalizedContent.RepeatsInstallation` decides it **from one file rather than from a guess
+about what the installation is**: the pack's own string table — `GSTRINGS.TXT` for German,
+`FSTRINGS.TXT` for French — against the installation's copy of that same name. Byte-identical
+means the disc the pack was derived from and the disc that is installed are the same
+localisation. Reading the letter off a file name could not do this: Portuguese ships
+`ESTRINGS.TXT` exactly as English does, and its contents are not English.
+
+**Only the 1999 half is silenced.** A language's repainted textures, its movies and its
+`interface.json` are the remake's own work and are in no installation anywhere, so they go on
+answering. And the test is asked again on every language change, because which pack is open
+is exactly what changes.
+
+So `Reborn_EN.rebarn` is built and is worth building: it is what turns a French or German
+installation into an English game, the mirror of what the French pack does to an English one.
+What it does **not** carry is pictures. In that cross-language case the shared volume already
+*is* the English enhanced set — measured rather than assumed, 47 of the 48 files in
+`enhanced/localtextures/EN` are byte-identical to their `enhanced/textures` twins — so the
+English volume would be shipping 190 MB of the shared volume a second time. The directory
+keeps the job it actually has, which is being the reference a translator paints against.
+
+`SceneLoader.ShadowsLanguage` is that rule, and it steps aside only for the *shared* answer:
+a repaint wins outright, and so does an override, because both are somebody choosing that
+picture for that name. `CompressedTextures.Describe` says how many of a run's textures came
+from the language pack, which is the one number that says whether any of this worked — a run
+where it answered nothing looks on screen exactly like one where it answered everything,
+until somebody reads a road sign.
+
+It costs enhancement on the surfaces nobody has repainted yet, and that is the trade: the
+right words at 1999 resolution until somebody repaints them, rather than English ones at
+2048. `"surfaces"` in `manifests/localization.json` is only a *candidate* list — the
+extractor's diff calls a good many textures localised that are not, and the authority for
+what a language actually repaints is what is in its `localtextures` directory, which is
+curated by hand and differs per language for real reasons. French needs fewer than German
+because most of the signs in the game are already in French; what any language really needs
+is the papers and the documents.
+
+### A language derives its own material channels
+
+The channels are derived from the colour texture they belong to, so the shared `PANEL1`
+normal map has the **English** words embossed in it. Lay that under a German `PANEL1` and the
+English lettering shows through as relief beneath the German, lit from wherever the room is
+lit from. It is subtle in a viewer and unmistakable in the room, which is exactly where it
+was found.
+
+`rebuild-content.cmd` runs the same two passes over each language's own pictures, into
+directories that mirror the shared ones. About forty pictures a language against 3,500
+shared, so it is a few minutes rather than three hours, and each pass skips what is
+unchanged:
+
+```
+PbrLab/make_normals.py --workspace ContentWorkspace --provider cuda
+    --textures enhanced/localtextures/DE
+    --out     enhanced/localnormals/DE
+    --manifest manifests/enhanced-normals-DE.json
+
+PbrLab/make_orm.py --workspace ContentWorkspace
+    --normals    enhanced/localnormals/DE
+    --orm-out    enhanced/localorm/DE
+    --height-out enhanced/localheight/DE
+    --manifest   manifests/enhanced-orm-DE.json
+```
+
+Every one of those flags defaults to the shared set, so an invocation that names none of
+them means exactly what it always did.
+
+**Each language needs a manifest of its own.** A manifest is keyed by texture name and the
+names *are* the shared set's, so a shared run and a German run writing the same file would
+each report the other's work as stale — and a stale-looking set is a set that gets
+regenerated, which for the shared normals is three hours.
+
+`ContentPackStage.LanguageMaterials` packs the three directories into
+`Reborn_<CODE>.rebarn` at the shared sets' own formats and caps — BC5 at 1024, BC7 at 1024,
+BC4 at 512 — each with a per-language encoder cache, for the same reason the colour has one:
+its name is the shared set's name. `EN` is skipped throughout, because no English pack is
+built and none would be read.
 
 ### Sidney's encyclopedia is only a fifth translated, and that is Sierra's doing
 
@@ -330,9 +438,10 @@ and a re-derivation on 2026-09-05 copied thirty-four deliberately-deleted pictur
 and said nothing about it. The seeding was removed rather than put behind a flag, because a
 flag is something a script somebody else wrote passes.
 
-An empty directory is a perfectly good directory: the shared texture is used for every name
-it does not hold, and the language's own 1999 bitmap for every name the shared set does not
-hold either.
+An empty directory is a perfectly good directory. Every name it does not hold falls to the
+language's own 1999 bitmap where the pack has one, and to the shared enhanced texture where
+it does not — which is the order above, and which is why Spanish and Italian read correctly
+today with nothing repainted at all.
 
 ## Producing a language
 

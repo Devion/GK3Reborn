@@ -198,6 +198,23 @@ public sealed class ContentPackStage
     ];
 
     /// <summary>
+    /// The material channels a language derives for its own repainted pictures.
+    /// </summary>
+    /// <remarks>
+    /// The formats and caps are the shared sets' — see <see cref="DefaultPlan"/> for why
+    /// each channel is encoded the way it is. What differs is only where they are read
+    /// from: <c>enhanced/localnormals/&lt;CODE&gt;</c> and its two neighbours, produced by
+    /// the same PbrLab passes run over the language's own colour textures.
+    /// </remarks>
+    public static IReadOnlyList<(RebarnKind Kind, string Channel, string Format, int Cap)>
+        LanguageMaterials { get; } =
+    [
+        (RebarnKind.Normal, "normals", "BC5_UNORM", 1024),
+        (RebarnKind.Orm, "orm", "BC7_UNORM", 1024),
+        (RebarnKind.Height, "height", "BC4_UNORM", 512),
+    ];
+
+    /// <summary>
     /// The per-language volumes, worked out from what is in the workspace.
     /// </summary>
     /// <param name="workspace">The content workspace root.</param>
@@ -272,14 +289,49 @@ public sealed class ContentPackStage
             plan.Add(new(
                 RebarnKind.Manifest, $"{root}/manifests", null, false, 0, volume, "*.json"));
 
-            plan.Add(new(
-                RebarnKind.Texture,
-                $"enhanced/localtextures/{code}",
-                "BC7_UNORM_SRGB",
-                true,
-                0,
-                volume,
-                Cache: $"localtextures/{code}"));
+            // **English's pack carries its 1999 assets and nothing painted.** It exists for
+            // one case — a French or German installation played in English — and in that
+            // case the shared volume is *already* the English enhanced set: every picture
+            // `enhanced/localtextures/EN` holds is the same file, under the same name, in
+            // `enhanced/textures`. Measured rather than assumed: 47 of the 48 are identical
+            // byte for byte. So the directory keeps the job it actually has, which is being
+            // the reference a translator paints against, and the English volume does not
+            // ship 190 MB of the shared volume a second time.
+            if (language != GK3Reborn.Content.GameLanguage.Default)
+            {
+                plan.Add(new(
+                    RebarnKind.Texture,
+                    $"enhanced/localtextures/{code}",
+                    "BC7_UNORM_SRGB",
+                    true,
+                    0,
+                    volume,
+                    Cache: $"localtextures/{code}"));
+            }
+
+            // **And the material channels derived from those pictures, not from the shared
+            // ones.** A normal map is derived from the colour texture, so the shared
+            // `PANEL1` normal has the *English* words embossed into it — put that under a
+            // German `PANEL1` and the English lettering shows through as relief under the
+            // German words, lit from whatever direction the room is lit from. It is subtle,
+            // it is unmistakable once seen, and it was the first thing anybody noticed about
+            // the German panels in the room rather than in a viewer.
+            //
+            // Same caps and formats as the shared sets, because they are the same channels
+            // of the same surfaces; same per-language cache, because they collide by name
+            // for the same reason the colour does.
+            foreach ((RebarnKind kind, string channel, string format, int cap) in
+                language == GK3Reborn.Content.GameLanguage.Default ? [] : LanguageMaterials)
+            {
+                plan.Add(new(
+                    kind,
+                    $"enhanced/local{channel}/{code}",
+                    format,
+                    false,
+                    cap,
+                    volume,
+                    Cache: $"local{channel}/{code}"));
+            }
 
             // The port's own interface in this language, written out of the assembly a
             // moment ago by InterfaceWords. It is the one thing in a language pack that

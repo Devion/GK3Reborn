@@ -364,6 +364,22 @@ public static class Application
             Log.Report(diagnostic);
         }
 
+        // Whether the pack is telling the installation its own language back. Asked before
+        // the layer is attached, because once it is, archives.Read answers out of the pack
+        // and the comparison would be the pack against itself.
+        //
+        // Nearly every player is an English installation playing in English, and that is
+        // exactly the case this catches: the English release sourced here is a dumped tree,
+        // and a dump has thrown away which archive an entry came from — its WOODTILE.BMP is
+        // a foliage card rather than the hotel lobby's floor. See RepeatsInstallation.
+        if (localized?.RepeatsInstallation(archives.Read) == true)
+        {
+            Log.Info(
+                $"Language: the installation is already {localized.Language.Name}, so the "
+                + $"pack's {localized.AssetCount} 1999 assets are skipped and only what the "
+                + "remake painted is read from it.");
+        }
+
         archives.Localization = localized;
         IReadOnlyList<GameLanguage> languages = LocalizedContent.Available(packDirectory);
 
@@ -966,7 +982,7 @@ public static class Application
             // bitmap and merely lose the upscale -- but the portraits have no original to
             // fall back to and simply were not drawn.
             Formats.Bitmaps.DecodedImage? Enhanced(string name) =>
-                better?.Read(name) ?? Packed(packs, name);
+                better?.Read(name) ?? Packed(packs, localized, name);
 
             Formats.Bitmaps.DecodedImage? survey =
                 Enhanced(Game.Sidney.SidneyMap.Picture) ??
@@ -1246,6 +1262,13 @@ public static class Application
             localized?.Dispose();
             localized = opened;
             language = wanted;
+
+            // Cleared first so the comparison below reads the installation rather than the
+            // language that is being left. Same question as at startup, and it has to be
+            // asked again: whether a pack repeats the installation depends on which pack it
+            // is, and this is the one place the pack changes. See RepeatsInstallation.
+            archives.Localization = null;
+            opened?.RepeatsInstallation(archives.Read);
 
             archives.Localization = opened;
             sounds.Forget();
@@ -1692,7 +1715,7 @@ public static class Application
                 // round, and they are judged separately.
                 EnhancedTextures? normals = Pictures(
                     settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
-                    Formats.Rebarn.RebarnKind.Normal, "normals");
+                    Formats.Rebarn.RebarnKind.Normal, "normals", language);
 
                 // --flat leaves the colour textures enhanced and the surfaces smooth,
                 // which is the only way to see what the normal pass alone is doing.
@@ -1705,11 +1728,11 @@ public static class Application
                 // any combination of the three.
                 loader.Orms = flat ? null : Pictures(
                     settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
-                    Formats.Rebarn.RebarnKind.Orm, "orm");
+                    Formats.Rebarn.RebarnKind.Orm, "orm", language);
 
                 loader.Heights = flat ? null : Pictures(
                     settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
-                    Formats.Rebarn.RebarnKind.Height, "height");
+                    Formats.Rebarn.RebarnKind.Height, "height", language);
 
                 if (first && normals is { Count: > 0 })
                 {
@@ -6368,6 +6391,7 @@ public static class Application
     /// An interface picture out of the packs, expanded to something the overlay can draw.
     /// </summary>
     /// <param name="packs">The ReBarn volumes, which may hold none.</param>
+    /// <param name="localized">The chosen language's pack, or null when there is none.</param>
     /// <param name="name">The texture's name, as the enhanced set keys it.</param>
     /// <returns>The picture, or null when no pack has it.</returns>
     /// <remarks>
@@ -6382,14 +6406,26 @@ public static class Application
     /// <c>overrides/</c> before it looks in a volume, so a player's own portrait beats the
     /// packed one exactly as it does everywhere else.
     /// </para>
+    /// <para>
+    /// <b>The language pack is asked first.</b> These are the pictures the interface draws,
+    /// and a picture with words in it is the one kind whose being wrong is a bug rather than
+    /// a preference — the same rule the room's surfaces follow in
+    /// <see cref="Game.SceneLoader"/>. The loose layer above this one already asks the
+    /// language; without this the rule held on a development machine with a content
+    /// workspace beside it and quietly lapsed in every shipped install, which has the packs
+    /// and nothing else.
+    /// </para>
     /// </remarks>
-    private static Formats.Bitmaps.DecodedImage? Packed(Content.RebarnContent packs, string name)
+    private static Formats.Bitmaps.DecodedImage? Packed(
+        Content.RebarnContent packs, Content.LocalizedContent? localized, string name)
     {
         ArgumentNullException.ThrowIfNull(packs);
 
-        return packs.ReadTexture(Formats.Rebarn.RebarnKind.Texture, name) is { } blocks
-            ? Formats.Bitmaps.BlockDecoder.Decode(blocks)
-            : null;
+        Formats.Bitmaps.CompressedImage? blocks =
+            localized?.ReadTexture(Formats.Rebarn.RebarnKind.Texture, name)
+            ?? packs.ReadTexture(Formats.Rebarn.RebarnKind.Texture, name);
+
+        return blocks is { } found ? Formats.Bitmaps.BlockDecoder.Decode(found) : null;
     }
 
     /// <summary>
@@ -7486,9 +7522,13 @@ public static class Application
     /// <param name="kind">Which channel.</param>
     /// <param name="subdirectory">Where that channel sits beside the colour set.</param>
     /// <param name="language">
-    /// The language whose <c>enhanced/localtextures</c> set goes over the shared one, or
-    /// null for the shared set alone. Colour only: a normal map has no words in it, and a
-    /// language that repaints a sign repaints the picture, not the bumps.
+    /// The language whose own set goes over the shared one, or null for the shared set
+    /// alone. <b>Every channel, not only colour.</b> A normal map is derived from the
+    /// colour texture it belongs to, so the shared <c>PANEL1</c> normal has the *English*
+    /// words embossed in it — under a German <c>PANEL1</c> that reads as English lettering
+    /// in relief beneath the German, lit from wherever the room is lit from. This was
+    /// written the other way, on the reasoning that a sign's bumps are not language; the
+    /// bumps are not, but a map derived from a picture of words is.
     /// </param>
     /// <returns>The layer, or null when neither source has anything for this channel.</returns>
     /// <remarks>
@@ -7517,13 +7557,14 @@ public static class Application
             ? subdirectory is null ? enhancedDirectory : Beside(enhancedDirectory, subdirectory)
             : string.Empty;
 
-        // enhanced/localtextures/<CODE>, beside the enhanced set rather than under it,
-        // because it is a parallel set and not a variant of one: the same names, repainted.
+        // enhanced/localtextures/<CODE> and its three material neighbours, beside the
+        // enhanced set rather than under it, because each is a parallel set and not a
+        // variant of one: the same names, repainted and re-derived.
         string localised =
             language is not null &&
-            kind == Formats.Rebarn.RebarnKind.Texture &&
+            LocalChannel(kind) is { } channel &&
             enabled && !packsOnly && enhancedDirectory is { Length: > 0 }
-                ? Path.Combine(Beside(enhancedDirectory, "localtextures"), language.FileCode)
+                ? Path.Combine(Beside(enhancedDirectory, channel), language.FileCode)
                 : string.Empty;
 
         ContentOverrides? layer = overrides?.Images(kind).Count > 0 ? overrides : null;
@@ -7532,6 +7573,26 @@ public static class Application
             ? null
             : EnhancedTextures.Open(directory, layer, kind, localised);
     }
+
+    /// <summary>Which of a language's own directories holds a channel.</summary>
+    /// <param name="kind">The channel.</param>
+    /// <returns>
+    /// The directory's name beside the enhanced set, or null for a kind no language has
+    /// one of.
+    /// </returns>
+    /// <remarks>
+    /// Named to match the packer's <c>enhanced/local&lt;channel&gt;/&lt;CODE&gt;</c>, which
+    /// is where the same PbrLab passes write when they are run over a language's own
+    /// pictures. The colour directory keeps the name it has always had.
+    /// </remarks>
+    private static string? LocalChannel(Formats.Rebarn.RebarnKind kind) => kind switch
+    {
+        Formats.Rebarn.RebarnKind.Texture => "localtextures",
+        Formats.Rebarn.RebarnKind.Normal => "localnormals",
+        Formats.Rebarn.RebarnKind.Orm => "localorm",
+        Formats.Rebarn.RebarnKind.Height => "localheight",
+        _ => null,
+    };
 
     /// <summary>Where the block-compressed build of the enhanced textures sits.</summary>
     /// <remarks>

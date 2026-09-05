@@ -3131,6 +3131,46 @@ public sealed class SceneLoader
             };
     }
 
+    /// <summary>Whether a layer's answer would put the wrong language on a surface.</summary>
+    /// <param name="language">The chosen language's pack, or null when there is none.</param>
+    /// <param name="texture">The texture's name, as the geometry refers to it.</param>
+    /// <param name="ownPicture">
+    /// Whether that layer's answer is this language's own picture — repainted for it, or a
+    /// file the player put in <c>overrides/</c> — rather than the shared one.
+    /// </param>
+    /// <returns>True when the layer must stand aside and let the archive answer.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A sign in the wrong language is a bug; a sign at 1999 resolution is only a 1999
+    /// sign.</b> Sierra re-cut every archive per language, so about a hundred of GK3's
+    /// surfaces per language — road signs, shop fronts, the notes on Mosely's desk, the
+    /// nine panels of the Temple puzzle — ship as a different picture on a German disc than
+    /// on an English one, and <c>Reborn_&lt;CODE&gt;.rebarn</c> carries exactly those.
+    /// </para>
+    /// <para>
+    /// The enhanced set is shared by every language and its words are English. Where the
+    /// language repaints a surface and the enhanced set does not, the enhanced picture is
+    /// not an improvement on the language's — it is the wrong words at a higher resolution,
+    /// which is worse than the right words at the original one. So the shared layers step
+    /// aside here and the archive answers, which is the language's own bitmap because
+    /// <see cref="Content.GameArchives"/> reads the pack in front of the installation.
+    /// </para>
+    /// <para>
+    /// It steps aside only for the <em>shared</em> answer. A picture out of
+    /// <c>enhanced/localtextures/&lt;CODE&gt;</c>, loose or packed, is this language's own
+    /// and wins outright; so does a file the player put in <c>overrides/</c>, which is them
+    /// naming the picture they want. That is what
+    /// <see cref="Content.EnhancedTextures.IsLocalized"/> and its two neighbours are for.
+    /// </para>
+    /// </remarks>
+    public static bool ShadowsLanguage(
+        LocalizedContent? language, string texture, bool ownPicture)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+
+        return !ownPicture && language?.HasArchive(texture + ".BMP") == true;
+    }
+
     /// <summary>One of the terrain's ground tiles: enhanced first, the archives after.</summary>
     private DecodedImage? TerrainTile(string name, DiagnosticBag diagnostics)
     {
@@ -3318,6 +3358,22 @@ public sealed class SceneLoader
                 bool readable = bytes is not null && BitmapDecoder.CanDecode(bytes);
                 DecodedImage? original = readable ? BitmapDecoder.Decode(bytes!, texture) : null;
 
+                // Whether either layer above the archive would answer with the shared
+                // picture for a surface this language repaints. See ShadowsLanguage.
+                LocalizedContent? language = _archives.Localization;
+
+                bool sharedPicture = ShadowsLanguage(
+                    language,
+                    texture,
+                    Enhanced?.IsLocalized(texture) == true
+                    || Enhanced?.IsOverridden(texture) == true);
+
+                bool sharedBlocks = ShadowsLanguage(
+                    language,
+                    texture,
+                    Compressed?.IsLocalized(texture) == true
+                    || Compressed?.IsOverridden(texture) == true);
+
                 // Foliage drawn for the modelled trees, which no archive holds and no enhanced
                 // set replaces: a needle spray is not a better version of a 1999 bitmap, it is
                 // a new one. Asked first, and only for names the tree pack actually carries,
@@ -3335,7 +3391,7 @@ public sealed class SceneLoader
 
                 // The enhanced picture. It falls back on its own if it will not decode, so a bad
                 // file in the enhanced set costs that texture and nothing else.
-                if (Enhanced?.Read(texture, bag) is { } better)
+                if (!sharedPicture && Enhanced?.Read(texture, bag) is { } better)
                 {
                     read[i] = (
                         bumps, blockBumps,
@@ -3358,9 +3414,10 @@ public sealed class SceneLoader
                 // rendering as its 1999 original — the hotel sign at Rennes-le-Chateau among
                 // them. `pack-content` leaves out any keyed texture whose replacement has no
                 // alpha, which is what makes "the pack holds it" enough to know it is safe.
-                if (original is not { } first
-                    || !TextureKeying.NeedsKey(first)
-                    || Compressed?.Has(texture) == true)
+                if (!sharedBlocks
+                    && (original is not { } first
+                        || !TextureKeying.NeedsKey(first)
+                        || Compressed?.Has(texture) == true))
                 {
                     if (Compressed?.Read(texture, bag) is { } blocks)
                     {

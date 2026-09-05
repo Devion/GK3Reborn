@@ -46,6 +46,13 @@ public sealed class CompressedTextures
     private readonly Dictionary<string, string> _orm = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _height = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The names the player's own <c>overrides/</c> answer for.</summary>
+    /// <remarks>
+    /// A path alone cannot say this: an override and a <c>build/</c> DDS are both real
+    /// paths, and only one of them is somebody's decision about that texture.
+    /// </remarks>
+    private readonly HashSet<string> _overridden = new(StringComparer.OrdinalIgnoreCase);
+
     private RebarnContent? _packs;
     private LocalizedContent? _localized;
 
@@ -237,7 +244,7 @@ public sealed class CompressedTextures
         // in a shipped game and quietly does nothing in a checkout is the worst of both.
         if (overrides is not null)
         {
-            Adopt(overrides.Blocks(RebarnKind.Texture), set._colour);
+            Adopt(overrides.Blocks(RebarnKind.Texture), set._colour, set._overridden);
             Adopt(overrides.Blocks(RebarnKind.Normal), set._normal);
             Adopt(overrides.Blocks(RebarnKind.Orm), set._orm);
             Adopt(overrides.Blocks(RebarnKind.Height), set._height);
@@ -247,11 +254,14 @@ public sealed class CompressedTextures
     }
 
     private static void Adopt(
-        IReadOnlyDictionary<string, string> from, Dictionary<string, string> into)
+        IReadOnlyDictionary<string, string> from,
+        Dictionary<string, string> into,
+        HashSet<string>? note = null)
     {
         foreach ((string name, string file) in from)
         {
             into[name] = file;
+            note?.Add(name);
         }
     }
 
@@ -295,6 +305,37 @@ public sealed class CompressedTextures
     {
         ArgumentNullException.ThrowIfNull(name);
         return _colour.ContainsKey(Path.GetFileNameWithoutExtension(name));
+    }
+
+    /// <summary>Whether the colour answer for a name comes from the language's pack.</summary>
+    /// <param name="name">Texture name, with or without an extension.</param>
+    /// <returns>
+    /// True when <c>Reborn_&lt;CODE&gt;.rebarn</c> is what would answer, rather than the
+    /// shared volume or a loose file.
+    /// </returns>
+    /// <remarks>
+    /// The loader asks this to tell "the set has a picture for this sign" from "the set has
+    /// <em>this language's</em> picture for this sign". The two are the same question for
+    /// almost every texture in the game and a different one for the hundred or so that have
+    /// words painted into them, which is exactly the set where getting it wrong is a bug
+    /// rather than a preference. See <see cref="Game.SceneLoader"/>.
+    /// </remarks>
+    public bool IsLocalized(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _colour.TryGetValue(Path.GetFileNameWithoutExtension(name), out string? file)
+            && string.Equals(file, FromLanguage, StringComparison.Ordinal);
+    }
+
+    /// <summary>Whether the colour answer for a name is a file from <c>overrides/</c>.</summary>
+    /// <param name="name">Texture name, with or without an extension.</param>
+    /// <returns>True when the player's own <c>.dds</c> is what would answer.</returns>
+    public bool IsOverridden(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _overridden.Contains(Path.GetFileNameWithoutExtension(name));
     }
 
     /// <summary>Whether there is a compressed normal map for a texture.</summary>

@@ -1,4 +1,4 @@
-using GK3Reborn.Formats;
+﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Rebarn;
 using GK3Reborn.Foundation.Diagnostics;
@@ -30,6 +30,20 @@ namespace GK3Reborn.Content;
 public sealed class EnhancedTextures
 {
     private readonly Dictionary<string, string> _files = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The names this language repainted, out of the whole set above.</summary>
+    /// <remarks>
+    /// Kept apart from <see cref="_files"/> because "the set has a picture for this name"
+    /// and "the picture it has was repainted for this language" are different questions,
+    /// and the loader has to ask the second one: a sign the language pack replaces and this
+    /// set does not repaint must fall to the language's own 1999 bitmap rather than to the
+    /// shared enhanced picture, which has English words on it. See
+    /// <see cref="Game.SceneLoader"/>.
+    /// </remarks>
+    private readonly HashSet<string> _localized = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The names the player's own <c>overrides/</c> answer for.</summary>
+    private readonly HashSet<string> _overridden = new(StringComparer.OrdinalIgnoreCase);
 
     private EnhancedTextures(string directory) => Directory = directory;
 
@@ -111,13 +125,14 @@ public sealed class EnhancedTextures
         // Over the shared set: a French sign where there is one, and the shared picture
         // everywhere else. Counted, because a language whose set indexed nothing looks on
         // screen exactly like one whose set indexed everything.
-        set.LocalizedCount = Index(localizedDirectory, set._files);
+        set.LocalizedCount = Index(localizedDirectory, set._files, set._localized);
 
         if (overrides is not null)
         {
             foreach ((string name, string file) in overrides.Images(kind))
             {
                 set._files[name] = file;
+                set._overridden.Add(name);
                 set.OverriddenCount++;
             }
         }
@@ -132,7 +147,8 @@ public sealed class EnhancedTextures
     /// finding it on Windows and macOS. The game's own names are upper case throughout, so
     /// generated content carries that extension as often as not.
     /// </remarks>
-    private static int Index(string directory, Dictionary<string, string> into)
+    private static int Index(
+        string directory, Dictionary<string, string> into, HashSet<string>? note = null)
     {
         if (directory.Length == 0 || !System.IO.Directory.Exists(directory))
         {
@@ -145,12 +161,45 @@ public sealed class EnhancedTextures
         {
             if (Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
             {
-                into[Path.GetFileNameWithoutExtension(file)] = file;
+                string name = Path.GetFileNameWithoutExtension(file);
+
+                into[name] = file;
+                note?.Add(name);
                 found++;
             }
         }
 
         return found;
+    }
+
+    /// <summary>Whether this set's answer for a name was repainted for the language.</summary>
+    /// <param name="name">Texture name, with or without an extension.</param>
+    /// <returns>
+    /// True when the picture came from <c>enhanced/localtextures/&lt;CODE&gt;</c> rather
+    /// than from the shared set.
+    /// </returns>
+    /// <remarks>
+    /// Separate from <see cref="IsOverridden"/>, which is the other way a name can be
+    /// answered by something chosen for it rather than by the shared set.
+    /// </remarks>
+    public bool IsLocalized(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _localized.Contains(Path.GetFileNameWithoutExtension(name));
+    }
+
+    /// <summary>Whether this set's answer for a name came from <c>overrides/</c>.</summary>
+    /// <param name="name">Texture name, with or without an extension.</param>
+    /// <returns>True when the player's own file answers for it.</returns>
+    /// <remarks>
+    /// A player who drops a PNG in under a name has asked for exactly that picture, in
+    /// whatever language they painted it. It is not the shared set's guess and must not be
+    /// stepped over the way the shared set's is.
+    /// </remarks>
+    public bool IsOverridden(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _overridden.Contains(Path.GetFileNameWithoutExtension(name));
     }
 
     /// <summary>Whether there is an enhanced version of a texture.</summary>
