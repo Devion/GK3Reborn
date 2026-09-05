@@ -1,4 +1,4 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using GK3Reborn.Game.Sidney;
 using Xunit;
 
@@ -139,7 +139,8 @@ public sealed class SidneyTranslateTests
         Assert.Contains("Arcadia I", said.Text, StringComparison.Ordinal);
         Assert.Contains("INCOMPLETE", said.Text, StringComparison.Ordinal);
         Assert.Equal("Do you want to add text?", said.Asks);
-        Assert.Equal(["YES", "NO"], said.Choices);
+        Assert.Equal(["YES", "NO"], said.Choices?.Select(choice => choice.Text));
+        Assert.Equal(["Yes", "No"], said.Choices?.Select(choice => choice.Key));
     }
 
     [Fact]

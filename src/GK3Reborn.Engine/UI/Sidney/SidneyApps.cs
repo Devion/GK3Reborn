@@ -20,9 +20,11 @@ namespace GK3Reborn.UI.Sidney;
 /// nine, and the tenth is the one whose print is worth linking.
 /// </para>
 /// <para>
-/// The words are the game's own throughout — <see cref="SidneyLibrary"/> reads them out of
-/// <c>ESIDNEY.TXT</c> — so a screen says what the original said even where this arranges it
-/// differently.
+/// The words are the game's own throughout — <see cref="SidneyWords"/> asks
+/// <c>ESIDNEY.TXT</c> for each of them by its 1999 key — so a screen says what the original
+/// said, in the language the game is being played in, even where this arranges it
+/// differently. Nothing here writes a button's text out itself: that is how a German game
+/// came to draw a German analysis under an English <c>START ANALYSIS</c>.
 /// </para>
 /// </remarks>
 public static class SidneyApps
@@ -85,7 +87,7 @@ public static class SidneyApps
 
         if (screen == SidneyScreen.Files)
         {
-            return "FILES";
+            return machine.Words.Files;
         }
 
         return machine.Library.Say("ScreenName", SectionOf(screen)) is { Length: > 0 } named
@@ -148,7 +150,8 @@ public static class SidneyApps
                 return Analyze(surface, machine, view, body);
 
             default:
-                surface.Write("Nothing to show.", body.X, body.Y, SidneyPalette.Dim);
+                surface.Write(
+                    machine.Words.Own("NothingToShow"), body.X, body.Y, SidneyPalette.Dim);
                 break;
         }
 
@@ -163,7 +166,10 @@ public static class SidneyApps
         if (files.Count == 0)
         {
             surface.Write(
-                "Nothing scanned yet. Use ADD DATA to put something in.",
+                string.Format(
+                    System.Globalization.CultureInfo.CurrentCulture,
+                    machine.Words.Own("NothingScanned"),
+                    NameOf(machine, SidneyScreen.AddData)),
                 body.X,
                 body.Y,
                 SidneyPalette.Dim);
@@ -183,7 +189,7 @@ public static class SidneyApps
             surface.Fill(bounds, SidneyPalette.Panel);
             surface.Fill(bounds.X, bounds.Y, bounds.Z, 1, SidneyPalette.Rule);
 
-            string kind = Describe(files[i].Kind);
+            string kind = machine.Words.Kind(files[i].Kind);
             float kindAt = bounds.X + bounds.Z - surface.Em(10) - surface.Measure(kind);
 
             surface.WriteIn(
@@ -216,7 +222,8 @@ public static class SidneyApps
 
         if (inbox.Count == 0)
         {
-            surface.Write("No messages.", body.X, body.Y, SidneyPalette.Dim);
+            surface.Write(
+                machine.Words.Own("NoMessages"), body.X, body.Y, SidneyPalette.Dim);
 
             return;
         }
@@ -284,7 +291,8 @@ public static class SidneyApps
 
         if (machine.Reading is not { } reading)
         {
-            surface.Write("Select a message.", pane.X, pane.Y, SidneyPalette.Dim);
+            surface.Write(
+                machine.Words.Own("PickMessage"), pane.X, pane.Y, SidneyPalette.Dim);
 
             return;
         }
@@ -321,15 +329,19 @@ public static class SidneyApps
         surface.WriteIn(reading.Subject, pane.X, y, wrap, SidneyPalette.Amber);
         y += surface.Line + surface.Em(2);
 
-        surface.WriteIn($"From: {reading.From}", pane.X, y, wrap, SidneyPalette.Dim);
+        SidneyWords words = machine.Words;
+
+        surface.WriteIn(
+            $"{words.MailFrom} {reading.From}", pane.X, y, wrap, SidneyPalette.Dim);
+
         y += surface.Line;
 
-        surface.WriteIn($"To: {reading.To}", pane.X, y, wrap, SidneyPalette.Dim);
+        surface.WriteIn($"{words.MailTo} {reading.To}", pane.X, y, wrap, SidneyPalette.Dim);
         y += surface.Line;
 
         if (reading.Cc is { Length: > 0 } copied)
         {
-            surface.WriteIn($"CC: {copied}", pane.X, y, wrap, SidneyPalette.Dim);
+            surface.WriteIn($"{words.MailCc} {copied}", pane.X, y, wrap, SidneyPalette.Dim);
             y += surface.Line;
         }
 
@@ -405,9 +417,8 @@ public static class SidneyApps
         if (scannable.Count == 0)
         {
             surface.Write(
-                machine.Files.Count > 0
-                    ? "Everything you are carrying is already in the machine."
-                    : "Nothing here that the scanner will take.",
+                machine.Words.Own(
+                    machine.Files.Count > 0 ? "AllScanned" : "NothingToScan"),
                 body.X,
                 body.Y,
                 SidneyPalette.Dim);
@@ -428,7 +439,7 @@ public static class SidneyApps
                 surface.Fill(bounds.X, bounds.Y, bounds.Z, 1, over ? SidneyPalette.Amber : SidneyPalette.Rule);
 
                 surface.WriteIn(
-                    Pretty(scannable[i]),
+                    machine.NameOf(scannable[i]),
                     bounds.X + surface.Em(10),
                     bounds.Y + ((row - surface.Line) / 2),
                     bounds.Z - surface.Em(20),
@@ -463,9 +474,7 @@ public static class SidneyApps
     private static void Search(SidneySurface surface, SidneyMachine machine, Vector4 body)
     {
         float row = surface.Line + surface.Em(12);
-        string go = machine.Library.Say("ScreenName", "Search Screen") is { Length: > 0 } named
-            ? named
-            : "SEARCH";
+        string go = machine.Words.Search;
 
         float goWidth = surface.Measure(go) + surface.Em(24);
         var box = new Vector4(body.X, body.Y, body.Z - goWidth - surface.Em(8), row);
@@ -474,7 +483,9 @@ public static class SidneyApps
         surface.Frame(box, SidneyPalette.Amber);
 
         surface.Write(
-            machine.Typed.Length > 0 ? machine.Typed + "_" : "Type a subject...",
+            machine.Typed.Length > 0
+                ? machine.Typed + "_"
+                : machine.Words.Own("TypeSubject"),
             box.X + surface.Em(10),
             box.Y + ((row - surface.Line) / 2),
             machine.Typed.Length > 0 ? SidneyPalette.Ink : SidneyPalette.Dim);
@@ -631,14 +642,13 @@ public static class SidneyApps
 
         if (machine.Suspect is not { } suspect)
         {
-            surface.Write("Open a suspect's file.", pane.X, pane.Y, SidneyPalette.Dim);
+            surface.Write(
+                machine.Words.Own("PickSuspect"), pane.X, pane.Y, SidneyPalette.Dim);
 
             return;
         }
 
-        string match = machine.Library.Say("MatchAnalysis", "Suspects Screen") is { Length: > 0 } asked
-            ? asked
-            : "MATCH ANALYSIS";
+        string match = machine.Words.Match;
 
         float button = surface.Line + surface.Em(12);
         float matchWidth = surface.Measure(match) + surface.Em(24);
@@ -721,7 +731,7 @@ public static class SidneyApps
 
         surface.WriteIn(
             $"{machine.Library.Say("Vehicle", "Suspects Screen")} "
-            + (knows ? suspect.Vehicle : "Unknown"),
+            + (knows ? suspect.Vehicle : machine.Words.Unknown),
             column,
             at,
             width2,
@@ -769,7 +779,7 @@ public static class SidneyApps
             surface.Fill(bounds.X, bounds.Y, bounds.Z, 1, SidneyPalette.Rule);
 
             surface.WriteIn(
-                $"link  {file.Label}",
+                $"{machine.Words.Own("LinkWord")}  {file.Label}",
                 detail.X + surface.Em(8),
                 at + ((lineRow - surface.Line) / 2),
                 width2 - surface.Em(16),
@@ -869,7 +879,7 @@ public static class SidneyApps
             if (!measure)
             {
                 surface.Button(
-                    "sidney:id:" + identity.Title,
+                    "sidney:id:" + identity.Key,
                     new Vector4(x, y, across, button),
                     identity.Title,
                     machine.Identity?.Title == identity.Title);
@@ -947,9 +957,7 @@ public static class SidneyApps
         if (machine.Translating is null)
         {
             surface.Write(
-                machine.Library.Say("MenuItem1", SidneyTranslator.Section) is { Length: > 0 } open
-                    ? open
-                    : "OPEN FILE",
+                machine.Words.OpenFile,
                 pane.X,
                 pane.Y,
                 SidneyPalette.Dim);
@@ -966,9 +974,9 @@ public static class SidneyApps
 
         float x = pane.X;
 
-        foreach (string language in machine.Translator.Languages)
+        foreach (SidneyChoice language in machine.Translator.Languages)
         {
-            float across = surface.Measure(language) + surface.Em(20);
+            float across = surface.Measure(language.Text) + surface.Em(20);
 
             if (x + across > pane.X + pane.Z)
             {
@@ -977,19 +985,20 @@ public static class SidneyApps
             }
 
             surface.Button(
-                "sidney:from:" + language,
+                "sidney:from:" + language.Key,
                 new Vector4(x, y, across, row),
-                language,
-                string.Equals(machine.From, language, StringComparison.OrdinalIgnoreCase));
+                language.Text,
+                string.Equals(machine.From, language.Key, StringComparison.OrdinalIgnoreCase));
 
             x += across + surface.Em(6);
         }
 
         y += row + surface.Em(10);
 
-        string now = machine.Library.Say("TranslateNow", SidneyTranslator.Section) is { Length: > 0 } said
-            ? said
-            : "TRANSLATE NOW";
+        string now =
+            machine.Library.Say("TranslateNow", SidneyTranslator.Section) is { Length: > 0 } said
+                ? said
+                : "TRANSLATE NOW";
 
         if (machine.From is { Length: > 0 })
         {
@@ -1041,11 +1050,20 @@ public static class SidneyApps
 
             float cx = text.X;
 
-            foreach (string choice in choices)
+            foreach (SidneyChoice choice in choices)
             {
-                float across = surface.Measure(choice) + surface.Em(20);
+                float across = surface.Measure(choice.Text) + surface.Em(20);
 
-                surface.Button("sidney:complete:" + choice, new Vector4(cx, at, across, row), choice);
+                if (cx > text.X && cx + across > text.X + wrap)
+                {
+                    cx = text.X;
+                    at += row + surface.Em(4);
+                }
+
+                surface.Button(
+                    "sidney:complete:" + choice.Key,
+                    new Vector4(cx, at, across, row),
+                    choice.Text);
 
                 cx += across + surface.Em(6);
             }
@@ -1079,7 +1097,7 @@ public static class SidneyApps
             surface.Button(
                 "sidney:append",
                 new Vector4(box.X + box.Z + surface.Em(6), at, surface.Em(70), row),
-                "ADD");
+                machine.Words.Ok);
         }
 
         surface.EndScroll();
@@ -1097,7 +1115,7 @@ public static class SidneyApps
         if (files.Count == 0)
         {
             surface.Write(
-                "No files. Scan something first.", body.X, body.Y, SidneyPalette.Dim);
+                machine.Words.Own("NoFiles"), body.X, body.Y, SidneyPalette.Dim);
 
             return default;
         }
@@ -1192,7 +1210,7 @@ public static class SidneyApps
                     continue;
                 }
 
-                string label = Label(action);
+                string label = machine.Words.Action(action);
                 float across = surface.Measure(label) + surface.Em(20);
 
                 if (item + across > pane.X + pane.Z)
@@ -1282,13 +1300,26 @@ public static class SidneyApps
             surface.Write(question, said.X, at, SidneyPalette.Amber);
             at += surface.Line + surface.Em(6);
 
+            // Wrapped, because the three languages are three words in the player's own
+            // language: FRENCH ENGLISH LATIN fits the pane and FRANZOESISCH DEUTSCH LATEIN
+            // does not, and a third button half off the edge is a button the puzzle needs
+            // and cannot be pressed.
             float cx = said.X;
 
-            foreach (string choice in choices)
+            foreach (SidneyChoice choice in choices)
             {
-                float across = surface.Measure(choice) + surface.Em(20);
+                float across = surface.Measure(choice.Text) + surface.Em(20);
 
-                surface.Button("sidney:answer:" + choice, new Vector4(cx, at, across, row), choice);
+                if (cx > said.X && cx + across > said.X + wrap)
+                {
+                    cx = said.X;
+                    at += row + surface.Em(4);
+                }
+
+                surface.Button(
+                    "sidney:answer:" + choice.Key,
+                    new Vector4(cx, at, across, row),
+                    choice.Text);
 
                 cx += across + surface.Em(6);
             }
@@ -1320,52 +1351,4 @@ public static class SidneyApps
         SidneyAction.RotateShape or
         SidneyAction.EraseShape;
 
-    /// <summary>What an operation is called on its button.</summary>
-    private static string Label(SidneyAction action) => action switch
-    {
-        SidneyAction.Analyse => "START ANALYSIS",
-        SidneyAction.ExtractAnomalies => "EXTRACT ANOMALIES",
-        SidneyAction.AnalyseText => "ANALYZE TEXT",
-        SidneyAction.Translate => "TRANSLATE",
-        SidneyAction.ViewGeometry => "VIEW GEOMETRY",
-        SidneyAction.RotateShape => "ROTATE SHAPE",
-        SidneyAction.ZoomAndClarify => "ZOOM & CLARIFY",
-        SidneyAction.EnterPoints => "ENTER POINTS",
-        SidneyAction.ClearPoints => "CLEAR POINTS",
-        SidneyAction.UndoPoint => "UNDO POINT",
-        SidneyAction.DrawGrid => "DRAW GRID",
-        SidneyAction.EraseGrid => "ERASE GRID",
-        SidneyAction.UseShape => "USE SHAPE",
-        SidneyAction.EraseShape => "ERASE SHAPE",
-        _ => action.ToString().ToUpperInvariant(),
-    };
-
-    /// <summary>What the machine takes a file to be, in words rather than in enum spelling.</summary>
-    private static string Describe(SidneyKind kind) => kind switch
-    {
-        SidneyKind.Parchment1 => "parchment",
-        SidneyKind.Parchment2 => "parchment",
-        SidneyKind.Map => "map",
-        SidneyKind.Poussin => "painting",
-        SidneyKind.Teniers => "painting",
-        SidneyKind.Symbols => "symbols",
-        SidneyKind.Note => "note",
-        SidneyKind.KnownPrint => "fingerprint",
-        SidneyKind.UnknownPrint => "fingerprint, unknown",
-        SidneyKind.Tape => "recording",
-        SidneyKind.Licence => "licence plate",
-        _ => "file",
-    };
-
-    /// <summary>What the machine says while it has nothing better to say.</summary>
-    private static string Pretty(string noun) =>
-        string.Join(
-            ' ',
-            noun.Split('_', StringSplitOptions.RemoveEmptyEntries)
-                .Select(word => word.Length switch
-                {
-                    0 => word,
-                    1 => word.ToUpperInvariant(),
-                    _ => char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant(),
-                }));
 }

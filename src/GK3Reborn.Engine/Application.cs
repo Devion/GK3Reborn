@@ -841,6 +841,13 @@ public static class Application
             // 391 pages of encyclopedia and the 393 spellings that reach them. Grace looks
             // things up, and what she can find is a real puzzle rather than a menu.
             Search = Game.Sidney.SidneySearch.Open(archives),
+
+            // What the player's things are called, which is the one family of per-object
+            // text GK3 localised, and which language the dozen phrases Sidney says that the
+            // 1999 game has no string for should be said in.
+            Names = strings,
+            Language = archives.Localization?.Language.Code
+                ?? Content.GameLanguage.Default.Code,
         };
 
         api.Sidney = sidney;
@@ -6710,8 +6717,11 @@ public static class Application
                 console.Print(sidney.Assist().Text);
                 break;
 
+            // Yes and no arrive as their keys rather than as their words: the button says
+            // OUI in French and JA in German, and reading the first letter of a translated
+            // word is a rule that happens to hold for six languages and no more.
             case "solve":
-                console.Print(sidney.Finish(which.StartsWith('Y') || which.StartsWith('y')).Text);
+                console.Print(sidney.Finish(Agreed(which)).Text);
                 break;
 
             case "grid" when int.TryParse(which, out int cells):
@@ -6731,7 +6741,7 @@ public static class Application
                 break;
 
             case "complete":
-                sidney.Complete(!which.StartsWith('N') && !which.StartsWith('n'));
+                sidney.Complete(Agreed(which));
                 break;
 
             case "append":
@@ -6777,7 +6787,7 @@ public static class Application
                 break;
 
             case "id" when sidney.Library.Identities()
-                    .FirstOrDefault(i => i.Title == which) is { } identity:
+                    .FirstOrDefault(i => i.Key == which) is { } identity:
                 console.Print(sidney.PrintIdentity(identity).Text);
                 break;
 
@@ -6793,6 +6803,12 @@ public static class Application
                 break;
         }
     }
+
+    /// <summary>Whether one of Sidney's yes-or-no answers was the yes.</summary>
+    /// <param name="answer">The choice's key, which is <c>Yes</c> or <c>No</c>.</param>
+    /// <returns>True for yes.</returns>
+    private static bool Agreed(string answer) =>
+        answer.StartsWith("Y", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Where a screen may take the player from here.

@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Sidney;
 using Xunit;
@@ -176,7 +176,15 @@ public sealed class SidneyMachineTests
         SidneyResult asked = sidney.Perform(SidneyAction.ExtractAnomalies);
 
         Assert.Equal("Languages:", asked.Asks);
-        Assert.Equal(["FRENCH", "ENGLISH", "LATIN"], asked.Choices);
+        Assert.Equal(
+            ["FRENCH", "ENGLISH", "LATIN"],
+            asked.Choices?.Select(choice => choice.Text));
+
+        // Keyed on what the file calls each language rather than on what it says, because
+        // every release relabels them and none of them renames the key.
+        Assert.Equal(
+            ["French", "English", "Latin"],
+            asked.Choices?.Select(choice => choice.Key));
     }
 
     [Fact]

@@ -38,12 +38,54 @@ and listed as `unmatched` in `reports/localization.md`.
 **Running `import-video --source <GK3>/Data` first fixes it with no code change**: the
 installation has all six. See [localization.md](localization.md).
 
+## 0. A paragraph with a newline in it runs its two halves together
+
+`SidneySurface.Paragraph` and `SidneySurface.Lines` split their text on spaces alone, so a
+`\n` that `KeyedText` has already decoded stays inside a "word" and joins the text on either
+side of it: `ExtractParch1` draws as "Buchstaben.nDiese sind:adagobert…" where the file says
+two line breaks. Language-independent — English reads "Letters are:adagobert…" the same way —
+and visible on the analyze screen's note, the add-data result and a suspect's refusal, all
+of which pass a whole multi-paragraph string in one call. The translate and map screens
+split on `\n` themselves first and are unaffected, which is why it survived.
+
+Reproduce: `GK3Reborn --scene R25 --timeblock 202P --screen sidney --scan PARCHMENT_1
+--sidney Analyze:PARCHMENT_1 --analyse PARCHMENT_1:ExtractAnomalies --frames 3
+--screenshot x.png`.
+
+Fixing it in the two methods fixes every caller at once, and the callers that pre-split
+would be unaffected because there is no `\n` left in what they pass.
+
+## 0. Sidney's buttons were English in every language (done 2026-09-05)
+
+`ESIDNEY.TXT` is re-cut for every release and carries every one of them; the port read it
+for the long paragraphs and wrote its buttons out in English beside them. Everything asks
+for its 1999 key now. Two of the faults under that were not cosmetic:
+
+- **the parchment's language question was matched on the word.** `FRENCH` is `FRANZÖSISCH`
+  in German and `FRANÇAIS` in French, and the *wrong* answer is labelled `DEUTSCH` and
+  `OCCITAN` — the player's own language, because translating the parchment into English is
+  not what a French player is doing. The right answer fell through to "cannot decipher text
+  breaks" in five languages out of six, and the Dagobert line is a step the story cannot go
+  round. Answers carry a key and a label now.
+- **the main menu turned a row's words into a screen**, so a French menu of `RECHERCHER`,
+  `ANALYSER`, `TRADUIRE` opened nothing at all. The nine rows are in the same order in every
+  release; the number is what decides.
+
+Also: a scanned file is called what the string table calls it rather than the noun with its
+underscores taken away, the clock reads the timeblock's own name, and two flags a save keeps
+— the printed identity and a figure on the map — no longer spell themselves in whatever
+language they were made in. See [sidney.md](sidney.md).
+
 ## 0. The port's own interface text is not localised (feature)
 
 GK3's own strings are: the string table, Sidney's documents, the screen layouts, the 293
 names of the things the player carries, every recorded line and every bitmap with a word
 painted on it. A French game reads "Chambre de Gabriel - Jour 1, 10.00 - 12.00" in the corner
 and calls the binoculars "Jumelles".
+
+**Sidney is done and is not one of these**: it is a 1999 screen with 1999 strings, and the
+port was ignoring them. The dozen sentences it says that GK3 never had a place for are a
+table in `SidneyWords` — which is the shape below, minus the JSON, for one screen.
 
 What is still English in every language is everything the port added and the 1999 game never
 had, plus the two families GK3 itself never named:

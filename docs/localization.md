@@ -1,4 +1,4 @@
-# Localisation
+﻿# Localisation
 
 GK3 was published in eight languages, and Sierra localised it the most awkward way
 available: they re-cut every archive. A French disc is not an English disc with a French
@@ -121,6 +121,17 @@ screen, the journal's 142 objectives and their hints, the toolbar's own labels. 
 work with a different shape — it needs translators, not a comparison — and nothing here
 pretends to have done it.
 
+**Sidney is the exception, and it is not one of the port's own screens.** `ESIDNEY.TXT` is
+re-cut for every release and carries every menu, button and refusal the machine has; the
+port read it for the paragraphs and wrote its buttons out in English beside them. It asks
+for all of them by their 1999 key now — see [sidney.md](sidney.md), which also has the two
+faults that turned up in the doing: a parchment answer matched against the *word* FRENCH,
+which is FRANZÖSISCH in German and OCCITAN in French, so the step the story turns on was
+unreachable in five languages; and a main menu that turned a row's words into a screen, so a
+French menu opened nothing. The dozen sentences Sidney says that the 1999 game has no string
+for are a table in `SidneyWords`, which is translation rather than extraction and is the one
+place in the port where that has been done.
+
 ## The cutscenes
 
 A cutscene is the same footage in every language and a different recording over it. Sierra
@@ -233,6 +244,14 @@ ContentWorkspace/enhanced/localtextures/FR/27KASHAF.png
 
 A PNG there stands in front of the shared enhanced texture of the same name, for that
 language only.
+
+### Sidney's encyclopedia is only a fifth translated, and that is Sierra's doing
+
+The 390 pages the search screen reaches are in the archives and read through the language
+pack, so nothing in the port has to know. What is worth knowing is what comes back: German,
+Spanish, French and Italian each translated **the same 80 pages** and shipped the other 310
+byte-identical to English, so `ABRAXAS.HTML` is in English inside the German `core.brn`.
+Portuguese translated all 390. Reproduced faithfully because it is what the disc holds.
 
 **Seven hundred and fifty bitmaps differ, and only about a hundred are worth anybody's
 afternoon.** Six hundred and fifty of them are the 1999 interface — Sidney's buttons, the

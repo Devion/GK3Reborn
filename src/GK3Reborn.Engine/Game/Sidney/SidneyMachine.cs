@@ -87,6 +87,8 @@ public sealed class SidneyMachine
     private readonly HashSet<string> _done = new(StringComparer.OrdinalIgnoreCase);
 
     private SidneyTranslator? _translator;
+    private SidneyWords? _words;
+    private string _language = Content.GameLanguage.Default.Code;
 
     /// <summary>The rulings the game offers, in the order it lists them.</summary>
     private static readonly int[] GridSizes = [2, 4, 8, 12, 16];
@@ -207,8 +209,16 @@ public sealed class SidneyMachine
     /// When it is, for the clock in the corner of the screen.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The story's own timeblock rather than the wall clock. Sidney is a machine inside the
     /// game and a real time of day on it would say the player is not.
+    /// </para>
+    /// <para>
+    /// <b>Said in the string table's words</b> — <c>Day110a = Day 1, 10am - 12pm</c>, and
+    /// <c>Jour 1, 10.00 - 12.00</c> in French — which is the same line the corner of the
+    /// room draws. The port used to build "Day 1  10:00 AM" out of the numbers, which is
+    /// three English words in every language and a different reading of the same block.
+    /// </para>
     /// </remarks>
     public string Now
     {
@@ -216,9 +226,11 @@ public sealed class SidneyMachine
         {
             Timeblock when = _state.Timeblock;
 
-            return string.Create(
-                System.Globalization.CultureInfo.InvariantCulture,
-                $"Day {when.Day}  {when.Hour}:00 {(when.IsAfternoon ? "PM" : "AM")}");
+            return Names.When(when.ToString()) is { Length: > 0 } said
+                ? said
+                : string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"{when.Day}  {when.Hour}:00 {(when.IsAfternoon ? "PM" : "AM")}");
         }
     }
 
@@ -260,6 +272,39 @@ public sealed class SidneyMachine
     /// <summary>The game's own text, for whatever draws this.</summary>
     public SidneyLibrary Library => _library;
 
+    /// <summary>
+    /// The string table, for what the player's own things are called.
+    /// </summary>
+    /// <remarks>
+    /// The 293 tooltips are the one family of per-object text GK3 localised, and they are
+    /// what a scanned file should be called: the bag says "Parchemin #1" and Sidney used to
+    /// say "Parchment 1" beside it. Empty in a run with no archives, which is what the
+    /// tests use.
+    /// </remarks>
+    public GameStrings Names { get; set; } = GameStrings.None;
+
+    /// <summary>
+    /// The language the game is being played in, as an ISO 639-1 code.
+    /// </summary>
+    /// <remarks>
+    /// It decides only the handful of phrases Sidney says that the 1999 game has no string
+    /// for — see <see cref="SidneyWords"/>. Everything else on the screen comes out of
+    /// <c>ESIDNEY.TXT</c>, which the archives already open through the language pack.
+    /// </remarks>
+    public string Language
+    {
+        get => _language;
+
+        set
+        {
+            _language = value ?? Content.GameLanguage.Default.Code;
+            _words = null;
+        }
+    }
+
+    /// <summary>Everything the screens draw, in the language they are drawn in.</summary>
+    public SidneyWords Words => _words ??= new SidneyWords(_library, _language);
+
     /// <summary>Every file that has been scanned in.</summary>
     /// <remarks>
     /// Derived from the story rather than kept here, because the story is what a save
@@ -276,13 +321,26 @@ public sealed class SidneyMachine
             {
                 if (SidneyFiles.For(item) is { } file)
                 {
-                    files.Add(file);
+                    files.Add(file with { Label = NameOf(item) });
                 }
             }
 
             return files;
         }
     }
+
+    /// <summary>
+    /// What one of the player's things is called.
+    /// </summary>
+    /// <param name="item">Its noun, as the action files spell it.</param>
+    /// <returns>The game's own name for it, or the tidied identifier.</returns>
+    /// <remarks>
+    /// The same answer the bag gives, which is the point: <c>ABBE_TAPE</c> is "Tape of
+    /// Abbé's phone call" there and used to be "Abbe Tape" here, and in French it is
+    /// "Enregistrement de l'appel téléphonique de l'abbé" there and was "Abbe Tape" here.
+    /// </remarks>
+    public string NameOf(string item) =>
+        Names.Item(item) is { Length: > 0 } named ? named : SidneyFiles.Pretty(item);
 
     /// <summary>Whether an item may be put into the scanner.</summary>
     /// <param name="item">The inventory item.</param>
@@ -443,19 +501,33 @@ public sealed class SidneyMachine
     /// <summary>
     /// Answers the question an operation asked.
     /// </summary>
-    /// <param name="language">Which language the player suggested.</param>
+    /// <param name="language">
+    /// Which language the player suggested, as <c>ESIDNEY.TXT</c> keys it — <c>French</c>,
+    /// <c>English</c>, <c>Latin</c> — rather than as the button spelled it.
+    /// </param>
     /// <returns>What the machine says.</returns>
     /// <remarks>
+    /// <para>
     /// Both parchments end by asking what language to break the letters on, and both have
     /// one right answer and two written wrong ones. The wrong answers are not failures —
     /// the text for them is in the file, they say what is wrong, and the player may ask
     /// again — so nothing is lost by picking one.
+    /// </para>
+    /// <para>
+    /// <b>The key, never the word.</b> This used to compare what the button said against
+    /// FRENCH and LATIN, and every release relabels those: the French one offers FRANÇAIS,
+    /// OCCITAN and LATIN, the German one FRANZÖSISCH, DEUTSCH and LATEIN. So in five
+    /// languages out of six the right answer fell through to <c>ParchEnglish</c> — "cannot
+    /// decipher text breaks" — and the Dagobert line the story turns on could not be read
+    /// at all.
+    /// </para>
     /// </remarks>
     public SidneyResult Answer(string language)
     {
         ArgumentNullException.ThrowIfNull(language);
 
         bool second = Open?.Kind == SidneyKind.Parchment2;
+        bool french = string.Equals(language.Trim(), "French", StringComparison.OrdinalIgnoreCase);
 
         string key = language.Trim().ToUpperInvariant() switch
         {
@@ -466,8 +538,7 @@ public sealed class SidneyMachine
 
         Showing = new SidneyResult(Say(key));
 
-        if (string.Equals(language.Trim(), "FRENCH", StringComparison.OrdinalIgnoreCase) &&
-            Open is { } file)
+        if (french && Open is { } file)
         {
             // The one that gets somewhere. Recorded as a flag so the story can read it the
             // way it reads everything else.
@@ -508,7 +579,13 @@ public sealed class SidneyMachine
     /// <summary>The file the translate screen has open, or null.</summary>
     public SidneyFile? Translating { get; private set; }
 
-    /// <summary>What the player says that file is written in, or null.</summary>
+    /// <summary>
+    /// What the player says that file is written in, or null.
+    /// </summary>
+    /// <remarks>
+    /// The language's key — <c>French</c>, <c>Latin</c> — rather than the word on the
+    /// button, which is different in every release. See <see cref="SidneyChoice"/>.
+    /// </remarks>
     public string? From { get; set; }
 
     /// <summary>Whether the machine is waiting for a string to add to a sentence.</summary>
@@ -824,7 +901,12 @@ public sealed class SidneyMachine
         ArgumentNullException.ThrowIfNull(identity);
 
         Identity = identity;
-        _state.SetFlag($"SidneyId:{identity.Title}");
+
+        // Keyed on the row rather than on the job, because the job is translated: a save
+        // made in French would otherwise carry SidneyId:JOURNALISTE and mean nothing to the
+        // same game opened in English.
+        _state.SetFlag(
+            "SidneyId:" + (identity.Key.Length > 0 ? identity.Key : identity.Title));
 
         Showing = new SidneyResult($"{identity.Category}: {identity.Title}");
 
@@ -1128,11 +1210,12 @@ public sealed class SidneyMachine
         // Asked before anything is drawn, because it draws a great deal. The answer comes
         // back through Finish.
         Showing = new SidneyResult(
-            "SCHATGPT will finish the map: the sunrise line, the circle, the square around "
-            + "it and the chessboard over that.",
-            "Let it?",
-            [Say("Yes") is { Length: > 0 } yes ? yes : "YES",
-             Say("No") is { Length: > 0 } no ? no : "NO"]);
+            Words.Own("AssistSays"),
+            Words.Own("AssistAsks"),
+            [
+                new SidneyChoice("Yes", Say("YesButton") is { Length: > 0 } yes ? yes : "YES"),
+                new SidneyChoice("No", Say("NoButton") is { Length: > 0 } no ? no : "NO"),
+            ]);
 
         return Showing;
     }
@@ -1171,7 +1254,7 @@ public sealed class SidneyMachine
         // The sunrise line: the church at Rennes-le-Château over the ruin at Blanchefort.
         if (Draw(MapShape.Line, [SidneyMap.Church, SidneyMap.Blanchefort]))
         {
-            done.Add(SidneyMap.NameOf(MapShape.Line));
+            done.Add(Words.Shape(MapShape.Line));
         }
 
         // The circle through the four the survey crosses.
@@ -1179,13 +1262,13 @@ public sealed class SidneyMachine
             MapShape.Circle,
             [.. SidneyMap.Sites.Take(4).Select(site => site.At)]))
         {
-            done.Add(SidneyMap.NameOf(MapShape.Circle));
+            done.Add(Words.Shape(MapShape.Circle));
         }
 
         // The square round it, which takes no places of its own.
         if (Draw(MapShape.Square, []))
         {
-            done.Add(SidneyMap.NameOf(MapShape.Square));
+            done.Add(Words.Shape(MapShape.Square));
 
             RuleInShape = true;
             Rule(8);
@@ -1653,11 +1736,22 @@ public sealed class SidneyMachine
 
     private SidneyResult Finished(string key) => new(Say(key));
 
-    /// <summary>An operation that ends by asking the player something.</summary>
+    /// <summary>
+    /// An operation that ends by asking the player something.
+    /// </summary>
+    /// <remarks>
+    /// The three languages are offered under their own keys and read back under them. Every
+    /// release relabels them — the French one calls the wrong answer OCCITAN and the German
+    /// one DEUTSCH — while <c>Parch1French</c> stays the right one in all of them.
+    /// </remarks>
     private SidneyResult Asked(string key, string before = "") => new(
         before.Length > 0 ? before + "\n\n" + Say(key) : Say(key),
         Say("Languages"),
-        [Say("French"), Say("English"), Say("Latin")]);
+        [
+            new SidneyChoice("French", Say("French")),
+            new SidneyChoice("English", Say("English")),
+            new SidneyChoice("Latin", Say("Latin")),
+        ]);
 
     /// <summary>The machine talking to itself while it works.</summary>
     private string Progress(params string[] keys) =>

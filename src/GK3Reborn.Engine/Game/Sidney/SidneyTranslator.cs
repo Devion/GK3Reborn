@@ -8,7 +8,11 @@ namespace GK3Reborn.Game.Sidney;
 
 /// <summary>Something Sidney can turn into English, and what it turns into.</summary>
 /// <param name="Key">What the game's text calls it, before the line numbers.</param>
-/// <param name="Language">What it is written in, as the screen names that language.</param>
+/// <param name="Language">
+/// What it is written in, as <c>ESIDNEY.TXT</c> keys that language — <c>French</c>,
+/// <c>Italian</c>, <c>Latin</c> — which is the same in every release.
+/// </param>
+/// <param name="Named">What the screen calls that language, which is not.</param>
 /// <param name="Original">Its lines, as they were recorded.</param>
 /// <param name="English">The same lines in English.</param>
 /// <param name="Incomplete">
@@ -18,6 +22,7 @@ namespace GK3Reborn.Game.Sidney;
 public sealed record SidneyTranslation(
     string Key,
     string Language,
+    string Named,
     IReadOnlyList<string> Original,
     IReadOnlyList<string> English,
     bool Incomplete = false);
@@ -77,13 +82,28 @@ public sealed class SidneyTranslator
         _library = library;
     }
 
-    /// <summary>The languages the screen offers to translate out of.</summary>
+    /// <summary>
+    /// The languages the screen offers to translate out of.
+    /// </summary>
     /// <remarks>
+    /// <para>
     /// English is one of them, and translating English into English is a refusal the game
     /// wrote — so it stays on the menu.
+    /// </para>
+    /// <para>
+    /// <b>Each carries its key beside its label.</b> The screen matches what was chosen
+    /// against what the file is written in, and every release relabels these four: the
+    /// German one calls <c>English</c> "Deutsch", and the Italian one has <c>Latin</c> as
+    /// "Inglese" and <c>Italian</c> as "Latino". Matching the words would depend on that
+    /// shuffle; matching the keys is what the original did.
+    /// </para>
     /// </remarks>
-    public IReadOnlyList<string> Languages =>
-        [.. Named.Select(name => _library.Say(name, Section)).Where(name => name.Length > 0)];
+    public IReadOnlyList<SidneyChoice> Languages =>
+    [
+        .. Named
+            .Select(name => new SidneyChoice(name, _library.Say(name, Section)))
+            .Where(choice => choice.Text.Length > 0),
+    ];
 
     /// <summary>Whether a file has anything in it to translate.</summary>
     /// <param name="file">The file.</param>
@@ -116,6 +136,7 @@ public sealed class SidneyTranslator
 
             return new SidneyTranslation(
                 key,
+                language,
                 _library.Say(language, Section) is { Length: > 0 } named ? named : language,
                 original,
                 _library.Lines(Section, key + "T"),
@@ -129,7 +150,9 @@ public sealed class SidneyTranslator
     /// Translates a file out of a language.
     /// </summary>
     /// <param name="file">What to translate.</param>
-    /// <param name="from">What the player says it is written in.</param>
+    /// <param name="from">
+    /// What the player says it is written in, as the file keys that language.
+    /// </param>
     /// <returns>What the machine says back.</returns>
     public SidneyResult Translate(SidneyFile? file, string? from)
     {
@@ -153,7 +176,10 @@ public sealed class SidneyTranslator
         return new SidneyResult(
             done + "\n\n" + _library.Say("Subject", Section),
             _library.Say("Question", Section),
-            [_library.Say("Yes", Section), _library.Say("No", Section)]);
+            [
+                new SidneyChoice("Yes", _library.Say("Yes", Section)),
+                new SidneyChoice("No", _library.Say("No", Section)),
+            ]);
     }
 
     /// <summary>

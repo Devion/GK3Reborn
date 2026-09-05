@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -116,9 +116,12 @@ public sealed class SidneyView
 
         if (view.Sidney is not { } machine)
         {
+            // English, and the only string in Sidney that is: this branch means there is
+            // no machine, so there is no ESIDNEY.TXT behind it and no language to read it
+            // in. It cannot be reached from a running game.
             surface.Fill(screen, SidneyPalette.Screen);
             surface.Write(
-                "Sidney is not switched on.",
+                SidneyWords.None.Own("NotOn"),
                 screen.X + surface.Em(16),
                 screen.Y + surface.Em(16),
                 SidneyPalette.Dim);
@@ -326,11 +329,14 @@ public sealed class SidneyView
         float inset = surface.Em(6);
         float row = bar.W - (inset * 2);
 
-        // Home, on the left, which is where a desktop keeps it.
+        // Home, on the left, which is where a desktop keeps it. Named for the machine,
+        // which every release calls SIDNEY and none of them has to.
+        string named = machine.Words.Home;
+
         var home = new Vector4(
             bar.X + inset,
             bar.Y + inset,
-            surface.Measure("SIDNEY") + row + surface.Em(10),
+            surface.Measure(named) + row + surface.Em(10),
             row);
 
         bool onHome = machine.Screen == SidneyScreen.Main;
@@ -347,7 +353,7 @@ public sealed class SidneyView
             onHome ? SidneyPalette.Amber : SidneyPalette.AmberDim);
 
         surface.Write(
-            "SIDNEY",
+            named,
             home.X + row,
             home.Y + ((row - surface.Line) / 2),
             onHome ? SidneyPalette.Amber : SidneyPalette.Ink);
@@ -401,7 +407,13 @@ public sealed class SidneyView
             return;
         }
 
-        string said = unread == 1 ? "You've got mail" : $"You've got mail  ({unread})";
+        // The original's own NEW E-MAIL, which is translated in every release, with the
+        // count after it where there is more than one.
+        string said = unread == 1
+            ? machine.Words.NewMail
+            : string.Create(
+                System.Globalization.CultureInfo.CurrentCulture,
+                $"{machine.Words.NewMail}  ({unread})");
 
         float height = surface.Line + surface.Em(18);
         float width = surface.Measure(said) + height + surface.Em(24);

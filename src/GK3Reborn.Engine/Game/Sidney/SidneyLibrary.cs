@@ -208,7 +208,33 @@ public sealed record SidneySuspect(int Index, string Name, string Nationality, s
 /// <summary>One of the identities Sidney can print.</summary>
 /// <param name="Category">Which trade — MEDICAL, REPORTER, REPAIR, SALES, POLICE.</param>
 /// <param name="Title">The job on the card.</param>
-public sealed record SidneyIdentity(string Category, string Title);
+/// <param name="Key">
+/// What <c>ESIDNEY.TXT</c> calls the row — <c>Menu2Item1</c> — which is the same in every
+/// release while the title is not.
+/// </param>
+/// <remarks>
+/// The key exists because printing a card sets a flag a save keeps, and a flag spelled
+/// <c>SidneyId:JOURNALISTE</c> means nothing to the same game opened in English.
+/// </remarks>
+public sealed record SidneyIdentity(string Category, string Title, string Key = "");
+
+/// <summary>
+/// One of the answers Sidney offers to a question it has asked.
+/// </summary>
+/// <param name="Key">
+/// What <c>ESIDNEY.TXT</c> calls it — <c>French</c>, <c>Yes</c> — which is the same in
+/// every release.
+/// </param>
+/// <param name="Text">What the player reads, which is not.</param>
+/// <remarks>
+/// <b>A choice cannot be its own label.</b> The parchment asks what language its letters
+/// break in and the French release labels the wrong answer <c>OCCITAN</c>, the German one
+/// <c>DEUTSCH</c> and the Italian one <c>ITALIANO</c> — so an engine that recognised the
+/// right answer by the word FRENCH would refuse it in five languages out of six, and the
+/// Dagobert line the story turns on could never be read. The key is what the machine
+/// matches and the text is what the button says.
+/// </remarks>
+public sealed record SidneyChoice(string Key, string Text);
 
 /// <summary>What one of Sidney's operations produced.</summary>
 /// <param name="Text">What the machine says, which may be several paragraphs.</param>
@@ -218,7 +244,7 @@ public sealed record SidneyIdentity(string Category, string Title);
 public sealed record SidneyResult(
     string Text,
     string? Asks = null,
-    IReadOnlyList<string>? Choices = null,
+    IReadOnlyList<SidneyChoice>? Choices = null,
     string? Produced = null);
 
 /// <summary>
@@ -370,16 +396,26 @@ public sealed class SidneyLibrary
     public IReadOnlyList<string> MainMenu() =>
         [.. _text.Run("Main Screen", "MenuItem").Where(item => item != "^")];
 
-    /// <summary>The screens the main menu names, paired with what they are called.</summary>
+    /// <summary>
+    /// The screens the main menu names, paired with what they are called.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read off the row's number, not off its words.</b> The nine <c>MenuItem</c> keys
+    /// are in the same order in every release — search, analyze, translate, make I.D.,
+    /// suspects, add data, e-mail, the rule, exit — and only their values are translated.
+    /// Matching the value against SEARCH and ANALYZE meant a French game's menu opened
+    /// nothing at all, because its rows say RECHERCHER and ANALYSER.
+    /// </remarks>
     public IReadOnlyList<(SidneyScreen Screen, string Label)> Rows()
     {
         List<(SidneyScreen, string)> rows = [];
+        IReadOnlyList<string> items = _text.Run("Main Screen", "MenuItem");
 
-        foreach (string label in MainMenu())
+        for (int i = 0; i < items.Count; i++)
         {
-            if (ScreenFor(label) is { } screen)
+            if (items[i] != "^" && items[i].Length > 0 && ScreenFor(i + 1) is { } screen)
             {
-                rows.Add((screen, label));
+                rows.Add((screen, items[i]));
             }
         }
 
@@ -387,17 +423,17 @@ public sealed class SidneyLibrary
     }
 
     /// <summary>Which screen a menu row opens.</summary>
-    /// <param name="label">The row's label, as the game's text writes it.</param>
-    /// <returns>The screen, or null for a row that is not one — <c>EXIT</c>.</returns>
-    private static SidneyScreen? ScreenFor(string label) => label.ToUpperInvariant() switch
+    /// <param name="item">The row's number, from one, as the file keys it.</param>
+    /// <returns>The screen, or null for a row that is not one — the rule, and <c>EXIT</c>.</returns>
+    private static SidneyScreen? ScreenFor(int item) => item switch
     {
-        "SEARCH" => SidneyScreen.Search,
-        "ANALYZE" => SidneyScreen.Analyze,
-        "TRANSLATE" => SidneyScreen.Translate,
-        "MAKE I.D." => SidneyScreen.MakeId,
-        "SUSPECTS" => SidneyScreen.Suspects,
-        "ADD DATA" => SidneyScreen.AddData,
-        "E-MAIL" => SidneyScreen.EMail,
+        1 => SidneyScreen.Search,
+        2 => SidneyScreen.Analyze,
+        3 => SidneyScreen.Translate,
+        4 => SidneyScreen.MakeId,
+        5 => SidneyScreen.Suspects,
+        6 => SidneyScreen.AddData,
+        7 => SidneyScreen.EMail,
         _ => null,
     };
 
@@ -453,11 +489,18 @@ public sealed class SidneyLibrary
             // which is the same inconsistency the analyze screen has.
             IReadOnlyList<string> rows = _text.Run("MakeID Screen", "Menu" + number + "Item");
 
-            foreach (string title in rows)
+            for (int row = 0; row < rows.Count; row++)
             {
+                string title = rows[row];
+
                 if (title.Length > 0 && title != "^")
                 {
-                    identities.Add(new SidneyIdentity(category, title));
+                    identities.Add(new SidneyIdentity(
+                        category,
+                        title,
+                        string.Create(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            $"Menu{number}Item{row + 1}")));
                 }
             }
         }

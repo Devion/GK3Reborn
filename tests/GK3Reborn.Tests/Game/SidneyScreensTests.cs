@@ -1,4 +1,4 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using GK3Reborn.Game.Sidney;
 using Xunit;
 
@@ -402,7 +402,11 @@ public sealed class SidneyScreensTests
         sidney.PrintIdentity(sidney.Library.Identities()[0]);
 
         Assert.Equal("DOCTOR", sidney.Identity?.Title);
-        Assert.True(state.GetFlag("SidneyId:DOCTOR"));
+
+        // Keyed on the row rather than on the job, because the job is translated and the
+        // key is not: a card printed in a French game means the same thing in an English
+        // one.
+        Assert.True(state.GetFlag("SidneyId:Menu1Item1"));
     }
 }
 

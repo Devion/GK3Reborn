@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -354,12 +354,14 @@ public static class SidneyMapView
 
                 surface.Write(question, x, at - surface.Line - surface.Em(4), SidneyPalette.Amber);
 
-                foreach (string answer in answers)
+                foreach (SidneyChoice answer in answers)
                 {
-                    float across = surface.Measure(answer) + surface.Em(20);
+                    float across = surface.Measure(answer.Text) + surface.Em(20);
 
                     surface.Button(
-                        "sidney:solve:" + answer, new Vector4(x, at, across, row), answer);
+                        "sidney:solve:" + answer.Key,
+                        new Vector4(x, at, across, row),
+                        answer.Text);
 
                     x += across + surface.Em(6);
                 }
@@ -400,7 +402,7 @@ public static class SidneyMapView
             surface.Frame(empty, SidneyPalette.Rule);
 
             surface.Paragraph(
-                "no figures saved yet",
+                machine.Words.Own("NoFigures"),
                 x,
                 y + side + gap,
                 column - gap,
@@ -444,7 +446,7 @@ public static class SidneyMapView
             int has = already?.Points.Count ?? (chosen ? machine.Map.Points.Count : 0);
 
             string tally = already is { Locked: true }
-                ? "OK"
+                ? machine.Words.Ok
                 : string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"{has}/{SidneyMap.Needs(shape)}");

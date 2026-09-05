@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Ui;
+﻿using GK3Reborn.Formats.Ui;
 using GK3Reborn.Game.Sidney;
 using Xunit;
 
@@ -118,8 +118,8 @@ public sealed class SidneyLibraryTests
         MenuItem4   = MAKE I.D.
         MenuItem5   = SUSPECTS
         MenuItem6   = ADD DATA
-        MenuItem7   = ^
-        MenuItem8   = E-MAIL
+        MenuItem7   = E-MAIL
+        MenuItem8   = ^
         MenuItem9   = EXIT
         CloseButton = CLOSE
 
@@ -175,6 +175,35 @@ public sealed class SidneyLibraryTests
         Assert.Equal(SidneyScreen.Search, rows[0].Screen);
         Assert.Equal(SidneyScreen.EMail, rows[6].Screen);
         Assert.DoesNotContain(rows, r => r.Label == "EXIT");
+    }
+
+    [Fact]
+    public void A_row_opens_its_screen_whatever_language_it_is_written_in()
+    {
+        // The rows are the same nine in every release and only their words change, so the
+        // number is what says which screen a row opens. Matching the word meant a French
+        // game's menu — RECHERCHER, ANALYSER, TRADUIRE — opened nothing at all.
+        IReadOnlyList<(SidneyScreen Screen, string Label)> rows = SidneyLibrary.From(
+            """
+            [Main Screen]
+            MenuItem1   = RECHERCHER
+            MenuItem2   = ANALYSER
+            MenuItem3   = TRADUIRE
+            MenuItem4   = FAUX PAPIERS
+            MenuItem5   = SUSPECTS
+            MenuItem6   = AJOUTER DONNEES
+            MenuItem7   = E-MAIL
+            MenuItem8   = ^
+            MenuItem9   = QUITTER
+            """,
+            Mail).Rows();
+
+        Assert.Equal(7, rows.Count);
+        Assert.Equal(SidneyScreen.Search, rows[0].Screen);
+        Assert.Equal("RECHERCHER", rows[0].Label);
+        Assert.Equal(SidneyScreen.MakeId, rows[3].Screen);
+        Assert.Equal(SidneyScreen.EMail, rows[6].Screen);
+        Assert.DoesNotContain(rows, r => r.Label == "QUITTER");
     }
 
     [Fact]

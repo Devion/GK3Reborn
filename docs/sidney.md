@@ -1,4 +1,4 @@
-# Sidney
+﻿# Sidney
 
 Grace's portable computer, and the one screen the story cannot be finished without.
 Parchments are scanned into it, analysed and translated, and `DoesSidneyFileExist` is a
@@ -367,6 +367,79 @@ how the files are already numbered, so the flag is the file's own id with `file`
 Solomon diagram, which is the second of Sidney's illustrated messages and is drawn here as
 text. `UseCoordLER`, `UseCoordBEC` and `UseCoordMCF` belong to the handheld GPS rather than
 to Sidney.
+
+## What language it is in
+
+**Sidney is the most translated screen in the game, and it was the least translated screen
+in the port.** `ESIDNEY.TXT` is one of the ten text assets Sierra re-cut for every release —
+every menu, every button, every screen name, every refusal — and the port read it for the
+long paragraphs and then wrote its buttons out in English beside them. A German game drew a
+German analysis of the parchment under an English `START ANALYSIS`.
+
+Everything on these screens is asked for by its 1999 key now, through `SidneyWords`. The
+file states the rule itself in its own header — "Only translate English to the right of =
+sign" — and all six releases obey it, so the key is the identifier and the value is the
+words.
+
+### A choice cannot be its own label
+
+The parchment ends by asking what language its raised letters break in, and the machine
+matched what the button said against `FRENCH` and `LATIN`. **Every release relabels those
+three.** French offers `FRANÇAIS`, `OCCITAN` and `LATIN`; German offers `FRANZÖSISCH`,
+`DEUTSCH` and `LATEIN` — the middle one is always the player's own language, because
+translating the parchment into English is not what a French player is doing. The key stays
+`French` in all six and `Parch1French` is the right answer in all six.
+
+So in five languages out of six the right answer fell through to `ParchEnglish` — "cannot
+decipher text breaks" — and the Dagobert line, which is a step the story cannot go round,
+could not be read at all. Every answer the machine offers is a `SidneyChoice` now: a key it
+matches on and a label it draws. The same applies to the translate screen's four languages,
+where Italian is the case that proves it — that release has `Latin = Inglese` and
+`Italian = Latino`, a shuffle only a key survives.
+
+The main menu had the same fault in the other direction: `Rows()` turned a row's *words*
+into a screen, so a French menu of `RECHERCHER`, `ANALYSER`, `TRADUIRE` opened nothing. The
+nine rows are in the same order in every release, so the row's number is what says which
+screen it opens.
+
+### A file is called what the bag calls it
+
+The 293 tooltips under `v_black_marker` are the one family of per-object text GK3 localised,
+and the inventory already draws them. Sidney wrote the noun out with its underscores taken
+away instead: "Abbe Tape" beside the bag's "Tape of Abbé's phone call", and "Parchment 1" in
+a German game beside "Pergament Nr.1". It reads the same table now, which is an improvement
+in English as well.
+
+The column beside each file said `parchment`, `painting`, `licence plate` — a taxonomy the
+port invented and nobody translated. The original sorts its files into six directories and
+names them in every release: `ImageDir`, `FingerDir`, `AudioDir`, `TextDir`, `LicenseDir`,
+`ShapeDir`. That is what the column says now.
+
+### The dozen phrases that are the port's own
+
+The empty lists, the scanner with nothing to take, `UNDO POINT`, the aid that finishes the
+map. The 1999 game has no string for any of them because it never had the screen state they
+describe, so they are a table in `SidneyWords` — one row a phrase, one column a language,
+English first and the five built releases after it. A language with no column of its own
+reads English, which is the rule the rest of the port follows.
+
+That is translation rather than extraction, which
+[localization.md](localization.md) says the rest of the port's interface still needs. Sidney
+has it because Sidney is the one screen the story cannot be finished without.
+
+### What a save keeps must not move with the language
+
+Two flags were being written in whatever language they were made in. `SidneyId:REPORTER`
+became `SidneyId:JOURNALISTE` in a French game, and a figure laid on the map was recorded
+under whatever `MapShape` was called. The identity is keyed on its row — `Menu2Item1` — and
+`SidneyMap.NameOf` stays English on purpose: it is what a save writes and what a click on a
+figure's button answers to. `SidneyWords.Shape` is the word a player reads.
+
+### And the clock
+
+"Day 2  2:00 PM" was three English words built out of the numbers. The string table names
+every timeblock — `Day202p = Day 2, 2pm - 5pm`, `Jour 2, 14.00 - 17.00` in French — and it
+is the same line the corner of the room draws.
 
 ## The four menus
 
