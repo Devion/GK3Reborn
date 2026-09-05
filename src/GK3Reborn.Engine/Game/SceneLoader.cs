@@ -1740,6 +1740,15 @@ public sealed class SceneLoader
             geometry.SetVisible(placement, false);
         }
 
+        // Lit by nothing and drawn as painted. Almost every one of the 68 lines that say
+        // so is a thing that is itself light — a hanging flame, a fire in a bowl, a
+        // fountain — and shading those by the room they light is what made TE4's bowl of
+        // fire read as grey lichen. See SceneModel.FullLighting.
+        if (model.FullLighting)
+        {
+            geometry.SetSelfLit(placement, true);
+        }
+
         return new PlacedModel(
             model.Name,
             model.Noun,
@@ -1754,6 +1763,7 @@ public sealed class SceneLoader
             Idle = ReadBehaviour(model.Gas, model.Name, diagnostics),
             Visible = !model.Hidden,
             InitialAnimation = model.InitialAnimation,
+            SelfLit = model.FullLighting,
         };
     }
 

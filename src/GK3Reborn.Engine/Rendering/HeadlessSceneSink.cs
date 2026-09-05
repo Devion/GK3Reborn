@@ -240,6 +240,19 @@ public sealed class HeadlessSceneSink : ISceneSink
         }
     }
 
+    /// <summary>How many single submeshes something has hidden.</summary>
+    public int HiddenPartCount { get; private set; }
+
+    /// <inheritdoc/>
+    /// <remarks>Counted rather than obeyed, as <see cref="SetVisible"/> is.</remarks>
+    public void SetPartVisible(ModelPlacement placement, int mesh, int submesh, bool visible)
+    {
+        if (!visible)
+        {
+            HiddenPartCount++;
+        }
+    }
+
     /// <summary>How many models something has made their own light source.</summary>
     public int SelfLitCount { get; private set; }
 
@@ -317,6 +330,14 @@ public sealed class HeadlessSceneSink : ISceneSink
 
         return _sceneObjects.Contains(objectName);
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing here keeps vertices, so a sweep gets the names and no box. Everything that
+    /// reads this asks whether one object is inside another, and answers no.
+    /// </remarks>
+    public IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> SceneObjectBoxes() =>
+        [];
 
     /// <summary>The replacement bakes a script has handed the room, in order.</summary>
     public List<string> LightmapsSwapped { get; } = [];

@@ -94,6 +94,23 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     /// </summary>
     public bool VisibilityDisputed { get; init; }
 
+    /// <summary>Whether the line says the model is lit by nothing and drawn as painted.</summary>
+    /// <remarks>
+    /// <para>
+    /// <c>fulllighting</c>, and it means what it says: the reference sets the model's
+    /// ambient to white and its light colour to black, so the room's lighting stops
+    /// reaching it and the texture is what you see. Sixty-eight lines across twenty
+    /// scenes carry it, and they are almost all the things in the game that are
+    /// themselves light: every hanging flame in CS5 and CS6, the fires in TE1 and TE4,
+    /// the fountains, the wine spray under the press, a curtain lit from behind.
+    /// </para>
+    /// <para>
+    /// A flame shaded by the room it lights is the fault this fixes. TE4's bowl of fire
+    /// read as grey lichen at the bottom of a bowl until this was honoured.
+    /// </para>
+    /// </remarks>
+    public bool FullLighting { get; init; }
+
     /// <summary>Where the model is to stand, if the line says.</summary>
     /// <remarks>
     /// <para>
@@ -556,6 +573,7 @@ public sealed class SceneInitFile
                 InitialAnimation = line.Value("initanim") ?? seen?.InitialAnimation,
                 Position = line.Vector("pos") ?? seen?.Position,
                 Heading = line.Number("heading") ?? seen?.Heading,
+                FullLighting = line.HasFlag("fulllighting") || (seen?.FullLighting ?? false),
 
                 // Carried forward, or a third block agreeing with the second would erase
                 // the disagreement the first one recorded. Nothing to carry once the

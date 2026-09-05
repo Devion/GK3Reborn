@@ -225,6 +225,25 @@ public sealed class SceneFileTests
     }
 
     [Fact]
+    public void A_model_lit_by_nothing_says_so()
+    {
+        // `fulllighting` means the room's lighting is kept off it and the texture is what
+        // you see. 68 lines across 20 scenes carry it and they are almost all the things
+        // that are themselves light — every hanging flame in CS5 and CS6, the fires in TE1
+        // and TE4, the fountains. Dropped, TE4's bowl of fire read as grey lichen.
+        SceneInitFile init = SceneInitFile.Parse(
+            """
+            [MODELS]
+            model=te4firetransp, type=gasprop, noun=BOWL_OF_FIRE, gas=te4Fire.gas, fulllighting
+            model=te4acidreflect, type=prop, noun=BOWL_OF_ACID
+            """,
+            "TE4.SIF");
+
+        Assert.True(Assert.Single(init.Models(), m => m.Name == "te4firetransp").FullLighting);
+        Assert.False(Assert.Single(init.Models(), m => m.Name == "te4acidreflect").FullLighting);
+    }
+
+    [Fact]
     public void A_model_every_block_hides_stays_hidden()
     {
         SceneInitFile init = SceneInitFile.Parse(

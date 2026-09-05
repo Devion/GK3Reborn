@@ -152,6 +152,16 @@ public sealed class ClipPlaybackTests
         public void SetVisible(ModelPlacement placement, bool visible) =>
             Visible[placement.Id] = visible;
 
+        /// <summary>Which submeshes an animation has turned off.</summary>
+        public Dictionary<(int, int, int), bool> Parts { get; } = [];
+
+        public void SetPartVisible(
+            ModelPlacement placement, int mesh, int submesh, bool visible) =>
+            Parts[(placement.Id, mesh, submesh)] = visible;
+
+        public IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> SceneObjectBoxes() =>
+            [];
+
         public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal) =>
             Poses[(placement.Id, mesh)] = meshToLocal;
 

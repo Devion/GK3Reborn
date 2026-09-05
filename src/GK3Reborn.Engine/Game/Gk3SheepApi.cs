@@ -1200,7 +1200,6 @@ public sealed class Gk3SheepApi : ISheepApi
             ("DisableModelShadow", false),
             ("SetModelShadowTexture", false),
             ("ClearModelShadowTexture", false),
-            ("SetModelLighting", false),
             ("ShowDeathLayer", false),
             ("FinishedScreen", false),
             ("ShowInset", false),

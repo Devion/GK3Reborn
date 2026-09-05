@@ -187,6 +187,32 @@ public interface ISceneSink
     /// </remarks>
     void SetVisible(ModelPlacement placement, bool visible);
 
+    /// <summary>Draws one submesh of a model, or stops drawing it.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="mesh">Which mesh group.</param>
+    /// <param name="submesh">Which submesh within it.</param>
+    /// <param name="visible">Whether that part is drawn.</param>
+    /// <remarks>
+    /// <para>
+    /// The second shape of an <c>[MVISIBILITY]</c> line, and it means something quite
+    /// different from <see cref="SetVisible"/>: 58 lines across 28 animations name a mesh
+    /// and a submesh, and every one of them is a thing a character is wearing or holding —
+    /// Heldstab's glasses, Larry's hat and pipe, Emilio's pack, and the spare hand
+    /// <c>gag</c> swaps for a gloved one in the temple.
+    /// </para>
+    /// <para>
+    /// Taking the whole model instead is not a near miss. It is the character vanishing:
+    /// Gabriel disappeared for the length of every glove animation in TE4, because the
+    /// line that hides the bare hand hid him.
+    /// </para>
+    /// <para>
+    /// The two are independent, as they are in the original: showing a model does not put
+    /// back a part an animation switched off, and switching a part on does not show a
+    /// model the scene is keeping hidden.
+    /// </para>
+    /// </remarks>
+    void SetPartVisible(ModelPlacement placement, int mesh, int submesh, bool visible);
+
     /// <summary>Makes a standing model its own light source, or stops.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
     /// <param name="selfLit">Whether it is drawn at full brightness and never shaded.</param>
@@ -411,6 +437,17 @@ public interface ISceneSink
     /// </para>
     /// </remarks>
     bool PaintSceneObject(string objectName, string? texture);
+
+    /// <summary>Every one of the room's own named objects, with the box it fills.</summary>
+    /// <returns>The objects, in no particular order; empty when the room has none.</returns>
+    /// <remarks>
+    /// World space, through each batch's current placement, so it answers for where an
+    /// object is now rather than where it was authored. Wanted by anything that has to
+    /// reason about what is <em>inside</em> something else — a stone lying in a fire — for
+    /// which a noun and a name are not enough.
+    /// </remarks>
+    IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> SceneObjectBoxes();
+
 
     /// <summary>
     /// Gives the room a different bake of the lighting it already has.

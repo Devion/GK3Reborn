@@ -116,6 +116,14 @@ public sealed record PlacedModel(
     /// </remarks>
     public bool Visible { get; set; } = true;
 
+    /// <summary>Whether it is drawn as painted, with the room's lighting kept off it.</summary>
+    /// <remarks>
+    /// The scene's <c>fulllighting</c>, or a script's <c>SetModelLighting</c> asking for
+    /// white. Remembered rather than only handed to the geometry so that a repaint or a
+    /// reload can put it back, and so <c>--lights</c> can say which models are exempt.
+    /// </remarks>
+    public bool SelfLit { get; set; }
+
     /// <summary>
     /// The animation that states the pose it opens in, or null.
     /// </summary>

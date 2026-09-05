@@ -4,6 +4,64 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. Gabriel vanished for the length of an animation, and TE4's fire was not lit (done 2026-09-05)
+
+**Reported** as "in the Temple room with the mirrors Gabriel sometimes doesn't appear during
+animations, he vanishes and then reappears... the fire stone is also very hard to see unless
+the camera is pointed straight down into the fire".
+
+Reproduce with `--scene TE4 --timeblock 309P --no-movies --run '@300 CallSheep("te4","GetGold")'`
+and photograph frames either side of 440.
+
+### An `[MVISIBILITY]` line that names a submesh was hiding the whole model
+
+The section has two shapes and the parser reads both — `<frame>,<model>,<on/off>` for the
+whole model, `<frame>,<model>,<mesh>,<submesh>,<on/off>` for one part of it — and
+`SceneUpdate.Reveal` threw the mesh and submesh away and hid the model either way. The
+comment saying so was there; the consequence was not.
+
+**58 lines across 28 animations use the per-part form and every one of them is something
+somebody is wearing or holding**: Heldstab's glasses on and off, Larry Chester's hat and
+pipe, Emilio's pack, `gabmic` for the pendulum jump — and `0,gag,13,0,off`, the bare hand the
+gilt glove replaces in TE4. So every glove animation in the temple hid Gabriel, and he came
+back when something else showed him again.
+
+`ISceneSink.SetPartVisible` draws one submesh or stops drawing it. It is independent of
+`SetVisible`, as it is in the reference: showing a model does not put back a part an
+animation switched off. Nothing is said to the acceleration structure — one instance stands
+for a whole model — so a hidden pair of glasses still casts its shadow, which at that scale
+is a few pixels against splitting every model into an instance per submesh.
+
+### `fulllighting` was not read at all
+
+68 lines across 20 scenes carry it and almost all of them are things that are themselves
+light: every hanging flame in CS5 and CS6, the fires in TE1 and TE4, the fountains.
+Unshaded is what it means, and shaded is what they were — TE4's bowl of fire came out
+grey-green and read as lichen. `SetModelLighting(model, range, 255, 255, 255)` says the same
+thing from a script and was a registered no-op. Both go through the self-lit flag now. See
+[fire.md](fire.md).
+
+### And the stone in the fire glints
+
+The stone is a 1.8-unit pebble at the bottom of a bowl ten deep, under a flame card that is
+opaque where it is lit. That is the shipped geometry and the original's answer to it is the
+scene's own straight-down close-up camera, which the port already had. On the user's
+decision it is now also given a still, warm sprite held over it. `Flames.Holding` finds it
+geometrically and finds nothing else in the game.
+
+### What was reported and was not a fault
+
+"All the puzzles are enabled by default instead of the order of puzzles that need to be
+solved." TE4 gates itself with `DisableHitTestModel`/`EnableHitTestModel` over its six
+niches and `CameraBoundaryBlockModel` over the three the player may not reach yet, and both
+are implemented and working. What switches the second one off is the player's own **free
+camera** setting, which turns the camera shell off in every room — see
+[camera-bounds.md](camera-bounds.md).
+
+**`--no-movies` was added while chasing this.** TE4 is entered through 144 seconds of
+`DAY3-5.bik`, and a room that cannot be looked at in less than its cutscene cannot be worked
+on.
+
 ## 0. Every other room was swept for air worth drawing (feature) (done 2026-09-05)
 
 **Reported** as "do a scan over all other scenes to see if there are scenes where fog would

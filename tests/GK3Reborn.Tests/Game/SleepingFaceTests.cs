@@ -519,6 +519,13 @@ public sealed class SleepingFaceTests : IDisposable
         public void SetVisible(ModelPlacement placement, bool visible) =>
             _inner.SetVisible(placement, visible);
 
+        public void SetPartVisible(
+            ModelPlacement placement, int mesh, int submesh, bool visible) =>
+            _inner.SetPartVisible(placement, mesh, submesh, visible);
+
+        public IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> SceneObjectBoxes() =>
+            [];
+
         public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal)
         {
         }

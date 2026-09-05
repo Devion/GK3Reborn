@@ -136,6 +136,52 @@ be told.
 it stands, so the same room in the same state produces the same smoke on every machine and
 in both backends.
 
+## A fire is drawn as painted
+
+`fulllighting` on a scene file's model line means the room's lighting is kept off it: the
+reference sets the model's ambient to white and its light colour to black, so what you see
+is the texture. **Sixty-eight lines across twenty scenes carry it, and almost all of them
+are things that are themselves light** — every hanging flame in CS5 and CS6, the fires in
+TE1 and TE4, CS2's and CS3's fountains, the spray under CS6's press, a curtain lit from
+behind. `SetModelLighting(model, range, 255, 255, 255)` is the same statement from a
+script; TE4's `Restart$` makes it of the bowl of fire.
+
+Ignored, a flame is shaded by the room it is lighting. TE4's bowl of fire came out grey-
+green and read as lichen at the bottom of a bowl rather than as a fire — which is what a
+flame bitmap looks like when you multiply it by a dark room. It is honoured now, through
+the same self-lit flag CS2's laser beams use.
+
+A `SetModelLighting` that asks for a colour other than white is still ignored: that needs a
+per-model tint the geometry does not carry. TE4 asks for the angel's hand at 38,26,6 and
+its buttons at 10,10,10, and those are left lit by the room.
+
+## Something lying in a fire glints
+
+**This one is a divergence and not the original's behaviour.** TE4's bowl of fire has a
+stone at the bottom of it — `te4stonefire_scene`, a pebble 1.8 units across in a bowl ten
+deep — and taking it out with the right glove is the room's puzzle. The flame card is
+opaque where it is lit, so from anywhere but straight overhead there is nothing in the bowl
+but fire, and the player is told about the stone only by a line of Gabriel's and by the
+scene's own close-up camera. Reported as "the fire stone is very hard to see unless the
+camera is pointed straight down into the fire".
+
+So a thing lying in a fire is given a glint: one still, warm sprite held over it, breathing
+once every second and a half and never going fully out. Everything else the pass draws is
+rising and short-lived, which is what tells it apart from an ember.
+
+It is drawn **at the top of the flame, over the object, and moved towards the camera** —
+not at the object. The object is at the bottom of whatever holds the fire, so a sprite where
+it actually is would be behind the near wall of the bowl as well as behind the flame, and
+the pass tests depth.
+
+The test for "lying in a fire" is geometric rather than a name: an object smaller than the
+flame is wide, whose middle is inside the flame's footprint and below its top.
+`Flames.Holding` finds **one thing in the whole game** — nothing else among the corpus's 49
+fires is standing in one, the rest sitting in lanterns and chafing dishes the room draws as
+part of the wall with no object name of their own. The load line says so:
+
+    Fire: 1 thing(s) lying in a fire, glinting
+
 ## The one blended pass
 
 The renderer is deferred and its material pass cannot blend: every surface in the game is

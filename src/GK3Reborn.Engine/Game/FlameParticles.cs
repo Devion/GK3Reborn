@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -60,6 +60,8 @@ public sealed class FlameParticles
 
     private readonly List<Emitter> _emitters = [];
     private readonly List<Particle> _drawn = [];
+    private readonly List<(Flame Fire, string Object, Vector3 Centre)> _glints = [];
+    private float _clock;
 
     /// <summary>Sets up the emitters for a room's fires.</summary>
     /// <param name="flames">The fires; see <see cref="Flames.In"/>.</param>
@@ -75,6 +77,26 @@ public sealed class FlameParticles
 
     /// <summary>How many fires are burning.</summary>
     public int Emitters => _emitters.Count;
+
+    /// <summary>
+    /// The things lying in the room's fires, which are given a glint of their own.
+    /// </summary>
+    /// <param name="held">What <see cref="Flames.Holding"/> found; empty in every room but one.</param>
+    /// <remarks>
+    /// A deliberate divergence rather than the original's behaviour, and the reasoning is
+    /// in <see cref="Flames.Holding"/>: an opaque flame card leaves a stone at the bottom
+    /// of TE4's bowl of fire invisible from anywhere but straight overhead.
+    /// </remarks>
+    public void Holds(IReadOnlyList<(Flame Fire, string Object, Vector3 Centre)> held)
+    {
+        ArgumentNullException.ThrowIfNull(held);
+
+        _glints.Clear();
+        _glints.AddRange(held);
+    }
+
+    /// <summary>How many things in this room's fires are glinting.</summary>
+    public int Glints => _glints.Count;
 
     /// <summary>How many particles are alight.</summary>
     public int Count { get; private set; }
@@ -145,6 +167,8 @@ public sealed class FlameParticles
         float step = Math.Clamp(seconds, 0f, 0.1f);
         int alive = 0;
 
+        _clock += step;
+
         foreach (Emitter emitter in _emitters)
         {
             alive += emitter.Advance(step, Vector3.Distance(emitter.Flame.Position, eye) <= Near);
@@ -177,7 +201,66 @@ public sealed class FlameParticles
             Vector3.DistanceSquared(b.Position, eye)
                 .CompareTo(Vector3.DistanceSquared(a.Position, eye)));
 
+        // Last, and after the sort: a glint is additive and does not care what it is drawn
+        // over, and it must not be hidden by the smoke of the fire it is lying in.
+        foreach ((Flame fire, _, Vector3 centre) in _glints)
+        {
+            _drawn.Add(Glint(fire, centre, eye));
+        }
+
         return _drawn;
+    }
+
+    /// <summary>The spark held over something lying in a fire.</summary>
+    /// <param name="fire">The fire it is lying in.</param>
+    /// <param name="centre">The middle of the thing, in world space.</param>
+    /// <param name="eye">Where the camera is.</param>
+    /// <returns>One additive sprite.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>In front of the flame rather than at the object.</b> A flame card is opaque
+    /// where it is lit and writes depth, and the object is behind it, so a sprite left
+    /// where the object actually is would be discarded by the depth test from every angle
+    /// the complaint was about. It is moved towards the camera, along the line from the
+    /// object to it, far enough to clear a card that turns to face the viewer.
+    /// </para>
+    /// <para>
+    /// <b>Still, and slow.</b> Everything else this pass draws is rising and short-lived,
+    /// so a spark that stays put and breathes once a second and a half reads as a thing in
+    /// the fire rather than as another ember. It never goes fully out, or it would be a
+    /// blink rather than a glint.
+    /// </para>
+    /// </remarks>
+    private Particle Glint(Flame fire, Vector3 centre, Vector3 eye)
+    {
+        Vector3 towards = eye - centre;
+
+        Vector3 forward = towards.LengthSquared() > 1e-6f
+            ? Vector3.Normalize(towards)
+            : Vector3.UnitY;
+
+        // Over the fire rather than at the object. The object is at the bottom of whatever
+        // holds the fire — TE4's is a stone bowl ten units deep — so a sprite anywhere near
+        // it is behind the near wall of that as well as behind the flame. Lifted to the top
+        // of the flame, above the object, and then moved towards the camera far enough to
+        // clear a card that turns to face it.
+        var over = new Vector3(centre.X, fire.Position.Y + (fire.Height * 0.42f), centre.Z);
+        Vector3 at = over + (forward * (fire.Width * 0.35f));
+
+        // One breath every 1.5 seconds, between two thirds and full brightness.
+        float breath = 0.45f + (0.45f * (0.5f + (0.5f * MathF.Sin(_clock * 4.19f))));
+
+        return new Particle(
+            at,
+            MathF.Max(fire.Width * 0.045f, 0.3f) * (0.85f + (0.15f * breath)),
+
+            // The white-gold of something metal that has been in a fire, kept just off
+            // white so it is not mistaken for a specular highlight on the stone above it.
+            new Vector4(1f, 0.93f, 0.72f, breath),
+            0f,
+
+            // Wholly additive, as an ember is: this is light, not a thing.
+            1f);
     }
 
     /// <summary>One fire, and what is currently rising off it.</summary>

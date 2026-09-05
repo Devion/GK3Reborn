@@ -53,6 +53,19 @@ public sealed class MoviePlayer : IDisposable
     /// <summary>Diagnostics raised while playing.</summary>
     public DiagnosticBag Diagnostics { get; } = new();
 
+    /// <summary>
+    /// Whether every film is passed over rather than played.
+    /// </summary>
+    /// <remarks>
+    /// <c>--no-movies</c>. A film is three minutes of a run that is not the room, and a
+    /// room reached by walking into a cutscene — TE4 is entered through
+    /// <c>DAY3-5.bik</c>, 144 seconds of it — cannot be looked at at all without sitting
+    /// through the film first. Skipped as if it had played: <see cref="Play"/> answers
+    /// zero, so the script waiting on it carries straight on and the story reaches the
+    /// same state, which is the same answer a movie that cannot be found gives.
+    /// </remarks>
+    public bool Skipping { get; set; }
+
     /// <summary>Whether a movie is on screen.</summary>
     public bool Playing => _movie is not null;
 
@@ -83,6 +96,11 @@ public sealed class MoviePlayer : IDisposable
         ArgumentNullException.ThrowIfNull(name);
 
         Stop();
+
+        if (Skipping)
+        {
+            return 0;
+        }
 
         _movie = Movie.Open(_videos, name, Diagnostics);
 

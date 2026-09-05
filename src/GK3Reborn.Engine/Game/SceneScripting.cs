@@ -1590,6 +1590,28 @@ public static class SceneScripting
         api.Register("SetScene", Relight);
         api.Register("SetSceneNoPreloadTextures", Relight);
 
+        // <c>SetModelLighting(model, ambientRange, r, g, b)</c>. The reference sets the
+        // model's ambient to that colour and its light colour to black, so the room stops
+        // lighting it — and white is the case that matters, being the scene file's
+        // `fulllighting` said again from a script. TE4's Restart$ says it of the bowl of
+        // fire, the temple's flames and its fountains, all at 255,255,255.
+        //
+        // A colour that is not white would need a per-model tint the geometry does not
+        // carry — TE4 asks for the angel's hand at 38,26,6 — and those are left lit by the
+        // room, which is what they were before this existed.
+        api.Register("SetModelLighting", a =>
+        {
+            if (a.Count >= 5 &&
+                world.ModelNamed(a[0].AsString()) is { } lit &&
+                a[2].AsInt() >= 255 && a[3].AsInt() >= 255 && a[4].AsInt() >= 255)
+            {
+                lit.SelfLit = true;
+                world.SelfLit(lit, true);
+            }
+
+            return SheepValue.FromInt(0);
+        });
+
         api.Register("ShowModel", a =>
         {
             Set(a, visible: true);

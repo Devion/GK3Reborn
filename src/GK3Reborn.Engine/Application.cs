@@ -605,7 +605,19 @@ public static class Application
                 : Beside(enhancedDirectory, "video"),
             packs);
 
-        using var movies = new Game.MoviePlayer(videos, audio);
+        using var movies = new Game.MoviePlayer(videos, audio)
+        {
+            // Every film passed over, the intro's and the story's alike. A room that is
+            // entered through a cutscene cannot be reached in less than the cutscene
+            // otherwise, and looking at TE4 costs 144 seconds of DAY3-5 before the room
+            // is on screen even once.
+            Skipping = args.Contains("--no-movies", StringComparer.OrdinalIgnoreCase),
+        };
+
+        if (movies.Skipping)
+        {
+            Log.Info("Movies: skipped, every film passed over");
+        }
 
         if (videos.Count > 0)
         {
@@ -2620,7 +2632,9 @@ public static class Application
 
             Log.Info(seconds > 0
                 ? $"Movie: {name}, {seconds:F1}s"
-                : $"Movie: {name} could not be played");
+                : movies.Skipping
+                    ? $"Movie: {name} skipped"
+                    : $"Movie: {name} could not be played");
 
             return seconds;
         }
@@ -3474,9 +3488,21 @@ public static class Application
         // What rises off the room's fires. Found again here rather than handed in — the
         // parameter list above is long enough — and it is a walk over models the scene has
         // already parsed. Empty in the seventy-two rooms with no fire in them.
-        var smoke = new Game.FlameParticles(Game.Flames.In(scene.Models, api.Animations));
+        IReadOnlyList<Game.Flame> burning = Game.Flames.In(scene.Models, api.Animations);
+        var smoke = new Game.FlameParticles(burning);
 
         smoke.Follow(scene.Models);
+
+        // And what those fires are burning over. One thing in the game qualifies — the
+        // stone at the bottom of TE4's bowl of fire — and it is given a glint because an
+        // opaque flame card leaves it invisible from anywhere but straight overhead. See
+        // Game.Flames.Holding, which says why this is a divergence and what it costs.
+        smoke.Holds(Game.Flames.Holding(burning, geometry.SceneObjectBoxes()));
+
+        if (smoke.Glints > 0)
+        {
+            Log.Info($"Fire: {smoke.Glints} thing(s) lying in a fire, glinting");
+        }
 
         // Whether anything was handed to the blended pass last frame. Only so that a room
         // which stops having any — the lasers being switched off — is told once, rather

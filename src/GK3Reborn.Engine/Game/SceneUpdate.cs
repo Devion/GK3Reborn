@@ -2487,19 +2487,36 @@ public sealed class SceneUpdate
     /// </para>
     /// <para>
     /// The per-part form — <c>&lt;frame&gt;,&lt;model&gt;,&lt;mesh&gt;,&lt;submesh&gt;,on</c> —
-    /// is not distinguished from the whole-model form here: the sink draws a placement, not
-    /// a submesh of one, and hiding the whole thing is the closer of the two answers. Only
-    /// a handful of the corpus's lines use it.
+    /// is a different statement and is answered differently: it names one submesh, and 58
+    /// lines across 28 animations use it to take off a pair of glasses, a hat, a pipe, a
+    /// pack, or the bare hand a gloved one replaces. Taking the whole model for those was
+    /// the character vanishing — Gabriel disappeared for the length of every glove
+    /// animation in TE4, because the line that hides his bare hand hid him.
+    /// </para>
+    /// <para>
+    /// A part switched off does not change whether the model is drawn, so
+    /// <see cref="PlacedModel.Visible"/> is left alone: the picker must go on offering the
+    /// noun for a character who has merely put their glasses away.
     /// </para>
     /// </remarks>
     private void Reveal(IEnumerable<AnimationVisibility> changes)
     {
         foreach (AnimationVisibility change in changes)
         {
-            if (ModelNamed(change.Model) is { } model)
+            if (ModelNamed(change.Model) is not { } model)
             {
-                Show(model, change.Visible);
+                continue;
             }
+
+            if (change.Mesh >= 0 && change.Submesh >= 0)
+            {
+                _geometry.SetPartVisible(
+                    model.Placement, change.Mesh, change.Submesh, change.Visible);
+
+                continue;
+            }
+
+            Show(model, change.Visible);
         }
     }
 

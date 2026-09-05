@@ -118,6 +118,7 @@ public static class CommandLine
           --front               With --scene, show the menu first anyway.
           --camera NAME         Start at one of the room's own cameras.
           --skip-intro          Go straight to the menu; play none of the opening films.
+          --no-movies           Play no film at all.
           --front-page PAGE     Open the menu on one of its pages: Options, Video, Display.
           --settings FILE       Read and write another settings file, leaving yours alone.
           --movie NAME          Play one of the films straight away.

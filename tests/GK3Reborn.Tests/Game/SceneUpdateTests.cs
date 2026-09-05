@@ -1,5 +1,7 @@
 ﻿using System.Numerics;
 using GK3Reborn.Formats.Actions;
+using GK3Reborn.Content;
+using GK3Reborn.Formats.Animation;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Lightmaps;
 using GK3Reborn.Formats.Models;
@@ -179,6 +181,16 @@ public sealed class SceneUpdateTests
 
         public void SetVisible(ModelPlacement placement, bool visible) =>
             Visible[placement.Id] = visible;
+
+        /// <summary>Which submeshes an animation has turned off.</summary>
+        public Dictionary<(int, int, int), bool> Parts { get; } = [];
+
+        public void SetPartVisible(
+            ModelPlacement placement, int mesh, int submesh, bool visible) =>
+            Parts[(placement.Id, mesh, submesh)] = visible;
+
+        public IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> SceneObjectBoxes() =>
+            [];
 
         /// <summary>Where each mesh has been posed by an animation.</summary>
         public Dictionary<(int, int), Matrix4x4> Poses { get; } = [];
@@ -1004,6 +1016,41 @@ public sealed class SceneUpdateTests
 
         Assert.True(gab.Visible);
         Assert.True(sink.Visible[0]);
+    }
+
+    [Fact]
+    public void An_animation_that_hides_one_submesh_hides_only_that_submesh()
+    {
+        // The second shape of an [MVISIBILITY] line, which names a mesh and a submesh.
+        // Taken as the whole-model form it is the character vanishing: GagTe4GetGoldGlove1
+        // turns off the bare hand the gilt glove replaces, and Gabriel disappeared for the
+        // length of every glove animation in TE4. 58 lines across 28 animations use it,
+        // and every one of them is a thing somebody is wearing or holding.
+        (SceneUpdate update, _, Watcher sink, _) = World();
+
+        update.Clips = new ClipLibrary(_ => null);
+        update.Animations = new AnimationLibrary(n =>
+            n.Equals("GLOVEON.ANM", StringComparison.OrdinalIgnoreCase)
+                ? """
+                  [HEADER]
+                  15
+
+                  [MVISIBILITY]
+                  1
+                  0,gab,13,0,off
+                  """
+                : null);
+
+        PlacedModel gab = Assert.IsType<PlacedModel>(update.ModelNamed("gab"));
+
+        update.Play("GLOVEON");
+
+        Assert.False(sink.Parts[(0, 13, 0)]);
+
+        // The model itself is untouched, so the room goes on drawing him and the picker
+        // goes on offering his noun.
+        Assert.True(gab.Visible);
+        Assert.False(sink.Visible.ContainsKey(0));
     }
 
     [Fact]

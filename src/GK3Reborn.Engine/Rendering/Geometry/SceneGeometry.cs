@@ -71,6 +71,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     private readonly List<Dictionary<int, List<int>>> _placements = [];
 
+    /// <summary>Which batch is which submesh of which placed model.</summary>
+    /// <remarks>
+    /// A second index over the same batches as <see cref="_placements"/>, because an
+    /// <c>[MVISIBILITY]</c> line names a mesh <em>and</em> a submesh and the batch list a
+    /// mesh owns cannot be indexed by submesh number: an empty group is skipped as the
+    /// model is read, so the two run out of step on any model that has one.
+    /// </remarks>
+    private readonly List<Dictionary<(int Mesh, int Submesh), int>> _parts = [];
+
     /// <summary>What each placement was, so a mesh can be re-placed from its own space.</summary>
     private readonly List<(ModFile Model, Matrix4x4 Transform)> _placed = [];
 
@@ -562,7 +571,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         Matrix4x4 placement = transform ?? Matrix4x4.Identity;
         Dictionary<int, List<int>> batches = [];
+        Dictionary<(int Mesh, int Submesh), int> parts = [];
         _placements.Add(batches);
+        _parts.Add(parts);
 
         // The colour placeholders first, and before the batch below is opened. A group the
         // artists gave no texture at all is drawn as a one-pixel texture of its own colour,
@@ -610,8 +621,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             Matrix4x4 normalBasis = ModNormals.CorrectionFor(mesh, localNormals);
             bool correcting = !normalBasis.IsIdentity;
 
-            foreach (ModSubmesh submesh in mesh.Submeshes)
+            for (int group = 0; group < mesh.Submeshes.Count; group++)
             {
+                ModSubmesh submesh = mesh.Submeshes[group];
+
                 if (submesh.Positions.Length == 0 || submesh.Indices.Length == 0)
                 {
                     continue;
@@ -664,6 +677,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 }
 
                 owned.Add(_batches.Count);
+                parts[(index, group)] = _batches.Count;
 
                 AddBatch(
                     vertices,
@@ -913,6 +927,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     private readonly HashSet<int> _invisible = [];
 
+    /// <summary>Batches an <c>[MVISIBILITY]</c> line has turned off on their own.</summary>
+    /// <remarks>
+    /// Held apart from <see cref="_invisible"/> because the two are independent in the
+    /// original: a submesh switched off stays off when the model is shown again, and
+    /// showing a model does not put back a part an animation took away. So a batch is
+    /// drawn only when neither says otherwise.
+    /// </remarks>
+    private readonly HashSet<int> _invisibleParts = [];
+
     /// <inheritdoc/>
     public void SetVisible(ModelPlacement placement, bool visible)
     {
@@ -930,13 +953,44 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         {
             foreach (int index in batches)
             {
-                _batches[index] = _batches[index] with { Hidden = !visible };
+                _batches[index] = _batches[index] with
+                {
+                    Hidden = !visible || _invisibleParts.Contains(index),
+                };
             }
         }
 
         // And out of the traced world with it. The parts are numbered from one, because
         // part zero is the room itself; see RecordTraceable.
         _rayTracing?.SetTraced(placement.Id + 1, visible);
+    }
+
+    /// <inheritdoc/>
+    public void SetPartVisible(ModelPlacement placement, int mesh, int submesh, bool visible)
+    {
+        if (!placement.Exists ||
+            placement.Id >= _parts.Count ||
+            !_parts[placement.Id].TryGetValue((mesh, submesh), out int index))
+        {
+            return;
+        }
+
+        if (visible ? !_invisibleParts.Remove(index) : !_invisibleParts.Add(index))
+        {
+            return;
+        }
+
+        _batches[index] = _batches[index] with
+        {
+            Hidden = !visible || _invisible.Contains(placement.Id),
+        };
+
+        // Nothing said to the acceleration structure: one instance stands for a whole
+        // model — see RecordTraceable — so a part cannot be taken out of the traced world
+        // on its own. Every line in the corpus that uses this form hides something small
+        // and held — a pair of glasses, a hat, a pipe, a spare hand — whose shadow at this
+        // scale is a few pixels, where the cost of splitting every model into an instance
+        // per submesh is paid by every room.
     }
 
     /// <inheritdoc/>
@@ -1254,6 +1308,46 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
 
         return true;
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> SceneObjectBoxes()
+    {
+        var boxes = new List<(string, Vector3, Vector3)>(_sceneObjects.Count);
+
+        foreach ((string owner, List<int> batches) in _sceneObjects)
+        {
+            var minimum = new Vector3(float.MaxValue);
+            var maximum = new Vector3(float.MinValue);
+            bool any = false;
+
+            foreach (int index in batches)
+            {
+                if (index < 0 || index >= _batches.Count)
+                {
+                    continue;
+                }
+
+                Batch batch = _batches[index];
+                Matrix4x4 place = batch.Local * batch.Transform;
+
+                foreach (MeshVertex vertex in batch.Shape)
+                {
+                    Vector3 at = Vector3.Transform(vertex.Position, place);
+
+                    minimum = Vector3.Min(minimum, at);
+                    maximum = Vector3.Max(maximum, at);
+                    any = true;
+                }
+            }
+
+            if (any)
+            {
+                boxes.Add((owner, minimum, maximum));
+            }
+        }
+
+        return boxes;
     }
 
     /// <inheritdoc/>

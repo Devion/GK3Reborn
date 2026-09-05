@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -256,6 +256,78 @@ public static class Flames
             span.Y,
             MathF.Max(span.X, span.Z),
             placed.Visible);
+    }
+
+    /// <summary>
+    /// Finds what a room's fires are burning over.
+    /// </summary>
+    /// <param name="flames">The fires; see <see cref="In"/>.</param>
+    /// <param name="objects">
+    /// The room's own named objects and the boxes they fill; see
+    /// <see cref="Rendering.ISceneSink.SceneObjectBoxes"/>.
+    /// </param>
+    /// <returns>One entry per object lying in a fire, with the fire it is lying in.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>It finds one thing in the whole game, and that is the point.</b> TE4's bowl of
+    /// fire has a stone at the bottom of it — <c>te4stonefire_scene</c>, a pebble 1.8 units
+    /// across in a bowl ten deep — and taking it out with the right glove is the room's
+    /// puzzle. The flame card is opaque where it is lit, so from anywhere but straight
+    /// above there is nothing in the bowl but fire, and the player is told about the stone
+    /// only by a line of Gabriel's and the scene's own close-up camera.
+    /// </para>
+    /// <para>
+    /// So a thing lying in a fire is given a glint: one still, warm spark held over it,
+    /// drawn in front of the flame rather than inside it. It is not the original's
+    /// behaviour and it is not meant to be — reported as "the fire stone is very hard to
+    /// see unless the camera is pointed straight down into the fire", and the answer is to
+    /// make the fire say there is something in it.
+    /// </para>
+    /// <para>
+    /// The test is geometric rather than a name: an object whose middle is inside the
+    /// flame's own footprint and below its top. Nothing else in the corpus's 49 fires is
+    /// standing in one — the flames sit in lanterns and chafing dishes the room draws as
+    /// part of the wall, which carry no object name of their own.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<(Flame Fire, string Object, Vector3 Centre)> Holding(
+        IReadOnlyList<Flame> flames,
+        IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> objects)
+    {
+        ArgumentNullException.ThrowIfNull(flames);
+        ArgumentNullException.ThrowIfNull(objects);
+
+        List<(Flame, string, Vector3)> held = [];
+
+        foreach (Flame flame in flames)
+        {
+            float reach = flame.Width / 2f;
+
+            foreach ((string name, Vector3 minimum, Vector3 maximum) in objects)
+            {
+                Vector3 centre = (minimum + maximum) / 2f;
+                Vector3 span = maximum - minimum;
+
+                // Smaller than the fire it is in, or the bowl the fire stands in would
+                // qualify: its own middle is under the flame too.
+                if (MathF.Max(span.X, span.Z) >= reach)
+                {
+                    continue;
+                }
+
+                if (MathF.Abs(centre.X - flame.Position.X) > reach ||
+                    MathF.Abs(centre.Z - flame.Position.Z) > reach ||
+                    centre.Y > flame.Position.Y + (flame.Height / 2f) ||
+                    centre.Y < flame.Position.Y - flame.Height)
+                {
+                    continue;
+                }
+
+                held.Add((flame, name, centre));
+            }
+        }
+
+        return held;
     }
 
     /// <summary>Adds a card to a model's flames, or folds it into the one it doubles.</summary>

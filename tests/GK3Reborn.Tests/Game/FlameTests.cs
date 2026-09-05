@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -119,6 +119,41 @@ public sealed class FlameTests
             Matrix4x4.Identity, PlacedModelKind.Prop);
 
         Assert.Equal(5, Flames.In([candles], null).Count);
+    }
+
+    [Fact]
+    public void A_stone_lying_in_a_fire_is_found_and_the_bowl_holding_it_is_not()
+    {
+        // TE4's bowl of fire, to scale: a flame 12.6 units tall in a bowl 21 across, with
+        // a pebble 1.8 across at the bottom of it. The stone is what the room's puzzle is
+        // about and the flame card is opaque where it is lit, so from anywhere but
+        // overhead there is nothing in the bowl but fire.
+        // Measured off TE4A: the bowl is 21.4 x 10.2 x 22.2 and the card 12.6 tall.
+        var flame = new Flame(
+            "te4firetransp", new Vector3(-113.3f, 35.5f, -216.3f), 12.6f, 21.4f, true);
+
+        (string, Vector3, Vector3)[] objects =
+        [
+            ("te4stonefire_scene",
+                new Vector3(-111.9f, 30.9f, -214.6f),
+                new Vector3(-110.1f, 32.6f, -212.9f)),
+
+            // The bowl itself has its middle under the flame too, and is not a thing
+            // lying in it.
+            ("te4firebasin",
+                new Vector3(-124.0f, 30.4f, -227.4f),
+                new Vector3(-102.6f, 40.6f, -205.2f)),
+
+            // And the bowl of acid next to it is somewhere else.
+            ("te4acidbasin",
+                new Vector3(-142.0f, 30.4f, -217.1f),
+                new Vector3(-120.5f, 40.6f, -194.7f)),
+        ];
+
+        (Flame lit, string held, _) = Assert.Single(Flames.Holding([flame], objects));
+
+        Assert.Equal("te4stonefire_scene", held);
+        Assert.Equal(flame.Model, lit.Model);
     }
 
     [Fact]
