@@ -910,9 +910,18 @@ public sealed class AnimationFile
     /// so putting it back means writing the key alone unless the two actually differ —
     /// otherwise every line of dialogue in the game is said twice.
     /// </remarks>
+    /// <remarks>
+    /// <b>Rejoined with a comma <em>and a space</em>, because a caption is prose.</b> The
+    /// reader trims every field, so "Perfekt, Kleiner." arrives as two entries and the
+    /// original spacing is already gone; putting it back with a bare comma produced
+    /// "Perfekt,Kleiner." in every caption in the game that contains one. It was invisible
+    /// until the cutscene subtitles started drawing these — a room's caption is on screen
+    /// for two seconds under a speaking character, and a missing space there reads as a
+    /// typeface quirk rather than as a bug.
+    /// </remarks>
     private static string Rest(IniLine line, int from) =>
         string.Join(
-            ",",
+            ", ",
             line.Entries
                 .Skip(from)
                 .Select(e => string.Equals(e.Key, e.Value, StringComparison.Ordinal)

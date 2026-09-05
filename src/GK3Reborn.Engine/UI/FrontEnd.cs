@@ -222,6 +222,21 @@ public sealed class FrontEnd
     public bool Illustrated { get; set; }
 
     /// <summary>
+    /// The languages this installation can actually be played in.
+    /// </summary>
+    /// <remarks>
+    /// Handed over rather than worked out here, because which languages there are is a fact
+    /// about which packs are beside the executable and the menu has no business opening
+    /// files. English is always among them: it is what every installation can already read.
+    /// See <see cref="Content.LocalizedContent.Available"/>.
+    /// </remarks>
+    public IReadOnlyList<Content.GameLanguage> Languages { get; set; } =
+        [Content.GameLanguage.Default];
+
+    /// <summary>The language now chosen.</summary>
+    private Content.GameLanguage Language => Content.GameLanguage.Of(Settings.Language);
+
+    /// <summary>
     /// The settings screen's sections, in the order they are listed down its side.
     /// </summary>
     /// <remarks>
@@ -1222,6 +1237,22 @@ public sealed class FrontEnd
     /// </remarks>
     private IReadOnlyList<MenuItem> Gameplay() =>
     [
+        // First, and on this page rather than on Sound, because it is not a preference
+        // about how the game sounds — it decides what is said, what is written, what is
+        // painted on a road sign and which of Sidney's documents can be read. It is the
+        // one row here that changes the words of the story.
+        //
+        // Offered even when there is only English to offer, with the sentence under it
+        // saying why. A row that appears when a second pack is dropped in and is absent
+        // until then is a row nobody knows to look for.
+        MenuItem.Choice("language", "Language", Describe(Language)),
+
+        Languages.Count > 1
+            ? MenuItem.Label("Language takes effect at the next start.")
+            : MenuItem.Label(
+                "Only English is installed. Other languages need their own pack beside "
+                + "the game."),
+
         MenuItem.Slider(
             "hurry",
             "Hurrying pace",
@@ -1237,6 +1268,13 @@ public sealed class FrontEnd
         MenuItem.Toggle("freecamera", "Free camera (may leave the room)", Settings.FreeCamera),
 
         MenuItem.Toggle("captions", "Write out what is said", Settings.Captions),
+
+        // Its own row, immediately under the one it pairs with, because the two are
+        // different decisions: a caption is small and beside whoever is speaking, and a
+        // subtitle is across the bottom of a full-screen film. Somebody may well want one
+        // and not the other. The parallel wording is what says they are related.
+        MenuItem.Toggle(
+            "filmcaptions", "Write out what is said in films", Settings.MovieSubtitles),
         MenuItem.Toggle("intro", "Play the intro on starting", Settings.PlayIntro),
         MenuItem.Toggle("eggs", "Easter eggs", Settings.EasterEggs),
 
@@ -1502,6 +1540,11 @@ public sealed class FrontEnd
                 HurryFactor = 1f + (3f * Level((Settings.HurryFactor - 1f) / 3f, action)),
             },
 
+            // Through what is installed rather than through everything GK3 was published
+            // in, so a player with English and French steps between two rows rather than
+            // through six that do nothing when chosen.
+            "language" => Settings with { Language = Next(Languages, Language, action.Step).Code },
+
             "speakers" => Settings with { Speakers = Step(Layouts, Settings.Speakers, action.Step) },
             "picture" => Settings with { Picture = Step(Pictures, Settings.Picture, action.Step) },
 
@@ -1522,6 +1565,8 @@ public sealed class FrontEnd
             {
                 UpscalerQuality = Step(Ratios, Settings.UpscalerQuality, action.Step),
             },
+
+            "filmcaptions" => Settings with { MovieSubtitles = !Settings.MovieSubtitles },
 
             "sharpen" => Settings with { Sharpening = !Settings.Sharpening },
             "sharpness" => Settings with { Sharpness = Level(Settings.Sharpness, action) },
@@ -1802,6 +1847,47 @@ public sealed class FrontEnd
 
         return all[next < 0 ? next + all.Length : next];
     }
+
+    /// <summary>The same step, for a list of things that are not enumerations.</summary>
+    /// <remarks>
+    /// The languages are records rather than an enumeration — which of them exist is a fact
+    /// about the packs on disk, not about this build — and a list of one steps to itself
+    /// rather than dividing by zero.
+    /// </remarks>
+    private static T Next<T>(IReadOnlyList<T> all, T current, int by)
+        where T : class
+    {
+        if (all.Count == 0)
+        {
+            return current;
+        }
+
+        int at = 0;
+
+        for (int i = 0; i < all.Count; i++)
+        {
+            if (Equals(all[i], current))
+            {
+                at = i;
+                break;
+            }
+        }
+
+        int next = (at + (by == 0 ? 1 : by)) % all.Count;
+
+        return all[next < 0 ? next + all.Count : next];
+    }
+
+    /// <summary>What a language is called in the menu.</summary>
+    /// <remarks>
+    /// In itself, and in English beside it where the two differ. Somebody looking for
+    /// French is looking for "Français"; somebody who has landed on a language they cannot
+    /// read needs "French" to find their way back out of it.
+    /// </remarks>
+    private static string Describe(Content.GameLanguage language) =>
+        string.Equals(language.Native, language.Name, StringComparison.Ordinal)
+            ? language.Name
+            : $"{language.Native} ({language.Name})";
 
     /// <summary>What each cut-content tier is called in the menu.</summary>
     /// <remarks>

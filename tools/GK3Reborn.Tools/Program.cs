@@ -46,6 +46,12 @@ public static class Program
             return Stages.SceneCommands.Run(args);
         }
 
+        // And again: --localized and --language belong to this command alone.
+        if (Stages.LocalizationCommands.Commands.Contains(args[0], StringComparer.Ordinal))
+        {
+            return Stages.LocalizationCommands.Run(args);
+        }
+
         // Its own two flags, parsed here for the same reason the pack and scene commands
         // parse theirs: --all and --verbose mean nothing to any other command, and adding
         // them to the record every command shares would make every command's help worse.

@@ -130,6 +130,7 @@ At runtime the lookup order is:
 
 ```text
 overrides/audio/<original-name>.wav
+  -> Reborn_<CODE>.rebarn, the chosen language
   -> Reborn*.rebarn audio entry
   -> original *.brn asset
 ```
@@ -137,3 +138,14 @@ overrides/audio/<original-name>.wav
 An absent or rejected restoration therefore costs one enhanced clip, never the sound and
 never the game. Loose enhanced masters are authoring inputs; the runtime consumes their
 packed form so development and shipped lookup have the same precedence.
+
+**The language sits above the restorations, and that is deliberate.** A restored master is
+a cleaned-up copy of a recording in one language; a language pack holds a different actor
+saying a different sentence. Handing a French game an English master because the English one
+had been remastered would be the loudest possible way to get this wrong.
+
+Which leaves the English case, and it is handled at extraction rather than at lookup:
+`extract-localized` leaves out of the **English** pack every recording `enhanced/audio`
+restores, so those names fall through to the restored master rather than being shadowed by
+the 1999 recording of the same line. Add a restoration and re-run it; the report says how
+many were handed back. See [localization.md](localization.md).

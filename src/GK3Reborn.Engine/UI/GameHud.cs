@@ -162,6 +162,17 @@ public sealed class GameHud
     public Overlay Overlay { get; private set; }
 
     /// <summary>
+    /// What the game calls the player's things, in the player's own language.
+    /// </summary>
+    /// <remarks>
+    /// Handed over rather than opened here, because which string table is read is a fact
+    /// about the language the game was started in and the interface has no business opening
+    /// archives. <see cref="Game.GameStrings.None"/> when there is no table, which is what
+    /// this drew before it existed: the identifier, tidied up.
+    /// </remarks>
+    public Game.GameStrings Names { get; set; } = Game.GameStrings.None;
+
+    /// <summary>
     /// How much bigger everything is than the layout was written against.
     /// </summary>
     /// <remarks>
@@ -1145,7 +1156,7 @@ public sealed class GameHud
 
         foreach (string item in items)
         {
-            itemWidth = Math.Max(itemWidth, Overlay.Measure(Pretty(item)) + (padding * 2) + art);
+            itemWidth = Math.Max(itemWidth, Overlay.Measure(Owned(item)) + (padding * 2) + art);
         }
 
         float itemHeight = (row * items.Count) + padding;
@@ -1176,7 +1187,7 @@ public sealed class GameHud
             }
 
             Overlay.Text(
-                Pretty(items[i]),
+                Owned(items[i]),
                 itemX + padding + art,
                 top + ((row - Overlay.LineHeight) / 2),
                 chosen ? Accent : Ink);
@@ -1195,6 +1206,17 @@ public sealed class GameHud
     /// <summary>What a menu row reads as.</summary>
     private static string Label(string verb) =>
         verb == UseRow ? "Use..." : Pretty(verb);
+
+    /// <summary>
+    /// What one of the player's things reads as.
+    /// </summary>
+    /// <remarks>
+    /// The game's own name for it where there is one — "Tape of Abbé's phone call" rather
+    /// than "Abbe Tape", and "Jumelles" rather than "Binoculars" in a French game — and the
+    /// tidied identifier otherwise. It is the only per-object text GK3 ever localised; see
+    /// <see cref="Game.GameStrings.Item"/>.
+    /// </remarks>
+    private string Owned(string item) => Names.Item(item) ?? Pretty(item);
 
     /// <summary>
     /// The strip along the bottom, which is no longer drawn.
@@ -1229,7 +1251,7 @@ public sealed class GameHud
 
         foreach (string item in state.Inventory)
         {
-            string name = Pretty(item);
+            string name = Owned(item);
             float w = Overlay.Measure(name) + (16 * unit);
 
             if (x + w > width - (12 * unit))

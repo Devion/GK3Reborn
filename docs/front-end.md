@@ -75,14 +75,16 @@ What is allowed to stay is what the player cannot find out by trying it:
 | `Running: …` | what the renderer actually chose, which may not be what was asked |
 | `The last three take effect at the next door` | the room was built from the sets chosen when it loaded |
 | `Speakers take effect at the next start` | the device is opened once, and silence reads as broken |
+| `Language takes effect at the next start` | the same, and louder: the same voices reads as the row doing nothing |
 
 Twenty-two label rows became nine, and only two of those nine are ever on screen at once in
 a working game: the rest wait for a missing runtime, a refused colour space, or an upscaler
 that is actually running. Where a sentence existed to explain a **dead** row, the row is dead
 instead: choosing borderless fullscreen makes `Resolution` read `The monitor's own` and stop
 being selectable, which says the same thing in no words at all. `DisplaySettingsTests` holds
-the budget — a page may draw at most one line of prose, and Display, Playing and Made Easier
-may draw none — so this cannot quietly grow back.
+the budget — a page may draw at most one line of prose, and Display and Made Easier may
+draw none — so this cannot quietly grow back. Playing earns its one the same way Sound
+earns its one, and for the same reason: the language is settled before the window exists.
 
 **The menu grows with the window.** Its atlas is cut for the window's height — an em of
 about a twenty-sixth of it — and re-cut when that changes, so going fullscreen re-draws the
@@ -190,11 +192,13 @@ destinations, and there are no others in the file.
 | Lighting | `RayTracingQuality`, from the baked 1999 picture to every ray the frame can use |
 | Higher-resolution textures | the enhanced set **and** its compressed build, so answering "no" means the original art |
 | Text size | `TextSizing.Em`, which is the size both atlases are cut at, and the magnification a bitmap sheet gets |
+| Language | the pack the archives are read through, the letter in front of every `.YAK` and `.MOM`, the code page the text is decoded in, and which enhanced textures carry words — all four at the next start |
 | Hurrying pace | `SceneUpdate.HurryFactor`: what a double-click multiplies, and how much faster the stride plays to match |
 | Camera travels between angles | `GameState.CameraGliding`, which scripts also read and set |
 | Let the story move the camera | `GameState.CinematicsEnabled` |
 | Free camera, which may leave the room | the scene's camera shell, and `Directing`'s hold on the controls — both asked every frame |
-| Write out what is said | whether the caption reaches the interface at all |
+| Write out what is said | whether the room's caption reaches the interface at all |
+| Write out what is said in films | whether a film's own subtitles are drawn over it — its own row, because a caption beside a speaker and a subtitle across a full-screen picture are different things to want |
 | Play the intro on starting | the two films below |
 | Easter eggs | `GameState.EasterEggs`, which is the story's `EGG` flag: the built-in `EGG` action case and Sidney's sixth email |
 | Skip the cat-hair moustache | `BLACK_MOUSTACHE` in Gabriel's pocket at Day 1, 2pm, and `Faces.ComposedFrom` so he wears it |

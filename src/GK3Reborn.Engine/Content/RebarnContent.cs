@@ -92,6 +92,12 @@ public sealed class RebarnContent : IDisposable
 
         IEnumerable<string> files = System.IO.Directory
             .EnumerateFiles(directory, "*" + RebarnFormat.Extension)
+
+            // The language packs are not part of this set. The game opens exactly one of
+            // them — the one the player chose — through LocalizedContent, and merging every
+            // language it happens to have installed into the shared namespace would put the
+            // last one alphabetically in front of the archives for everybody.
+            .Where(f => !LocalizedContent.FileNamePattern().IsMatch(Path.GetFileName(f)))
             .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
 
         foreach (string file in files)

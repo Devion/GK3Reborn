@@ -46,10 +46,11 @@ That encodes every PNG under `enhanced/` to DDS and writes two volumes into
 | Flag | What it does |
 | --- | --- |
 | `--output <dir>` | Where the volumes go. `<workspace>/build/pack` by default. |
-| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models scene-geometry video audio manifests` |
+| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models scene-geometry video movie-audio localized audio manifests` |
 | `--only <dir>` | Only the kinds packed from a source directory, such as `enhanced/trees`. |
 | `--cap normals=512` | Longest edge a kind is encoded at, overriding the default. |
-| `--single-volume` | One file rather than two. |
+| `--single-volume` | One file rather than two. The language volumes are unaffected. |
+| `--no-languages` | Leave `enhanced/localized` alone; pack only the shared content. |
 | `--force` | Re-encode even when a cached DDS is still valid. |
 | `--dry-run` | Say what would happen and write nothing. |
 | `--encode-only` | Encode into `build/` and stop before packing. |
@@ -188,6 +189,8 @@ so a later full run does not generate maps for it either.
 | models | `.glb`, stored | — | Already compact. |
 | scene-geometry | `.glb`, stored | — | Improved room objects. Same, and a kind of its own. |
 | video | `.mp4`, stored | — | Already a compressed video stream. |
+| movie-audio | `.m4a`, stored | — | One language's words over a shared picture. |
+| localized | stored or deflated by payload | — | A 1999 asset as one language spells it. |
 | manifests | `.json`, deflated | — | Text, and text deflates. The material library is one of these. |
 | raw: `*.splat.png` | `BC7_UNORM` | source | Four blend weights. Data, so **not** colour. |
 | raw: `*.tint.png` | `BC7_UNORM_SRGB` | source | The vista's colour. |
@@ -217,6 +220,21 @@ person's judgement lives — the roughness of every face, every pair of jeans, t
 roofline and the cat's coat are corrections, not classifications — so a library shipped
 alone is the classifier's first guess, which is the thing they exist to overrule. One
 glob covers both: `material-library*.json`.
+
+### Why a localised asset is a kind and not a raw entry
+
+Two kinds keep their extension in the key, and they are the only two: `audio`, because GK3
+puts a recording's sequence number where a type would go — `A0NQIB44.QR1` and `.QR2` are two
+different lines — and `localized`, because an entry there **is** a 1999 file name and the
+game asks for it by that whole name. A key that dropped the extension would make
+`ESTRINGS.TXT` and `ESTRINGS.SIF` the same entry, collide every French `.YAK` with the
+English recording of the same line, and let `27KASHAF.BMP` answer a question about
+`27KASHAF`'s enhanced texture.
+
+The volume is separate too: `Reborn_FR.rebarn`, opened by `LocalizedContent` and skipped by
+`RebarnContent`. The game reads exactly one language, an install may carry several, and
+merging them into the shared namespace would put the last one alphabetically in front of the
+archives for everybody. See [localization.md](../localization.md).
 
 ### Why improved room geometry is a kind and not a model
 

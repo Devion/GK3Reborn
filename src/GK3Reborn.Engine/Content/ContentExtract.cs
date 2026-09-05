@@ -151,6 +151,16 @@ public static class ContentExtract
 
     private static bool Matches(RebarnEntry entry, string wanted)
     {
+        // A localised asset's extension is part of its identity, exactly as an audio
+        // sequence number is: ESTRINGS.TXT and ESTRINGS.SIF would be one name without it,
+        // and a French bitmap would answer a question about a French model. It has no
+        // editable wrapper, so the match is simply exact.
+        if (entry.Kind == RebarnKind.Localized)
+        {
+            return Path.GetFileName(entry.Name).Equals(
+                Path.GetFileName(wanted), StringComparison.OrdinalIgnoreCase);
+        }
+
         if (entry.Kind != RebarnKind.Audio)
         {
             return Path.GetFileNameWithoutExtension(entry.Name).Equals(

@@ -46,6 +46,9 @@ public sealed class EnhancedTextures
     /// <summary>How many of the textures came from <c>overrides/</c>.</summary>
     public int OverriddenCount { get; private set; }
 
+    /// <summary>How many of them this language redoes.</summary>
+    public int LocalizedCount { get; private set; }
+
     /// <summary>Indexes a directory of enhanced textures.</summary>
     /// <param name="directory">Where they are.</param>
     /// <returns>The set, empty when the directory does not exist.</returns>
@@ -68,26 +71,47 @@ public sealed class EnhancedTextures
     /// thing an override has to do to be worth having.
     /// </remarks>
     public static EnhancedTextures Open(
-        string directory, ContentOverrides? overrides, RebarnKind kind = RebarnKind.Texture)
+        string directory, ContentOverrides? overrides, RebarnKind kind = RebarnKind.Texture) =>
+        Open(directory, overrides, kind, string.Empty);
+
+    /// <summary>
+    /// Indexes a directory of enhanced textures, with a language's own and the overrides
+    /// laid over it.
+    /// </summary>
+    /// <param name="directory">Where the shared set is. May be empty.</param>
+    /// <param name="overrides">Files dropped into <c>overrides/</c>, or null for none.</param>
+    /// <param name="kind">Which of the overrides' sets to take, colour by default.</param>
+    /// <param name="localizedDirectory">
+    /// The workspace's <c>enhanced/localtextures/&lt;CODE&gt;</c>, or empty for none. The
+    /// loose form of what the language pack holds, laid over the shared set for the same
+    /// reason the overrides are laid over both: there is one answer per name and this is
+    /// it.
+    /// </param>
+    /// <returns>The set, empty when none of them has anything.</returns>
+    /// <remarks>
+    /// <b>The pictures with words in them.</b> A road sign, a newspaper, a shop front, the
+    /// labels on Sidney's buttons — most of GK3's 6,657 textures carry no words at all and
+    /// are shared by every language, and the handful that do had to be repainted per
+    /// language in 1999 and have to be enhanced per language now. Every name in this set is
+    /// somebody having decided that this picture says something.
+    /// </remarks>
+    public static EnhancedTextures Open(
+        string directory,
+        ContentOverrides? overrides,
+        RebarnKind kind,
+        string localizedDirectory)
     {
         ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(localizedDirectory);
 
         var set = new EnhancedTextures(directory);
 
-        // Matched here rather than by a "*.png" search pattern, which is case-sensitive on
-        // Linux and would make R25WALLS.PNG invisible there while finding it on Windows and
-        // macOS. The game's own names are upper case throughout, so generated content
-        // carries that extension as often as not.
-        if (directory.Length > 0 && System.IO.Directory.Exists(directory))
-        {
-            foreach (string file in System.IO.Directory.EnumerateFiles(directory))
-            {
-                if (Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
-                {
-                    set._files[Path.GetFileNameWithoutExtension(file)] = file;
-                }
-            }
-        }
+        Index(directory, set._files);
+
+        // Over the shared set: a French sign where there is one, and the shared picture
+        // everywhere else. Counted, because a language whose set indexed nothing looks on
+        // screen exactly like one whose set indexed everything.
+        set.LocalizedCount = Index(localizedDirectory, set._files);
 
         if (overrides is not null)
         {
@@ -99,6 +123,34 @@ public sealed class EnhancedTextures
         }
 
         return set;
+    }
+
+    /// <summary>Indexes one directory's PNGs into a name table, and says how many.</summary>
+    /// <remarks>
+    /// Matched by extension here rather than by a <c>"*.png"</c> search pattern, which is
+    /// case-sensitive on Linux and would make <c>R25WALLS.PNG</c> invisible there while
+    /// finding it on Windows and macOS. The game's own names are upper case throughout, so
+    /// generated content carries that extension as often as not.
+    /// </remarks>
+    private static int Index(string directory, Dictionary<string, string> into)
+    {
+        if (directory.Length == 0 || !System.IO.Directory.Exists(directory))
+        {
+            return 0;
+        }
+
+        int found = 0;
+
+        foreach (string file in System.IO.Directory.EnumerateFiles(directory))
+        {
+            if (Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
+            {
+                into[Path.GetFileNameWithoutExtension(file)] = file;
+                found++;
+            }
+        }
+
+        return found;
     }
 
     /// <summary>Whether there is an enhanced version of a texture.</summary>

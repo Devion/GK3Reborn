@@ -60,7 +60,14 @@ public static class PackCommands
         // Beside the game by default, which is where the engine looks for them.
         output ??= Path.Combine(workspace, "build", "pack");
 
-        List<PackKind> plan = [.. ContentPackStage.DefaultPlan];
+        // The shared plan, then whichever languages have been extracted. Appended rather
+        // than merged into the default, because which languages exist is a fact about the
+        // workspace and not about this build — see ContentPackStage.LanguagePlan.
+        List<PackKind> plan =
+        [
+            .. ContentPackStage.DefaultPlan,
+            .. Has(args, "--no-languages") ? [] : ContentPackStage.LanguagePlan(workspace),
+        ];
 
         if (only is not null)
         {
@@ -119,9 +126,15 @@ public static class PackCommands
             }
         }
 
+        // One file for the shared content, for a machine that would rather have one. The
+        // languages keep their own volumes whatever this says: the game opens exactly one
+        // of them and reads the rest of the packs beside it, so folding French into Reborn
+        // would put French in front of every installation whether or not anybody asked.
         if (single)
         {
-            plan = [.. plan.Select(k => k with { Volume = "Reborn" })];
+            plan = [.. plan.Select(k => k.Volume.StartsWith("Reborn_", StringComparison.Ordinal)
+                ? k
+                : k with { Volume = "Reborn" })];
         }
 
         bool ok = new ContentPackStage(Console.WriteLine).Run(
@@ -362,11 +375,14 @@ public static class PackCommands
             """
 
             pack-content  --workspace <dir> [--output <dir>] [--kinds a,b] [--cap normals=1024]
-                          [--single-volume] [--force] [--dry-run] [--encode-only] [--no-gpu]
-                          [--no-size-plan] [--texconv <path>]
+                          [--single-volume] [--no-languages] [--force] [--dry-run]
+                          [--encode-only] [--no-gpu] [--no-size-plan] [--texconv <path>]
                 Encode the enhanced content to DDS and pack it into ReBarn volumes.
                 Uses manifests/pack-sizes.json when it is there, so each texture is
                 packed at the size its world area justifies rather than all at 2048.
+                Whatever extract-localized has left under enhanced/localized is packed
+                into Reborn_<CODE>.rebarn, one volume per language; --no-languages
+                leaves those alone.
 
             pack-plan     --workspace <dir> [--source <GK3 Data>] [--density N] [--floor N]
                 Work out that size for every texture and write the manifest. --source
@@ -377,7 +393,8 @@ public static class PackCommands
             pack-extract  --input <file|dir> --output <dir> [--kinds <kind>] [--name NAME]
             pack-verify   --input <file|dir>
 
-            kinds: textures normals orm height emissive models video manifests audio raw
+            kinds: textures normals orm height emissive models scene-geometry video
+                   movie-audio localized manifests audio raw
             """);
 
         return 2;

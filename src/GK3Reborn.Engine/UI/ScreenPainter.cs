@@ -151,6 +151,17 @@ public sealed class ScreenPainter
     /// <summary>Where it draws.</summary>
     public Overlay Overlay { get; private set; }
 
+    /// <summary>
+    /// What the game calls the player's things, in the player's own language.
+    /// </summary>
+    /// <remarks>
+    /// The same table <see cref="GameHud.Names"/> reads, for the same reason and set the
+    /// same way: the inventory screen and the strip along the top of the room name the same
+    /// objects, and two of them disagreeing about what a thing is called would be worse than
+    /// either name on its own.
+    /// </remarks>
+    public Game.GameStrings Names { get; set; } = Game.GameStrings.None;
+
     /// <summary>How much bigger than the letters everything else is.</summary>
     public float Scale => Math.Max(1f, Overlay.LineHeight / 19f);
 
@@ -310,10 +321,19 @@ public sealed class ScreenPainter
         return rule + (14 * unit);
     }
 
-    private static string Title(ScreenView view) => view.Screen.Kind switch
+    /// <summary>
+    /// What one of the player's things reads as.
+    /// </summary>
+    /// <remarks>
+    /// The game's own name for it where there is one, and the tidied identifier otherwise.
+    /// See <see cref="Game.GameStrings.Item"/>.
+    /// </remarks>
+    private string Owned(string item) => Names.Item(item) ?? Pretty(item);
+
+    private string Title(ScreenView view) => view.Screen.Kind switch
     {
         ScreenKind.Inventory => "CARRYING",
-        ScreenKind.InventoryInspect => Pretty(view.Screen.Subject ?? view.Held ?? "ITEM"),
+        ScreenKind.InventoryInspect => Owned(view.Screen.Subject ?? view.Held ?? "ITEM"),
         ScreenKind.Binoculars => "BINOCULARS",
         ScreenKind.Water => "THE HOSE",
         ScreenKind.Driving => "WHERE TO?",
@@ -374,7 +394,7 @@ public sealed class ScreenPainter
             }
 
             Overlay.Text(
-                Pretty(item),
+                Owned(item),
                 x + (10 * unit) + art,
                 y + ((rowHeight - Overlay.LineHeight) / 2),
                 held ? Accent : Ink);
@@ -864,7 +884,7 @@ public sealed class ScreenPainter
         float row = Overlay.LineHeight + (14 * unit);
 
         // The name, and the way out, in the corners they occupy on every other screen.
-        Overlay.Text(Pretty(subject), margin, margin, Accent);
+        Overlay.Text(Owned(subject), margin, margin, Accent);
 
         const string close = "CLOSE";
         float closeWidth = Overlay.Measure(close) + (20 * unit);

@@ -30,15 +30,28 @@ namespace GK3Reborn.Content;
 /// </remarks>
 public sealed class CompressedTextures
 {
+    /// <summary>
+    /// The path that means "this one comes from the language pack".
+    /// </summary>
+    /// <remarks>
+    /// The empty path already means "from the shared pack" and a real path means a loose
+    /// file, so a third source needs a third value. A NUL is the one character no file
+    /// system on any platform the game runs on allows in a name, which is what makes this
+    /// impossible to confuse with somebody's directory.
+    /// </remarks>
+    private const string FromLanguage = "\0language";
+
     private readonly Dictionary<string, string> _colour = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _normal = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _orm = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _height = new(StringComparer.OrdinalIgnoreCase);
 
     private RebarnContent? _packs;
+    private LocalizedContent? _localized;
 
     private int _fromPacks;
     private int _fromFiles;
+    private int _fromLanguage;
 
     private CompressedTextures(string directory) => Directory = directory;
 
@@ -62,6 +75,15 @@ public sealed class CompressedTextures
 
     /// <summary>How many reads this set has served out of a loose <c>.dds</c> file.</summary>
     public int FromFiles => Volatile.Read(ref _fromFiles);
+
+    /// <summary>How many reads this set has served out of the language's own pack.</summary>
+    /// <remarks>
+    /// Worth counting separately from the rest. A picture with words painted into it is the
+    /// one kind of texture whose being wrong is a bug rather than a preference, and a run
+    /// where the language pack answered nothing at all looks on screen exactly like a run
+    /// where it answered everything — until somebody reads a road sign.
+    /// </remarks>
+    public int FromLanguagePack => Volatile.Read(ref _fromLanguage);
 
     /// <summary>
     /// Where each set's entries come from, for a startup report.
@@ -94,11 +116,24 @@ public sealed class CompressedTextures
                 return null;
             }
 
+            int language = from.Count(
+                e => string.Equals(e.Value, FromLanguage, StringComparison.Ordinal));
             int packed = from.Count(e => e.Value.Length == 0);
+            int loose = from.Count - packed - language;
 
-            return packed == from.Count ? $"{from.Count} {what} packed"
-                : packed == 0 ? $"{from.Count} {what} loose"
-                : $"{from.Count} {what} ({packed} packed, {from.Count - packed} loose)";
+            // Named separately rather than lumped in with the pack, because "12 of these
+            // came from the French pack" is the line somebody checking a localised run is
+            // looking for, and it is the one number that says whether it worked.
+            IEnumerable<string> parts = new[]
+            {
+                packed > 0 ? $"{packed} packed" : null,
+                loose > 0 ? $"{loose} loose" : null,
+                language > 0 ? $"{language} localised" : null,
+            }.Where(p => p is not null)!;
+
+            return language == 0 && (packed == 0 || loose == 0)
+                ? $"{from.Count} {what} {(packed == from.Count ? "packed" : "loose")}"
+                : $"{from.Count} {what} ({string.Join(", ", parts)})";
         }
     }
 
@@ -141,11 +176,32 @@ public sealed class CompressedTextures
     /// and beat both, because they are the player saying which file they want.
     /// </remarks>
     public static CompressedTextures Open(
-        string directory, RebarnContent? packs, ContentOverrides? overrides)
+        string directory, RebarnContent? packs, ContentOverrides? overrides) =>
+        Open(directory, packs, overrides, null);
+
+    /// <summary>Indexes a build directory, the packs, the language and the overrides.</summary>
+    /// <param name="directory">The workspace's <c>build</c> directory. May be empty.</param>
+    /// <param name="packs">Packs beside the executable, or null for none.</param>
+    /// <param name="overrides">What the player dropped into <c>overrides/</c>, or null.</param>
+    /// <param name="localized">The language pack, or null when there is none.</param>
+    /// <returns>The set, empty when none of them has anything.</returns>
+    /// <remarks>
+    /// <b>The language goes above the loose build directory and below the overrides.</b>
+    /// It is the one layer here that is not an improvement on the layer under it: a
+    /// texture with French words painted into it is not a better <c>SIDBUTTON</c>, it is a
+    /// different one, and a stale <c>build/</c> DDS shadowing it would put English words on
+    /// a French screen with nothing to say why. The overrides still win, because they are
+    /// the player saying which file they want.
+    /// </remarks>
+    public static CompressedTextures Open(
+        string directory,
+        RebarnContent? packs,
+        ContentOverrides? overrides,
+        LocalizedContent? localized)
     {
         ArgumentNullException.ThrowIfNull(directory);
 
-        var set = new CompressedTextures(directory) { _packs = packs };
+        var set = new CompressedTextures(directory) { _packs = packs, _localized = localized };
 
         if (packs is not null)
         {
@@ -164,6 +220,15 @@ public sealed class CompressedTextures
             Index(Path.Combine(directory, "normals"), set._normal);
             Index(Path.Combine(directory, "orm"), set._orm);
             Index(Path.Combine(directory, "height"), set._height);
+        }
+
+        // Then the language, over both, for the reason given on Open above.
+        if (localized is not null)
+        {
+            IndexLanguage(localized, RebarnKind.Texture, set._colour);
+            IndexLanguage(localized, RebarnKind.Normal, set._normal);
+            IndexLanguage(localized, RebarnKind.Orm, set._orm);
+            IndexLanguage(localized, RebarnKind.Height, set._height);
         }
 
         // Last, because an override outranks both. It is indexed here as well as in the
@@ -197,6 +262,16 @@ public sealed class CompressedTextures
         foreach (string name in packs.Names(kind))
         {
             into[name] = string.Empty;
+        }
+    }
+
+    /// <summary>Registers the language pack's names under the marker that names it.</summary>
+    private static void IndexLanguage(
+        LocalizedContent localized, RebarnKind kind, Dictionary<string, string> into)
+    {
+        foreach (string name in localized.Names(kind))
+        {
+            into[name] = FromLanguage;
         }
     }
 
@@ -300,6 +375,15 @@ public sealed class CompressedTextures
         if (!from.TryGetValue(Path.GetFileNameWithoutExtension(name), out string? file))
         {
             return null;
+        }
+
+        // The language's own picture for this surface, where it has one. Named by a marker
+        // rather than by a path for the same reason the shared pack is: there is no file to
+        // read, only an entry in a mapping.
+        if (string.Equals(file, FromLanguage, StringComparison.Ordinal))
+        {
+            Interlocked.Increment(ref _fromLanguage);
+            return _localized?.ReadTexture(kind, name, diagnostics);
         }
 
         // An empty path is a name that only a pack holds. The pack hands back a window onto

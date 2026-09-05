@@ -17,12 +17,26 @@ namespace GK3Reborn.Tools.Stages;
 /// Which files in the source directory this kind claims, as a search pattern.
 /// </param>
 /// <param name="Recursive">Whether nested authoring lanes belong to the same kind.</param>
+/// <param name="Cache">
+/// Where encoded output is kept under <c>build/rebarn</c>, when it must not be the kind's
+/// own directory.
+/// </param>
 /// <remarks>
+/// <para>
 /// Every kind but one takes a directory of its own. <c>enhanced/trees</c> is the exception
 /// and has to be: a grown tree is geometry, the foliage it is painted with, and a manifest
 /// saying which is which, and the three are one thing that has to be produced, reviewed and
 /// shipped together. Splitting them into three directories to suit the packer would put a
 /// tree's parts three places apart for no reason a person would recognise.
+/// </para>
+/// <para>
+/// <b><see cref="Cache"/> exists because two sources can hold the same name.</b> A
+/// language's repainted <c>27KASHAF</c> and the shared one are both colour textures called
+/// <c>27KASHAF</c>, and the encoder keeps its output under the kind's name — so without
+/// this the French sign and the English one would be the same file in
+/// <c>build/rebarn/textures</c>, and which of them reached which pack would depend on
+/// which was encoded second.
+/// </para>
 /// </remarks>
 public sealed record PackKind(
     RebarnKind Kind,
@@ -32,7 +46,8 @@ public sealed record PackKind(
     int Cap,
     string Volume,
     string Files = "*",
-    bool Recursive = false);
+    bool Recursive = false,
+    string? Cache = null);
 
 /// <summary>
 /// Encodes the enhanced content to DDS and packs it into ReBarn volumes.
@@ -181,6 +196,94 @@ public sealed class ContentPackStage
         new(RebarnKind.Manifest, "manifests", null, false, 0, "RebornMaterials",
             "material-library*.json"),
     ];
+
+    /// <summary>
+    /// The per-language volumes, worked out from what is in the workspace.
+    /// </summary>
+    /// <param name="workspace">The content workspace root.</param>
+    /// <returns>
+    /// One set of kinds per language that has anything, all packed into
+    /// <c>Reborn_&lt;CODE&gt;.rebarn</c>. Empty when no language has been extracted.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Discovered rather than declared.</b> Which languages a build ships is a fact about
+    /// what <c>extract-localized</c> has been run over, and it changes when somebody sources
+    /// another release. Writing them into <see cref="DefaultPlan"/> would make adding German
+    /// a code change, when the whole point of the arrangement is that it is not one.
+    /// </para>
+    /// <para>
+    /// <b>Each language is a volume of its own</b>, because the game opens exactly one of
+    /// them — the one the player chose — and a shipped install may carry several. Merging
+    /// them would mean opening four hundred megabytes of French to read English.
+    /// </para>
+    /// <para>
+    /// The colour textures come from <c>enhanced/localtextures/&lt;CODE&gt;</c> rather than
+    /// from the language's own directory, because they are a different kind of work: the
+    /// assets under <c>enhanced/localized</c> are the 1999 files as that release shipped
+    /// them, and these are new pictures somebody made. They are also the only kind here
+    /// that goes through the encoder, which is why they need a cache of their own — see
+    /// <see cref="PackKind.Cache"/>.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<PackKind> LanguagePlan(string workspace)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspace);
+
+        List<PackKind> plan = [];
+
+        foreach (GK3Reborn.Content.GameLanguage language in GK3Reborn.Content.GameLanguage.Known)
+        {
+            string code = language.FileCode;
+            string root = $"enhanced/localized/{code}";
+            string volume = $"Reborn_{code}";
+
+            bool assets = Directory.Exists(Path.Combine(
+                workspace, "enhanced", "localized", code,
+                RebarnFormat.DirectoryOf(RebarnKind.Localized)));
+
+            bool textures = Directory.Exists(
+                Path.Combine(workspace, "enhanced", "localtextures", code));
+
+            if (!assets && !textures)
+            {
+                continue;
+            }
+
+            // The 1999 assets, verbatim and keyed by their whole name. Nothing here is
+            // re-encoded: a French bitmap in the pack has to be the French bitmap the
+            // French disc holds, byte for byte, because the game reads it through the same
+            // door it reads an archive's.
+            plan.Add(new(RebarnKind.Localized, $"{root}/localized", null, false, 0, volume));
+
+            // The movies this language re-cut, and the soundtracks for the ones it shares.
+            plan.Add(new(
+                RebarnKind.Video,
+                $"{root}/{RebarnFormat.DirectoryOf(RebarnKind.Video)}",
+                null, false, 0, volume));
+
+            plan.Add(new(
+                RebarnKind.MovieAudio,
+                $"{root}/{RebarnFormat.DirectoryOf(RebarnKind.MovieAudio)}",
+                null, false, 0, volume));
+
+            // And the manifest that says which language the pack is for, which is what
+            // LocalizedContent.Open reads to decide whether to believe the file name.
+            plan.Add(new(
+                RebarnKind.Manifest, $"{root}/manifests", null, false, 0, volume, "*.json"));
+
+            plan.Add(new(
+                RebarnKind.Texture,
+                $"enhanced/localtextures/{code}",
+                "BC7_UNORM_SRGB",
+                true,
+                0,
+                volume,
+                Cache: $"localtextures/{code}"));
+        }
+
+        return plan;
+    }
 
     /// <summary>Encodes and packs.</summary>
     /// <param name="workspace">The content workspace root.</param>
@@ -420,11 +523,22 @@ public sealed class ContentPackStage
         Dictionary<string, PackedTexture> sizes)
     {
         string cache = Path.Combine(
-            workspace, "build", "rebarn", RebarnFormat.DirectoryOf(kind.Kind));
+            workspace,
+            "build",
+            "rebarn",
+            (kind.Cache ?? RebarnFormat.DirectoryOf(kind.Kind))
+                .Replace('/', Path.DirectorySeparatorChar));
 
         // Earlier compression runs left DDS in build/textures, build/normals and
         // build/emissive. Adopting one costs a header read and saves an hour of BC7.
-        string legacy = Path.Combine(workspace, "build", RebarnFormat.DirectoryOf(kind.Kind));
+        //
+        // Only for a kind that keeps its output under its own name. A source with a cache
+        // of its own has one because its names collide with the shared set's, and adopting
+        // from there would put the shared picture in the language's pack — which is the
+        // exact mistake the separate cache exists to prevent.
+        string legacy = kind.Cache is null
+            ? Path.Combine(workspace, "build", RebarnFormat.DirectoryOf(kind.Kind))
+            : string.Empty;
 
         var jobs = new Dictionary<(int Width, int Height, bool Alpha), List<string>>();
         var result = new List<Packable>();
@@ -501,9 +615,9 @@ public sealed class ContentPackStage
             // texture keeps its size, so a stale DDS beside it looks adoptable and packs
             // the picture that was there this morning. `enhanced/*.png` beats `build/*.dds`
             // everywhere else in this project for exactly that reason.
-            string legacyDds = Path.Combine(legacy, wanted);
+            string legacyDds = legacy.Length == 0 ? string.Empty : Path.Combine(legacy, wanted);
 
-            if (!force && Fresh(legacyDds, png, width, height))
+            if (!force && legacyDds.Length > 0 && Fresh(legacyDds, png, width, height))
             {
                 result.Add(new Packable(kind.Kind, wanted, legacyDds));
                 continue;

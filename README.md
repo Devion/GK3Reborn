@@ -122,6 +122,27 @@ re-running `pack-content` catches the pack up. Only what changed is re-encoded. 
 [docs/formats/rebarn.md](docs/formats/rebarn.md) for the container, the format
 chosen for each channel and why there are no texture atlases.
 
+### Languages
+
+GK3 was published in eight, and Sierra localised it by re-cutting every archive: a
+French disc is a whole second copy of the game in which about fifteen thousand of the
+forty thousand assets happen to differ, and nothing says which. `extract-localized`
+works that out once by comparing the releases, and `pack-content` writes the difference
+as one extra file per language. English, French, German, Italian, Spanish and Portuguese
+are built: 1.3 GB between the six, against 1.2 GB for one release.
+
+Reading one in front of the installation turns any installation into any language: an
+English install plays in French, a French install plays in English. The player chooses in
+**Settings → Playing → Language**, or with `--language fr` for one run; the game starts in
+English and needs no pack to do it.
+
+A cutscene ships its picture once and its soundtrack per language, and which of those a
+release needs is decided by hashing the decoded picture and the decoded sound rather than
+by comparing durations — that is how the French intro's repainted captions and Spanish's
+undubbed soundtracks are both caught. Adding a language is sourcing a release and running
+two commands; it is not a code change. See
+[docs/localization.md](docs/localization.md).
+
 ### Overriding what shipped
 
 A directory called `overrides/` beside the executable stands in front of everything:

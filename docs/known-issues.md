@@ -4,6 +4,79 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. Every caption in the game lost the space after its commas (done 2026-09-05)
+
+`AnimationFile.Rest` puts a caption back together after the reader has split it on commas
+and trimmed each field, and it was rejoining on a bare comma. So `Perfekt, Kleiner.` came out
+as `Perfekt,Kleiner.` — in every caption in the game that contains one, the room's 7,380 as
+well as the films' 232.
+
+Invisible for the usual reason: a room's caption is on screen for two seconds under a
+speaking character, and a missing space there reads as a typeface quirk rather than as a bug.
+It became obvious the moment the cutscene subtitles started drawing the same text across the
+bottom of a full-screen film.
+
+Rejoined with a comma and a space. The original spacing is gone by then — the reader trims —
+and a caption is prose, so a comma in one is followed by a space.
+
+## 0. Six German cutscenes have no shared picture to put a soundtrack over (feature)
+
+`extract-localized` compares each language's cutscene against the release the shared
+pictures were imported from, and produces a soundtrack when only the words differ or a whole
+movie when the picture does. It needs both halves: the language's own `.bik`, and an
+imported MP4 of the shared cut to lay a soundtrack over.
+
+Six of German's have the first and not the second — `DAY1-1`, `DAY1-2`, `DAY2-3`, `DAY2-4`,
+`DAY3-C`, `DAY3-D`. The German release carries all six; `enhanced/video` does not, because
+`import-video` has not been run over a source that has them. They play in a German game with
+the shared soundtrack, which is English.
+
+Nothing is broken and nothing says so on screen — a cutscene in the wrong language looks
+exactly like one in the right language — so it is reported as `GK3R2307` at extraction time
+and listed as `unmatched` in `reports/localization.md`.
+
+**Running `import-video --source <GK3>/Data` first fixes it with no code change**: the
+installation has all six. See [localization.md](localization.md).
+
+## 0. The port's own interface text is not localised (feature)
+
+GK3's own strings are: the string table, Sidney's documents, the screen layouts, the 293
+names of the things the player carries, every recorded line and every bitmap with a word
+painted on it. A French game reads "Chambre de Gabriel - Jour 1, 10.00 - 12.00" in the corner
+and calls the binoculars "Jumelles".
+
+What is still English in every language is everything the port added and the 1999 game never
+had, plus the two families GK3 itself never named:
+
+- **the verbs and the nouns.** `BATHROOM_DOOR` and `LOOK` under the cursor. There is no table
+  for these anywhere in the data — the original drew verbs as icons and never named the thing
+  being pointed at — so there is nothing to extract and they have to be written.
+- **the toolbar's own labels**, "Pockets" and "Journal".
+- **the settings screen**, every row and every value.
+- **the journal**: 142 objectives and their hints, in `Assets/Story/Quests.txt` and
+  `Walkthrough.txt`.
+
+That is translation rather than extraction, and it wants a different shape: a per-language
+JSON of the port's own strings, packed into that language's volume as a manifest entry and
+read in front of the literals. The mechanism is a small piece of work; the words are not.
+
+## 0. A release differs from the English in assets that are not text (feature)
+
+Beside the dialogue, the bitmaps and the string table, the French release carries its own
+copy of 54 `.ANM` files, three `.MOD`, one `.MUL`, one `.ACT` and one `.NVC`. Most of the
+animations are plainly retimings to the new recordings — `GABPROPFWD`, `ROXHAL21PLHA` and
+its siblings — but `JEA.MOD`, `KITCAMERABOUNDS3.MOD`, `LERCAMBNDS.MOD` and `RC4_B_M.MUL`
+are a model, two camera-bound shells and a lightmap, which are not translations of anything.
+
+German does the same, and Spanish does not: Spanish changes 8,150 assets where German
+changes 14,679, because Spanish never re-recorded a line.
+
+They are packed, because they are what the disc holds and a French game should be the French
+game. But it is worth knowing they are there: a French run and an English run of the
+same room are not drawing quite the same geometry, and if a defect ever reproduces in one
+language and not the other, this list is the first place to look. `reports/localization.md`
+names them.
+
 ## 0. Gabriel vanished for the length of an animation, and TE4's fire was not lit (done 2026-09-05)
 
 **Reported** as "in the Temple room with the mirrors Gabriel sometimes doesn't appear during

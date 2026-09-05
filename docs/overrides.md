@@ -39,9 +39,16 @@ of them:
 | Layer | Beaten by |
 | --- | --- |
 | `Reborn.rebarn`, `RebornMaterials.rebarn`, a patch pack | any override |
+| `Reborn_<CODE>.rebarn`, the chosen language | any override |
 | a loose `build/*.dds` | a `.dds` override |
 | `ContentWorkspace/enhanced/**.png` | a `.png` or `.bmp` override |
 | `*.brn` | an override with the asset's own file name |
+
+The language is in that list for the same reason as everything else: a file a player put
+here is theirs and stays theirs whatever language the game is in. It is also the reason an
+override is matched by its whole file name — `FSTRINGS.TXT` and `ESTRINGS.TXT` are two
+different files and dropping one must not answer for the other. See
+[localization.md](localization.md).
 
 It is also not gated on anything else. `--rebarn` takes the loose enhanced sets out of the
 way so a measurement measures the shipped form, and turning higher-resolution textures off
@@ -64,7 +71,8 @@ asset of the 1999 game and goes in front of the archives under its own file name
 **A directory says which kind.** The last path segment naming one decides:
 
 ```
-textures  normals  orm  height  emissive  models  scene-geometry  video  audio  manifests  raw
+textures  normals  orm  height  emissive  models  scene-geometry  video  movie-audio
+localized  audio  manifests  raw
 ```
 
 which is exactly how `ContentWorkspace/enhanced` is laid out and exactly what `--extract`

@@ -171,13 +171,19 @@ public sealed class DisplaySettingsTests
         // refused, a setting that waits for the next door or the next start.
         // Picture carries the upscaling rows now, so it is allowed the two lines those
         // rows were allowed on a page of their own: which file is missing, and why a row
-        // is dead. Everything else is unchanged.
+        // is dead.
+        //
+        // Playing earns its one line the same way Sound earns its one: the language row
+        // takes effect at the next start, and a player who changes it and hears the same
+        // voices would reasonably conclude the row is broken. On an installation with only
+        // English the same line says why the row will not step, which is the other thing
+        // the player cannot see for themselves.
         (FrontEndPage Page, int Most)[] pages =
         [
             (FrontEndPage.Video, 3),
             (FrontEndPage.Display, 0),
             (FrontEndPage.Audio, 1),
-            (FrontEndPage.Gameplay, 0),
+            (FrontEndPage.Gameplay, 1),
             (FrontEndPage.Controls, 1),
         ];
 

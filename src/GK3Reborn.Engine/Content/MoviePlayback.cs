@@ -52,6 +52,21 @@ public sealed class Movie : IDisposable
     private readonly Mp4File _file;
     private readonly Stream _stream;
     private readonly Mp4Track _video;
+
+    /// <summary>
+    /// Where the sound is read from: the movie itself, or the language's own track.
+    /// </summary>
+    /// <remarks>
+    /// Two fields rather than a reader that knows about languages, because the difference
+    /// is one file handle. Thirteen of GK3's sixteen spoken movies are the same footage in
+    /// every language, so a French game plays the shared picture with a French soundtrack
+    /// beside it; where the two are the same file these hold the same objects and every
+    /// path below is the path it always was. See <see cref="VideoLibrary.OpenSound"/>.
+    /// </remarks>
+    private readonly Mp4File _soundFile;
+    private readonly Stream _soundStream;
+    private readonly bool _ownsSound;
+    private readonly byte[]? _soundWave;
     private readonly Mp4Track? _audio;
     private readonly H264Decoder _decoder;
     private readonly Queue<(double Seconds, byte[] Rgba)> _ready = new();
@@ -62,11 +77,24 @@ public sealed class Movie : IDisposable
     private bool _finished;
     private Exception? _failure;
 
-    private Movie(Mp4File file, Stream stream, Mp4Track video, Mp4Track? audio, H264Decoder decoder, string name)
+    private Movie(
+        Mp4File file,
+        Stream stream,
+        Mp4Track video,
+        Mp4File? soundFile,
+        Stream? soundStream,
+        byte[]? soundWave,
+        Mp4Track? audio,
+        H264Decoder decoder,
+        string name)
     {
         _file = file;
         _stream = stream;
         _video = video;
+        _ownsSound = soundStream is not null;
+        _soundFile = soundFile ?? file;
+        _soundStream = soundStream ?? stream;
+        _soundWave = soundWave;
         _audio = audio;
         _decoder = decoder;
         Name = name;
@@ -100,7 +128,15 @@ public sealed class Movie : IDisposable
     public double FrameRate { get; }
 
     /// <summary>Whether it carries sound.</summary>
-    public bool HasAudio => _audio is not null;
+    public bool HasAudio => _audio is not null || _soundWave is not null;
+
+    /// <summary>Whether the sound came from somewhere other than the movie.</summary>
+    /// <remarks>
+    /// True when a language pack supplied the soundtrack for a shared picture. Reported in
+    /// the log because it is otherwise invisible: a movie playing in the wrong language
+    /// looks exactly like a movie playing in the right one until somebody listens.
+    /// </remarks>
+    public bool SoundIsSeparate => _ownsSound;
 
     /// <summary>
     /// Opens a movie.
@@ -138,13 +174,47 @@ public sealed class Movie : IDisposable
                 throw new FormatParseException("no H.264 video track");
             }
 
-            Mp4Track? audio = file.Tracks.Find(t => t.Kind == Mp4TrackKind.Audio && t.Codec == "mp4a" && t.AudioSpecificConfig.Length > 0);
+            // The language's own soundtrack, where the picture is the shared cut and the
+            // words are not. Asked for after the picture is known to be shared, because a
+            // movie the language re-cut carries its own sound already and laying a second
+            // track over it would play the same words twice.
+            Stream? separate = videos.IsLocalized(name) ? null : videos.OpenSound(name);
+            Mp4File? soundFile = null;
+            byte[]? soundWave = null;
+            Mp4Track? audio = null;
 
-            if (audio is not null && !AacDecoder.TryParseConfig(audio.AudioSpecificConfig, out _, out _, out _))
+            if (separate is not null)
             {
-                audio = null;
+                try
+                {
+                    (soundFile, soundWave, audio) = Soundtrack(separate, name);
+                }
+                catch (Exception error) when (error is FormatParseException or NotSupportedException or IOException or InvalidDataException)
+                {
+                    // The movie's own track is the fallback, so a language whose soundtrack
+                    // will not open loses the words rather than the scene.
+                    separate.Dispose();
+                    separate = null;
+                    soundFile = null;
+                    soundWave = null;
+
+                    diagnostics?.Add(new Diagnostic(
+                        "GK3R1163", DiagnosticSeverity.Warning,
+                        "A localised soundtrack would not open, so the movie's own is played.",
+                        videos.SoundSource(name) ?? name, null,
+                        "an MP4, M4A or WAV the engine can decode", error.Message,
+                        "Produce it again with `extract-localized --video`."));
+                }
             }
-            else if (audio is not null && audio.Samples.Count == 0)
+
+            if (separate is null)
+            {
+                audio = file.Tracks.Find(t => t.Kind == Mp4TrackKind.Audio && t.Codec == "mp4a" && t.AudioSpecificConfig.Length > 0);
+            }
+
+            if (soundWave is null && audio is not null &&
+                (!AacDecoder.TryParseConfig(audio.AudioSpecificConfig, out _, out _, out _) ||
+                 audio.Samples.Count == 0))
             {
                 audio = null;
             }
@@ -157,7 +227,8 @@ public sealed class Movie : IDisposable
                 throw new FormatParseException("the video track's parameter sets do not describe a picture");
             }
 
-            return new Movie(file, stream, video, audio, decoder, name);
+            return new Movie(
+                file, stream, video, soundFile, separate, soundWave, audio, decoder, name);
         }
         catch (Exception error) when (error is FormatParseException or NotSupportedException or IOException or InvalidDataException)
         {
@@ -172,6 +243,49 @@ public sealed class Movie : IDisposable
 
             return null;
         }
+    }
+
+    /// <summary>
+    /// Opens a soundtrack that arrived beside a movie rather than inside it.
+    /// </summary>
+    /// <param name="stream">The soundtrack, positioned at its start.</param>
+    /// <param name="name">The movie's name, for diagnostics.</param>
+    /// <returns>
+    /// The container and its audio track, or the raw bytes when it is a RIFF WAVE.
+    /// </returns>
+    /// <remarks>
+    /// Two forms, decided from the bytes rather than the extension. The import writes an
+    /// <c>.m4a</c> — the AAC track copied out of the localised movie without re-encoding —
+    /// which is an MP4 with no video in it and reads exactly like one. A RIFF WAVE is the
+    /// other thing somebody may reasonably produce by hand, and
+    /// <see cref="WavFile"/> already decodes every form GK3 itself uses.
+    /// </remarks>
+    private static (Mp4File? File, byte[]? Wave, Mp4Track? Audio) Soundtrack(
+        Stream stream, string name)
+    {
+        Span<byte> magic = stackalloc byte[4];
+        stream.ReadExactly(magic);
+        stream.Position = 0;
+
+        if (magic is [(byte)'R', (byte)'I', (byte)'F', (byte)'F'])
+        {
+            var bytes = new byte[stream.Length];
+            stream.ReadExactly(bytes);
+
+            return (null, bytes, null);
+        }
+
+        var container = Mp4File.Open(stream, name);
+        Mp4Track? track = container.Tracks.Find(
+            t => t.Kind == Mp4TrackKind.Audio && t.Codec == "mp4a" && t.AudioSpecificConfig.Length > 0);
+
+        if (track is null || track.Samples.Count == 0 ||
+            !AacDecoder.TryParseConfig(track.AudioSpecificConfig, out _, out _, out _))
+        {
+            throw new FormatParseException("no AAC audio track");
+        }
+
+        return (container, null, track);
     }
 
     /// <summary>Reads the frame that should be on screen at a moment.</summary>
@@ -239,6 +353,12 @@ public sealed class Movie : IDisposable
     /// </remarks>
     public WavFile? ReadSound()
     {
+        // A soundtrack somebody supplied as a RIFF WAVE is already what this returns.
+        if (_soundWave is not null)
+        {
+            return WavFile.Read(_soundWave, Name, new DiagnosticBag());
+        }
+
         if (_audio is null)
         {
             return null;
@@ -262,9 +382,13 @@ public sealed class Movie : IDisposable
                     buffer = new byte[Math.Max(sample.Size, buffer.Length * 2)];
                 }
 
-                lock (_stream)
+                // The sound's own stream, which is the movie's unless a language supplied a
+                // separate track. Locked because the picture is being decoded on another
+                // thread out of the movie's stream, and when the two are the same file a
+                // seek from either would land the other somewhere it did not ask for.
+                lock (_soundStream)
                 {
-                    _file.Read(sample, buffer);
+                    _soundFile.Read(sample, buffer);
                 }
 
                 int count;
@@ -309,10 +433,16 @@ public sealed class Movie : IDisposable
     public string Describe()
     {
         string sound = ", silent";
+        string where = _ownsSound ? " (localised)" : string.Empty;
 
-        if (_audio is not null && AacDecoder.TryParseConfig(_audio.AudioSpecificConfig, out int rate, out int channels, out _))
+        if (_soundWave is not null)
         {
-            sound = string.Create(CultureInfo.InvariantCulture, $", sound {rate} Hz {channels} ch");
+            sound = $", sound from a WAVE{where}";
+        }
+        else if (_audio is not null && AacDecoder.TryParseConfig(_audio.AudioSpecificConfig, out int rate, out int channels, out _))
+        {
+            sound = string.Create(
+                CultureInfo.InvariantCulture, $", sound {rate} Hz {channels} ch{where}");
         }
 
         return string.Create(
@@ -351,6 +481,15 @@ public sealed class Movie : IDisposable
 
         _file.Dispose();
         _stream.Dispose();
+
+        // Only when it is a second file. Where the sound is the movie's own these are the
+        // objects just disposed, and disposing them again is at best wasted work.
+        if (_ownsSound)
+        {
+            _soundFile.Dispose();
+            _soundStream.Dispose();
+        }
+
         _stop.Dispose();
     }
 

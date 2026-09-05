@@ -284,11 +284,17 @@ public sealed class DrivingMap
     private static string FlagFor(DrivingStop stop) => $"MapKnows:{stop.Sprite}";
 
     /// <summary>The places' names, from the game's own string table.</summary>
+    /// <remarks>
+    /// Whichever table the language reads — <c>FSTRINGS.TXT</c> in French — because these
+    /// are the labels drawn on the map and reading the English one would put "Château de
+    /// Blanchefort" on a French map in English. <see cref="GameStrings.Open"/> owns the
+    /// choice of file; this asks it rather than repeating the rule.
+    /// </remarks>
     private static Dictionary<string, string> Names(GameArchives archives)
     {
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        if (archives.ReadText("ESTRINGS.TXT") is not { } text)
+        if (archives.ReadText(GameStrings.TableFor(archives)) is not { } text)
         {
             return names;
         }

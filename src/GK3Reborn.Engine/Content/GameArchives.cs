@@ -1,4 +1,4 @@
-﻿using System.Text;
+﻿using GK3Reborn.Foundation;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
 
@@ -36,6 +36,29 @@ public sealed class GameArchives : IDisposable
     /// about would be the one nobody could work out why they could not replace.
     /// </remarks>
     public ContentOverrides? Overrides { get; set; }
+
+    /// <summary>
+    /// The language the game is being read in, when it is not the installation's own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Set here for the same reason <see cref="Overrides"/> is: this is the one door every
+    /// 1999 asset comes through, and localisation touches nearly every family of them —
+    /// the string table, the fonts, Sidney's documents, the bitmaps with words painted into
+    /// them, every line of recorded dialogue and every <c>.YAK</c> that lip-syncs one. A
+    /// layer each of those callers had to remember to consult is a layer that would be
+    /// French everywhere except the one place somebody forgot.
+    /// </para>
+    /// <para>
+    /// <b>Under the overrides and over the archives.</b> A file a player put in
+    /// <c>overrides/</c> is theirs and stays theirs whatever language the game is in;
+    /// everything the language pack does not hold falls through to the installation, which
+    /// is what makes an incomplete pack harmless. Null when the player is reading the game
+    /// in whatever language they installed, and null all the way down — see
+    /// <see cref="LocalizedContent"/>.
+    /// </para>
+    /// </remarks>
+    public LocalizedContent? Localization { get; set; }
 
     /// <summary>
     /// Content the game shipped with and cannot reach, put back on the way past.
@@ -130,6 +153,23 @@ public sealed class GameArchives : IDisposable
             }
         }
 
+        // Then the language, in the order it is read. Its names are mostly the archives'
+        // own, so this adds few — but the ones it does add are the ones that matter:
+        // FSTRINGS.TXT and seven thousand F-prefixed YAKs exist in no English archive, and
+        // a listing without them would say French had no dialogue at all.
+        foreach (string name in Localization?.ArchiveNames ?? [])
+        {
+            if (suffix is not null && !name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (seen.Add(name))
+            {
+                names.Add(name);
+            }
+        }
+
         foreach (BarnArchive archive in _archives)
         {
             foreach (BarnEntry entry in archive.Entries)
@@ -182,6 +222,15 @@ public sealed class GameArchives : IDisposable
             return replaced;
         }
 
+        // Before the archives and before the restoration table, because an entry here is
+        // not an improvement on what the archive holds — it is what the archive would hold
+        // if the disc had been pressed in this language. The restoration edits GK3's own
+        // English text and would be editing the wrong language's bytes here.
+        if (Localization?.Read(name) is { } localised)
+        {
+            return localised;
+        }
+
         foreach (BarnArchive archive in _archives)
         {
             BarnEntry? entry = archive.Find(name);
@@ -209,7 +258,7 @@ public sealed class GameArchives : IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (Overrides?.HasArchive(name) == true)
+        if (Overrides?.HasArchive(name) == true || Localization?.HasArchive(name) == true)
         {
             return true;
         }
@@ -229,14 +278,25 @@ public sealed class GameArchives : IDisposable
     /// <param name="name">Asset name, with extension.</param>
     /// <returns>Its text, or null if no archive holds it.</returns>
     /// <remarks>
-    /// The text assets are Windows-1252 rather than UTF-8: they were authored in 1999 and
-    /// contain accented characters in French names. Decoding them as UTF-8 corrupts those
-    /// and can throw on otherwise valid files.
+    /// <para>
+    /// The text assets are one byte a character rather than UTF-8: they were authored in
+    /// 1999 and contain accented characters in French names. Decoding them as UTF-8
+    /// corrupts those and can throw on otherwise valid files.
+    /// </para>
+    /// <para>
+    /// <b>Which code page depends on the language being read.</b> Nothing in the file says
+    /// — no mark, no header, only bytes — so the only thing that can know is whoever chose
+    /// the language, which is why this asks <see cref="Localization"/> and falls back to
+    /// Windows-1252 when no language pack is open. See <see cref="Gk3Encoding"/>.
+    /// </para>
     /// </remarks>
     public string? ReadText(string name)
     {
         byte[]? bytes = Read(name);
-        return bytes is null ? null : Encoding.Latin1.GetString(bytes);
+
+        return bytes is null
+            ? null
+            : Gk3Encoding.GetString(bytes, Localization?.Language.CodePage ?? 1252);
     }
 
     /// <inheritdoc/>

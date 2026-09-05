@@ -55,6 +55,38 @@ public enum RebarnKind : byte
     /// </remarks>
     SceneGeometry = 10,
 
+    /// <summary>
+    /// An asset of the 1999 game as one language spells it, addressed by its whole name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The extension is part of the key, as it is for <see cref="Audio"/> and for nothing
+    /// else. It has to be: a localised set holds <c>F014ED3S6J1.YAK</c> beside
+    /// <c>A014ED3S.6J1</c> beside <c>27KASHAF.BMP</c>, and a key that dropped the extension
+    /// would make the first two collide with the English recordings of the same lines and
+    /// the third with its own enhanced <see cref="Texture"/>.
+    /// </para>
+    /// <para>
+    /// It is read in front of the game's own archives rather than in front of the packs,
+    /// because that is what it stands in for: an entry here is the French bitmap the French
+    /// disc holds, not an improvement on anything. See <c>docs/localization.md</c>.
+    /// </para>
+    /// </remarks>
+    Localized = 11,
+
+    /// <summary>
+    /// One language's soundtrack for a movie whose picture every language shares.
+    /// </summary>
+    /// <remarks>
+    /// Addressed by the movie's name without an extension, the way
+    /// <see cref="Content.VideoLibrary"/> addresses the picture. Separate from
+    /// <see cref="Video"/> because the two are chosen independently: thirteen of GK3's
+    /// sixteen spoken movies are the same footage in every language and differ only in what
+    /// is said over them, and shipping a whole second copy of the picture to change the
+    /// words would cost a hundred megabytes a language for nothing.
+    /// </remarks>
+    MovieAudio = 12,
+
     /// <summary>Anything else, addressed by name alone.</summary>
     Raw = 255,
 }
@@ -184,10 +216,12 @@ public static class RebarnFormat
     /// <param name="name">The name, with or without an extension or a directory.</param>
     /// <returns>The canonical key.</returns>
     /// <remarks>
-    /// Uppercase, no extension and no directory for ordinary ReBarn content. Audio is the
-    /// exception: GK3 stores a dialogue sequence in the extension position, so
-    /// <c>A0NQIB44.QR1</c> and <c>A0NQIB44.QR2</c> are different recordings and the suffix
-    /// must remain part of the key.
+    /// Uppercase, no extension and no directory for ordinary ReBarn content. Two kinds are
+    /// the exception. <see cref="RebarnKind.Audio"/> keeps its extension because GK3 stores
+    /// a dialogue sequence there, so <c>A0NQIB44.QR1</c> and <c>A0NQIB44.QR2</c> are
+    /// different recordings; <see cref="RebarnKind.Localized"/> keeps its because an entry
+    /// there <em>is</em> a 1999 file name and the game asks for it by that whole name —
+    /// <c>ESTRINGS.TXT</c>, <c>F014ED3S6J1.YAK</c>, <c>27KASHAF.BMP</c>.
     /// </remarks>
     public static string Key(RebarnKind kind, string name)
     {
@@ -202,7 +236,7 @@ public static class RebarnFormat
         }
 
         int dot = span.LastIndexOf('.');
-        if (kind != RebarnKind.Audio && dot > 0)
+        if (kind is not (RebarnKind.Audio or RebarnKind.Localized) && dot > 0)
         {
             span = span[..dot];
         }
@@ -288,6 +322,8 @@ public static class RebarnFormat
         RebarnKind.Model => "models",
         RebarnKind.SceneGeometry => "scene-geometry",
         RebarnKind.Video => "video",
+        RebarnKind.MovieAudio => "movie-audio",
+        RebarnKind.Localized => "localized",
         RebarnKind.Manifest => "manifests",
         RebarnKind.Audio => "audio",
         _ => "raw",
@@ -310,6 +346,8 @@ public static class RebarnFormat
             "MODELS" or "MODEL" => RebarnKind.Model,
             "SCENE-GEOMETRY" or "SCENES" => RebarnKind.SceneGeometry,
             "VIDEO" or "VIDEOS" => RebarnKind.Video,
+            "MOVIE-AUDIO" or "MOVIEAUDIO" => RebarnKind.MovieAudio,
+            "LOCALIZED" or "LOCALISED" => RebarnKind.Localized,
             "MANIFESTS" or "MANIFEST" => RebarnKind.Manifest,
             "AUDIO" => RebarnKind.Audio,
             "RAW" => RebarnKind.Raw,

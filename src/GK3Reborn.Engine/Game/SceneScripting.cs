@@ -1090,10 +1090,18 @@ public static class SceneScripting
         });
 
         // A momentary animation: a shrug, a glance up, a hand to the chin. The name is
-        // localised — the asset is "E" and the name, in the mom directory — and the game
-        // waits on it. 37 calls.
+        // localised — the asset is the language's letter and the name, in the mom directory
+        // — and the game waits on it. 37 calls.
+        //
+        // The letter comes from the animation library rather than being written here,
+        // because it is the same letter that finds a line of dialogue's .YAK and a rule
+        // spelled out in two places is a rule that will one day be French in one of them.
         api.Register("StartMom", a => SheepValue.FromInt(
-            a.Count > 0 ? (int)(world.Play("E" + a[0].AsString()) * 1000) : 0), waitable: true);
+            a.Count > 0
+                ? (int)(world.Play(
+                    (world.Animations?.Language ?? 'E') + a[0].AsString()) * 1000)
+                : 0),
+            waitable: true);
 
         // How far somebody is from a named spot, which the background scripts poll
         // constantly and were being told "not near" about every time. The answer decides

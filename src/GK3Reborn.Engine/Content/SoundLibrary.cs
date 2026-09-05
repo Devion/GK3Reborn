@@ -64,6 +64,22 @@ public sealed class SoundLibrary
         return archives;
     }
 
+    /// <summary>
+    /// Overrides, then the language, then the restored masters, then the archives.
+    /// </summary>
+    /// <remarks>
+    /// <b>The language sits above the restorations, and that is the whole of the rule.</b>
+    /// A restored master is a cleaned-up copy of a recording in one language; a language
+    /// pack holds a different actor saying a different sentence. Handing a French game an
+    /// English master because the English one had been remastered would be the loudest
+    /// possible way to get this wrong, so the language wins wherever it has an answer.
+    /// <para>
+    /// Which leaves the English case, and it is handled where it belongs: the English pack
+    /// simply leaves out the lines <c>enhanced/audio</c> restores, so those fall through to
+    /// the restored master rather than being shadowed by the 1999 recording of the same
+    /// line. See <c>docs/localization.md</c>.
+    /// </para>
+    /// </remarks>
     private static byte[]? ReadLayered(
         GameArchives archives, RebarnContent? packs, string name)
     {
@@ -71,6 +87,7 @@ public sealed class SoundLibrary
 
         return overrides?.ReadArchive(name)
             ?? overrides?.Read(Formats.Rebarn.RebarnKind.Audio, name)
+            ?? archives.Localization?.Read(name)
             ?? packs?.Read(Formats.Rebarn.RebarnKind.Audio, name)
             ?? archives.Read(name);
     }
@@ -82,6 +99,7 @@ public sealed class SoundLibrary
 
         return overrides?.HasArchive(name) == true
             || overrides?.Has(Formats.Rebarn.RebarnKind.Audio, name) == true
+            || archives.Localization?.HasArchive(name) == true
             || packs?.Has(Formats.Rebarn.RebarnKind.Audio, name) == true
             || archives.Exists(name);
     }

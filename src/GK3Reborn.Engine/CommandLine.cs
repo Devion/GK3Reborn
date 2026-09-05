@@ -122,6 +122,10 @@ public static class CommandLine
           --front-page PAGE     Open the menu on one of its pages: Options, Video, Display.
           --settings FILE       Read and write another settings file, leaving yours alone.
           --movie NAME          Play one of the films straight away.
+          --language CODE       Read the game in another language for this run only:
+                                en, fr, de, it, es, pt, ru, pl. Needs Reborn_<CODE>.rebarn
+                                beside the game; without one the installation's own
+                                language is used and the run says so.
 
         graphics:
           --backend NAME        vulkan or d3d12. Windows gets Direct3D 12 unless told

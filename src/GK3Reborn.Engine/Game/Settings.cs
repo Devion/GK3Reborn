@@ -418,8 +418,57 @@ public sealed record Settings
     /// </remarks>
     public bool FreeCamera { get; init; }
 
+    /// <summary>
+    /// Which language the game is read, spoken and written in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An ISO 639-1 code — <c>en</c>, <c>fr</c> — rather than an enumeration, because the
+    /// set of languages a game can be played in is a fact about which packs are on disk
+    /// rather than about this build. Adding German is sourcing a German installation and
+    /// running <c>extract-localized</c>; it is not a code change, and a stored enumeration
+    /// would have made it one.
+    /// </para>
+    /// <para>
+    /// English by default and English when the code names a language this build has never
+    /// heard of, which is the same rule every other value here follows: a settings file is
+    /// a text file somebody may edit, and a typo is not a reason to fail to start. A code
+    /// this build <em>does</em> know but has no pack for is kept rather than reset — the
+    /// player may be about to install one, and quietly rewriting their choice would make
+    /// that look as though it had not worked.
+    /// </para>
+    /// <para>
+    /// It reaches the game at startup: the language pack the archives are read through, the
+    /// letter in front of every <c>.YAK</c> and <c>.MOM</c>, the code page the text is
+    /// decoded in, and which of the enhanced textures carries words. See
+    /// <c>docs/localization.md</c>.
+    /// </para>
+    /// </remarks>
+    public string Language { get; init; } = Content.GameLanguage.Default.Code;
+
     /// <summary>Whether what is said is also written.</summary>
     public bool Captions { get; init; } = true;
+
+    /// <summary>
+    /// Whether what is said in a film is also written.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A row of its own rather than a second use of <see cref="Captions"/>, because the two
+    /// are genuinely different decisions. A caption under a speaking character is small and
+    /// beside them; a subtitle is across the bottom of a full-screen picture with nothing
+    /// else on it, and somebody who wants the first does not necessarily want the second
+    /// over a cutscene they can hear perfectly well.
+    /// </para>
+    /// <para>
+    /// <b>On by default, and it is not a preference for two of the languages.</b> Spanish
+    /// and Portuguese never dubbed their cutscenes — every recording in both is
+    /// byte-identical to English — so their films are spoken in English and these subtitles
+    /// are the whole of what those releases have. Sierra wrote them and never showed them;
+    /// see <c>docs/localization.md</c>.
+    /// </para>
+    /// </remarks>
+    public bool MovieSubtitles { get; init; } = true;
 
     /// <summary>
     /// Whether every voice comes from the middle rather than from where its speaker stands.
@@ -715,6 +764,12 @@ public sealed record Settings
         EffectsVolume = Level(EffectsVolume),
         DialogueVolume = Level(DialogueVolume),
         Speakers = Enum.IsDefined(Speakers) ? Speakers : SpeakerLayout.Stereo,
+
+        // Normalised rather than merely checked: "FR" and " fr " are somebody editing the
+        // file by hand and mean French, and storing them as typed would make two settings
+        // files that say the same thing compare unequal.
+        Language = Content.GameLanguage.Of(Language).Code,
+
         Picture = Enum.IsDefined(Picture) ? Picture : PictureQuality.High,
         HurryFactor = float.IsFinite(HurryFactor) ? Math.Clamp(HurryFactor, 1f, 4f) : 2f,
         SmoothHeads = Math.Clamp(SmoothHeads, 0, Actors.HeadRefinement.MaximumLevels),

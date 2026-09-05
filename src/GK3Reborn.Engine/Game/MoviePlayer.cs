@@ -38,6 +38,8 @@ public sealed class MoviePlayer : IDisposable
     private AudioVoice _voice;
     private double _elapsed;
     private DecodedImage? _frame;
+    private IReadOnlyList<Formats.Animation.AnimationCaption> _captions = [];
+    private int _rate = Formats.Animation.AnimationFile.FramesPerSecond;
 
     /// <summary>Creates a player.</summary>
     /// <param name="videos">Where movies come from.</param>
@@ -52,6 +54,41 @@ public sealed class MoviePlayer : IDisposable
 
     /// <summary>Diagnostics raised while playing.</summary>
     public DiagnosticBag Diagnostics { get; } = new();
+
+    /// <summary>
+    /// Where a cutscene's subtitles come from, or null to play films without them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>GK3 wrote its cutscene subtitles down and then never showed them.</b> Fourteen of
+    /// the films have a <c>.YAK</c> of the film's own name — <c>205PEND.YAK</c> — whose
+    /// <c>[GK3]</c> section is 232 <c>SpeakerCaption</c> nodes: a start frame, an end frame,
+    /// who is speaking and what they say. They are translated in every release, and
+    /// <c>[OPTIONS] FRAMERATE 30</c> in each one says what the frames are counted in.
+    /// </para>
+    /// <para>
+    /// <b>Which makes them worth more here than anywhere else.</b> Spanish and Portuguese
+    /// never dubbed their cutscenes — every recording in both is byte-identical to English —
+    /// so those two releases are a Spanish game whose films are spoken in English. The
+    /// subtitles are the whole of what those languages have, and Sierra shipped them.
+    /// </para>
+    /// <para>
+    /// Read through <see cref="AnimationLibrary"/>, which reads through the archives, which
+    /// read through the language pack — so the film gets the player's language for free and
+    /// nothing here knows what a language is.
+    /// </para>
+    /// </remarks>
+    public Func<string, Formats.Animation.AnimationFile?>? Subtitles { get; set; }
+
+    /// <summary>Who is speaking in the film now, or null.</summary>
+    public string? Speaker { get; private set; }
+
+    /// <summary>What they are saying, or null.</summary>
+    /// <remarks>
+    /// Null for most of most films: these are subtitles for spoken lines, not a running
+    /// commentary, and the gaps between them are gaps on screen.
+    /// </remarks>
+    public string? Caption { get; private set; }
 
     /// <summary>
     /// Whether every film is passed over rather than played.
@@ -110,6 +147,24 @@ public sealed class MoviePlayer : IDisposable
         }
 
         _elapsed = 0;
+        Speaker = null;
+        Caption = null;
+
+        // The film's own subtitles, where it has any. Asked for by the film's name, which
+        // is the name of its YAK: 205PEND.bik and 205PEND.YAK.
+        Formats.Animation.AnimationFile? written = Subtitles?.Invoke(name);
+        _captions = written?.Captions ?? [];
+        _rate = written is { Rate: > 0 } ? written.Rate : Formats.Animation.AnimationFile.FramesPerSecond;
+
+        // What is actually about to play, said once. A cutscene running the wrong
+        // language's soundtrack looks exactly like one running the right language's, and
+        // there is nothing on screen at all to say where either half came from.
+        Foundation.Diagnostics.Log.Detail(
+            $"film: {name}, {_movie.Describe()}, picture from "
+            + $"{_videos.Source(name) ?? "nowhere"}"
+            + (_movie.SoundIsSeparate
+                ? $", sound from {_videos.SoundSource(name) ?? "a separate track"}"
+                : string.Empty));
 
         // Before the first frame, so the sound and the picture start together rather than
         // the sound starting a decode later.
@@ -126,6 +181,45 @@ public sealed class MoviePlayer : IDisposable
         return _movie.Duration.TotalSeconds;
     }
 
+    /// <summary>
+    /// Finds the subtitle that belongs at a moment, if any.
+    /// </summary>
+    /// <param name="at">How far into the film the clock is.</param>
+    /// <remarks>
+    /// <para>
+    /// A scan rather than an index, because a film has between five and forty-five of these
+    /// and the loop runs once a frame. Forty-five comparisons of two integers is nothing
+    /// against decoding a picture, and an index would have to be reset on every seek.
+    /// </para>
+    /// <para>
+    /// <b>The last one that has started wins.</b> GK3's captions overlap — one speaker's
+    /// line often ends after the next has begun, because that is how people talk — and
+    /// drawing both would need two rows and a rule about which goes where. Showing whoever
+    /// spoke most recently is what a subtitle does.
+    /// </para>
+    /// </remarks>
+    private void Written(double at)
+    {
+        if (_captions.Count == 0)
+        {
+            return;
+        }
+
+        int frame = (int)(at * _rate);
+        Formats.Animation.AnimationCaption? showing = null;
+
+        foreach (Formats.Animation.AnimationCaption caption in _captions)
+        {
+            if (caption.Frame <= frame && frame < caption.EndFrame)
+            {
+                showing = caption;
+            }
+        }
+
+        Speaker = showing?.Speaker;
+        Caption = showing?.Text;
+    }
+
     /// <summary>Moves the clock on and reads the frame that belongs there.</summary>
     /// <param name="seconds">How long since the last frame.</param>
     /// <returns>True while the movie is still running.</returns>
@@ -137,6 +231,7 @@ public sealed class MoviePlayer : IDisposable
         }
 
         _elapsed += Math.Max(0, seconds);
+        Written(_elapsed);
 
         if (_movie.TryReadFrame(TimeSpan.FromSeconds(_elapsed), out MovieFrame frame))
         {
@@ -172,6 +267,9 @@ public sealed class MoviePlayer : IDisposable
         _movie = null;
         _frame = null;
         _elapsed = 0;
+        _captions = [];
+        Speaker = null;
+        Caption = null;
     }
 
     /// <inheritdoc/>

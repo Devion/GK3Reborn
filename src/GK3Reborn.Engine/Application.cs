@@ -326,6 +326,71 @@ public static class Application
 
         Settings settings = Settings.Load(settingsPath);
 
+        // --language names one for this run without writing it back, so that a room can be
+        // rendered in French to compare against the English one without editing anybody's
+        // settings file. Unknown codes fall back to English rather than failing, the same
+        // way the settings file's own value does.
+        if (Option(args, "--language") is { Length: > 0 } wantedLanguage)
+        {
+            settings = settings with { Language = wantedLanguage };
+
+            if (!GameLanguage.IsKnown(wantedLanguage))
+            {
+                Log.Warning(
+                    $"--language {wantedLanguage} names no localisation GK3 was published in; "
+                    + $"reading the game in {GameLanguage.Default.Name}.");
+            }
+        }
+
+        // Which language the game is read in, and the pack that makes that possible. Opened
+        // before the archives are read for anything, because every asset below comes
+        // through this door: the string table, the fonts, Sidney's documents, every bitmap
+        // with words in it, every recorded line and every YAK that lip-syncs one.
+        //
+        // Null when there is no pack for the chosen language, and that is the ordinary case
+        // for English: the installation already answers to the English spellings under
+        // every locale Sierra shipped, so English needs no pack to be playable.
+        GameLanguage language = GameLanguage.Of(settings.Language);
+        var languageDiagnostics = new DiagnosticBag();
+        using LocalizedContent? localized =
+            LocalizedContent.Open(packDirectory, language, languageDiagnostics);
+
+        foreach (Diagnostic diagnostic in languageDiagnostics.Items)
+        {
+            Log.Report(diagnostic);
+        }
+
+        archives.Localization = localized;
+        IReadOnlyList<GameLanguage> languages = LocalizedContent.Available(packDirectory);
+
+        // Said out loud whichever way it went. A French game running on the English
+        // archives because the pack was not built looks exactly like a French game, until
+        // somebody reads a word — so the line says both what was asked for and what is
+        // actually answering.
+        if (localized is not null)
+        {
+            Log.Info($"Language: {localized.Describe()}");
+        }
+        else if (language == GameLanguage.Default)
+        {
+            Log.Info($"Language: {language.Name}, from the installation");
+        }
+        else
+        {
+            // A warning rather than a note, because this is a run that will do the wrong
+            // thing quietly: every word of it will be in whatever language the archives
+            // hold, and nothing on screen will say the choice did not take.
+            Log.Warning(
+                $"Language: {language.Name} was asked for, but there is no "
+                + $"{LocalizedContent.FileNameOf(language)} in {packDirectory}. The game is "
+                + "read in whatever language the installation holds.");
+        }
+
+        StartupReport.Optional(
+            "Language",
+            localized is null ? null : packDirectory,
+            "The game is read in the language the installation was made in.");
+
         // Two switches for the two rows on the Picture page that change what a room looks
         // like rather than how sharply it is drawn, so that the same room can be
         // photographed both ways without editing anybody's settings file. Both are
@@ -515,7 +580,13 @@ public static class Application
 
         // What makes a waited call take time. Without it every line of dialogue in the
         // game is over in the frame it starts.
-        api.Animations = new AnimationLibrary(archives);
+        //
+        // The letter is the language's: a script writes StartVoiceOver("1LLJ644QR1") and
+        // the file on a French disc is F1LLJ644QR1.YAK. It is set here rather than left at
+        // its English default because this is where the language is known, and getting it
+        // wrong is silent — every voice-over reports a length of zero and the game plays
+        // the lines with no time to say them in.
+        api.Animations = new AnimationLibrary(archives) { Language = language.Prefix };
 
         // Where saved games go. In the player's own profile beside the settings, and given
         // to the API rather than kept here because the console and the story reach saving
@@ -603,7 +674,12 @@ public static class Application
             packsOnly || enhancedDirectory is not { Length: > 0 }
                 ? string.Empty
                 : Beside(enhancedDirectory, "video"),
-            packs);
+            packs,
+            localized,
+            packsOnly || enhancedDirectory is not { Length: > 0 }
+                ? string.Empty
+                : Path.Combine(
+                    Beside(enhancedDirectory, "localized"), language.FileCode));
 
         using var movies = new Game.MoviePlayer(videos, audio)
         {
@@ -613,6 +689,13 @@ public static class Application
             // is on screen even once.
             Skipping = args.Contains("--no-movies", StringComparer.OrdinalIgnoreCase),
         };
+
+        // Fourteen of the films carry their own subtitles, in a YAK of the film's own name,
+        // translated in every release. It matters most where a language never dubbed its
+        // cutscenes: Spanish and Portuguese films are spoken in English, and this is the
+        // whole of what those two have. Read through the animation library, which reads
+        // through the archives, which read through the language pack.
+        movies.Subtitles = name => api.Animations?.Read(name);
 
         if (movies.Skipping)
         {
@@ -626,6 +709,22 @@ public static class Application
             Log.Info(
                 $"Movies: {videos.Count} available ({videos.LooseCount} loose, " +
                 $"{videos.PackedCount} packed), decoded in process");
+
+            // Separately, because it is the half of a localised run that nobody can see. A
+            // movie playing the wrong language's soundtrack looks exactly like one playing
+            // the right one, so the counts are said before a single film has run.
+            if (videos.LocalizedCount > 0 || videos.LocalizedSoundCount > 0)
+            {
+                Log.Info(
+                    $"Movies: {language.Name} re-cuts {videos.LocalizedCount} of them and "
+                    + $"supplies the soundtrack for {videos.LocalizedSoundCount} more");
+            }
+            else if (localized is not null)
+            {
+                Log.Warning(
+                    $"Movies: the {language.Name} pack carries no soundtracks, so every "
+                    + "film is heard in the language the installation holds.");
+            }
         }
 
         // The host outlives the room. Its scripts and its registrations belong to the
@@ -691,7 +790,17 @@ public static class Application
 
         if (strings.Count > 0)
         {
-            Log.Info($"Names: {strings.Count} from ESTRINGS.TXT");
+            Log.Info($"Names: {strings.Count} from {strings.File}");
+        }
+        else if (localized is not null)
+        {
+            // Worth a line of its own. A missing string table is not a crash and not a
+            // blank screen — it is every place and every timeblock in the game showing its
+            // code instead of its name, which reads as an unfinished port rather than as a
+            // file that was not found.
+            Log.Warning(
+                $"Names: no {GameStrings.TableFor(archives)}, so places and times are "
+                + "shown by their codes.");
         }
 
                 var host = new ScriptHost(api);
@@ -803,8 +912,15 @@ public static class Application
                 : Magnification(atlas.Font, wantedGlyph);
 
             renderer.SetOverlayAtlas(atlas);
-            hud = new GameHud(new Overlay(atlas) { Magnify = magnify });
-            screens = new ScreenPainter(new Overlay(atlas) { Magnify = magnify });
+            hud = new GameHud(new Overlay(atlas) { Magnify = magnify }) { Names = strings };
+            screens = new ScreenPainter(new Overlay(atlas) { Magnify = magnify })
+            {
+                // The game's own names for the player's things, in the player's own
+                // language. Both painters get the same table: the inventory screen and the
+                // strip along the top of the room name the same objects, and two of them
+                // disagreeing would be worse than either name on its own.
+                Names = strings,
+            };
 
             // Sidney's map, the survey the whole puzzle is played on. Beside the driving
             // map's art because both hang off the pipeline the atlas just rebuilt.
@@ -815,7 +931,8 @@ public static class Application
             // now be zoomed six times into it. The upscale is 2,736 square. Taking the
             // original here was why the crosses were barely visible.
             EnhancedTextures? better = Pictures(
-                settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides);
+                settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                language: language);
 
             // Loose files first, then the packs. Both, because the interface's own pictures
             // are enhanced content like any other and the shipped form of enhanced content
@@ -1040,6 +1157,10 @@ public static class Application
         {
             Offered = renderer.OfferedUpscalers,
             StoredAt = settingsPath,
+
+            // What the Language row may step through: the packs that are actually beside
+            // the game, plus English, which every installation can read without one.
+            Languages = languages,
         };
 
         MenuPage? pages = hud is null
@@ -1062,6 +1183,18 @@ public static class Application
                 Log.Info(chosen.FreeCamera
                     ? "Camera bounds: off, so the camera may leave the room"
                     : "Camera bounds: back on");
+            }
+
+            // Said here for the same reason the speaker layout is: the language decides
+            // which pack the archives were opened through, which letter every voice-over
+            // carries and which code page the text was decoded in, and all three were
+            // settled before the window existed. A player who changes it and hears the
+            // same voices would reasonably conclude the row is broken.
+            if (!string.Equals(chosen.Language, settings.Language, StringComparison.Ordinal))
+            {
+                Log.Info(
+                    $"Language: {GameLanguage.Of(chosen.Language).Name} chosen; it takes "
+                    + "effect at the next start.");
             }
 
             settings = chosen;
@@ -1161,17 +1294,20 @@ public static class Application
             // there.
             TitleScreen title = TitleArt(
                 archives,
-                Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides),
+                Pictures(
+                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                    language: language),
                 settings.EnhancedTextures
                     ? CompressedTextures.Open(
                         packsOnly
                             ? string.Empty
                             : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
                         packs,
-                        overrides)
-                    : overrides is null
+                        overrides,
+                        localized)
+                    : overrides is null && localized is null
                         ? null
-                        : CompressedTextures.Open(string.Empty, null, overrides),
+                        : CompressedTextures.Open(string.Empty, null, overrides, localized),
                 diagnostics);
 
             front.Illustrated = title.Exists;
@@ -1197,7 +1333,7 @@ public static class Application
                 audio?.Silence(theme);
                 renderer.SetBackdrop(null);
 
-                ShowIntro(window, renderer, movies, pages, which);
+                ShowIntro(window, renderer, movies, pages, which, front.Settings.MovieSubtitles);
 
                 // The gesture that skipped the film is still on the frame's books, and the
                 // menu is about to be drawn under the pointer that made it. Without this,
@@ -1428,8 +1564,9 @@ public static class Application
                 // own file and is not the enhanced content those turn off. Pictures
                 // returns null when neither source has anything for a channel, so a game
                 // with no overrides behaves exactly as it did.
-                EnhancedTextures? enhanced =
-                    Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides);
+                EnhancedTextures? enhanced = Pictures(
+                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                    language: language);
 
                 loader.Enhanced = enhanced;
 
@@ -1608,7 +1745,8 @@ public static class Application
                     ? string.Empty
                     : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
                 packs,
-                overrides);
+                overrides,
+                localized);
 
             // The setting takes the compressed set out of the way as well as the loose one.
             // It is the same art in a smaller form, so leaving it in would answer "no" with
@@ -1620,7 +1758,9 @@ public static class Application
             loader.Compressed =
                 args.Contains("--uncompressed", StringComparer.OrdinalIgnoreCase) ||
                 !settings.EnhancedTextures
-                    ? overrides is null ? null : CompressedTextures.Open(string.Empty, null, overrides)
+                    ? overrides is null && localized is null
+                        ? null
+                        : CompressedTextures.Open(string.Empty, null, overrides, localized)
                     : compressed;
 
             // --flat means flat wherever the maps would have come from. It used to null
@@ -2474,7 +2614,8 @@ public static class Application
                             Stopwatch.StartNew(),
                             ref waited,
                             ref pressed,
-                            SayForFilm);
+                            SayForFilm,
+                            front.Settings.MovieSubtitles);
 
                         if (cut)
                         {
@@ -2494,17 +2635,20 @@ public static class Application
                     api.State.Timeblock,
                     Art(
                         archives,
-                        Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides),
+                        Pictures(
+                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                    language: language),
                         settings.EnhancedTextures
                             ? CompressedTextures.Open(
                                 packsOnly
                                     ? string.Empty
                                     : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
                                 packs,
-                                overrides)
-                            : overrides is null
+                                overrides,
+                                localized)
+                            : overrides is null && localized is null
                                 ? null
-                                : CompressedTextures.Open(string.Empty, null, overrides),
+                                : CompressedTextures.Open(string.Empty, null, overrides, localized),
                         diagnostics,
                         $"TBT{api.State.Timeblock}.BMP"));
 
@@ -5041,9 +5185,30 @@ public static class Application
             // Nothing of the room is drawn over a movie: not the caption of whatever was
             // being said when it started, not the noun under the pointer, not the
             // inventory. The original stops for a cutscene and so does this.
+            //
+            // The film's own subtitles are the exception, and they are the film's rather
+            // than the room's — its own YAK, on its own clock, and its own row in the menu.
+            // A caption under a speaking character and a subtitle across a full-screen
+            // picture are different enough that somebody may want one and not the other.
             if (movies.Playing)
             {
-                renderer.SetOverlay(null);
+                if (pages is not null && front.Settings.MovieSubtitles &&
+                    movies.Caption is { Length: > 0 })
+                {
+                    pages.Film(
+                        movies.Caption,
+                        movies.Speaker,
+                        null,
+                        0f,
+                        window.FramebufferWidth,
+                        window.FramebufferHeight);
+
+                    renderer.SetOverlay(pages.Overlay);
+                }
+                else
+                {
+                    renderer.SetOverlay(null);
+                }
             }
             else if (hud is not null)
             {
@@ -5820,6 +5985,7 @@ public static class Application
     /// <param name="movies">What plays them.</param>
     /// <param name="hint">What draws the way out, or null when there is no font.</param>
     /// <param name="films">Which films, in order.</param>
+    /// <param name="captioned">Whether to write out what is said in them.</param>
     /// <remarks>
     /// <para>
     /// Enter, or the left button <em>held</em>. A click is what somebody does by accident
@@ -5844,7 +6010,8 @@ public static class Application
         Rendering.IRenderer renderer,
         Game.MoviePlayer movies,
         MenuPage? hint,
-        IReadOnlyList<string> films)
+        IReadOnlyList<string> films,
+        bool captioned)
     {
         var stopwatch = Stopwatch.StartNew();
         double held = 0;
@@ -5864,7 +6031,8 @@ public static class Application
                 CultureInfo.InvariantCulture, $"Intro: {name}, {movies.Seconds:F1}s"));
 
             bool skipped = Watch(
-                window, renderer, movies, hint, stopwatch, ref held, ref spent, SayForFilm);
+                window, renderer, movies, hint, stopwatch, ref held, ref spent, SayForFilm,
+                captioned);
 
             if (window.IsClosing)
             {
@@ -5908,6 +6076,12 @@ public static class Application
     /// </param>
     /// <param name="spent">Whether the press that skipped the last film is still down.</param>
     /// <param name="sayFor">How long the way out stays on screen at the start.</param>
+    /// <param name="captioned">
+    /// Whether to write out what is said in the film — <see cref="Settings.MovieSubtitles"/>
+    /// rather than the row that governs the room's captions. Fourteen of the films carry
+    /// their own subtitles, translated in every release, and a language that never dubbed its
+    /// cutscenes has nothing else.
+    /// </param>
     /// <returns>True when the player stopped it early.</returns>
     /// <remarks>
     /// <para>
@@ -5936,7 +6110,8 @@ public static class Application
         Stopwatch stopwatch,
         ref double held,
         ref bool spent,
-        double sayFor)
+        double sayFor,
+        bool captioned)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(renderer);
@@ -5979,10 +6154,17 @@ public static class Application
                 movies.Advance(delta);
             }
 
-            if (hint is not null && (held > 0 || now - began < sayFor))
+            // The subtitle and the skip hint go through one call, because Overlay.Begin
+            // throws away what was there and two calls would show whichever went second.
+            bool saying = captioned && movies.Caption is { Length: > 0 };
+            bool skipping = held > 0 || now - began < sayFor;
+
+            if (hint is not null && (saying || skipping))
             {
-                hint.Skipping(
-                    "Hold the mouse button or press Enter to skip",
+                hint.Film(
+                    saying ? movies.Caption : null,
+                    saying ? movies.Speaker : null,
+                    skipping ? "Hold the mouse button or press Enter to skip" : null,
                     (float)(held / HoldToSkipFilm),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
@@ -7123,6 +7305,11 @@ public static class Application
     /// <param name="overrides">What the player has dropped in, or null.</param>
     /// <param name="kind">Which channel.</param>
     /// <param name="subdirectory">Where that channel sits beside the colour set.</param>
+    /// <param name="language">
+    /// The language whose <c>enhanced/localtextures</c> set goes over the shared one, or
+    /// null for the shared set alone. Colour only: a normal map has no words in it, and a
+    /// language that repaints a sign repaints the picture, not the bumps.
+    /// </param>
     /// <returns>The layer, or null when neither source has anything for this channel.</returns>
     /// <remarks>
     /// <para>
@@ -7143,17 +7330,27 @@ public static class Application
         string? enhancedDirectory,
         ContentOverrides? overrides,
         Formats.Rebarn.RebarnKind kind = Formats.Rebarn.RebarnKind.Texture,
-        string? subdirectory = null)
+        string? subdirectory = null,
+        GameLanguage? language = null)
     {
         string directory = enabled && !packsOnly && enhancedDirectory is { Length: > 0 }
             ? subdirectory is null ? enhancedDirectory : Beside(enhancedDirectory, subdirectory)
             : string.Empty;
 
+        // enhanced/localtextures/<CODE>, beside the enhanced set rather than under it,
+        // because it is a parallel set and not a variant of one: the same names, repainted.
+        string localised =
+            language is not null &&
+            kind == Formats.Rebarn.RebarnKind.Texture &&
+            enabled && !packsOnly && enhancedDirectory is { Length: > 0 }
+                ? Path.Combine(Beside(enhancedDirectory, "localtextures"), language.FileCode)
+                : string.Empty;
+
         ContentOverrides? layer = overrides?.Images(kind).Count > 0 ? overrides : null;
 
-        return directory.Length == 0 && layer is null
+        return directory.Length == 0 && localised.Length == 0 && layer is null
             ? null
-            : EnhancedTextures.Open(directory, layer, kind);
+            : EnhancedTextures.Open(directory, layer, kind, localised);
     }
 
     /// <summary>Where the block-compressed build of the enhanced textures sits.</summary>

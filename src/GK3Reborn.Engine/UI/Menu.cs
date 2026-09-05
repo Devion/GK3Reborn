@@ -1459,7 +1459,147 @@ public sealed class MenuPage
         ArgumentNullException.ThrowIfNull(text);
 
         Overlay.Begin(width, height);
+        Skip(text, part, width, height);
+    }
 
+    /// <summary>
+    /// Draws what a film is saying, and how to skip it, in one pass.
+    /// </summary>
+    /// <param name="caption">The line being spoken, or null for none.</param>
+    /// <param name="speaker">Who is speaking, or null.</param>
+    /// <param name="skip">How to skip the film, or null to say nothing about it.</param>
+    /// <param name="part">How far through the hold the player is, zero to one.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <remarks>
+    /// <b>One pass because there is one display list.</b> <see cref="Overlay.Begin"/> throws
+    /// away what was there, so drawing the subtitle and the skip hint through two calls
+    /// would show whichever went second.
+    /// </remarks>
+    public void Film(
+        string? caption, string? speaker, string? skip, float part, int width, int height)
+    {
+        Overlay.Begin(width, height);
+
+        if (caption is { Length: > 0 })
+        {
+            Subtitle(caption, speaker, width, height);
+        }
+
+        if (skip is { Length: > 0 })
+        {
+            Skip(skip, part, width, height);
+        }
+    }
+
+    /// <summary>
+    /// Draws a film's subtitle across the bottom of the screen.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Centred, over a band, low but clear of the very bottom edge — which is where a
+    /// television would have cut it off and where the skip hint sits. Nothing else is on
+    /// screen during a film, so it has the width to itself.
+    /// </para>
+    /// <para>
+    /// <b>The speaker's name goes above it rather than in front of it.</b> GK3's cutscene
+    /// captions name whoever is talking, and prefixing the line with it would push a long
+    /// sentence onto a third row for a word that is the same on every one of them.
+    /// <c>UNKNOWN</c> is written for a line nobody on screen is saying, and is not drawn.
+    /// </para>
+    /// </remarks>
+    private void Subtitle(string caption, string? speaker, int width, int height)
+    {
+        float unit = Overlay.LineHeight;
+        float usable = Math.Max(64f, (width * 0.8f) - (4f * unit));
+
+        List<string> lines = Break(caption, usable);
+        float band = (unit * lines.Count) + (unit * 1.2f);
+        float y = MathF.Round(height - (unit * 4.6f) - band);
+
+        // Dark enough to carry white letters over the brightest frame in the corpus, and
+        // still see-through: a solid bar across a film reads as damage to the film.
+        Overlay.Rect(
+            MathF.Round((width - (width * 0.8f)) / 2f), y, width * 0.8f, band,
+            new Vector4(0f, 0f, 0f, 0.75f));
+
+        for (int i = 0; i < lines.Count; i++)
+        {
+            Overlay.Text(
+                lines[i],
+                MathF.Round((width - Overlay.Measure(lines[i])) / 2f),
+                y + (unit * 0.6f) + (unit * i),
+                Ink);
+        }
+
+        if (speaker is { Length: > 0 } who &&
+            !who.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
+        {
+            string name = Named(who);
+
+            Overlay.Text(
+                name,
+                MathF.Round((width - Overlay.Measure(name)) / 2f),
+                y - unit - (unit * 0.2f),
+                Accent);
+        }
+    }
+
+    /// <summary>A speaker's noun, as a person would read it.</summary>
+    /// <remarks>
+    /// The cutscene captions name people the way the action files do — <c>WILKES</c>,
+    /// <c>MOSELY</c>, <c>THE_MAN</c> — so the underscores come out and the shouting is
+    /// turned down. There is no table of character names in the data to look them up in.
+    /// </remarks>
+    private static string Named(string noun)
+    {
+        string text = noun.Replace('_', ' ').Trim();
+
+        return text.Any(char.IsLower)
+            ? text
+            : string.Create(text.Length, text, static (span, source) =>
+            {
+                bool start = true;
+
+                for (int i = 0; i < source.Length; i++)
+                {
+                    span[i] = start ? source[i] : char.ToLowerInvariant(source[i]);
+                    start = source[i] == ' ';
+                }
+            });
+    }
+
+    /// <summary>Breaks a subtitle to fit the width it is given.</summary>
+    private List<string> Break(string text, float width)
+    {
+        List<string> lines = [];
+        string current = string.Empty;
+
+        foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string next = current.Length == 0 ? word : current + " " + word;
+
+            if (Overlay.Measure(next) > width && current.Length > 0)
+            {
+                lines.Add(current);
+                current = word;
+            }
+            else
+            {
+                current = next;
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            lines.Add(current);
+        }
+
+        return lines;
+    }
+
+    private void Skip(string text, float part, int width, int height)
+    {
         float unit = Overlay.LineHeight;
         float bar = unit * 10f;
         float y = MathF.Round(height - (unit * 3f));

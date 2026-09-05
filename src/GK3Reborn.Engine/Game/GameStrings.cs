@@ -47,16 +47,65 @@ public sealed partial class GameStrings
     /// <summary>How many names it holds.</summary>
     public int Count => _text.Section(string.Empty).Count + _text.Section("ToolTips").Count;
 
+    /// <summary>Which file the names were read from.</summary>
+    /// <remarks>
+    /// Kept because it is the one asset whose <em>name</em> says what language an
+    /// installation is, and because a run reading the wrong one is invisible: French names
+    /// under an English table look like a table with a lot of missing keys.
+    /// </remarks>
+    public string File { get; private init; } = Names.English;
+
     /// <summary>Reads the file out of the archives.</summary>
     /// <param name="archives">The game's archives.</param>
     /// <returns>The names, empty when no archive holds the file.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The file's name carries the language.</b> Sierra renamed it for four
+    /// localisations — <c>FSTRINGS.TXT</c> in French, <c>ISTRINGS</c> in Italian,
+    /// <c>GSTRINGS</c> in German, <c>SSTRINGS</c> in Spanish — and left it as
+    /// <c>ESTRINGS.TXT</c> for the rest, whose contents differ instead. So the language's
+    /// own spelling is tried first and English is the fallback, which is both the right
+    /// answer for Portuguese, Russian and Polish and the right answer for an installation
+    /// whose language pack is not there.
+    /// </para>
+    /// <para>
+    /// The archives are read through <see cref="GameArchives.Localization"/>, so a French
+    /// game on an English installation finds <c>FSTRINGS.TXT</c> in the pack even though no
+    /// English archive has ever held one.
+    /// </para>
+    /// </remarks>
     public static GameStrings Open(GameArchives archives)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
-        return archives.ReadText("ESTRINGS.TXT") is { } text
-            ? new GameStrings(KeyedText.Parse(text, "ESTRINGS.TXT"))
+        string file = TableFor(archives);
+
+        return archives.ReadText(file) is { } text
+            ? new GameStrings(KeyedText.Parse(text, file)) { File = file }
             : None;
+    }
+
+    /// <summary>Which string table a set of archives should be read with.</summary>
+    /// <param name="archives">The game's archives.</param>
+    /// <returns>A file name; <c>ESTRINGS.TXT</c> when the language has no table of its own.</returns>
+    /// <remarks>
+    /// Public and separate because <see cref="DrivingMap"/> reads the same file for the
+    /// stops' names, and two places deciding which file that is would one day disagree.
+    /// </remarks>
+    public static string TableFor(GameArchives archives)
+    {
+        ArgumentNullException.ThrowIfNull(archives);
+
+        return archives.Localization?.Language.StringTable is { } named && archives.Exists(named)
+            ? named
+            : Names.English;
+    }
+
+    /// <summary>The names the string table goes by.</summary>
+    private static class Names
+    {
+        /// <summary>What every localisation that did not rename it calls it.</summary>
+        internal const string English = "ESTRINGS.TXT";
     }
 
     /// <summary>Reads the file's text.</summary>
@@ -79,6 +128,29 @@ public sealed partial class GameStrings
     /// <returns>Its name, or null when the file does not give one.</returns>
     public string? When(string? timeblock) =>
         timeblock is { Length: > 0 } code ? Named("Day" + code) : null;
+
+    /// <summary>
+    /// What one of the player's things is called.
+    /// </summary>
+    /// <param name="item">Its noun, as the action files spell it: <c>BLACK_MARKER</c>.</param>
+    /// <returns>Its name, or null when the file does not give one.</returns>
+    /// <remarks>
+    /// <para>
+    /// 293 of them, under <c>v_black_marker</c> in the tooltips section, and the port had
+    /// never read one. What it drew instead was the identifier with its underscores taken
+    /// out and its words capitalised — "Abbe Tape" for what the game calls "Tape of Abbé's
+    /// phone call", "Black Fibers" for "Black fur".
+    /// </para>
+    /// <para>
+    /// <b>It is also the only per-object text GK3 localised.</b> There is no table of noun
+    /// or verb names anywhere in the data — the original drew verbs as icons and never
+    /// named the thing under the cursor at all — so these 293 are the whole of what a
+    /// French game can say about the player's things in French. Without them a French run
+    /// carries a pocketful of English.
+    /// </para>
+    /// </remarks>
+    public string? Item(string? item) =>
+        item is { Length: > 0 } noun ? Named("v_" + noun) : null;
 
     /// <summary>What a stop on the driving map is called.</summary>
     /// <param name="stop">Its code.</param>
