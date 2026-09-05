@@ -60,6 +60,8 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     private bool _warnedAboutDeferred;
     private ParticlePipeline? _particlePipeline;
     private IReadOnlyList<Particle> _particles = [];
+    private FogPipeline? _fogPipeline;
+    private FogVolume _fog = FogVolume.None;
 
     private SceneRenderer(
         VulkanContext context,
@@ -210,6 +212,15 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         _particles = particles;
     }
 
+    /// <summary>Gives the room its fog.</summary>
+    /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
+    /// <remarks>
+    /// None unless a caller sets it. A room that is given one pays for a depth target it can
+    /// sample and a pass over the frame; a room that is not pays for neither, which is every
+    /// room but the handful <see cref="Game.SceneFog"/> names.
+    /// </remarks>
+    public void SetFog(FogVolume fog) => _fog = fog;
+
     /// <summary>Renders geometry and returns the image.</summary>
     /// <param name="geometry">What to draw.</param>
     /// <param name="width">Image width.</param>
@@ -292,10 +303,13 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         Target direct = CreateTarget(
             width, height, GBuffer.LightFormat, parts, ImageAspectFlags.ColorBit);
 
+        // Sampled where the compositing pass will trace against it, and where there is fog
+        // to march to it. Both read the depth after the room has been drawn; a room with
+        // neither leaves it an attachment and nothing else.
         Target depth = CreateTarget(
             width, height, DepthFormat,
             ImageUsageFlags.DepthStencilAttachmentBit |
-                (tracing ? ImageUsageFlags.SampledBit : 0),
+                (tracing || _fog.Any ? ImageUsageFlags.SampledBit : 0),
             ImageAspectFlags.DepthBit);
 
         try
@@ -344,7 +358,7 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
 
             VulkanSceneDraw.Begin(
                 _context.Api, command, colors, depth.View, width, height, camera.Background,
-                keepDepth: tracing || _particles.Count > 0);
+                keepDepth: tracing || _fog.Any || _particles.Count > 0);
 
             VulkanSceneDraw.Record(
                 _context.Api, command, pipeline, frames, geometry, 0, width, height, camera);
@@ -358,9 +372,16 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
                     scene, normal, motion, direct, depth, lit, picture.View, width, height);
             }
 
+            // The air in the room, over the finished picture and under the smoke in it. A
+            // fire's own smoke is drawn where the fire is and is lit by it; fogging it
+            // against the wall behind it would dim the near side of a plume by however far
+            // away that wall happened to be.
+            bool fogged = RecordFog(command, picture.View, depth, frames, camera, width, height, tracing);
+
             // Over the finished picture and under nothing: smoke is the last thing in the
             // room and the only blended thing in the renderer.
-            RecordParticles(command, picture.View, depth, camera, width, height, tracing);
+            RecordParticles(
+                command, picture.View, depth, camera, width, height, tracing || fogged);
 
             _context.Transition(
                 command, picture.Image, ImageLayout.ColorAttachmentOptimal,
@@ -384,6 +405,86 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         }
     }
 
+    /// <summary>Marches the room's fog over the picture it has just made.</summary>
+    /// <param name="command">Command buffer to record into.</param>
+    /// <param name="picture">The finished picture, which the fog is blended onto.</param>
+    /// <param name="depth">How far the room got, which is where each ray stops.</param>
+    /// <param name="frames">The set holding the rig the fog is lit by.</param>
+    /// <param name="camera">Where the frame was looked at from.</param>
+    /// <param name="width">Target width.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="tracing">
+    /// Whether the compositing pass ran, which is what decides whether the depth is already
+    /// in the layout this pass wants to read it in.
+    /// </param>
+    /// <returns>True when fog was drawn, which leaves the depth readable by a shader.</returns>
+    /// <remarks>
+    /// The pipeline is built the first time a room with fog in it is rendered and kept — it
+    /// is a pipeline and two shader modules, and building it per render would put a compile
+    /// in the middle of every frame of a corpus sweep. The descriptors are written every
+    /// time, because the depth target is made and destroyed with each render.
+    /// </remarks>
+    private bool RecordFog(
+        CommandBuffer command,
+        ImageView picture,
+        Target depth,
+        FrameUniformSet frames,
+        Camera camera,
+        int width,
+        int height,
+        bool tracing)
+    {
+        if (!_fog.Any)
+        {
+            return false;
+        }
+
+        _fogPipeline ??= FogPipeline.Create(_context, ColorFormat, _compiler);
+
+        if (!tracing)
+        {
+            _context.Transition(
+                command, depth.Image, ImageLayout.DepthStencilAttachmentOptimal,
+                ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
+        }
+
+        _fogPipeline.Bind(frames.Rig, frames.Cells, frames.Reaching, depth.View);
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = picture,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+
+            // Loaded, and it has to be: the fog is blended over the room rather than
+            // replacing it.
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+        };
+
+        _context.Api.CmdBeginRendering(command, in rendering);
+
+        _fogPipeline.Record(
+            command,
+            width,
+            height,
+            FogConstants.For(
+                _fog, LightGrid, Tracing.Ambient, camera, Seconds, width, height));
+
+        _context.Api.CmdEndRendering(command);
+
+        return true;
+    }
+
     /// <summary>Draws the room's smoke and embers over the picture it has just made.</summary>
     /// <param name="command">Command buffer to record into.</param>
     /// <param name="picture">The finished picture.</param>
@@ -391,9 +492,9 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     /// <param name="camera">Where the frame was looked at from.</param>
     /// <param name="width">Target width.</param>
     /// <param name="height">Its height.</param>
-    /// <param name="tracing">
-    /// Whether the compositing pass ran, which is what decides the layout the depth target
-    /// is currently in.
+    /// <param name="sampled">
+    /// Whether anything has already read the depth as a texture — the compositing pass or
+    /// the fog — which is what decides the layout it is currently in.
     /// </param>
     private void RecordParticles(
         CommandBuffer command,
@@ -402,7 +503,7 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         Camera camera,
         int width,
         int height,
-        bool tracing)
+        bool sampled)
     {
         if (_particles.Count == 0)
         {
@@ -419,10 +520,10 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
             return;
         }
 
-        // The compositing pass leaves the depth readable by a shader; the plain path leaves
-        // it where the room wrote it. Either way it has to be an attachment again to be
-        // tested against, and it is never written here.
-        if (tracing)
+        // The compositing pass and the fog both leave the depth readable by a shader; the
+        // plain path leaves it where the room wrote it. Either way it has to be an
+        // attachment again to be tested against, and it is never written here.
+        if (sampled)
         {
             _context.Transition(
                 command, depth.Image, ImageLayout.ShaderReadOnlyOptimal,
@@ -476,6 +577,9 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
 
         _particlePipeline?.Dispose();
         _particlePipeline = null;
+
+        _fogPipeline?.Dispose();
+        _fogPipeline = null;
 
         if (_placeholderSampler.Handle != 0)
         {

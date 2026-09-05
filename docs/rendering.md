@@ -722,6 +722,16 @@ the colour of keyed texels is replaced by the nearest opaque colour so filtering
 something plausible to reach for. The shader tests alpha, which blurs gracefully; the
 colour test stays as a backstop.
 
+### The air in a room
+
+Six rooms have a layer of fog in them, marched per pixel over the finished picture and lit
+by the same rig the walls are. Two are underground and foggy at every hour — CS5's cellars
+and the chasm TE5's bridge crosses — and four are outdoors and foggy only at two in the
+morning: the cemetery, the village, the dig site and Poussin's Tomb. It runs after the room
+and before the smoke, at render resolution, and is not recorded at all in the rooms with no
+layer. See [fog.md](fog.md), which also says why the rooms are a list rather than something
+derived from the corpus, and why the hour is asked for beside the name.
+
 ### What is hidden
 
 A scene's initialisation file distinguishes three things that look identical in the

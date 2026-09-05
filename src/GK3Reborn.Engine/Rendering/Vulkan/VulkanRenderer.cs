@@ -199,6 +199,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private Reflections? _reflections;
     private ParticlePipeline? _particlePipeline;
     private IReadOnlyList<Particle> _particles = [];
+    private FogPipeline? _fogPipeline;
+    private FogVolume _fog = FogVolume.None;
 
     private readonly Image[] _extraImages = new Image[GBuffer.Targets - 1];
     private readonly DeviceMemory[] _extraMemory = new DeviceMemory[GBuffer.Targets - 1];
@@ -1300,6 +1302,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
             _reflections = null;
             _particlePipeline?.Dispose();
             _particlePipeline = null;
+            _fogPipeline?.Dispose();
+            _fogPipeline = null;
             _denoiser?.Dispose();
             _denoiser = null;
             _composite?.Dispose();
@@ -2262,8 +2266,10 @@ public sealed unsafe class VulkanRenderer : IRenderer
                 ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
         }
 
-        // The room's smoke and embers, over the finished picture and under everything that
-        // is not in the room: the movie, the interface and the fade all come later.
+        // The air in the room, and then what is burning in it. Both over the finished
+        // picture and under everything that is not in the room: the movie, the interface
+        // and the fade all come later.
+        RecordFog(buffer);
         RecordParticles(buffer);
 
         _litSettled = true;
@@ -2901,6 +2907,86 @@ public sealed unsafe class VulkanRenderer : IRenderer
         _particles = particles;
     }
 
+    /// <inheritdoc/>
+    public void SetFog(FogVolume fog) => _fog = fog;
+
+    /// <summary>
+    /// Marches the room's fog over the picture, in a scope of its own.
+    /// </summary>
+    /// <param name="buffer">Command buffer being recorded.</param>
+    /// <remarks>
+    /// <para>
+    /// In the same place as the particles and for the same reason: both paths through the
+    /// room leave the lit target readable by a shader with the depth beside it, so this is
+    /// the one point in the frame where the state is the same whether the room was traced
+    /// or not. Before them rather than after, because a fire's smoke stands where the fire
+    /// does and the depth behind it is the wall — fogging the plume against that would dim
+    /// its near side by however far away the wall happened to be.
+    /// </para>
+    /// <para>
+    /// <b>At render resolution, before the upscale.</b> The depth it marches to is the
+    /// room's own and exists at no other size, and fog is part of the picture an upscaler is
+    /// meant to be reconstructing rather than something laid over its answer.
+    /// </para>
+    /// </remarks>
+    private void RecordFog(CommandBuffer buffer)
+    {
+        if (!_fog.Any || _fogPipeline is not { Ready: true } || _camera is null ||
+            _litImage.Handle == 0 || _depthImage.Handle == 0)
+        {
+            return;
+        }
+
+        int width = (int)_renderExtent.Width;
+        int height = (int)_renderExtent.Height;
+
+        Transition(
+            buffer, _litImage, ImageLayout.ShaderReadOnlyOptimal,
+            ImageLayout.ColorAttachmentOptimal);
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _litView,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+
+            // Loaded, and it has to be: the fog is blended over the room rather than
+            // replacing it.
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = _renderExtent },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+        };
+
+        _vk.CmdBeginRendering(buffer, in rendering);
+
+        _fogPipeline.Record(
+            buffer,
+            width,
+            height,
+            Geometry.FogConstants.For(
+                _fog,
+                LightGrid,
+                RayTracingSettings.For(Quality).Ambient,
+                _camera,
+                (float)_wind.Elapsed.TotalSeconds,
+                width,
+                height));
+
+        _vk.CmdEndRendering(buffer);
+
+        Transition(
+            buffer, _litImage, ImageLayout.ColorAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal);
+    }
+
     /// <summary>
     /// Draws the room's smoke and embers over the picture, in a scope of their own.
     /// </summary>
@@ -3251,6 +3337,12 @@ public sealed unsafe class VulkanRenderer : IRenderer
         _particlePipeline = ParticlePipeline.Create(
             _context, GBuffer.LightFormat, SceneRenderer.DepthFormat, _shaderCompiler);
 
+        // The other pass over the same lit target. Built whether or not any room the player
+        // reaches has fog in it, like the particles above: a pipeline that is never recorded
+        // costs one compile at start-up and nothing a frame, and building it on the first
+        // room that wants one would put that compile in the middle of a scene change.
+        _fogPipeline = FogPipeline.Create(_context, GBuffer.LightFormat, _shaderCompiler);
+
         RebuildForFormat();
 
         if (_context.SupportsRayTracing)
@@ -3267,6 +3359,35 @@ public sealed unsafe class VulkanRenderer : IRenderer
         }
 
         PointFramesAtMirror();
+        PointFogAtDepth();
+    }
+
+    /// <summary>
+    /// Points the fog pass at the rig it lights the layer with and the depth it stops at.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The raster set's rig, whichever pipeline the frame ends up using.</b>
+    /// <see cref="SetLights"/> writes the same lights into both sets, and the three buffers
+    /// each set owns are written once when a room loads rather than once a frame — so there
+    /// is one rig here regardless of tier, and no reason for this pass to know which
+    /// pipeline drew the room.
+    /// </para>
+    /// <para>
+    /// Called where the targets are made and remade, and nowhere else. Rewriting a
+    /// descriptor set a frame in flight may still be reading is the same hazard as
+    /// rewriting its vertex buffer; both places this is called from have just waited for
+    /// the device.
+    /// </para>
+    /// </remarks>
+    private void PointFogAtDepth()
+    {
+        if (_fogPipeline is null || _frames is null || _depthView.Handle == 0)
+        {
+            return;
+        }
+
+        _fogPipeline.Bind(_frames.Rig, _frames.Cells, _frames.Reaching, _depthView);
     }
 
     /// <summary>
@@ -3984,6 +4105,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
         CreateLitTarget();
         CreateMirrorTarget();
         PointFramesAtMirror();
+        PointFogAtDepth();
         CreateUpscaleTarget();
 
         // A pipeline carries the format it writes into, so one built against an 8-bit sRGB

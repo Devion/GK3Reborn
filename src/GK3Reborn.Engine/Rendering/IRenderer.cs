@@ -105,6 +105,16 @@ public interface IRenderer : IDisposable
     /// </remarks>
     void SetParticles(IReadOnlyList<Particle> particles);
 
+    /// <summary>Gives the room its fog, or takes it away again.</summary>
+    /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
+    /// <remarks>
+    /// Set when a room loads rather than every frame: a layer of fog is a fact about the
+    /// room and not about the moment. What moves inside it — the drift of the density, a
+    /// fire's light swinging through it — is the shader's own clock. See
+    /// <see cref="Game.SceneFog"/> for which rooms have any.
+    /// </remarks>
+    void SetFog(FogVolume fog);
+
     // --- how much of it -----------------------------------------------------------------
 
     /// <summary>Whether this renderer can trace rays at all.</summary>

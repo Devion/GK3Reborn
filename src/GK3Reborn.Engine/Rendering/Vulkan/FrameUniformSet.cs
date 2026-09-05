@@ -68,6 +68,18 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// </remarks>
     public VulkanBuffer Rig => _rig;
 
+    /// <summary>Where each cell of the light grid's list starts.</summary>
+    /// <remarks>
+    /// Bound by the fog pass, which walks the grid exactly as the shading does. Both halves
+    /// are exposed rather than rebuilt because a second copy of a grid is a second answer to
+    /// which lights reach a point, and a room where the walls and the mist disagree about
+    /// that is a room with two rigs in it.
+    /// </remarks>
+    public VulkanBuffer Cells => _cells;
+
+    /// <summary>Which lights are in each of those cells.</summary>
+    public VulkanBuffer Reaching => _reaching;
+
     /// <summary>How much ray tracing the shader is asked to do.</summary>
     public RayTracingSettings Settings { get; set; } = RayTracingSettings.For(RayTracingQuality.None);
 

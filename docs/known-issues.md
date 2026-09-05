@@ -4,6 +4,154 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. Every other room was swept for air worth drawing (feature) (done 2026-09-05)
+
+**Reported** as "do a scan over all other scenes to see if there are scenes where fog would
+help (volumetric fog over ground etc.), and maybe check if other scene effects would help as
+well".
+
+All seventy-nine locations were loaded and photographed, and the twenty-two that have a two
+o'clock block were photographed again in it. Five more rooms have a layer now: the cemetery,
+the four sides of the village, the dig site and Poussin's Tomb. The garage was offered one
+and turned down. See [fog.md](fog.md).
+
+**The hour turned out to be half the question.** Every room the sweep found is outdoors, and
+outdoors the fog is weather rather than a fact about the place: the cemetery at `202A` is
+the room this was worth doing for, and the same layer at `102P` is a bank of mist under a two
+o'clock sun. `SceneFog.For` takes a `Timeblock` now, and gates on `202A` — day two at two,
+which is the only nocturnal hour any outdoor room in the game is reachable in. Sixteen of the
+seventeen blocks are between seven and six; the seventeenth, `309P`, is two hotel bedrooms.
+
+**Density is per room, and by a wide margin.** The cemetery carries `0.0022` and the village
+`0.0006` — nearly four times apart, forty metres of walking apart. What sets it is how far a
+ray travels inside the layer before it meets something, so an outdoor preset does not exist
+and was not written. Three rooms were rejected on exactly that: L'Fauteuil du Diable swallows
+its wood at any density that reads at all, and MCB and LMB are rock cuts whose ground climbs
+through a flat layer within one screen's width.
+
+**Two rooms were rejected for the puzzle rather than the picture.** The temple porch takes a
+thin layer well and washes out its chessboard floor, which the player has to read; CS6's
+winepress room takes CS5's own layer and hides the base of the winepress.
+
+**Cost is the enclosed rooms, not the big ones.** 1.1 ms at 1280×720 with ray tracing on High
+in the walled cemetery, where the whole frame is inside the layer, against 0.1 ms in open
+country where most of the frame is sky above the ceiling. TE5 remains 0.3.
+
+Three other things the sweep turned up, none of them touched here:
+
+- **TE1's marble chessboard can never get a floor reflection.** It is the only room in the
+  corpus whose scene file names a hit-test plane as its floor — `te1_hittestfloor`, painted
+  `te1globe` — and `SceneGeometry.ChooseMirror` only ever considers the named floor object.
+  The visible marble is BSP geometry the planar pass does not look at. TE5 and TE6 get theirs
+  because their floor objects are real.
+- **There is no bloom or glare anywhere in the renderer.** The village's street lamps at two
+  in the morning, the temple's candles and CS8's seven fires are all HDR-lit with nothing
+  around them.
+- **Five rooms have running water and no spray**: BAL, CSE, MOP, RC1 and RC4 each name a
+  fountain in their soundtrack, which is a derivable rule rather than another table, and the
+  particle pass already has two customers.
+
+## 0. Talking to Grace over the temple radio was two hidden things (feature) (done 2026-09-05)
+
+**Reported** as "in the temple, Gabriel should have a headphone mic icon somewhere so he can
+talk to grace? maybe add this to the topleft, with a context menu popping up when clicked to
+ask grace stuff ... not sure if there is an icon for it, use it if possible".
+
+There is an icon for it, and there was already a feature under it. `RADIO` is one of the
+game's own verbs and the temple's files write twenty-four rules for it; the original's option
+bar also had a headset button of its own (`rc_radio_std` in `RC_LAYOUT.TXT`) that called
+`RadioButton$` in the room's script. Both were reachable only by knowing they were there.
+They are now one button under the top bar at the left, opening the list of what the room will
+actually answer to. See [screens.md](screens.md#the-headset).
+
+**Reported again, on the first attempt**, as "the icon should NOT be in the top bar, below
+the bar and a bit bigger, users need to know its there properly/visibly" — it had been laid
+out inside the bar at the height of a row, where it read as another label rather than as
+something to press. It is under the bar now at half again the bar's height, on a ground of
+its own, and the pointer's label is suppressed while its list is up.
+
+**The art is the original's four states** — std, hover, down and disabled — and it is a
+headset with a boom microphone, which is what was asked for. The `RADIO` verb's own icon is
+*not* it: `VERBS.TXT` gives that verb `i_grace_std`, a 32-pixel picture of Grace's face.
+
+Three things the data decided rather than a table:
+
+- **Which rooms.** None: the gate is the timeblock, day three at nine, which is the reference
+  engine's own (`Timeblock(3, 21)`). A button that came and went room by room would be the
+  interface telling the player which rooms have something worth asking about; it shows for
+  the hour and dims where there is nothing, which is what `rc_radio_dis` is for.
+- **Which topics.** Resolved, not listed — a rule whose case does not hold is not a row.
+- **What a topic is called when several nouns share one conversation.** The porch's tiles are
+  four nouns and TE3's scales are seven, each with one answer between them. Two rules with
+  the same script are one topic and the survivor is the noun that rule's own script names in
+  its `IncNounVerbCount`. File order is right for neither: the tiles put the plain noun last
+  and the scales put it first.
+
+**The general row cannot be dropped**, which is not obvious: `TE4309P.NVC` has its
+`SOLOMON_STATUE, RADIO` rules commented out — lines 117 and 118 — because the option bar
+button covered them. Without the row that conversation and the point it scores are
+unreachable.
+
+Verified in the game: TE1 offers `Ask Grace` and `Tiles`, TE3 `Ask Grace` and
+`Scale On Table`, TE6 `Ask Grace` alone, TE5 nothing and a dim button. `TILES:RADIO` runs
+`ASK_PORCH_1` and its ten seconds of voice-over; TE6's general call plays "Grace? Um . . .
+What can you tell me about fighting a demon?" and her answer.
+
+**One thing left open.** Called from a cold headless scene, TE1's `RadioButton$` parks
+somewhere inside the room's own `RadioStart$` — the mic-raise — and never reaches its
+`IncNounVerbCount`. Each of that function's three calls returns on its own when called
+directly, and TE6's general call, which does not go through `RadioStart$`, completes and
+scores. It is the same path a right-click on a TE4 noun has always taken, so it is not this
+change; it wants reproducing from a real playthrough where Gabriel has been placed by the
+story rather than dropped into the room.
+
+## 0. Two rooms that should be underground and wet had perfectly clear air (feature) (done 2026-09-05)
+
+**Reported** as "it would be nice to add some volumetric fog in certain scenes, like CS5, TE5
+(in the depths under the bridge) to give them a more sinister feel, the CS5 fog needs to be
+low on the floor (dampness fog)".
+
+Both rooms now have a layer of fog, marched per pixel and lit by the room's own rig. See
+`docs/fog.md`; `render-scene --no-fog` is the A/B, and `GK3Reborn.exe --scene CS5 --frames 2`
+reports the layer as it loads.
+
+**It is a table rather than a derivation, and that is the interesting part.** Everything else
+this renderer adds to a room is found in the room — a flame by its bitmap, a railing by the
+holes in its texture, a window light by its name. GK3 says nothing anywhere about fog: no
+scene file has a word for it and no measurement separates a dry cellar from a damp one. So
+`Game.SceneFog` names the two rooms outright rather than pretending to have discovered them.
+
+Three things were got wrong first, and each is a number that looks reasonable:
+
+- **A falloff of 22 units in CS5** left a percent of the layer at head height, which against a
+  bracket lamp seen end-on down a tunnel washed the vault and half the wall behind it. Twelve
+  leaves a hundredth of it at the eye. Low fog is lower than it looks.
+- **A phase `g` of 0.55** peaks at seven and a half times isotropic. That is not a halo round
+  a lantern, it is a white hole with the doorway lost inside it. Both rooms are at 0.35, where
+  the peak is two and a half.
+- **No self-shadowing at all** made the temple's pit come out white to the bottom and brighter
+  than the hall around it. Every lamp reaches every sample unimpeded, and a distant key — which
+  is exempt from range falloff by design — lights the floor of a chasm as brightly as its lip.
+  Each light is now attenuated by the fog standing between it and the sample, in closed form
+  off the height profile; two exponentials, not a second march.
+
+And a fourth found on review, reported as "TE5's fog needs to be a bit lower, pref. under the
+bridge". The layer sat at `y = -15`, which is under the walkway and therefore *technically* in
+the pit, and still wrong: it laps at the lip, so the drop ends where the floor does and the
+bridge appears to span a bank of cloud. Picking from a camera inside the shaft — the hit-test
+floor at `y = 0` covers the pit and stops a pick from above ever reaching it — put
+`te5_chasm_bottom` at **`y = -725`** against a bridge deck at `0.6`, so there are eighteen
+metres to place a layer in. It is now at `-280`, which leaves several metres of visible wall
+below the bridge before the murk closes the shaft; `-400` was tried and puts it out of sight
+from every camera that can see the pit. Being deeper also made it cheaper — six falloffs above
+the top is still forty units under the walkway, so the hall never enters the march and the cost
+in TE5 fell from 1.3 ms a frame to 0.3.
+
+Costs 1.3 ms a frame in TE5 at 1280x720 and nothing measurable in CS5, and nothing at all in
+the two hundred rooms with no layer — the pass is not recorded there, which
+`A_room_with_no_fog_is_drawn_exactly_as_it_was` asserts by comparing bytes rather than
+pictures.
+
 ## 0. The church's four angels could not be traced (done 2026-09-04)
 
 **Reported:** 2026-09-04, as "I can't seem to do the tracing? trace once gives it the grace

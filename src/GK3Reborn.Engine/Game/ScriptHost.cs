@@ -49,6 +49,10 @@ public sealed class ScriptHost
         // Set here rather than by the caller because it is the calling functions above
         // that make the threads, and they are registered here too.
         api.Collects = Within;
+
+        // And how anything holding the API can ask whether a call would go anywhere. Set
+        // here for the same reason: the scripts live here.
+        api.Declares = Declares;
     }
 
     /// <summary>Scripts available to call, by name.</summary>
@@ -146,6 +150,26 @@ public sealed class ScriptHost
     {
         ArgumentNullException.ThrowIfNull(script);
         _scripts[AssetId.From(script.Name)] = script;
+    }
+
+    /// <summary>Whether a loaded script declares a function.</summary>
+    /// <param name="scriptName">Script to look in, with or without extension.</param>
+    /// <param name="functionName">Function to look for.</param>
+    /// <returns>False when the script is not loaded or does not declare it.</returns>
+    /// <remarks>
+    /// Asking before calling, for a caller that has a choice about whether to call at all.
+    /// <see cref="Run"/> is the wrong question for that: it warns and hands back an empty
+    /// thread, which is the right answer for a script that <em>should</em> have been there
+    /// and the wrong one for an interface deciding whether to offer a row.
+    /// </remarks>
+    public bool Declares(string scriptName, string functionName)
+    {
+        ArgumentNullException.ThrowIfNull(scriptName);
+        ArgumentNullException.ThrowIfNull(functionName);
+
+        return _scripts.TryGetValue(AssetId.From(scriptName), out SheepScriptFile? script) &&
+               script.Functions.Any(
+                   f => string.Equals(f.Name, functionName, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Runs a function, following calls into other scripts.</summary>

@@ -382,6 +382,9 @@ public sealed unsafe class D3D12Renderer : IRenderer
     public void SetParticles(IReadOnlyList<Particle> particles) =>
         _pipeline.SetParticles(particles);
 
+    /// <inheritdoc/>
+    public void SetFog(FogVolume fog) => _pipeline.SetFog(fog);
+
     /// <summary>Says that whatever a temporal pass remembers is worthless.</summary>
     public void ResetHistory() => _pipeline.Reset = true;
 

@@ -330,6 +330,70 @@ retranslation would.
 Of Sidney's seven screens, six work — see [sidney.md](sidney.md). What is left is the
 analyze screen's map geometry: entering points, drawing grids, locking shapes.
 
+## The headset
+
+Gabriel wears a radio headset for one hour of the game — day three, nine in the evening,
+the temple — and can ask Grace about what he is looking at. `RADIO` is one of the game's own
+287 verbs (`VERBS.TXT` line 138) and the temple's files write twenty-four rules for it, so
+this is content that shipped rather than content invented for the port.
+
+**The original made it two things and hid both.** The verb was reachable only by holding the
+button, waiting for the ring and recognising an icon — which for `RADIO` is a picture of
+Grace's face. And the option bar carried a second, separate headset button
+(`rc_radio_std` in `RC_LAYOUT.TXT`) that called one function in the room's script,
+`RadioButton$`, with no indication of when it had anything to say.
+
+So the port puts both behind one button, and what it opens is the list of things the room
+will actually answer to now:
+
+- **The picture is the original's.** `RC_RADIO_STD` and its hover, down and disabled states
+  are the four the game's own option bar used. It is a headset with a boom microphone, drawn
+  at a size that is a function of the font, which is a function of the window, so it grows
+  with everything else.
+- **It hangs under the top bar at the left, half again the bar's height.** It was inside the
+  bar first, at the height of a row beside the room's name, and that was wrong twice over: it
+  read as another label rather than as something to press, and at a row's height it was the
+  smallest thing on the screen. A control the player has to discover cannot be the hardest
+  one to see. The label under the pointer is suppressed while the list is up, for the reason
+  it is under the verb menu — it names whatever is behind the list rather than the row being
+  pointed at.
+- **Every row is one of the game's own rules**, resolved through the same `ActionResolver`
+  a right-click goes through, with the same conditions. Picking one performs
+  `NOUN, RADIO` exactly as picking `RADIO` off the verb menu would. Nothing here changes
+  what an answer is; see `Plan/03` §2.3.
+- **The room's own general call is the first row**, where the room declares
+  `RadioButton$`. It is not a duplicate of the noun list and cannot be dropped: TE4's rules
+  for radioing Grace about the Solomon statue are commented out in `TE4309P.NVC` precisely
+  because the button covered them, so without this row that conversation and the point it
+  scores are unreachable.
+
+**Several nouns are often one conversation, and the data says which name to keep.** The
+porch's tiles are four nouns — `TILES`, `CROSS_TILES`, `SKULL_TILES`, `SWORD_TILES` — with
+one radio conversation between them; TE3's scales are seven with one. Listing them all
+would offer four rows that say the same thing. Two rules with the same script are folded
+into one topic, and the survivor is the noun that rule's own script names in its
+`IncNounVerbCount` — `TILES` for the porch, `SCALE_ON_TABLE` for the scales. File order is
+right for neither: the tiles put the plain noun last and the scales put it first.
+
+**The button is shown for the whole hour and dimmed when there is nothing to say**, rather
+than appearing only in rooms with something in them — which would be the interface telling
+the player where the puzzles are. It is the reference engine's own gate
+(`Timeblock(3, 21)`), and `rc_radio_dis` is the art for it.
+
+It also dims while Gabriel is performing something or a line is playing, because asking
+Grace something in the middle of her answering the last thing would stack two voice-overs.
+**Two other signals were tried for that and both were wrong all the time.** `SceneUpdate.Occupied`
+is four conditions, one of them "the story has scripts outstanding", which in the temple is
+true from the moment the room opens and never clears — TE3 offered nothing at all. And
+`SceneAudio.Speaker` is set by an animation's caption and is not cleared when that animation
+ends, so TE1 read as Mosely still screaming for the rest of the room. `SceneAudio.Talking` is
+the one that is about a line playing now.
+
+A topic's label goes through `SceneInteraction.NameOf`, the same naming the hover label and
+the hotspot overlay use. That is the third thing in this interface that puts a noun in front
+of the player, and twice before a new one has been written that did not go through it — both
+times it introduced somebody the player had not met.
+
 ## The binoculars
 
 Two places have them — the Armchair of the Devil and the tower at Blanchefort — and

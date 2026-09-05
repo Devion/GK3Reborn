@@ -1774,6 +1774,27 @@ public static class Application
                     $"Sun: elevation {MathF.Asin(-sun.Direction.Y) * 180f / MathF.PI:0}°, " +
                     $"the rig's other {scene.Lights.Count - 1} lights kept");
             }
+
+            // The air in the room, for the handful that have any. Set with the rig rather
+            // than per frame: a layer of fog is a fact about the room, and what moves inside
+            // it runs on the shader's own clock. Nothing is said for the two hundred rooms
+            // with none, which is also what the renderer is told — a room the player walks
+            // into from a foggy one has to have the fog taken off it again.
+            //
+            // The hour as well as the room, because four of the rooms below are outdoors and
+            // are only foggy at two in the morning. This is read here rather than held with
+            // the room for that reason: the same cemetery is a different place at two in the
+            // afternoon, and the player reaches both by walking through the same gate.
+            Rendering.FogVolume air = Game.SceneFog.For(scene.Name, api.State.Timeblock);
+            renderer.SetFog(air);
+
+            if (air.Any)
+            {
+                Log.Info(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Fog: lying to y={air.Top:0.#}, thinning over {air.Falloff:0.#} units, " +
+                    $"{air.Density:0.####} a unit in {air.Steps} steps"));
+            }
             renderer.Quality = renderer.SupportsRayTracing
                 ? quality ?? settings.Quality
                 : RayTracingQuality.None;
@@ -3392,6 +3413,17 @@ public static class Application
         // Clicks the room has swallowed in a row for being busy, with nobody speaking.
         // Three is the player saying the game is stuck; see where it is counted.
         int refused = 0;
+
+        // Whether the headset's list of topics is up, and which of them is picked out. Out
+        // here for the reason the verb menu's index is: a list that is rebuilt from scratch
+        // every frame still has to remember that it is open.
+        bool radioOpen = false;
+        int radioIndex = 0;
+
+        // How many topics were said to be on offer last time it changed. Reported rather
+        // than silent: the list is the whole feature, and a headset drawn dim because the
+        // story has moved on looks exactly like one drawn dim because nothing was found.
+        int radioSaid = -1;
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(icons);
@@ -4119,6 +4151,10 @@ public static class Application
                 menuAt = pointer;
                 menuIndex = 0;
 
+                // One list at a time. Both are attached to a click and both cover the room,
+                // and two of them open at once is two things a click could mean.
+                radioOpen = false;
+
                 // Asking and getting nothing has to look different from asking and being
                 // ignored, or a room where nothing answers is indistinguishable from a
                 // right-click that did not register.
@@ -4127,6 +4163,81 @@ public static class Application
                     Log.Info(hover.Noun is { Length: > 0 } asked
                         ? $"{asked} answers to nothing here and now"
                         : "nothing under the pointer");
+                }
+            }
+
+            // What Gabriel can raise with Grace, here and now. Rebuilt every frame he is
+            // wearing the headset — one timeblock in the game — because a topic appears and
+            // disappears with the story: TE3's scales answer only once, and only from the
+            // table. It is a resolve over the handful of nouns the room writes RADIO rules
+            // for, so it costs nothing anywhere else and nothing at all in the 205 rooms
+            // where he is not wearing it.
+            List<Game.RadioTopic> topics = [];
+
+            // Not while Gabriel is performing something and not while a line is playing,
+            // which is the reference's rule for this button (<c>SetCanInteract(!actionActive)</c>)
+            // in the two terms that matter here: asking Grace something in the middle of her
+            // answering the last thing would stack two voice-overs. The button dims and the
+            // list closes itself for as long as it lasts.
+            //
+            // <b>Two wrong signals were tried first and both were wrong all the time.</b>
+            // <c>update.Occupied</c> is four conditions, one of them "the story has scripts
+            // outstanding", which in the temple is true from the moment the room opens and
+            // never clears — TE3 offered nothing at all. And <c>SceneAudio.Speaker</c> is
+            // set by an animation's caption and is not cleared when that animation ends, so
+            // TE1 read as Mosely speaking for the rest of the room. <c>Talking</c> is the
+            // one that is about a line that is playing now.
+            if (Game.Radio.WornAt(story.Timeblock) &&
+                !update.Performing(story.Ego) &&
+                room?.Talking != true &&
+                scene.Actions is { } radioActions)
+            {
+                // The room's own general call first, where the room has one. It is what the
+                // original's headset button did and the only way to some of what Grace
+                // says: TE4's rules for the Solomon statue are commented out because this
+                // covers them.
+                if (api.Declares?.Invoke(here, Game.Radio.Call) == true)
+                {
+                    topics.Add(new Game.RadioTopic(string.Empty, "Ask Grace"));
+                }
+
+                topics.AddRange(
+                    Game.Radio.Topics(radioActions, story.Ego, interaction.NameOf));
+            }
+
+            if (radioIndex >= topics.Count)
+            {
+                radioIndex = 0;
+            }
+
+            if (Game.Radio.WornAt(story.Timeblock) && topics.Count > 0 && topics.Count != radioSaid)
+            {
+                radioSaid = topics.Count;
+
+                Log.Info(topics.Count > 0
+                    ? $"Radio: {topics.Count} thing(s) to ask Grace — " +
+                      string.Join(", ", topics.Select(t => t.Label))
+                    : "Radio: nothing to ask Grace about");
+            }
+
+            if (radioOpen)
+            {
+                if (topics.Count == 0)
+                {
+                    // A topic can stop being available while its list is open — a script
+                    // running under it is enough — and a list of nothing cannot be closed
+                    // by clicking a row that is not there.
+                    radioOpen = false;
+                }
+                else if (hud?.TopicAt(pointer) is int over and >= 0)
+                {
+                    radioIndex = over;
+                }
+                else if (window.ScrollDelta != 0 && hud?.TopicCount > 0)
+                {
+                    int count = hud.TopicCount;
+
+                    radioIndex = (((radioIndex - window.ScrollDelta) % count) + count) % count;
                 }
             }
 
@@ -4505,9 +4616,62 @@ public static class Application
                 continue;
             }
 
+            // The headset, which is a list rather than a screen and so is answered before
+            // the two that open one. Clicking it again puts it away, which is what every
+            // button that opens something does.
+            if (!console.Open &&
+                window.WasClicked(Platform.PointerButton.Primary) &&
+                hud?.ButtonAt(pointer) == GameHud.RadioButton)
+            {
+                radioOpen = !radioOpen && topics.Count > 0;
+                radioIndex = 0;
+                menu = null;
+
+                if (!radioOpen && topics.Count == 0)
+                {
+                    // The button is drawn dim in this case, so this is a player checking
+                    // rather than a player being ignored. Said out loud all the same: an
+                    // empty list and a swallowed click look identical on screen.
+                    Log.Info("Radio: nothing to ask Grace about here");
+                }
+            }
+
+            // A topic, which performs the room's own RADIO rule for that noun — the same
+            // rule, with the same conditions, that picking RADIO off the verb menu runs.
+            else if (!console.Open &&
+                     window.WasClicked(Platform.PointerButton.Primary) &&
+                     radioOpen &&
+                     hud?.TopicAt(pointer) is int picked and >= 0 &&
+                     picked < topics.Count)
+            {
+                Game.RadioTopic topic = topics[picked];
+                radioOpen = false;
+
+                if (topic.IsGeneral)
+                {
+                    Log.Info($"Radio: calling Grace from {here}");
+                    Sheep.SheepExpression.Evaluate(
+                        $"CallSheep(\"{here}\", \"{Game.Radio.Call}\")", api);
+                }
+                else if (interaction.Do(topic.Noun, Game.Radio.Verb) is { } asked)
+                {
+                    Log.Info($"Radio: {asked.Noun}:{asked.Verb} [{asked.Case}]");
+                }
+            }
+
+            // A click anywhere else while the list is up puts it away without doing
+            // anything, which is what every menu does — and it must not also act on the
+            // room behind it, so it is answered here rather than left to fall through.
+            else if (!console.Open &&
+                     window.WasClicked(Platform.PointerButton.Primary) &&
+                     radioOpen)
+            {
+                radioOpen = false;
+            }
+
             // The top bar's two buttons, which are the only way in that a player who has not
             // read a key list will find.
-            if (!console.Open &&
+            else if (!console.Open &&
                 window.WasClicked(Platform.PointerButton.Primary) &&
                 hud?.ButtonAt(pointer) is { Length: > 0 } opening &&
                 story.Screens.InventoryReachable)
@@ -4799,7 +4963,11 @@ public static class Application
                         icons,
                         verbIcons,
                         (api.Mechanism as Game.Mechanisms.CoordinateDevice)?.Reading(),
-                        artwork),
+                        artwork,
+                        Game.Radio.WornAt(story.Timeblock),
+                        topics,
+                        radioOpen,
+                        radioIndex),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 

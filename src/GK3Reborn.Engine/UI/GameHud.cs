@@ -53,9 +53,19 @@ namespace GK3Reborn.UI;
 /// room but the three that lend her one.
 /// </param>
 /// <param name="Pictures">
-/// The game's own art by file name, for the one piece of the interface that is a picture
+/// The game's own art by file name, for the pieces of the interface that are a picture
 /// rather than a drawing.
 /// </param>
+/// <param name="RadioWorn">
+/// Whether Gabriel has the headset on, which is the whole of what decides that the button
+/// is drawn. True for one timeblock in the game; see <see cref="Game.Radio"/>.
+/// </param>
+/// <param name="Radio">
+/// What the room will answer to over the radio, here and now. Empty while he is wearing it
+/// with nothing to say, which draws the button dim rather than taking it away.
+/// </param>
+/// <param name="RadioOpen">Whether the list of topics is showing.</param>
+/// <param name="RadioIndex">Which of them is picked out.</param>
 public readonly record struct HudState(
     string? Noun,
     IReadOnlyList<string> Verbs,
@@ -77,7 +87,11 @@ public readonly record struct HudState(
     Func<string, ItemIcon>? Icons = null,
     Func<string, bool, ItemIcon>? VerbIcons = null,
     Game.Mechanisms.GpsReading? Gps = null,
-    Func<string, ItemIcon>? Pictures = null);
+    Func<string, ItemIcon>? Pictures = null,
+    bool RadioWorn = false,
+    IReadOnlyList<Game.RadioTopic>? Radio = null,
+    bool RadioOpen = false,
+    int RadioIndex = 0);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -194,8 +208,10 @@ public sealed class GameHud
         _rows.Clear();
         _slots.Clear();
         _buttons.Clear();
+        _topics.Clear();
 
         Where(state, width);
+        Headset(state);
         Gps(state, height);
         Hotspots(state, width, height);
         // The bar of what the player is carrying used to live along the foot of the screen.
@@ -213,10 +229,19 @@ public sealed class GameHud
         {
             Menu(state, width, height);
         }
-        else
+        else if (!state.RadioOpen)
         {
+            // And not while the radio's list is up, for the reason the verb menu is not
+            // drawn under one either: the label follows the pointer, the pointer is on the
+            // list, and what it names is whatever is behind the list rather than the row
+            // being pointed at.
             Pointing(state, width, height);
         }
+
+        // The radio's own list, over the room and under the console. It hangs from a
+        // button rather than from the pointer, so it does not compete with the verb menu
+        // above and cannot be open at the same time as one.
+        Radio(state, width, height);
 
         // Later still. The console is a different mode rather than a part of the interface,
         // and while it is up it is what the player is looking at.
@@ -499,7 +524,9 @@ public sealed class GameHud
     /// the interface would walk them.
     /// </remarks>
     public bool OverInterface(Vector2 point) =>
-        Inside(point, _strip) || ButtonAt(point) is { Length: > 0 };
+        Inside(point, _strip) ||
+        ButtonAt(point) is { Length: > 0 } ||
+        TopicAt(point) >= 0;
 
     /// <summary>Which inventory item is at a point.</summary>
     /// <param name="point">Where the player clicked, in pixels.</param>
@@ -534,6 +561,7 @@ public sealed class GameHud
 
         Overlay.Rect(0, 0, width, height, Panel);
         Overlay.Rect(0, height - 1, width, 1, Rule);
+
         Overlay.Text(state.Place, 12 * unit, 5 * unit, Dim);
 
         float right = width - (12 * unit);
@@ -571,6 +599,210 @@ public sealed class GameHud
     }
 
     private readonly List<(string Id, Vector4 Bounds)> _buttons = [];
+
+    private readonly List<(string Noun, Vector4 Bounds)> _topics = [];
+
+    /// <summary>What the headset button is called when it is clicked.</summary>
+    public const string RadioButton = "open:radio";
+
+    /// <summary>How big the headset is drawn, in units of a line.</summary>
+    /// <remarks>
+    /// Half again the height of the bar it hangs under. It was inside the bar first, at the
+    /// height of a row, and was too easy to miss - a control the player has to notice is
+    /// there at all cannot be the smallest thing on the screen. The art is a 32-pixel
+    /// square, so this is a mild enlargement at the smallest font rung and native size or
+    /// better at every rung above it.
+    /// </remarks>
+    private const float HeadsetSide = 44f;
+
+    /// <summary>Where the headset sits, whether or not it is drawn.</summary>
+    /// <param name="unit">The scale everything here is measured in.</param>
+    /// <returns>Its square.</returns>
+    /// <remarks>
+    /// Under the bar rather than in it. The bar is a row of words about where the player is;
+    /// this is a thing Gabriel is wearing that they can pick up and use, so it stands over
+    /// the room on the room's own margin, at a size that says it can be pressed.
+    /// </remarks>
+    private Vector4 HeadsetBounds(float unit)
+    {
+        float bar = Overlay.LineHeight + (10f * unit);
+        float side = HeadsetSide * unit;
+
+        return new Vector4(12 * unit, bar + (10 * unit), side, side);
+    }
+
+    /// <summary>
+    /// The headset Gabriel wears in the temple, under the top bar at the left.
+    /// </summary>
+    /// <param name="state">What the game is doing.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The picture is the original's.</b> <c>RC_RADIO_STD</c> and its hover, down and
+    /// disabled states are the four the game's own option bar used for this button -
+    /// <c>RC_LAYOUT.TXT</c> names them - so a returning player is looking at the thing they
+    /// already know. It is a headset with a boom microphone, drawn at a size that is a
+    /// function of the font, which is a function of the window.
+    /// </para>
+    /// <para>
+    /// <b>Under the bar and half again its height.</b> Inside it, beside the room's name, it
+    /// read as another label rather than as something to press, and at a row's height it was
+    /// the smallest thing on the screen.
+    /// </para>
+    /// <para>
+    /// Dim rather than absent when there is nothing to ask. The headset is on his head for
+    /// the whole hour whatever room he is in, and a button that came and went would be
+    /// telling the player which rooms have something in them worth asking about.
+    /// </para>
+    /// </remarks>
+    private void Headset(HudState state)
+    {
+        if (!state.RadioWorn)
+        {
+            return;
+        }
+
+        float unit = Scale;
+        Vector4 bounds = HeadsetBounds(unit);
+
+        bool ready = state.Radio is { Count: > 0 };
+        bool under = Inside(state.At, bounds);
+
+        // A ground behind it, because it stands over the room rather than over the bar, and
+        // the room it stands over is dark stone under a picture of mostly dark stone.
+        float pad = 3 * unit;
+
+        Overlay.Rect(
+            bounds.X - pad,
+            bounds.Y - pad,
+            bounds.Z + (pad * 2),
+            bounds.W + (pad * 2),
+            under && ready ? PanelLit : Panel);
+
+        // Named with the extension, because that is what reads a file out of the archives.
+        string art = !ready ? "RC_RADIO_DIS.BMP"
+            : state.RadioOpen ? "RC_RADIO_DWN.BMP"
+            : under ? "RC_RADIO_HOV.BMP"
+            : "RC_RADIO_STD.BMP";
+
+        if (state.Pictures?.Invoke(art) is { Drawn: true } picture)
+        {
+            Vector4 at = picture.Fit(bounds.X, bounds.Y, bounds.Z);
+
+            Overlay.Picture(picture.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+        }
+        else
+        {
+            // The art is in every copy of the game, so this is not a fallback anybody should
+            // see. It is here because a button nobody can find is worse than an ugly one,
+            // and because the archives are the player's rather than ours.
+            Overlay.Text(
+                "Grace",
+                bounds.X + (4 * unit),
+                bounds.Y + ((bounds.W - Overlay.LineHeight) / 2),
+                ready ? Ink : Dim);
+        }
+
+        // Registered whether or not there is anything to say. A dim button that answers a
+        // click with an empty list is a button; one that swallows the click is a bug.
+        _buttons.Add((RadioButton, bounds));
+    }
+
+    /// <summary>
+    /// The things Gabriel can raise with Grace, under the headset that opens them.
+    /// </summary>
+    /// <param name="state">What the game is doing.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <remarks>
+    /// Laid out like the verb menu and hit-tested the same way, because it is the same
+    /// gesture: a short list of things to do, one click to take one. It hangs from the
+    /// button rather than from the pointer — the button is where the player just clicked and
+    /// a list that opened somewhere else would be a list they have to go and find.
+    /// </remarks>
+    private void Radio(HudState state, int width, int height)
+    {
+        if (!state.RadioOpen || state.Radio is not { Count: > 0 } topics)
+        {
+            return;
+        }
+
+        float unit = Scale;
+        float padding = 8f * unit;
+        Vector4 button = HeadsetBounds(unit);
+        float bar = button.Y + button.W + (6 * unit);
+
+        const string Heading = "Grace";
+        float w = Overlay.Measure(Heading);
+
+        foreach (Game.RadioTopic topic in topics)
+        {
+            w = Math.Max(w, Overlay.Measure(Pretty(topic.Label)));
+        }
+
+        w += padding * 2;
+
+        float row = Overlay.LineHeight + (8f * unit);
+        float title = Overlay.LineHeight + (8f * unit);
+        float h = title + (row * topics.Count) + padding;
+
+        // The same answer the verb menu gives a character with thirty topics: shorter rows
+        // rather than rows under the bottom of the screen, where they cannot be clicked.
+        if (h > height - bar && topics.Count > 0)
+        {
+            row = Math.Max(
+                Overlay.LineHeight, (height - bar - title - padding) / topics.Count);
+
+            h = title + (row * topics.Count) + padding;
+        }
+
+        float x = Math.Clamp(button.X, 0, Math.Max(0, width - w));
+        float y = bar;
+
+        Overlay.Rect(x, y, w, h, PanelLit);
+        Overlay.Text(Heading, x + padding, y + (4 * unit), Accent);
+        Overlay.Rect(x, y + title, w, 1, Rule);
+
+        for (int i = 0; i < topics.Count; i++)
+        {
+            float top = y + title + (row * i);
+            var bounds = new Vector4(x, top, w, row);
+
+            bool chosen = i == state.RadioIndex;
+
+            if (chosen)
+            {
+                Overlay.Rect(x, top, w, row, new Vector4(0.28f, 0.31f, 0.37f, 1f));
+                Overlay.Rect(x, top, 2 * unit, row, Accent);
+            }
+
+            Overlay.Text(
+                Pretty(topics[i].Label),
+                x + padding,
+                top + ((row - Overlay.LineHeight) / 2),
+                chosen ? Accent : Ink);
+
+            _topics.Add((topics[i].Noun, bounds));
+        }
+    }
+
+    /// <summary>Which radio topic is at a point.</summary>
+    /// <param name="point">Where the pointer is.</param>
+    /// <returns>Its index, or -1.</returns>
+    public int TopicAt(Vector2 point)
+    {
+        for (int i = 0; i < _topics.Count; i++)
+        {
+            if (Inside(point, _topics[i].Bounds))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>How many topics the list drew.</summary>
+    public int TopicCount => _topics.Count;
 
     /// <summary>Which of the top bar's buttons is at a point, if any.</summary>
     /// <param name="point">Where the pointer is.</param>

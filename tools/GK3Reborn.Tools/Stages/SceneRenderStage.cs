@@ -51,6 +51,16 @@ public sealed class SceneRenderStage
     /// </remarks>
     public CutContentTier Restore { get; set; }
 
+    /// <summary>
+    /// Whether the room's fog is drawn, for the rooms that have any.
+    /// </summary>
+    /// <remarks>
+    /// A property rather than another argument to <see cref="Run"/>, and here for the same
+    /// reason the thick cards have a switch: the only way to say what an effect is worth is
+    /// two renders of one room that differ in nothing else. See <c>docs/fog.md</c>.
+    /// </remarks>
+    public bool Fog { get; set; } = true;
+
     /// <summary>Renders a scene.</summary>
     /// <param name="sourceDirectory">The game's <c>Data</c> directory.</param>
     /// <param name="sceneName">Scene name, such as <c>R25</c>.</param>
@@ -413,6 +423,24 @@ public sealed class SceneRenderStage
 
         _log($"lights: {scene.Lights.Count} authored " +
              $"({scene.Lights.Count(l => l.CastsShadows)} casting shadows in the bake)");
+
+        // The air in the room, for the handful that have any. Reported rather than silent,
+        // because a fog is the one thing here that touches every pixel of the frame: a
+        // render that came out hazy and says nothing about why is a render nobody can
+        // attribute.
+        // The hour decides it as well as the room: the outdoor layers are the small hours'
+        // weather, so --model CEM without a --timeblock draws the cemetery in clear air and
+        // --timeblock 202A draws it in mist. That is the same answer the game gives.
+        FogVolume fog = Fog ? SceneFog.For(sceneName, request.State?.Timeblock) : FogVolume.None;
+        renderer.SetFog(fog);
+
+        if (fog.Any)
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"fog: to y={fog.Top:0.#}, thinning over {fog.Falloff:0.#} units, " +
+                $"{fog.Density:0.####} a unit, {fog.Steps} steps"));
+        }
 
         // An action can point the camera somewhere - CS3's wardrobe cuts to OPEN_WARDROBE
         // as it swings open - so unless the caller asked for a particular angle, the render

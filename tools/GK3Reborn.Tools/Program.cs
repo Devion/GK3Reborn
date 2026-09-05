@@ -156,7 +156,7 @@ public static class Program
             Environment.CurrentDirectory, options.Model + ".png");
 
         bool rendered = options.Command == "render-scene"
-            ? new SceneRenderStage(Console.WriteLine) { Restore = options.Restore }.Run(
+            ? new SceneRenderStage(Console.WriteLine) { Restore = options.Restore, Fog = options.Fog }.Run(
                 options.Source,
                 options.Model,
                 options.Timeblock,
@@ -845,6 +845,8 @@ public static class Program
               --no-trees           render-scene leaves the foliage cards flat rather
                                    than growing modelled trees in their place. What
                                    the wood looked like in 1999, for comparison.
+              --no-fog             render-scene leaves the air in a room clear. The
+                                   A/B for the fog; only CS5 and TE5 have any.
               --wind SECONDS       Where render-scene stops the wind's clock. A still
                                    afternoon by default, so two renders of one room
                                    are the same picture; give it two values to see
@@ -1014,6 +1016,15 @@ public static class Program
         /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
         public bool Trees { get; init; } = true;
 
+        /// <summary>Whether render-scene draws the fog of a room that has any.</summary>
+        /// <remarks>
+        /// The A/B for the layer, and the only way to see what it is worth: two renders of
+        /// one room from one camera that differ in nothing else. Only two rooms in the game
+        /// have any, so on everything else it changes nothing at all — see
+        /// <see cref="Game.SceneFog"/>.
+        /// </remarks>
+        public bool Fog { get; init; } = true;
+
         /// <summary>Expand block-compressed textures on the host, as a Mac has to.</summary>
         public bool ExpandBlocks { get; init; }
 
@@ -1054,6 +1065,7 @@ public static class Program
             int heads = 0;
             bool relief = true;
             bool trees = true;
+            bool fog = true;
             bool improved = true;
             bool thickCards = true;
             bool cardShadows = true;
@@ -1096,6 +1108,9 @@ public static class Program
                         break;
                     case "--no-trees":
                         trees = false;
+                        break;
+                    case "--no-fog":
+                        fog = false;
                         break;
                     case "--expand-blocks":
                         expandBlocks = true;
@@ -1251,6 +1266,7 @@ public static class Program
                 Heads = heads,
                 Relief = relief,
                 Trees = trees,
+                Fog = fog,
                 Improved = improved,
                 ThickCards = thickCards,
                 CardShadows = cardShadows,

@@ -34,6 +34,7 @@ public sealed class ShaderInterfaceTests
         "mesh.rt",
         "composite",
         "output",
+        "fog",
     };
 
     private static (string Vertex, string Fragment) SourcesOf(string name) => name switch
@@ -42,6 +43,10 @@ public sealed class ShaderInterfaceTests
         "mesh.rt" => (MeshShaders.Compose(false, true), MeshShaders.Compose(true, true)),
         "composite" => (CompositeShaders.Vertex, CompositeShaders.Fragment),
         "output" => (OutputShaders.Vertex, OutputShaders.Fragment),
+
+        // The composite's vertex stage, which every full-screen pass shares: it declares no
+        // varyings at all, and this is what says the fog's fragment stage asks for none.
+        "fog" => (CompositeShaders.Vertex, FogShaders.Fragment),
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such pair"),
     };
 

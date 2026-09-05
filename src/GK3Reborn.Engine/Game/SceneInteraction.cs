@@ -406,6 +406,22 @@ public sealed class SceneInteraction
     public IReadOnlyList<(string Noun, Vector3 Where)> Nouns() =>
         [.. _picker.Interactive().Select(spot => (Labelled(spot.Noun, spot.Name), spot.Where))];
 
+    /// <summary>What to call a noun on screen when nothing is under the pointer.</summary>
+    /// <param name="noun">What the scene calls it.</param>
+    /// <returns>The label.</returns>
+    /// <remarks>
+    /// The same answers the hover label and the hotspot overlay give, for the third thing
+    /// that names nouns: the radio's list of topics. Everything that puts a noun in front of
+    /// the player goes through one place — twice now a new one has been written that did
+    /// not, and both times it introduced somebody the player had not met.
+    /// </remarks>
+    public string NameOf(string noun)
+    {
+        ArgumentNullException.ThrowIfNull(noun);
+
+        return Labelled(noun, ModelOf(noun)?.Name ?? string.Empty);
+    }
+
     /// <summary>What a noun is called when there is no pointer resting on it.</summary>
     /// <param name="noun">What the scene calls it.</param>
     /// <param name="model">The object it was found on, which carries a door's number.</param>
@@ -475,14 +491,34 @@ public sealed class SceneInteraction
     /// means it more urgently, so the walk in front of the action is run rather than walked.
     /// </param>
     /// <returns>What happened, or null when there was nothing to do.</returns>
-    public ActionOutcome? Do(Hover hover, string? verb = null, bool hurry = false)
+    public ActionOutcome? Do(Hover hover, string? verb = null, bool hurry = false) =>
+        hover.Noun is { Length: > 0 } noun
+            ? Do(noun, verb ?? hover.Default, hurry)
+            : null;
+
+    /// <summary>Does something to a noun the pointer is not on.</summary>
+    /// <param name="noun">What the action files call it.</param>
+    /// <param name="verb">The verb to perform.</param>
+    /// <param name="hurry">Whether the walk in front of it is run rather than walked.</param>
+    /// <returns>What happened, or null when nothing applies.</returns>
+    /// <remarks>
+    /// The same path a click takes, minus the pick — which nothing below this line ever
+    /// read. An approach is <c>approach=</c> and <c>target=</c> in the rule, both names
+    /// rather than places, so where the pointer happened to be has never been part of
+    /// performing an action. What needs this is a list of things to do that is not a list of
+    /// things under the pointer: the radio's topics are nouns the player picks by name, and
+    /// some of them — the porch's tiles — are not one clickable object at all.
+    /// </remarks>
+    public ActionOutcome? Do(string noun, string? verb, bool hurry = false)
     {
-        if (hover.Noun is not { Length: > 0 } noun || _actions is null)
+        ArgumentNullException.ThrowIfNull(noun);
+
+        if (noun.Length == 0 || _actions is null)
         {
             return null;
         }
 
-        if ((verb ?? hover.Default) is not { Length: > 0 } chosen)
+        if (verb is not { Length: > 0 } chosen)
         {
             return null;
         }

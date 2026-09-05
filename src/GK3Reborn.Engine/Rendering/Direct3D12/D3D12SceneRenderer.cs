@@ -182,6 +182,9 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
     public void SetParticles(IReadOnlyList<Particle> particles) =>
         _pipeline.SetParticles(particles);
 
+    /// <inheritdoc/>
+    public void SetFog(FogVolume fog) => _pipeline.SetFog(fog);
+
     /// <summary>Draws a scene and returns the picture.</summary>
     /// <param name="geometry">What to draw, already finished.</param>
     /// <param name="width">Width in pixels.</param>

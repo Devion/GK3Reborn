@@ -60,6 +60,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private D3D12Texture? _depth;
     private D3D12ParticlePass? _particlePass;
     private IReadOnlyList<Particle> _particles = [];
+    private D3D12FogPass? _fogPass;
+    private FogVolume _fog = FogVolume.None;
     private D3D12Texture? _lit;
 
     /// <summary>The room as this frame's mirror sees it, if the room has one.</summary>
@@ -550,7 +552,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             finished = Compose(list, scene, camera, width, height);
         }
 
-        // --- the room's smoke and embers, over the finished picture ---
+        // --- the air in the room, and then what is burning in it ---
+        RecordFog(list, finished, camera, width, height);
         RecordParticles(list, finished, camera, width, height);
 
         // --- the upscale, where one was asked for ---
@@ -649,6 +652,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _frames.Dispose();
         _particlePass?.Dispose();
         _particlePass = null;
+        _fogPass?.Dispose();
+        _fogPass = null;
         _compiler.Dispose();
         _geometry.Dispose();
     }
@@ -720,6 +725,57 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     {
         ArgumentNullException.ThrowIfNull(particles);
         _particles = particles;
+    }
+
+    /// <summary>Gives the room its fog, or takes it away again.</summary>
+    /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
+    public void SetFog(FogVolume fog) => _fog = fog;
+
+    /// <summary>
+    /// Marches the room's fog over the picture it has just made.
+    /// </summary>
+    /// <param name="list">Command list to record into.</param>
+    /// <param name="finished">The picture, whichever target it ended up in.</param>
+    /// <param name="camera">Where the frame was looked at from.</param>
+    /// <param name="width">Render width.</param>
+    /// <param name="height">Its height.</param>
+    /// <remarks>
+    /// Before the smoke and after everything else in the room. The Vulkan renderer says why
+    /// that order and not the other; see <c>VulkanRenderer.RecordFog</c>.
+    /// </remarks>
+    private void RecordFog(
+        ID3D12GraphicsCommandList4* list,
+        D3D12Texture finished,
+        Camera camera,
+        int width,
+        int height)
+    {
+        if (!_fog.Any || _targets is null || _depth is null)
+        {
+            return;
+        }
+
+        _fogPass ??= D3D12FogPass.Create(_context, _compiler, GBufferFormats.Light);
+
+        finished.Transition(list, ResourceStates.RenderTarget);
+        _depth.Transition(list, ResourceStates.AllShaderResource);
+
+        _fogPass.Record(
+            list,
+            _targets.Cpu(_rayTracing ? Slots.Lit : 0),
+            _frames,
+            0,
+            _depth,
+            width,
+            height,
+            FogConstants.For(
+                _fog,
+                _frames.Grid,
+                _frames.Settings.Ambient,
+                camera,
+                _frames.Seconds,
+                width,
+                height));
     }
 
     /// <summary>

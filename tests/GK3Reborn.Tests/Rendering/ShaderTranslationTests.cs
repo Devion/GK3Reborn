@@ -47,6 +47,7 @@ public sealed class ShaderTranslationTests
         { "shadow.filter", ShaderStage.Compute },
         { "reflect.downsample", ShaderStage.Compute },
         { "reflect.march", ShaderStage.Compute },
+        { "fog.frag", ShaderStage.Fragment },
     };
 
     private static string SourceOf(string name) => name switch
@@ -60,6 +61,7 @@ public sealed class ShaderTranslationTests
         "shadow.filter" => DenoiserShaders.ComposeFilter(),
         "reflect.downsample" => ReflectionShaders.ComposeDownsample(),
         "reflect.march" => ReflectionShaders.ComposeMarch(),
+        "fog.frag" => FogShaders.Fragment,
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such shader"),
     };
 

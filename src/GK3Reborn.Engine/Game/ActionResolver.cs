@@ -68,6 +68,39 @@ public sealed class ActionResolver
         [.. _files.SelectMany(f => f.Actions).Select(a => a.Noun).Distinct(StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>
+    /// Every noun any loaded file writes a rule about for one verb, in file order.
+    /// </summary>
+    /// <param name="verb">The verb to look for.</param>
+    /// <returns>The nouns, whether or not any of their cases hold now.</returns>
+    /// <remarks>
+    /// The candidates for a list of one verb's worth of things to do — the radio's topics
+    /// are this, resolved. Deliberately unconditioned: <see cref="Find"/> is what decides
+    /// whether a rule applies, and asking that question here as well would be two places
+    /// that have to agree.
+    /// </remarks>
+    public IReadOnlyList<string> NounsFor(string verb)
+    {
+        ArgumentNullException.ThrowIfNull(verb);
+
+        List<string> nouns = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (NvcFile file in _files)
+        {
+            foreach (NvcAction action in file.Actions)
+            {
+                if (string.Equals(action.Verb, verb, StringComparison.OrdinalIgnoreCase) &&
+                    seen.Add(action.Noun))
+                {
+                    nouns.Add(action.Noun);
+                }
+            }
+        }
+
+        return nouns;
+    }
+
+    /// <summary>
     /// Finds the actions currently valid for a noun.
     /// </summary>
     /// <param name="noun">The thing being looked at.</param>

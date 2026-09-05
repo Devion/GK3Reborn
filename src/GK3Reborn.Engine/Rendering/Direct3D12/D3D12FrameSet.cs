@@ -246,6 +246,23 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// </remarks>
     public D3D12Buffer Rig(int frame) => _rig[SlotFor(frame, reflection: false)];
 
+    /// <summary>Where each cell of the light grid's list starts, for one frame.</summary>
+    /// <param name="frame">Which frame.</param>
+    /// <returns>The cells.</returns>
+    /// <remarks>
+    /// The fog pass walks the grid exactly as the shading does, through a table of its own
+    /// rather than through the frame's — the frame's holds the constant buffer and the
+    /// acceleration structure between the parts it wants, and a descriptor table is a
+    /// contiguous run. Both halves are handed out rather than rebuilt, because a second copy
+    /// of a grid is a second answer to which lights reach a point.
+    /// </remarks>
+    public D3D12Buffer Cells(int frame) => _cells[SlotFor(frame, reflection: false)];
+
+    /// <summary>Which lights are in each of those cells, for one frame.</summary>
+    /// <param name="frame">Which frame.</param>
+    /// <returns>The list.</returns>
+    public D3D12Buffer Reaching(int frame) => _reaching[SlotFor(frame, reflection: false)];
+
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
     /// <param name="lights">The rig the scene was authored with.</param>
     /// <param name="scene">What the geometry occupies.</param>

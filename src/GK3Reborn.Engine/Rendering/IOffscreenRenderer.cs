@@ -48,6 +48,14 @@ public interface IOffscreenRenderer : IDisposable
     /// </remarks>
     void SetParticles(IReadOnlyList<Particle> particles);
 
+    /// <summary>Gives the room its fog, or takes it away again.</summary>
+    /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
+    /// <remarks>
+    /// None unless a caller sets it, which is the state of every room but the handful
+    /// <see cref="Game.SceneFog"/> names.
+    /// </remarks>
+    void SetFog(FogVolume fog);
+
     /// <summary>Somewhere to put a scene, on this renderer's device.</summary>
     /// <returns>Empty geometry.</returns>
     SceneGeometry CreateGeometry();

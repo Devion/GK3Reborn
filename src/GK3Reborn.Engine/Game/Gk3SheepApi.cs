@@ -211,6 +211,18 @@ public sealed class Gk3SheepApi : ISheepApi
     public Func<string, string, Approaching, bool, bool, double>? Walks { get; set; }
 
     /// <summary>
+    /// Whether a loaded script declares a function, given the script and the function.
+    /// </summary>
+    /// <remarks>
+    /// Set by <see cref="ScriptHost"/> when it registers the calls, so anything holding the
+    /// API can ask before it calls. What needs it is the interface: the radio's general call
+    /// is <c>CallSheep(&lt;room&gt;, "RadioButton$")</c> and four of the five temple rooms
+    /// declare it — offering the row in the fifth would be a menu entry that does nothing,
+    /// which is worse than one that is not there.
+    /// </remarks>
+    public Func<string, string, bool>? Declares { get; set; }
+
+    /// <summary>
     /// The noun of the action being carried out, or empty.
     /// </summary>
     /// <remarks>
