@@ -223,26 +223,57 @@ public static class SceneFog
     /// </para>
     /// <para>
     /// <b>Thin, and thinner than it looks like it should be.</b> At the cemetery's density
-    /// the streets are pea soup with the cobbles gone by the second house; at 0.0006 the
-    /// cobbles read the whole way down the alley and the lamp still has a body of light
-    /// round it. A village is enclosed at eye level and open along its length, and it is
-    /// the length that decides this.
+    /// the streets are pea soup with the cobbles gone by the second house. A village is
+    /// enclosed at eye level and open along its length, and it is the length that decides
+    /// this.
+    /// </para>
+    /// <para>
+    /// <b>And thinner again than the first answer to that.</b> 0.0006 reads on the square,
+    /// where a ray is in the layer for a few hundred units before a house stops it, and is
+    /// a wall of milk in the lane RC3 runs between the church and the cemetery, where the
+    /// same ray has two thousand units of open street and the camera stands at knee height
+    /// inside the layer. There is nothing to trade off there: the lanes are where the layer
+    /// is longest, so the lanes are what the density has to be set by.
+    /// </para>
+    /// <para>
+    /// <b>What buys the square back is the grain, and the grain had to be made to work
+    /// first.</b> Cutting the density alone gives a thinner wash of the same smooth wash —
+    /// what the eye was reading as heavy was not only how much fog there was but that it
+    /// was the same everywhere. The layer only reads as mist standing in a street once the
+    /// field it is modulated by has features a ray crosses a few of rather than a wobble it
+    /// averages away; see <c>FogShaders.Field</c>. The cell below is two thirds of what it
+    /// was and the strength nearly double, and both of those did nothing at all here until
+    /// that was fixed.
     /// </para>
     /// </remarks>
     private static readonly FogVolume Village = new(
         Colour: new Vector3(0.50f, 0.55f, 0.62f),
-        Density: 0.0006f,
+        Density: 0.0004f,
 
         // Lower and tighter than the cemetery's. The lamps stand about eighty units up and
         // what should carry their light is the air near the ground, not the air round the
         // bulb: a layer breathing up to the lamp turns each one into a ball of cloud.
+        //
+        // Tighter than this was tried and comes out worse rather than lighter: a top of 3
+        // over a falloff of 5 puts the whole layer under a metre, which is under every
+        // camera in RC1 and RC4, and the two squares lose the mist entirely while the lanes
+        // still have it.
         Top: 6f,
         Falloff: 12f,
         Anisotropy: 0.35f,
         Ambient: 1f,
-        NoiseScale: 220f,
+
+        // Getting on for four metres a cell, against the cemetery's five and a half — and
+        // small is what makes this visible, which is the opposite of how it reads. A ray
+        // down the lane crosses a dozen of the cemetery's cells and averages them to
+        // nothing; it crosses four of these, so what it meets is banks.
+        NoiseScale: 150f,
         NoiseDrift: 2.5f,
-        NoiseStrength: 0.45f,
+
+        // High, and it can afford to be, because the mean does not move with it: the field
+        // is symmetric about a half, so this says how far apart the clear air and the thick
+        // of a bank are rather than how much fog there is.
+        NoiseStrength: 0.85f,
         Steps: 32);
 
     /// <summary>The dig site in the small hours: mist across the hollow.</summary>

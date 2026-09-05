@@ -59,8 +59,12 @@ namespace GK3Reborn.Rendering;
 /// light reaches from being a hole in the picture rather than fog.
 /// </param>
 /// <param name="NoiseScale">
-/// How many world units one cell of the density noise spans. Zero switches the noise off
-/// and with it the eight hashes a step costs.
+/// How many world units one cell of the density noise's larger octave spans. Zero switches
+/// the noise off and with it the sixteen hashes a step costs. <b>Smaller is more visible,
+/// not less</b>: what the eye sees is the field averaged along the ray, so a cell as wide as
+/// the room modulates the whole picture by one number and vanishes, and a cell a ray crosses
+/// several of is what reads as banks. A few metres — a hundred and fifty units or so — is
+/// where a village street stops being a wall of milk.
 /// </param>
 /// <param name="NoiseDrift">How fast the noise moves through the layer, in units a second.</param>
 /// <param name="NoiseStrength">

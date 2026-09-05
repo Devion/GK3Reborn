@@ -176,9 +176,9 @@ public static class FogShaders
 
         // One number in [0,1) per cell of the noise lattice.
         //
-        // Integer rather than the sine-fract hash the coat uses, because this is asked eight
-        // times a step and thirty-two steps a pixel: at 1080p that is half a billion of
-        // them, and half a billion transcendentals is a pass nobody can afford. It is also
+        // Integer rather than the sine-fract hash the coat uses, because this is asked
+        // sixteen times a step and thirty-two steps a pixel: at 1080p that is a billion of
+        // them, and a billion transcendentals is a pass nobody can afford. It is also
         // exactly reproducible, which the sine one is not — its accuracy is the driver's
         // business and two cards disagree about the last bits.
         float Hash(vec3 cell)
@@ -268,6 +268,41 @@ public static class FogShaders
             return exp(-fog.tint.w * column * (span / abs(rise)));
         }
 
+        // The field the layer's density is modulated by, from nought at a hole in the mist
+        // to one in the thick of a bank, with a half being the layer's own density.
+        //
+        // <b>Plain value noise cannot make a bank, and the reason is the march rather than
+        // the noise.</b> What reaches the eye is the field integrated along the ray, and an
+        // integral is an average: cross nine cells of something that wobbles either side of
+        // its mean and the wobbles cancel to a third of what any one of them was. In a
+        // cellar that costs nothing, because the ray is out of the fog and into a wall
+        // within a cell or two. Down a village street at two in the morning it is the whole
+        // picture — the layer came out a smooth wall of milk, and taking the strength from
+        // 0.45 to 0.95 moved it by four percent of a channel.
+        //
+        // So two things, and both of them are about what survives an average.
+        float Field(vec3 at)
+        {
+            // Mist lies in sheets. Cells three times as wide as they are deep are what tells
+            // a bank standing in a street from a cloud filling it, and it costs nothing at
+            // all: the lookup is scaled, not taken twice.
+            vec3 shaped = vec3(at.x, at.y * 3.0, at.z);
+
+            // Two octaves. The large one is what a ray crosses two or three of, so it is
+            // very nearly the whole of what survives the march; the small one never survives
+            // it and is not meant to — it is the ragged edge on a bank seen close to, which
+            // is most of the difference between mist and a gradient.
+            float n = (Noise(shaped) + (0.5 * Noise((shaped * 2.7) + 19.0))) / 1.5;
+
+            // Trilinear noise spends most of its volume near the middle: the lattice corners
+            // are the only places it reaches nought or one and everything between them is
+            // smoothed towards a half, so left alone it is a haze with a slight variation in
+            // it rather than a field with features. Two and a half times the contrast,
+            // clamped, gives air that is genuinely clear in places and genuinely thick in
+            // others — at the same mean, which is what makes this a shape and not a density.
+            return clamp(0.5 + ((n - 0.5) * 2.5), 0.0, 1.0);
+        }
+
         // How much fog there is at a point, as a fraction of the layer's own density.
         float Density(vec3 at)
         {
@@ -282,7 +317,7 @@ public static class FogShaders
                 float drift = fog.eyeAndTime.w * fog.grain.y;
                 vec3 moved = at + vec3(drift, 0.0, drift * 0.6);
 
-                float n = Noise(moved / fog.grain.x);
+                float n = Field(moved / fog.grain.x);
                 thickness *= 1.0 + (fog.grain.z * ((n * 2.0) - 1.0));
             }
 

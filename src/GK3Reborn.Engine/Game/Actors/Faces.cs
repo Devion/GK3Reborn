@@ -244,6 +244,22 @@ public sealed class Faces
         return true;
     }
 
+    /// <summary>What a region of somebody's face is painted with at the moment.</summary>
+    /// <param name="actor">Their noun or their model name.</param>
+    /// <param name="part">Which region.</param>
+    /// <returns>The bitmap's name, or null when there is no such face here.</returns>
+    /// <remarks>
+    /// The read side of <see cref="Paint(string, FacePart, string?)"/>. A face's regions are
+    /// worn rather than momentary — a mood holds one until its "off" animation takes it back
+    /// — so what is on one is state, and state nothing can read is state nothing can check.
+    /// </remarks>
+    public string? Wearing(string actor, FacePart part)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        return _faces.TryGetValue(actor, out Face? face) ? Worn(face, part) : null;
+    }
+
     /// <summary>Lets time pass: mouths follow what is being said, and eyes blink.</summary>
     /// <param name="seconds">How much time.</param>
     public void Advance(double seconds)
@@ -359,9 +375,31 @@ public sealed class Faces
     /// Runs whatever expression a face is wearing, and counts down to the next blink.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A blink animation is nothing but <c>FACETEX</c> nodes on the eyelids — three or six
     /// frames of it — so playing one is walking its nodes by frame, exactly as lip sync
     /// walks its own, and exactly as a raised eyebrow does. One loop covers all three.
+    /// </para>
+    /// <para>
+    /// <b>An expression that has run is not an expression taken off.</b> Every blink in the
+    /// corpus ends on an <c>UNFACETEX</c> — <c>xxx_BLINK_01</c>, <c>_02</c>, <c>_01</c>,
+    /// clear — which is the animation putting the eyelids back itself, and the same is true
+    /// of the "off" half of every mood. So an animation reaching its last frame stops here
+    /// and changes nothing: whatever its final node said is what the face keeps.
+    /// </para>
+    /// <para>
+    /// That is not a nicety, because the moods are two animations and only the first of
+    /// them runs when the mood goes on. <c>SIMSLEEPON.ANM</c> is one <c>FACETEX</c> holding
+    /// Simone's eyelids at <c>SIM_BLINK_02</c> — shut — and no <c>UNFACETEX</c> at all,
+    /// against <c>SIMSLEEPOFF.ANM</c>, which is the <c>UNFACETEX</c> on its own. Clearing
+    /// the face when the "on" ended opened her eyes two frames after the lobby put her to
+    /// sleep, and she then blinked through the small hours face down on the reception desk.
+    /// </para>
+    /// <para>
+    /// The mouth is the exception, and only for lip sync. A <c>LIPSYNCH</c> shape has no
+    /// node that puts it back — there is no <c>UNLIPSYNCH</c> — so a mouth left on the last
+    /// shape of a word is a face frozen mid-word, and that one is restored.
+    /// </para>
     /// </remarks>
     private void Blink(Face face, double seconds)
     {
@@ -380,15 +418,23 @@ public sealed class Faces
 
             foreach (FacePart part in Parts)
             {
-                string? texture = over ? null : Latest(playing, part, frame);
-
-                // An animation may move a mouth two ways: a FACETEX naming a bitmap
-                // outright, or a LIPSYNCH naming one of the eight shapes. The shape needs
-                // the character's code in front of it; the bitmap does not.
-                if (part == FacePart.Mouth && texture is null && !over &&
-                    LatestShape(playing, face, frame) is { } shape)
+                // Only what this animation has actually said about this region, and only up
+                // to now. A region it never mentions is somebody else's — a brow going up
+                // must not put a held expression back, and a blink must not either.
+                if (!Says(playing, part, over ? playing.FrameCount : frame,
+                        out string? texture))
                 {
-                    texture = face.Config.MouthTexture(shape);
+                    // An animation may move a mouth two ways: a FACETEX naming a bitmap
+                    // outright, or a LIPSYNCH naming one of the eight shapes. The shape
+                    // needs the character's code in front of it; the bitmap does not.
+                    if (part != FacePart.Mouth || LatestShape(playing, face, frame) is not
+                        { } shape)
+                    {
+                        continue;
+                    }
+
+                    // And nothing puts a shape back, so the end of the word does.
+                    texture = over ? null : face.Config.MouthTexture(shape);
                 }
 
                 // Otherwise the mouth is the one part an expression does not own outright:
@@ -413,6 +459,17 @@ public sealed class Faces
             return;
         }
 
+        // Somebody wearing their eyelids does not blink. A blink would run its own three
+        // pictures over whatever is held there and then clear it, so a sleeping character
+        // blinking is also a sleeping character whose eyes are open afterwards — one fault
+        // and not two. The timer keeps running, so the moment the mood comes off and the
+        // eyelids are their own again, blinking picks up where it was.
+        if (!Rested(face, FacePart.Eyelids))
+        {
+            face.Blink = Wait(face.Config);
+            return;
+        }
+
         face.Playing = _animations.Read(Choose(face.Config.Blinks));
         face.Played = 0;
 
@@ -428,10 +485,42 @@ public sealed class Faces
     private static readonly FacePart[] Parts =
         [FacePart.Forehead, FacePart.Eyelids, FacePart.Mouth];
 
-    /// <summary>The last thing an animation put on a region at or before a moment.</summary>
-    private static string? Latest(AnimationFile animation, FacePart part, double frame)
+    /// <summary>Whether a region is the character's own rather than something put on it.</summary>
+    /// <remarks>
+    /// The resting bitmaps are named by convention off the character's three letters, so
+    /// "nothing is painted here" is a comparison and does not need remembering. Which is
+    /// what makes the sleeping test above cost nothing to keep true: the "off" animation
+    /// puts the eyelids back by name and this reads as rested again straight away.
+    /// </remarks>
+    private static bool Rested(Face face, FacePart part) =>
+        Worn(face, part).Equals(
+            face.Config.RestingTexture(part), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What a region is painted with at the moment.</summary>
+    private static string Worn(Face face, FacePart part) => part switch
     {
-        string? found = null;
+        FacePart.Eyelids => face.Eyelids,
+        FacePart.Forehead => face.Forehead,
+        _ => face.Mouth,
+    };
+
+    /// <summary>The last thing an animation put on a region at or before a moment.</summary>
+    /// <param name="animation">The animation being walked.</param>
+    /// <param name="part">Which region.</param>
+    /// <param name="frame">How far in, in frames.</param>
+    /// <param name="texture">Its bitmap, or null where the node was an <c>UNFACETEX</c>.</param>
+    /// <returns>Whether the animation says anything about this region by now at all.</returns>
+    /// <remarks>
+    /// The return and the out are two different questions and both matter. A region an
+    /// animation never touches is left as it was; a region it clears with an
+    /// <c>UNFACETEX</c> goes back to the character's own. Answering both with a null
+    /// texture is what made a blink put a mood back.
+    /// </remarks>
+    private static bool Says(
+        AnimationFile animation, FacePart part, double frame, out string? texture)
+    {
+        bool found = false;
+        texture = null;
 
         foreach (AnimationFace cue in animation.Faces)
         {
@@ -442,7 +531,8 @@ public sealed class Faces
 
             if (cue.Part == part)
             {
-                found = cue.Texture;
+                found = true;
+                texture = cue.Texture;
             }
         }
 
@@ -550,7 +640,17 @@ public sealed class Faces
                 start.Width, start.Height, pixels, start.HasAlpha, "face");
 
             Over(composed, Painted(face, face.Forehead), face.Config.ForeheadOffset, null);
-            Over(composed, Painted(face, face.Eyelids), face.Config.EyelidsOffset, face.Config.EyelidsAlpha);
+            // The eyelids' alpha channel belongs to the resting eyelids and to nothing
+            // else. It is a hole cut where the eye opening is, so that the eyeball
+            // underneath shows through a lid that is open; laying it over a lid an
+            // animation has painted punches that same hole through a shut eye, and the
+            // open eyes baked into the face bitmap come back up through it. So a blink
+            // half closed, and Simone asleep on the reception desk with her eyes open.
+            Over(
+                composed,
+                Painted(face, face.Eyelids),
+                face.Config.EyelidsOffset,
+                Rested(face, FacePart.Eyelids) ? face.Config.EyelidsAlpha : null);
             Over(composed, Painted(face, face.Mouth), face.Config.MouthOffset, null);
 
             _geometry.AddTexture(name, composed);
