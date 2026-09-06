@@ -1,4 +1,4 @@
-﻿namespace GK3Reborn;
+namespace GK3Reborn;
 
 /// <summary>
 /// What can be typed after the executable's name, and what each thing means.
@@ -101,150 +101,109 @@ public static class CommandLine
         usage:
           GK3Reborn [options]
 
-        No arguments is how a player starts it: the intro, the menu, and then day one at
-        ten in the morning in the lobby of the Hôtel de Rennes-le-Château. Everything else
-        is for looking at a particular thing, and every run writes log.txt beside the
-        executable (or in the user's own directory when that cannot be written to).
+        With no options: intro, menu, then day one at 10am. Every run writes log.txt.
 
         help:
           --help, -h, -?        Print this and exit.
 
         where to start:
-          --data DIR            The game's Data directory. Found beside the executable or in
-                                the usual development place otherwise.
-          --start SCENE         The room the story begins in after the menu. Default R25.
-          --timeblock TB        The time of day, as the game names it: 110A is day 1, 10am.
-          --scene SCENE         Open a room directly, with no intro and no menu.
-          --front               With --scene, show the menu first anyway.
-          --camera NAME         Start at one of the room's own cameras.
-          --skip-intro          Go straight to the menu; play none of the opening films.
-          --no-movies           Play no film at all.
-          --front-page PAGE     Open the menu on one of its pages: Options, Video, Display.
-          --settings FILE       Read and write another settings file, leaving yours alone.
-          --movie NAME          Play one of the films straight away.
-          --language CODE       Read the game in another language for this run only:
-                                en, fr, de, it, es, pt, ru, pl. Needs Reborn_<CODE>.rebarn
-                                beside the game; without one the installation's own
-                                language is used and the run says so.
+          --data DIR            The game's Data directory.
+          --start SCENE         Room the story starts in. Default R25.
+          --timeblock TB        Time of day, as the game names it: 110A is day 1, 10am.
+          --scene SCENE         Open a room directly. No intro, no menu.
+          --front               Show the menu first anyway.
+          --camera NAME         Start at one of the room's cameras.
+          --skip-intro          Play no opening films.
+          --no-movies           Play no films at all.
+          --front-page PAGE     Open the menu on a page: Options, Video, Display.
+          --settings FILE       Use another settings file.
+          --movie NAME          Play one film and nothing else.
+          --language CODE       en, fr, de, it, es, pt, ru, pl. Needs Reborn_<CODE>.rebarn.
 
         graphics:
-          --backend NAME        vulkan or d3d12. Windows gets Direct3D 12 unless told
-                                otherwise; everywhere else is Vulkan. If Direct3D cannot
-                                start on this machine the game says so and uses Vulkan.
-          --vulkan, --d3d12     The same, shorter. -vulkan and -dx12 are accepted too.
-          --rt LEVEL            Ray tracing: off, low, medium or high. Outranks the setting
-                                for this run only; a device without it draws none.
-          --width N, --height N The window size, for photographing an interface at a size
-                                this display has not got.
-          --libs-dir DIR        Where the DLSS and FSR runtimes are. Default libs/ beside
-                                the executable, and libs/streamline/ under it.
-          --expand-blocks       Behave like a device with no block-compressed texture
-                                formats, which is how the Mac's path is exercised elsewhere.
-          --heads N             How many times to refine the characters' heads, 0 to 3.
+          --backend NAME        vulkan or d3d12.
+          --vulkan, --d3d12     The same, shorter.
+          --rt LEVEL            Ray tracing: off, low, medium or high.
+          --width N, --height N Window size.
+          --libs-dir DIR        Where the DLSS and FSR runtimes are.
+          --expand-blocks       Decompress textures instead of using BC formats.
+          --heads N             Head refinement, 0 to 3.
           --flat-heads          The same as --heads 0.
-          --round N             How far the round things are rounded.
-          --relief N            The displacement budget; 0 displaces nothing.
-          --no-thick-cards      Draw every railing, fence and chain as the flat card it
-                                shipped as, rather than giving it a thickness.
-          --no-card-shadows     Keep the thickness but let the light through, as builds
-                                before this one did.
-          --no-cull             Draw both sides of every surface in the room, as builds
-                                before this one did. The A/B for the culling; it is what
-                                shows a solid sheet standing where a doorway should be.
-          --no-sun              Leave out the synthesized sun, which stands in for the
-                                artists' scenekey in any room whose asset names a sky.
-          --real-light          Switch off the artists' fills, ambients and bounces so
-                                that only real sources light the room: the sun, the sky
-                                through a window, a lamp, a fire. Rooms lit mostly by
-                                those fills get darker.
-          --no-real-light       Force the fills back on, whatever the setting says.
-          --no-floor-reflections Draw no rendered reflection in a polished floor, as
-                                builds before this one did. The screen-space one stays.
-          --no-emissive         Leave the room's glowing things unlit, as builds before
-                                this one did: a lamp shade drawn bright and lighting
-                                nothing.
-          --emissive-list       Say what in this room glows and how big it is, which is
-                                what decides the light it is given.
-          --daylight-list       Say which of the room's objects are windows, which is where
-                                its daylight is put when the artists left it out of reach.
-          --flat                Colour textures only: no normal maps, no relief.
-          --font NAME           Draw the interface with one of the game's own font sheets,
-                                such as F_CAPTION_D_20.
-          --font-file PATH      Draw it from a TrueType file.
-          --bitmap-font         Draw it in the game's own 640x480 letters.
+          --round N             How far round objects are rounded.
+          --relief N            Displacement budget. 0 displaces nothing.
+          --no-thick-cards      Railings and fences stay flat cards.
+          --no-card-shadows     Thick cards cast no shadow.
+          --no-cull             Draw both sides of every room surface.
+          --no-birds            No birds render in the sky.
+          --no-sun              No synthesized sun outdoors.
+          --real-light          Light rooms from real sources only. Some get darker.
+          --no-real-light       Keep the artists' fill lights on.
+          --no-floor-reflections No rendered reflections in polished floors.
+          --no-emissive         Glowing objects light nothing.
+          --emissive-list       List what glows in this room.
+          --daylight-list       List which objects are windows.
+          --flat                Colour textures only. No normal maps, no relief.
+          --font NAME           Use a game font sheet, such as F_CAPTION_D_20.
+          --font-file PATH      Use a TrueType file.
+          --bitmap-font         Use the game's 640x480 letters.
 
         content:
-          --enhanced [DIR]      Prefer the loose enhanced textures; bare means the content
-                                workspace beside the repository.
-          --workspace DIR       The content workspace, for the loose enhanced sets.
-          --uncompressed        Read the loose sets rather than the block-compressed packs.
-          --rebarn              The .rebarn packs and nothing else; refuse to start without.
-          --packs DIR           Where the packs are. Beside the executable otherwise.
-          --overrides DIR       Where the player's own overriding files are. Default
-                                overrides/ beside the executable.
+          --enhanced [DIR]      Prefer loose enhanced textures.
+          --workspace DIR       Where the content workspace is.
+          --uncompressed        Read loose sets instead of the packs.
+          --rebarn              Packs only. Refuse to start without them.
+          --packs DIR           Where the packs are.
+          --overrides DIR       Where the player's overriding files are.
           --no-overrides        Ignore the overrides directory.
-          --restore-cut-content Put back content the game shipped with and cannot
-                                reach: rules its developers commented out, and
-                                bindings that stopped matching when a model was
-                                renamed. Things to look at and listen to only.
-                                Add "all" for the restored rules whose verb can
-                                do something, or "rebuilt" to add the objects
-                                that were never modelled. See docs/cut-content.md.
+          --restore-cut-content Restore content the game cannot reach. Add "all" for
+                                working rules, "rebuilt" for unmodelled objects.
 
         photographing a run (headless, no keyboard):
           --frames N            Stop after N frames.
           --screenshot PATH     Write the last frame there.
-          --offscreen           Draw one frame with no window at all and write it out.
-          --render              Open a window and present frames until it is closed. A
-                                smoke test of the device, the swapchain and the present.
-          --headless-frames     With --render, sixty frames and then stop.
-          --pointer X,Y         Pin the pointer at a spot, as if a mouse were there.
+          --offscreen           Draw one frame with no window and write it out.
+          --render              Present frames until the window is closed.
+          --headless-frames     Stop --render after sixty frames.
+          --pointer X,Y         Pin the pointer there.
           --menu                Open the verb wheel under it.
-          --eye X,Y,Z           Stand the camera somewhere in the room.
-          --aim H,P             Aim it, heading and pitch in degrees.
-          --free-camera         Let the camera be flown; the Playing page has the same row.
-          --console TEXT        Open the console and type that into it.
-          --run CMD[;CMD]       Run console commands before the first frame; @N in front
-                                of one runs it on frame N instead.
-          --do NOUN:VERB[;..]   Perform actions on arrival, as a click would.
-          --then NOUN:VERB      The same in the second room, for measuring a return trip.
-          --did TB              Mark a timeblock's completion rules as met.
+          --eye X,Y,Z           Put the camera there.
+          --aim H,P             Aim it. Heading and pitch, in degrees.
+          --free-camera         Let the camera be flown.
+          --console TEXT        Open the console and type that.
+          --run CMD[;CMD]       Run console commands first. @N runs one on frame N.
+          --do NOUN:VERB[;..]   Perform actions on arrival.
+          --then NOUN:VERB      The same in the second room.
+          --did TB              Mark a timeblock complete.
           --play CLIP           Play an animation on arrival.
-          --carry ITEM[,..]     Put things in the bag before the room is looked at.
-          --screen KIND[:ABOUT] Open a screen on the way in; the colon names its subject.
-          --scan ITEM[,..]      Scan things into Sidney, and open the first file.
-          --sidney PAGE[:WHAT]  Open Sidney at one of its pages, and open something on it:
-                                a message, a suspect by number, or a file by item name.
-          --analyse I:OP[;I:OP] Run Sidney's analyze operations on scanned items, in order.
-          --link ITEM[;ITEM]   Link scanned files to the suspect --sidney opened.
-          --mark X,Y[;X,Y]      Mark places on Sidney's map, in the map's own 1,368 pixels.
-          --shape N[;N]         Lay saved figures over the map; the same one again takes it off.
-          --grid N              Rule the map into N cells each way; negative rules the figure.
-          --map STEP[;STEP]     Drive the map in order: mark X,Y / shape NAME / grid N / do OP.
-          --zoom N              How far into Sidney's map to look, from 1 to 6.
-          --glide CAMERA        Glide the camera to a named angle.
+          --carry ITEM[,..]     Start with things in the bag.
+          --screen KIND[:ABOUT] Open a screen on arrival.
+          --scan ITEM[,..]      Scan things into Sidney and open the first.
+          --sidney PAGE[:WHAT]  Open Sidney at a page, and something on it.
+          --analyse I:OP[;I:OP] Run Sidney's analyze operations, in order.
+          --link ITEM[;ITEM]   Link scanned files to the open suspect.
+          --mark X,Y[;X,Y]      Mark places on Sidney's map.
+          --shape N[;N]         Lay saved figures over the map. Again takes one off.
+          --grid N              Rule the map into N cells. Negative rules the figure.
+          --map STEP[;STEP]     Drive the map: mark X,Y / shape NAME / grid N / do OP.
+          --zoom N              Sidney's map zoom, 1 to 6.
+          --glide CAMERA        Glide to a named camera.
           --glance WHO:AT       Have somebody look at something.
-          --verbose             List everything that could not be loaded.
-          --timings             Say where the load time went at every door.
+          --verbose             List everything that failed to load.
+          --timings             Report load times at every door.
           --lights              List the room's authored lights.
-          --trace-actors        Say where everybody stands whenever a clip moves them.
-          --motion              Report the motion vectors rather than drawing them.
-          --flicker             Measure how much the picture changes frame to frame.
+          --trace-actors        Report where everybody stands as clips move them.
+          --motion              Draw the motion vectors instead of the picture.
+          --flicker             Measure frame-to-frame change.
 
         getting content out:
-          --extract             Write the game's content out as files, laid out for
-                                overrides/, and exit. Nothing else below applies otherwise.
-          --name TEXT           Only entries whose names match: --name R25 takes the room's
-                                files.
-          --kinds LIST          Only these kinds of content, comma-separated: textures,
-                                normals, orm, height, emissive, models, scene-geometry,
-                                video, manifests, raw. With --from game, file extensions
-                                instead: --kinds SIF,NVC.
+          --extract             Write content out as files and exit.
+          --name TEXT           Only entries whose names match.
+          --kinds LIST          Only these kinds: textures, normals, orm, height, emissive,
+                                models, scene-geometry, video, manifests, raw. With
+                                --from game, file extensions instead.
           --from SOURCE         packs, game or all. Default packs.
-          --as FORM             png or dds. Textures come out as they are stored otherwise.
-          --extract-to DIR      Somewhere other than overrides/. A whole-pack extract with
-                                no filter refuses to go into overrides/, because everything
-                                in there overrides itself.
+          --as FORM             png or dds.
+          --extract-to DIR      Write somewhere other than overrides/.
 
         The offline tools are a separate program: GK3Reborn.Tools --help lists them.
 

@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using GK3Reborn.Content.Manifests;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
@@ -760,149 +760,86 @@ public static class Program
 
             commands:
               extract-barn      Extract every entry from every Barn archive.
-              extract-audio     Preserve every original sound under raw/audio and
-                                decode restoration-ready PCM under normalized/audio,
-                                split into dialogue and sfx from YAK references.
+              extract-audio     Preserve the original sounds and decode PCM copies.
               inventory         Classify every asset and map what references what.
               organize          Lay the corpus out by kind and convert textures to PNG.
-              classify-models   Work out what each model is for, from the scene files.
-              texture-plan      Rank textures by how visible they are, for enhancement.
-              lighting-analysis Measure the baked lighting, as evidence for light rigs.
+              classify-models   Work out what each model is for.
+              texture-plan      Rank textures by how visible they are.
+              lighting-analysis Measure the baked lighting.
               derive-lighting   Propose a light rig per scene and time of day.
-              import-video      Convert the BIK/AVI cinematic corpus to the runtime format.
-              extract-scenes    Cut every room into one glTF file per named object, and
-                                classify what each object is, so its geometry can be
-                                improved outside the engine.
-              compose-scenes    Gather a room's improved objects back into the one file
-                                the game reads, checking each against the geometry it
-                                replaces. See docs/scene-geometry.md.
-              pack-content      Encode the enhanced content to DDS and pack it into the
-                                one or two ReBarn volumes that ship beside the game.
+              import-video      Convert the cinematics to the runtime format.
+              extract-scenes    Cut every room into one glTF file per named object.
+              compose-scenes    Gather a room's improved objects back into one file.
+              pack-content      Encode the enhanced content and pack it into ReBarn volumes.
               pack-list         Say what a ReBarn pack holds.
-              pack-extract      Write a pack's entries back out as loose files.
-              pack-verify       Read every entry and check it against its checksum.
+              pack-extract      Write a pack's entries out as loose files.
+              pack-verify       Check every entry against its checksum.
               compile-content   Compile workspace content into runtime packages. (not yet)
               inspect           Inspect converted assets and manifests. (not yet)
-              sheep             Disassemble every compiled Sheep script, gather the
-                                function signatures, and check the writer by reading
-                                every one back.
-              compile-sheep     Compile a Sheep source file to bytecode the game's
-                                own machine runs. --input is the source, --output
-                                the .SHP, --source the game data whose scripts say
-                                what each function takes and returns.
+              sheep             Disassemble every compiled Sheep script and read it back.
+              compile-sheep     Compile a Sheep source file to bytecode.
               actions           Read the noun/verb/case files and resolve against them.
-              render-model      Render one model from the archives to a PNG.
+              render-model      Render one model to a PNG.
               render-scene      Render a scene, its props and its lighting, to a PNG.
-              check-story       Walk the story from the first morning to the last
-                                night and report whether it can be finished.
-              check-scenes      Load every scene at every point in the story and
-                                report what came out. --model limits it to one
-                                location.
-              act-info          Read every vertex animation and say what is in them.
+              check-story       Walk the story through and report whether it finishes.
+              check-scenes      Load every scene at every point in the story.
+              act-info          Read every vertex animation and say what is in it.
               head-solve        Measure how rigidly every character's head moves.
-              video-info        Say which movies could be played, from the packs or
-                                the workspace, and decode them to prove it.
-              floor-materials   Say which textures the game walks on, from the floor
-                                object every scene names, and how each is finished.
-              check-cut-content Apply the cut-content restoration table to an
-                                installation and say what happened to every edit.
-                                --all includes the puzzle tier and --rebuilt the
-                                objects that were never modelled; --verbose prints
-                                each changed line. See docs/cut-content.md.
-              import-textures   Check generated texture candidates against the
-                                originals they replace and take the sound ones
-                                into the enhanced set.
+              video-info        Decode every movie and report what played.
+              floor-materials   Say which textures the game walks on, and how each is finished.
+              check-cut-content Apply the cut-content table and report every edit.
+                                --all adds the puzzle tier, --rebuilt the unmodelled objects.
+              import-textures   Check generated texture candidates and take the sound ones.
 
             options:
-              --source <dir>       The game's Data directory. Read only; never modified.
+              --source <dir>       The game's Data directory. Read only.
               --input <file>       The file a command reads.
               --workspace <dir>    Content workspace root. Outputs go to build/.
+              --packs <dir>        Where the ReBarn volumes are.
               --ffmpeg-dir <dir>   Directory containing ffmpeg and ffprobe.
-              --force              Redo work even when a cached output is still valid.
-                                   For import-textures it also writes over textures
-                                   already in the enhanced set, which are hand-corrected
-                                   and live outside the repository. Without it, anything
-                                   already there is left exactly as it is.
-              --verify             Decompress and validate without writing anything.
-              --model NAME         Model or scene to render; the extension is optional.
-              --timeblock <block>  Which time of day render-scene loads. A story
-                                   timeblock such as 202P decides the scene file's
-                                   conditions and so loads the scene in one state;
-                                   M, A, E or N only picks the bake.
-              --camera NAME        Which of the scene's room cameras to render from.
+              --force              Redo work even when a cached output is valid. For
+                                   import-textures, also overwrite the enhanced set.
+              --verify             Decompress and validate without writing.
+              --model NAME         Model or scene to render.
+              --timeblock <block>  Time of day. 202P loads a story state; M, A, E or N
+                                   only picks the bake.
+              --camera NAME        Which room camera to render from.
+              --backend NAME       vulkan or d3d12.
+              --dlss QUALITY       Run an upscaler: quality, balanced, performance.
+              --runtimes <dir>     Where the upscaler runtimes are.
               --rt none|low|med|high  How much ray tracing render-scene does.
-              --output PATH        Where render-model writes its PNG.
+              --output PATH        Where the PNG goes.
               --width N            Render width (default 1024).
               --height N           Render height (default 768).
-              --portrait           render-model frames the character's head, turned so
-                                   the face is seen from one side.
-              --deep               check-scenes also loads geometry, bakes and
-                                   textures, not only what a scene is made of.
-              --variant SUFFIX     Which of each candidate's files import-textures
-                                   takes (default _imagegen_2048w).
-              --no-relief          render-scene leaves the floor flat, drawing its
-                                   height map with the shader alone. What the room
-                                   looked like before displacement, for comparison.
-              --no-thick-cards     render-scene leaves every railing, fence and chain
-                                   the flat card it shipped as, rather than giving it
-                                   the thickness of what is drawn on it.
-              --no-card-shadows    render-scene keeps the thickness but lets the sun
-                                   straight through it, as builds before the card
-                                   occluders did. The A/B for the shadow alone.
-              --no-cull            render-scene draws both sides of every surface in
-                                   the room, as builds before this one did. The A/B
-                                   for the culling.
+              --portrait           render-model frames the head instead of the body.
+              --deep               check-scenes also loads geometry, bakes and textures.
+              --variant SUFFIX     Which candidate file import-textures takes.
+              --no-relief          Leave the floor flat.
+              --no-thick-cards     Railings and fences stay flat cards.
+              --no-card-shadows    Thick cards cast no shadow.
+              --no-cull            Draw both sides of every room surface.
               --no-improved-geometry
-                                   render-scene draws every room as it shipped, with
-                                   1999's infinitely sharp edges, rather than from
-                                   whatever compose-scenes has built. For comparison.
-              --no-trees           render-scene leaves the foliage cards flat rather
-                                   than growing modelled trees in their place. What
-                                   the wood looked like in 1999, for comparison.
-              --no-fog             render-scene leaves the air in a room clear. The
-                                   A/B for the fog; only CS5 and TE5 have any.
-              --wind SECONDS       Where render-scene stops the wind's clock. A still
-                                   afternoon by default, so two renders of one room
-                                   are the same picture; give it two values to see
-                                   what the foliage does between them.
-              --heads N            How far render-model subdivides a character's
-                                   head, 0 to 3. The same refinement the game
-                                   applies, so a before and after can be
-                                   rendered from one command.
-              --tool NAME          What produced the candidates, recorded as
-                                   provenance by import-textures.
-              --only DIR           pack-content packs only the kinds whose source is
-                                   under DIR, such as enhanced/trees.
-              --texconv PATH       Where texconv.exe is, for pack-content.
-              --cap KIND=N         Longest edge pack-content encodes a kind at, such as
-                                   normals=1024. Colour is never capped by default.
+                                   Draw every room as it shipped.
+              --no-trees           Leave foliage cards flat instead of growing trees.
+              --no-fog             Leave the air clear.
+              --wind SECONDS       Where the wind's clock stops. Two values render both.
+              --heads N            Head refinement, 0 to 3.
+              --tool NAME          What produced the candidates, recorded as provenance.
+              --only DIR           Pack only the kinds sourced under DIR.
+              --texconv PATH       Where texconv.exe is.
+              --cap KIND=N         Longest edge to encode a kind at, such as normals=1024.
               --kinds a,b          Which kinds of content a pack command touches.
-              --single-volume      pack-content writes one file rather than two.
+              --single-volume      Write one pack file rather than two.
               --dry-run            Report what pack-content would do and write nothing.
-              --enhanced DIR       Textures to use in place of the archives',
-                                   named without extensions. Relative paths are
-                                   taken from --workspace.
-              --walk-overlay       Draw where actors may stand over the floor, shaded
-                                   by region: green is open ground, darkening towards
-                                   the walls, amber for the regions scripts open.
-              --walk-path FROM:TO  Find a way across the boundary and draw it, blue if
-                                   it arrives and red if it could only get near. Each
-                                   end is one of the scene's position names or a pair
-                                   of world coordinates, x,z.
+              --enhanced DIR       Textures to use in place of the archives'.
+              --walk-overlay       Draw where actors may stand, shaded by region.
+              --walk-path FROM:TO  Find a way across the boundary and draw it.
               --pick X,Y           Report what a click on that pixel would land on.
-              --noun-map PATH      Write a map of what the player can click, one
-                                   colour per noun, from the same camera as the
-                                   render. Grey is scenery with no noun.
+              --noun-map PATH      Write a map of what the player can click.
               --do NOUN:VERB       Carry out an action and report what it did.
-                                   Needs --timeblock, since a story state is what
-                                   decides which rule applies.
-              --play NAME[:SECS]   Play an animation and hold the still that far into
-                                   it (half a second by default), which is how a prop
-                                   in somebody's hands is photographed
-              --advance SECONDS    Let that much time pass afterwards and perform
-                                   whatever the story had asked for by then.
-              --glance ACTOR:AT    Turn an actor's head towards another actor, a
-                                   prop or an object in the geometry.
+              --play NAME[:SECS]   Play an animation and hold the still that far in.
+              --advance SECONDS    Let that much time pass afterwards.
+              --glance ACTOR:AT    Turn an actor's head towards something.
 
             The toolchain never writes to the source installation.
             """);

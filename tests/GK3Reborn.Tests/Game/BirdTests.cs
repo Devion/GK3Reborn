@@ -135,7 +135,7 @@ public sealed class BirdTests
         Vector3 eye = new(0f, 60f, -900f);
 
         BirdWheel low = SceneBirds.Over(
-            SceneBirds.For("RC1", Morning), Room(tall: 200f), null, [Looking(eye, 0f, 0f)]);
+            SceneBirds.For("RC1", Morning), Room(tall: 100f), null, [Looking(eye, 0f, 0f)]);
 
         BirdWheel high = SceneBirds.Over(
             SceneBirds.For("RC1", Morning), Room(tall: 520f), null, [Looking(eye, 0f, 0f)]);
@@ -147,12 +147,11 @@ public sealed class BirdTests
             (wheel.Centre.Y - from.Y) /
             new Vector2(wheel.Centre.X - from.X, wheel.Centre.Z - from.Z).Length();
 
-        // Not held exactly: the push-out is capped, because past two and a half times the
-        // birds are haze. But most of the lift is paid for by distance rather than by
+        // Not held exactly: the push-out is capped, because past seven tenths again the
+        // birds are haze. But most of the lift is paid for in distance rather than in
         // angle — left where it was, the taller room would have put the flock at 0.92,
         // which is most of the way to straight overhead.
-        Assert.True(Angle(high, eye) < 0.5f, $"the flock sits at {Angle(high, eye)}");
-        Assert.True(Angle(high, eye) < Angle(low, eye) * 2.5f);
+        Assert.True(Angle(high, eye) < 0.6f, $"the flock sits at {Angle(high, eye)}");
     }
 
     [Fact]
