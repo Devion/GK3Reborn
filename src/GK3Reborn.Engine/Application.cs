@@ -2106,6 +2106,18 @@ public static class Application
                     $"Fog: lying to y={air.Top:0.#}, thinning over {air.Falloff:0.#} units, " +
                     $"{air.Density:0.####} a unit in {air.Steps} steps"));
             }
+
+            // And whatever was in the air of the room before this one, taken off it for the
+            // same reason the fog is. The blended list is held by the renderer until
+            // something replaces it, and the frame loop only replaces it while there is
+            // something to draw or something it drew last frame to clear — a latch that
+            // starts fresh with every room. So a room whose particles were the last thing
+            // set, left for a room that has none of its own, hands its own over: TE5's lit
+            // swords stayed on screen after a save was restored into another room, burning
+            // in the air where the board had been. Cleared here rather than left to the
+            // frame loop, because this is the one point every room change goes through.
+            renderer.SetParticles([]);
+
             renderer.Quality = renderer.SupportsRayTracing
                 ? quality ?? settings.Quality
                 : RayTracingQuality.None;
