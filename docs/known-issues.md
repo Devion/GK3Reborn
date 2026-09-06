@@ -4,6 +4,123 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. The room under the cursor was still English (done 2026-09-06)
+
+Reported: a French game in the hotel lobby, pointing at the front door, reads "Front door -
+Ouvrir". The verb was translated and the thing it applies to was not.
+
+**The verbs had been done and the nouns had not.** `verb.OPEN` is one of the ninety keys in
+`interface-<code>.json`; the noun beside it went through `GameStrings.Item`, which answers
+for the 293 things the player *carries* and for nothing in a room, and then fell through to
+the tidied identifier. So every label in the game read half in one language and half in the
+other, in the one place a player looks most.
+
+The corpus declares **875 nouns** the picker can return — the union of every `noun=` in the
+572 `.SIF` files and every rule's subject in the 390 `.NVC` files, less the 103 the string
+table already names and the handful that are only ever walk triggers. They are
+`noun.FRONT_DOOR` and the rest, in all eight languages, written rather than extracted:
+there is no table for them anywhere in the 1999 data, in any release, because the original
+drew no label at all.
+
+The 1999 table is still asked **first**, so a noun GK3 did name keeps GK3's own words. A
+noun neither table has still falls through to the tidied identifier.
+
+**Three of those labels were sentences the engine writes itself**, and wrapping them where
+they are drawn would have been too late: `SceneInteraction` answers "Woman" or "Man" for
+somebody the player has not been introduced to, and "Room 27" for a second-floor door whose
+guest would otherwise be named. Those are `noun.WOMAN`, `noun.MAN` and `noun.ROOM`, and the
+number is `{0}` inside the phrase rather than concatenated after it.
+
+**Two more places were drawing English, found by following the same thread.** The verb
+menus a close-up puts up — `ScreenPainter.Beside` and the row along the foot of an inspect
+screen — called `Pretty` where the room's menu calls the verb table, so a French close-up
+offered "Look" under a French hover label. And the radio's list of topics is a list of
+nouns: it drew them tidied, and its first row was the literal `"Ask Grace"`.
+
+Also in this pass, four French rows the user corrected: `general.hurry` is "Vitesse marche
+rapide", the two caption rows are "Sous-titres de dialogue" and "Sous-titres de
+cinématique", and `general.eggs` goes back to "Easter eggs", which is what French players
+call them.
+
+**The language packs have to be rebuilt for any of this to show.** `UiText.Of` reads the
+pack's `interface.json` before the assembly's, so a `Reborn_FR.rebarn` built before today
+answers with the old file and none of the new keys. `rebuild-content.cmd`.
+
+## 0. The chessboard left a saved player lying in his own fall (done 2026-09-06)
+
+With "Gabriel cannot be killed" on, TE1's board drops him through the floor, puts him back
+beside Mosely and Mesmi, and leaves him lying face down in mid-air until something else
+animates him.
+
+**The board's own killings were already held off.** `Chessboard.Landed` holds
+`Te1TileState` at one under plot armour and `Drop` opens no trapdoor, so the two deaths the
+landing count decides never happen. One fall is not the landing count's: with all sixteen
+swords out and the wrong tile under him, `ValidMove$` opens the far door, plays
+`GabTe1Fall` and calls `Die$` outright. `Assists.IsDeath` answers that with `Restart$` and
+`PostDeath$` — the retry the game itself offers — and `Restart$` moves him without
+re-posing him.
+
+**A pose outlives the clip that struck it, on purpose.** `SceneUpdate.StopAnimating` leaves
+a character in whatever they were cut off in, because a person stopped mid-gesture is a
+person standing oddly rather than a person snapping to attention. And `Restart$` does end
+with `StartIdleFidget("Gabriel")` — but an idle is a breath laid over a stance rather than a
+stance.
+
+The room has a clip that is the stance: `GabTe1Stand`, which is what it plays every time he
+is put on the board. `Perform("fell")` — the hook the reference could find nothing for —
+now remembers a fall the armour saved him from, and the `clearTiles` inside `Restart$`
+spends it, a frame later so that the idle `Restart$` starts is not what wins. TE5's bridge
+never had this: its falls are decided in code and plot armour skips the fall itself.
+
+## 0. Sixteen swords the player had to count from memory (feature) (done 2026-09-06)
+
+A sword still to be taken differs from one already taken only in how brightly its blade is
+painted — `TE1SWORDW` against `TE1SWORDW_GLOW` is a pale pink blade against a red one, and
+on the eight black squares both are dark. At a sharp angle from the far side of a dim room
+that is not a difference anybody can count with, and a miscount costs the whole attempt.
+
+`Chessboard.Particles` now lays sprites along the sword the artists painted, in
+`TE1SWORDW_GLOW`'s own red, and lifts a little of it off the floor. So it is the inlay that
+lights up rather than the tile, and it goes out with the texture on the landing that spends
+it. Drawn only between `LightTiles$` and `clearTiles`, which is exactly while the puzzle is
+armed.
+
+**The shape is read off the artwork.** `ContentWorkspace/enhanced/textures/TE1MASK.png` is
+the sword's silhouette on the tile's own square, and `Chessboard.Shape` is that silhouette
+sampled a row at a time: the blade nearly spans the square at a fiftieth of it wide, and the
+crossguard sits between 0.706 and 0.740 of the way down and reaches 0.086 of a square to
+each side. The widths in the table are sprite radii rather than the paint — the painted
+blade is two units across at this board's pitch, and a sprite that narrow is nothing at all
+on screen.
+
+**Two things were tried and taken out.** A gold wash over the square, which said *something
+is here* without saying what; and a brightness travelling from point to hilt, which does not
+read as light running through a thin shape — a sprite is a round soft disc, so a bright one
+part-way down a blade reads as a band lying across it, and the eye finds the band. What
+moves now is the slow beat of each sword, on its own phase, and the haze rising off it.
+
+**The rise is deliberately low** — a fifth of a square, about ten units against a man of a
+hundred and seventy. It is what says a thing is switched on rather than painted brightly: it
+moves when the camera moves, and it is the only part of this that reads from an angle low
+enough that the tile is nearly edge-on. Eleven sprites a sword against the shape's
+seventeen, because the buffer holds eight hundred in total and the room's fire is in it too.
+
+## 0. Eight of sixty-four squares are legal and the board says nothing (feature) (done 2026-09-06)
+
+The knight's move is the puzzle and stays the player's to work out; finding the square they
+worked out, on a board seen from the side, is not. The tile under the pointer now takes a
+dull-red border — an ember, well under the swords' own red, with a small brightening
+travelling round it — for a move that can actually be made, and nothing for one that cannot.
+
+`Pointing` already had to decide legality before the click, because the action file's case
+reads `Te1MoveType` and a click on a tile does that tile's `JUMP`. So the border costs no
+new arithmetic: it draws what `Offer` has just written down. Nothing is offered while the
+story is busy, or before the tiles are lit.
+
+Sized off the board rather than guessed: `Begin` keeps each tile's middle and averages the
+gap between neighbours, which measures 48 units and agrees with the scene file's `COL_0` to
+`COL_7`. `Report` carries it, so a board that was found but could not be measured says so.
+
 ## 0. Every caption in the game lost the space after its commas (done 2026-09-05)
 
 `AnimationFile.Rest` puts a caption back together after the reader has split it on commas
@@ -108,8 +225,9 @@ identifier with its underscores taken out, so a French game pointed at "Masking 
 a bag holding a "Morceau de scotch". The hover label, the hotspot labels and the verb menu's
 heading all read the table now.
 
-Most of a room is still not in it — `DRESSER` is scenery and GK3 never named it in any
-language — and those fall through to the tidied noun, which is what every label was before.
+Most of a room is not in it — `DRESSER` is scenery and GK3 never named it in any language —
+and those fell through to the tidied noun, which is what every label was before. The port
+carries a table for them as of 2026-09-06; see the entry at the top of this file.
 
 ## 0. A volume slider was set to nought on the way to another tab (done 2026-09-05)
 
@@ -137,8 +255,8 @@ ninety verbs the original drew as icons. See [localization.md](localization.md).
 
 **What is left** is the journal's 142 objectives and the walkthrough lines behind its hint
 button — `Assets/Story/Quests.txt` and `Walkthrough.txt`, five hundred lines of prose about
-this game's puzzles — and the nouns under the cursor, which have no table anywhere in the
-data. The mechanism holds them whenever somebody writes them.
+this game's puzzles. The nouns under the cursor were the other gap and were written into the
+same mechanism on 2026-09-06.
 
 ## 0. The port's own interface text is not localised — as it stood
 

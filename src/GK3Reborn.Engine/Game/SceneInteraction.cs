@@ -304,7 +304,7 @@ public sealed class SceneInteraction
     /// number is left alone; the supply closet has none and wants none.
     /// </para>
     /// </remarks>
-    private static string? Numbered(string noun, string model)
+    private string? Numbered(string noun, string model)
     {
         if (!noun.EndsWith("_DOOR", StringComparison.OrdinalIgnoreCase))
         {
@@ -327,7 +327,10 @@ public sealed class SceneInteraction
 
         // Two digits, which every room in this hotel has and no other part of a model's name
         // does. One digit is a suffix and three is something else entirely.
-        return end - at == 2 ? "Room " + model[at..end] : null;
+        return end - at == 2
+            ? Text.Say("noun.ROOM", "Room {0}").Replace(
+                "{0}", model[at..end], StringComparison.Ordinal)
+            : null;
     }
 
     /// <summary>
@@ -371,6 +374,18 @@ public sealed class SceneInteraction
             ? stem
             : null;
     }
+
+    /// <summary>
+    /// The port's own words, for the two labels it makes up rather than reads.
+    /// </summary>
+    /// <remarks>
+    /// A room number and a stranger's description are the only names on this path that are
+    /// not in the data at all — "Room 27" and "Woman" were English sentences the engine
+    /// wrote itself, sitting beside a hover label that every other room had translated. Left
+    /// alone it answers in English, which is what every test that does not care about
+    /// language wants. See <see cref="UI.UiText"/>.
+    /// </remarks>
+    public UI.UiText Text { get; set; } = UI.UiText.English;
 
     /// <summary>What the game's own names for things are, when anything read them.</summary>
     /// <remarks>
@@ -480,7 +495,9 @@ public sealed class SceneInteraction
             return null;
         }
 
-        return woman ? "Woman" : "Man";
+        return woman
+            ? Text.Say("noun.WOMAN", "Woman")
+            : Text.Say("noun.MAN", "Man");
     }
 
     /// <summary>Does something to what is under the pointer.</summary>

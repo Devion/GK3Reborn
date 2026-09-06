@@ -104,6 +104,54 @@ public static class Gk3Encoding
         "\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447" +
         "\u0448\u0449\u044A\u044B\u044C\u044D\u044E\u044F";
 
+    /// <summary>
+    /// Every letter above ASCII a code page can spell, for whoever has to draw them.
+    /// </summary>
+    /// <param name="codePage">1250, 1251, 1252, or one the platform has.</param>
+    /// <returns>
+    /// The distinct printable characters, in code-page order. Empty for a page this does
+    /// not tabulate.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// A glyph atlas has to be told which characters to rasterise, and the honest answer is
+    /// "the ones the open language's text can contain" — which is exactly this table, read
+    /// the other way round. Guessing instead is how the interface came to draw
+    /// <c>Dzie&#x0144; 1</c> as "Dzie 1": Latin-1 covers every language shipped before
+    /// Polish, so nothing noticed that <c>&#x0144;</c> is not in it.
+    /// </para>
+    /// <para>
+    /// The unassigned positions and the two that are not letters — no-break space and the
+    /// soft hyphen — are left out, because an atlas is for things that get drawn.
+    /// </para>
+    /// </remarks>
+    public static string Repertoire(int codePage)
+    {
+        if (Elsewhere(codePage) is not null)
+        {
+            // A page the platform owns rather than this one: 936 is the case, and its
+            // repertoire is twenty thousand ideographs. Whoever wants those needs a plan
+            // that is not "rasterise them all", so this says nothing rather than something
+            // useless.
+            return string.Empty;
+        }
+
+        var letters = new StringBuilder(96);
+        var seen = new HashSet<char>();
+
+        foreach (char c in Supplement(codePage))
+        {
+            if (c is '\uFFFD' or '\u00A0' or '\u00AD' || !seen.Add(c))
+            {
+                continue;
+            }
+
+            letters.Append(c);
+        }
+
+        return letters.ToString();
+    }
+
     /// <summary>Decodes bytes in a code page.</summary>
     /// <param name="bytes">The file's bytes.</param>
     /// <param name="codePage">

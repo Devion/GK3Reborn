@@ -922,8 +922,13 @@ public static class Application
             int height = window.FramebufferHeight;
             float scale = settings.TextScale;
 
+            // Every language's letters, not the caller's: see OverlayAtlas.Everything.
+            // The bitmap ladder below needs no such argument — a .FON carries whatever
+            // characters its own release drew, which for Polish is ą ć ę ł ń ś ź ż.
             if (face is not null &&
-                OverlayAtlas.Build(face, UI.TextSizing.Em(height, menu, scale)) is { } drawn)
+                OverlayAtlas.Build(
+                    face, UI.TextSizing.Em(height, menu, scale), OverlayAtlas.Everything)
+                    is { } drawn)
             {
                 return drawn;
             }
@@ -2266,6 +2271,7 @@ public static class Application
             var interaction = new SceneInteraction(scene, api)
             {
                 Strings = strings,
+                Text = words,
                 Watcher = update,
                 Introductions = introductions,
             };
@@ -4594,7 +4600,9 @@ public static class Application
                 // covers them.
                 if (api.Declares?.Invoke(here, Game.Radio.Call) == true)
                 {
-                    topics.Add(new Game.RadioTopic(string.Empty, "Ask Grace"));
+                    topics.Add(new Game.RadioTopic(
+                        string.Empty,
+                        (hud?.Text ?? UiText.English).Say("radio.ask", "Ask Grace")));
                 }
 
                 topics.AddRange(

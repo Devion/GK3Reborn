@@ -1,5 +1,4 @@
-﻿using System.Text;
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Ui;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -15,10 +14,20 @@ namespace GK3Reborn.Content;
 /// that do not are called the same thing as the definition.
 /// </para>
 /// <para>
-/// The definition is read as Latin-1 rather than UTF-8. The <c>Font=</c> line is a run of
-/// characters in the sheet's own order, and a third of them are above 127 — read as UTF-8
-/// they become replacement characters, and every accented letter in the game maps to the
-/// wrong picture.
+/// <b>The definition is read in the chosen language's code page, not UTF-8 and not
+/// Latin-1.</b> The <c>Font=</c> line is a run of characters in the sheet's own order and a
+/// third of them are above 127; read as UTF-8 they become replacement characters, and read
+/// as the wrong single-byte page they become the <em>wrong letters</em> — which is worse,
+/// because it fails silently. Polish is where that showed: its sheets carry ą ć ę ł ń ś ź ż
+/// at Windows-1250 positions, so under Latin-1 the ą glyph was filed under <c>¹</c> and the
+/// ń glyph under <c>ñ</c>, and Polish text — correctly decoded — then asked for letters no
+/// font admitted to having and got the unknown-glyph box.
+/// </para>
+/// <para>
+/// The one byte every release uses in the C1 range is <c>0x9D</c>, which is both the last
+/// slot of the <c>Font=</c> line and the <c>Default Char</c>, so it maps to the same
+/// character under any page and the fallback keeps working. No <c>.FON</c> in any of the
+/// seven releases uses another.
 /// </para>
 /// </remarks>
 public sealed class FontLibrary
@@ -60,10 +69,10 @@ public sealed class FontLibrary
         string bare = Path.GetFileNameWithoutExtension(name);
         FontFile? font = null;
 
-        if (_archives.Read(bare + ".FON") is { } definition)
+        // ReadText, not Read: it is the one place that knows which code page the open
+        // language's assets are one byte a character in.
+        if (_archives.ReadText(bare + ".FON") is { } text)
         {
-            string text = Encoding.Latin1.GetString(definition);
-
             if (Sheet(text, bare) is { } sheet)
             {
                 font = FontFile.Parse(text, sheet, bare, Diagnostics);

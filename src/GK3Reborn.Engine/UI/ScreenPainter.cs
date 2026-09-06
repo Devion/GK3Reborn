@@ -344,7 +344,20 @@ public sealed class ScreenPainter
     /// The game's own name for it where there is one, and the tidied identifier otherwise.
     /// See <see cref="Game.GameStrings.Item"/>.
     /// </remarks>
-    private string Owned(string item) => Names.Item(item) ?? Pretty(item);
+    private string Owned(string item) =>
+        Names.Item(item) ?? Text.Say("noun." + item.ToUpperInvariant(), Pretty(item));
+
+    /// <summary>
+    /// What a verb reads as on a screen's own menu.
+    /// </summary>
+    /// <remarks>
+    /// The same words the room's menu uses, and for the same reason: GK3 drew its verbs as
+    /// icons and never wrote one down, so the port carries them. These four menus were
+    /// drawing the tidied identifier instead, which left a French close-up offering "Look"
+    /// under a French hover label.
+    /// </remarks>
+    private string Verb(string verb) =>
+        verb.Length == 0 ? verb : Text.Say("verb." + verb.ToUpperInvariant(), Pretty(verb));
 
     private string Title(ScreenView view) => view.Screen.Kind switch
     {
@@ -473,7 +486,7 @@ public sealed class ScreenPainter
 
         foreach (string verb in verbs)
         {
-            wide = MathF.Max(wide, Overlay.Measure(Pretty(verb)));
+            wide = MathF.Max(wide, Overlay.Measure(Verb(verb)));
         }
 
         wide += 28 * unit;
@@ -497,7 +510,7 @@ public sealed class ScreenPainter
             }
 
             Overlay.Text(
-                Pretty(verbs[i]),
+                Verb(verbs[i]),
                 bounds.X + (12 * unit),
                 bounds.Y + (5 * unit),
                 under ? Accent : Ink);
@@ -1001,7 +1014,7 @@ public sealed class ScreenPainter
 
         foreach (string verb in verbs)
         {
-            float button = Overlay.Measure(Pretty(verb)) + (24 * unit) +
+            float button = Overlay.Measure(Verb(verb)) + (24 * unit) +
                 (view.VerbIcons?.Invoke(verb, false).Drawn == true ? row : 0);
 
             widths.Add(button);
@@ -1034,7 +1047,7 @@ public sealed class ScreenPainter
                 text += row - (8 * unit);
             }
 
-            Overlay.Text(Pretty(verbs[i]), text, y + (7 * unit), over ? Accent : Ink);
+            Overlay.Text(Verb(verbs[i]), text, y + (7 * unit), over ? Accent : Ink);
 
             _hits.Add(("verb:" + verbs[i], bounds));
             x += widths[i] + spacing;

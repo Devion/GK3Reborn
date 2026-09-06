@@ -16,8 +16,9 @@ namespace GK3Reborn.Content;
 /// <b>The prefix is not derivable from the code and is not unique.</b> Sierra renamed the
 /// spoken assets for four localisations only — French is <c>F</c>, German <c>G</c>, Italian
 /// <c>I</c>, Spanish <c>S</c> — and shipped Portuguese, Russian and Polish with the English
-/// spellings left alone, so those three carry <c>E</c> and are told apart by the content of
-/// the file rather than by its name. That is why a language is a record here rather than a
+/// spellings left alone, so those carry <c>E</c> and are told apart by the content of
+/// the file rather than by its name — as do Czech and Chinese, which Sierra did not ship at
+/// all. That is why a language is a record here rather than a
 /// letter: two languages can want the same name and mean different bytes, which is exactly
 /// what a per-language pack is for.
 /// </para>
@@ -72,6 +73,17 @@ public sealed record GameLanguage(string Code, char Prefix, string Name, string 
     public static IReadOnlyList<GameLanguage> Known { get; } =
     [
         Default,
+
+        // Not one of Sierra's own eight either, and the second release that turned out to
+        // be a patch rather than a second copy of the game: one gk3_cz.brn over the English
+        // archives, the same shape Polish has. Windows-1250, and the prefix is E because
+        // whoever made it renamed nothing.
+        new("cs", 'E', "Czech", "Čeština")
+        {
+            CodePage = 1250,
+            Aliases = ["ces", "cze", "cz", "cesky", "cestina"],
+        },
+
         new("de", 'G', "German", "Deutsch") { Aliases = ["deu", "ger", "deutsch"] },
         new("es", 'S', "Spanish", "Español") { Aliases = ["esp", "spa", "espanol"] },
         new("fr", 'F', "French", "Français") { Aliases = ["fra", "fre", "francais"] },

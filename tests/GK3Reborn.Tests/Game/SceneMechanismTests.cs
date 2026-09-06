@@ -509,6 +509,179 @@ public sealed class SceneMechanismTests
         Assert.Equal(1, api.State.GetVariable("Te1TileState"));
     }
 
+
+    [Fact]
+    public void A_fall_the_armour_saved_a_player_from_does_not_stay_on_him()
+    {
+        // Reported from the chessboard: with "Gabriel cannot be killed" on, he drops
+        // through the floor, arrives back beside Mosely and Mesmi, and stays lying face
+        // down in mid-air until something else animates him.
+        //
+        // The board's own killings are held off by Deathless, but one fall is not the
+        // board's: with all sixteen swords out and the wrong tile under him, TE1's script
+        // plays GabTe1Fall and calls Die$ outright. Plot armour answers a Die$ with
+        // Restart$ and PostDeath$ — the retry the game itself offers — and neither of those
+        // takes him out of the pose, because stopping an animation on a character
+        // deliberately leaves them in it.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        api.State.PlotArmour = true;
+
+        var board = new Chessboard(world, api);
+
+        board.Perform("fell");
+
+        int waiting = world.Later;
+
+        // Restart$ calls clearTiles once it has put him back, which is the first moment
+        // there is anywhere sensible to stand him up.
+        board.Perform("clearTiles");
+
+        Assert.Equal(waiting + 1, world.Later);
+    }
+
+    [Fact]
+    public void Standing_him_back_up_is_the_armours_business_and_nobody_elses()
+    {
+        // Without it he is dead, the death screen is up, and what puts him back on his feet
+        // is the reload behind it. Standing up a corpse would be visible.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var board = new Chessboard(world, api);
+
+        board.Perform("fell");
+
+        int waiting = world.Later;
+
+        board.Perform("clearTiles");
+
+        Assert.Equal(waiting, world.Later);
+    }
+
+    [Fact]
+    public void A_sword_is_lit_until_it_is_taken()
+    {
+        // The textures alone say so — TE1SWORDW against TE1SWORDW_GLOW — and under a relit
+        // room that is a brighter patch of the same marble, eight of the sixteen of them
+        // black on black. What the player has to be able to do from the far end of the hall
+        // is count the ones that are left.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var board = new Chessboard(world, api);
+
+        Measured(board);
+
+        // Unlit, which is what clearTiles leaves: the board is a floor and there is nothing
+        // to collect on it.
+        board.Perform("clearTiles");
+        Assert.Empty(board.Particles(Vector3.Zero));
+
+        // LightTiles$ arms the puzzle.
+        board.Perform("reset");
+        Assert.NotEmpty(board.Particles(Vector3.Zero));
+
+        int lit = board.Particles(Vector3.Zero).Count;
+
+        // d1 is row 0, column 3, one of the sixteen. Its light goes out with its texture.
+        api.State.SetVariable("Te1GabeRow", 0);
+        api.State.SetVariable("Te1GabeColumn", 3);
+        board.Perform("landed");
+
+        Assert.True(board.Particles(Vector3.Zero).Count < lit);
+        Assert.DoesNotContain(
+            board.Particles(Vector3.Zero), p => Over(p, row: 0, column: 3));
+    }
+
+    [Fact]
+    public void The_tile_he_can_jump_to_is_the_one_that_lights_up()
+    {
+        // Eight of the sixty-four are legal from wherever he is standing, the board says
+        // nothing about which, and the cost of guessing wrong is the whole attempt. The
+        // arithmetic stays the player's; this says which square the pointer found.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var board = new Chessboard(world, api);
+
+        Measured(board);
+        board.Perform("reset");
+
+        api.State.SetVariable("Te1GabeRow", 0);
+        api.State.SetVariable("Te1GabeColumn", 3);
+
+        // c3 is row 2, column 2 — a knight's move away, and not one of the sword tiles, so
+        // anything drawn over it is the border and nothing else.
+        board.Pointing(Named(2, 2), busy: false);
+        Assert.Contains(board.Particles(Vector3.Zero), p => Over(p, row: 2, column: 2));
+
+        // d3 is straight ahead, which is not a move.
+        board.Pointing(Named(2, 3), busy: false);
+        Assert.DoesNotContain(board.Particles(Vector3.Zero), p => Over(p, row: 2, column: 3));
+
+        // And nothing is offered while the story is in the middle of something: a border
+        // lighting up during a jump invites a second click on a move already made.
+        board.Pointing(Named(2, 2), busy: false);
+        board.Pointing(Named(2, 2), busy: true);
+        Assert.DoesNotContain(board.Particles(Vector3.Zero), p => Over(p, row: 2, column: 2));
+    }
+
+    [Fact]
+    public void An_unlit_board_offers_nothing_to_jump_to()
+    {
+        // Before LightTiles$ there is no puzzle to help with, and a border round a tile
+        // would be an invitation to click on a floor.
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var board = new Chessboard(world, api);
+
+        Measured(board);
+        board.Perform("clearTiles");
+
+        api.State.SetVariable("Te1GabeRow", 0);
+        api.State.SetVariable("Te1GabeColumn", 3);
+
+        board.Pointing(Named(2, 2), busy: false);
+
+        // The rule is still written down for the action file — that is not the border's
+        // business — but nothing is drawn.
+        Assert.Equal(1, api.State.GetVariable("Te1MoveType"));
+        Assert.Empty(board.Particles(Vector3.Zero));
+    }
+
+    /// <summary>How far apart the tiles of the board these tests draw are.</summary>
+    private const float Pitch = 50f;
+
+    /// <summary>
+    /// Gives the board somewhere to put its sprites.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SceneMechanism.Begin"/> measures this off the room's own geometry, and the
+    /// room these tests run in counts instead of drawing. Eight squares of fifty units on a
+    /// grid is the shape of the thing, which is all any of this needs.
+    /// </remarks>
+    private static void Measured(Chessboard board)
+    {
+        var middles = (Vector3?[,])typeof(Chessboard)
+            .GetField("_middles", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(board)!;
+
+        for (int row = 0; row < 8; row++)
+        {
+            for (int column = 0; column < 8; column++)
+            {
+                middles[row, column] = Middle(row, column);
+            }
+        }
+
+        typeof(Chessboard)
+            .GetField("_pitch", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(board, Pitch);
+    }
+
+    /// <summary>Where one of those tiles is.</summary>
+    private static Vector3 Middle(int row, int column) =>
+        new(column * Pitch, 0f, row * Pitch);
+
+    /// <summary>Whether a sprite belongs to one tile rather than to a neighbour.</summary>
+    private static bool Over(Particle particle, int row, int column) =>
+        Vector2.Distance(
+            new Vector2(particle.Position.X, particle.Position.Z),
+            new Vector2(Middle(row, column).X, Middle(row, column).Z)) < Pitch * 0.49f;
+
     [Fact]
     public void The_beams_are_drawn_as_light_only_where_there_is_a_lighting_model()
     {

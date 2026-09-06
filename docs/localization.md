@@ -6,6 +6,9 @@ patch on it — it is a whole second copy of the game, 657 megabytes of it, in w
 fifteen thousand of the forty thousand assets happen to differ and nothing anywhere says
 which fifteen thousand.
 
+Polish and Czech are the two that are not like that, and it is worth saying early because it
+changes what "sourcing a release" means: see [Two releases are patches, not copies](#two-releases-are-patches-not-copies).
+
 The port works that out once and ships the difference. One extra file beside the
 executable per language:
 
@@ -14,12 +17,14 @@ GK3Reborn/
   GK3Reborn.exe
   Reborn.rebarn                8.4 GB   the shared content
   RebornMaterials.rebarn       5.9 GB   its material channels
-  Reborn_EN.rebarn              328 MB  what English says
-  Reborn_DE.rebarn              300 MB  what German says
-  Reborn_ES.rebarn               63 MB  what Spanish says
-  Reborn_FR.rebarn              306 MB  what French says
-  Reborn_IT.rebarn              313 MB  what Italian says
-  Reborn_PT.rebarn               21 MB  what Portuguese says
+  Reborn_CS.rebarn               19 MB  what Czech says
+  Reborn_EN.rebarn              235 MB  what English says
+  Reborn_DE.rebarn              523 MB  what German says
+  Reborn_ES.rebarn               66 MB  what Spanish says
+  Reborn_FR.rebarn              520 MB  what French says
+  Reborn_IT.rebarn              347 MB  what Italian says
+  Reborn_PL.rebarn               21 MB  what Polish says
+  Reborn_PT.rebarn               22 MB  what Portuguese says
 ```
 
 Reading one of those in front of the installation turns any installation into any language.
@@ -42,25 +47,28 @@ different sentence; the same `ISIS.HTML` in Sidney's library, translated.
 **A few change their name instead.** Sierra renamed the spoken assets for four
 localisations and left the other four with English's spellings:
 
-| | en | fr | de | it | es | pt | ru | pl | zh |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| letter | `E` | `F` | `G` | `I` | `S` | `E` | `E` | `E` | `E` |
-| string table | `ESTRINGS` | `FSTRINGS` | `GSTRINGS` | `ISTRINGS` | `SSTRINGS` | `ESTRINGS` | `ESTRINGS` | `ESTRINGS` | `ESTRINGS` |
-| code page | 1252 | 1252 | 1252 | 1252 | 1252 | 1252 | 1251 | 1250 | 936 |
+| | en | fr | de | it | es | pt | ru | pl | cs | zh |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| letter | `E` | `F` | `G` | `I` | `S` | `E` | `E` | `E` | `E` | `E` |
+| string table | `ESTRINGS` | `FSTRINGS` | `GSTRINGS` | `ISTRINGS` | `SSTRINGS` | `ESTRINGS` | `ESTRINGS` | `ESTRINGS` | `ESTRINGS` | `ESTRINGS` |
+| code page | 1252 | 1252 | 1252 | 1252 | 1252 | 1252 | 1251 | 1250 | 1250 | 936 |
 
-Simplified Chinese is not one of Sierra's eight; somebody else translated it. It is in the
-table because the arrangement was built so that adding a language is sourcing a release, and
-refusing one because Sierra did not publish it would be the arrangement failing its own test.
-Every entry above was confirmed against the release itself except Russian and Polish, which
-nobody here has.
+Simplified Chinese and Czech are not among Sierra's eight; somebody else translated both.
+They are in the table because the arrangement was built so that adding a language is sourcing
+a release, and refusing one because Sierra did not publish it would be the arrangement failing
+its own test. Czech is built and playable; Chinese is not, for a reason of its own — see the
+code page row.
+Every entry above was confirmed against the release itself except Russian, which nobody
+here has. Polish was confirmed on 2026-09-06 and the table was right about it: it carries
+`E`, it reads `ESTRINGS.TXT`, and its text is code page 1250.
 
 The letter goes in front of a line of dialogue's lip-sync (`E014ED3S6J1.YAK` against
 `F014ED3S6J1.YAK`) and in front of a scripted moment (`ECOFFEEPOT.MOM`). Scripts never
 write it — `StartVoiceOver("1LLJ644QR1")` — so the engine adds it, which is why a plate
 taken straight from an action file matches nothing on disk.
 
-**The letter is not unique and is not derivable from the code.** Portuguese, Russian and
-Polish all carry `E` and are told apart by what is inside the file. A build that assumed one
+**The letter is not unique and is not derivable from the code.** Portuguese, Russian, Polish
+and Czech all carry `E` and are told apart by what is inside the file. A build that assumed one
 letter per language would read Portuguese out of the English pack and never say so, which
 is why `GameLanguage` is a record rather than a letter.
 
@@ -69,21 +77,31 @@ changes:
 
 | | assets it holds | assets that differ | bitmaps | on geometry | pack |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| German | 36,944 | 14,679 | 683 | 96 | 300 MB |
-| Italian | 36,935 | 14,491 | 691 | 83 | 313 MB |
-| Spanish | 36,946 | 8,150 | 710 | 91 | 63 MB |
-| Portuguese | 36,834 | 8,452 | 755 | 102 | 21 MB |
-| French | 15,092 | 14,658 | 659 | 82 | 306 MB |
-| English | 14,806 | 15,265 | 885 | 124 | 328 MB |
+| Czech | 8,133 | 8,110 | 646 | 50 | 19 MB |
+| German | 36,944 | 14,679 | 683 | 96 | 523 MB |
+| Italian | 36,935 | 14,491 | 691 | 83 | 347 MB |
+| Spanish | 36,946 | 8,150 | 710 | 91 | 66 MB |
+| Portuguese | 36,834 | 8,452 | 755 | 102 | 22 MB |
+| French | 15,092 | 14,658 | 659 | 82 | 520 MB |
+| Polish | 8,255 | 8,171 | 729 | 87 | 21 MB |
+| English | 14,806 | 15,478 | 912 | 126 | 235 MB |
 
 English's own figure is derived rather than measured — it is the English spelling of
 everything some other language changes, so it grows every time another release is added.
+Polish added 177 names to it and Czech another 36.
+
+Polish and Czech hold far fewer assets than the others because their releases *are* only the
+difference — see below. Every one of Polish's 8,255 was worth comparing and 8,171 differ;
+every one of Czech's 8,133, and 8,110 differ.
 
 **The releases fall into two kinds, and the pipeline tells them apart rather than being
 told.** German, Italian and French re-recorded every line: 6,556 dialogue files each, and
-that is where 90% of their packs go. Spanish and Portuguese did not re-record a single one —
-every dialogue file in both is byte-identical to English — so what they change is their text,
-their bitmaps and their lip-sync, and they cost 63 MB and 21 MB against German's 300.
+that is where 90% of their packs go. Spanish, Portuguese, Polish and Czech did not
+re-record a single one — every dialogue file in all four is byte-identical to English — so
+what they change is their text, their bitmaps and their lip-sync, and they cost 66 MB,
+22 MB, 21 MB and 19 MB against German's 523. Polish and Czech ship no dialogue recording at
+all: what their `.YAK` files carry is the captions, which is why their cutscenes are heard in
+English and read in Polish and Czech.
 
 Portuguese is the extreme case: it ships no cutscene audio at all, because there is nothing
 in its release that differs from what the shared pictures already carry.
@@ -101,6 +119,65 @@ For French, the breakdown by family:
 | `.TXT` | 10 | the string table, the screen layouts, Sidney's data |
 | `.MOD` `.MUL` `.ACT` `.NVC` `.FON` `.WAV` `.DOC` | 11 | the rest |
 
+## Two releases are patches, not copies
+
+Six of the eight localisations are a whole second copy of the game. Polish and Czech are
+not. Both ship the original English archives **byte-identical** — every barn, every `.bik`,
+every `.avi` — and put the entire translation in one extra archive that a patched executable
+reads in front of them.
+
+| | archive | size | published | reads it |
+| --- | --- | ---: | --- | --- |
+| Polish | `pl.brn` | 21 MB | CD Projekt, 2001, three discs | `GK3PL.exe` |
+| Czech | `gk3_cz.brn` | 20 MB | 2000 | a patched `GK3.exe` |
+
+That shape matters twice over.
+
+**The archive may not be on the disc.** Polish's `pl.brn` is inside the InstallShield 6
+cabinets on CD 1 (`data1.hdr` and `data2.cab`), so a person who mounts the ISO and copies the
+`Data` directory they can see gets 42 files of English and nothing else. That is what
+happened here on 2026-09-06: `Localized/PL` looked like a complete release, and
+`extract-localized` reported *four* localised assets out of 36,957 — the `GK3R2309`
+threadbare warning doing exactly the job it was written for. Getting the barn out needs an
+InstallShield reader; [unshield](https://github.com/twogood/unshield) is the one, and the
+format is documented well enough in its source to reimplement in an afternoon if that is
+easier than building it. Czech came as the loose barn and needed none of this.
+
+**Neither can be sourced as an installation.** Dropping the barn beside the English ones does
+not work: `GameArchives` searches alphabetically, `pl.brn` sorts after `day3.brn`, and every
+name it shares with the English archives — which is all of them — would resolve to English.
+So both are sourced as **dumped trees**: the patch barn extracted to loose files under
+`ContentWorkspace/Localized/<CODE>`, which is a shape `LocaleSource` already reads. Nothing
+is lost by it. Each barn holds one archive's worth of names and no pointer entries, so there
+is no search order to get wrong, and every name outside it is English by construction.
+
+The source archives are kept where they can still be found and where the pipeline will not
+read them as assets: Polish's beside the ISOs it was extracted from, Czech's at
+`ContentWorkspace/Localized/gk3_cz.brn` — `Discover` enumerates directories, so a loose file
+there is neither a release nor an asset. The English `Data` the Polish discs shipped is kept
+beside those ISOs too, because a language directory is compared file by file and a copy of
+the English game inside it would be 36,000 assets that differ from English in nothing.
+
+What the two actually hold:
+
+| Family | Polish | Czech | What it is |
+| --- | ---: | ---: | --- |
+| `.YAK` | 7,066 | 7,307 | captions and lip-sync — **no recordings in either** |
+| `.BMP` | 729 | 669 | pictures with words painted into them |
+| `.HTML` `.HTM` | 386 | 82 | Sidney's library |
+| `.FON` | 65 | 68 | fonts, because code page 1250 needs glyphs 1252 has not |
+| `.TXT` | 8 | 7 | the string table, the screen layouts, Sidney's data |
+
+Polish translated all of Sidney's library; Czech translated the same 80 pages of 390 that
+German, Spanish, French and Italian did, which is Sierra's own gap rather than anybody's
+decision here.
+
+The fonts are the family no other release needed at this scale — French ships a handful and
+Portuguese six. The letters of Windows-1250 (ą ć ę ł ń ś ź ż, ě š č ř ž ů) are not in the
+1999 sheets, so both translators redrew them, and they reach the player through the language
+pack like any other asset. What actually draws them in this port is a different question,
+answered under [Drawing the letters](#drawing-the-letters).
+
 ## The port's own interface
 
 **One JSON a language, and the keys are the same in all of them.** That is the shape GK3's
@@ -108,9 +185,9 @@ own `ESIDNEY.TXT` uses, and the reason its files survived being translated eight
 identifier is stable and only the value moves.
 
 ```
-src/GK3Reborn.Engine/Assets/Ui/interface-en.json     275 phrases
-                              interface-de.json      the same 275, in German
-                              interface-es.json      … es, fr, it, pt
+src/GK3Reborn.Engine/Assets/Ui/interface-en.json     349 phrases
+                              interface-de.json      the same 349, in German
+                              interface-cs.json      … cs, es, fr, it, pl, pt
 ```
 
 They are **carried inside the assembly**, so a player with no packs at all still has every
@@ -129,9 +206,10 @@ in the workspace, and nothing under `enhanced/` is written to.
 trees")` reads as what it draws; `Text.Say("picture.trees")` reads as nothing at all, and
 this codebase is meant to be read. The price is two copies of every phrase, and
 `UiTextTests` pays it: it scans the engine's own sources for every `Say` call and fails if
-the file and the source disagree. It also checks the six files hold exactly the same keys,
-because a key present in five of them is a row that reads English in one language and in no
-other — which nobody sees until they are playing in it.
+the file and the source disagree. It also checks every file holds exactly the same keys,
+because a key present in all but one of them is a row that reads English in one language and
+in no other — which nobody sees until they are playing in it. Adding a language is a file
+and its code in `UiTextTests.Carried`; nothing else.
 
 What is covered: the title menu and the pause menu, all five settings sections and every
 value on them, the save and restore slots, the toolbar, the journal, every screen's title
@@ -143,6 +221,26 @@ the one family GK3 could not help with: the original drew verbs as icons, so the
 A key nobody has translated falls back to the English the call site carries, so a partial
 translation costs that row and not the screen.
 
+### Drawing the letters
+
+Having the words is not the same as being able to draw them. The interface is rasterised
+from an outline — Noto Serif, 2,183 characters — but an atlas is built from a *list* of
+characters, not from a font, and that list was Latin-1. So a phrase could name a letter no
+glyph had been drawn for, and the letter was silently absent: Polish `Dzień 1` came out as
+`Dzie 1`. It reads as a typo rather than as a renderer fault, which is why it survived.
+
+The list is now every character the code pages the engine tabulates can spell —
+`Gk3Encoding.Repertoire` read the other way round, unioned in `OverlayAtlas.Everything`.
+About three hundred glyphs against a hundred and thirty, and one atlas serves every
+language, so a player changing the Language row mid-game does not need it rebuilt.
+
+It was not only Polish. `Œ` is in Windows-1252 and not in Latin-1, so the French menu's own
+row — Œufs de Pâques — had been drawing without its first letter.
+
+`UiTextTests` now checks two things that would have caught both: every character of every
+interface file is one the atlas draws, and every character every known language's code page
+can spell is one the atlas draws.
+
 **Sidney is separate and came first.** Its buttons are 1999 strings in `ESIDNEY.TXT` that
 the port was ignoring; see [sidney.md](sidney.md). Only the dozen sentences it says that
 the 1999 game never had a place for are written rather than extracted.
@@ -150,8 +248,7 @@ the 1999 game never had a place for are written rather than extracted.
 **What is still English in every language**: the journal's 142 objectives and the
 walkthrough lines behind its hint button, which are `Assets/Story/Quests.txt` and
 `Walkthrough.txt` — five hundred lines of prose about this game's puzzles, and a different
-size of job from a settings screen. The nouns under the cursor are English too, and have
-no table anywhere in the data to read from.
+size of job from a settings screen.
 
 ## What the interface can say, and what it cannot
 
@@ -163,15 +260,30 @@ English and the whole of what a French game can say about a pocketful of objects
 
 There is **no** table anywhere in the data for the nouns under the cursor or for the verbs
 in the right-click menu. The original drew verbs as icons and never named the thing being
-pointed at, so `BATHROOM_DOOR` and `LOOK` have no translation to find: those two read as
-English in every language, and the only way to change that is to write the words, which is
-translation rather than extraction.
+pointed at, so `BATHROOM_DOOR` and `LOOK` have no translation to find. Both families are
+written rather than extracted, and both live in `interface-<code>.json` beside the menus:
+`verb.LOOK` for the ninety verbs of `VERBS.TXT`, and `noun.BATHROOM_DOOR` for the 875 nouns
+the corpus declares.
 
-The same is true of everything the port added and the 1999 game never had: the settings
-screen, the journal's 142 objectives and their hints, the toolbar's own labels. They are in
-`Assets/Story/*.txt` and in the source, in English. Localising them is a separate piece of
-work with a different shape — it needs translators, not a comparison — and nothing here
-pretends to have done it.
+**The noun table is asked second, not first.** `GameStrings.Item` is tried before it, so
+the 293 things the player carries keep the game's own 1999 words in the language the player
+is playing — the roll of tape on the desk is the same noun as the roll in the pocket, and
+in French both read "Morceau de scotch". The port's table answers for everything else, which
+is the rest of the room: `DRESSER`, `FRONT_DOOR`, `ABBE_GRAVE_SITE`. A noun neither of them
+has — a mod's, or a corpus this misses — still falls through to the tidied identifier, so
+the label is never blank and never an identifier in shouting.
+
+Three labels on that path are the engine's own sentences rather than nouns, and they had to
+be wrapped where they are made rather than where they are drawn: `SceneInteraction` calls a
+guest the player has not met "Woman" or "Man" and a second-floor door "Room 27". They are
+`noun.WOMAN`, `noun.MAN` and `noun.ROOM`, and the room number is `{0}` inside the phrase
+because languages put it in different places.
+
+What the port added and the 1999 game never had is done except the journal: the settings
+screen, the toolbar's own labels and every screen's way out are all keyed. The journal's 142
+objectives and their hints are `Assets/Story/*.txt`, in English. Localising them is a
+separate piece of work with a different shape — five hundred lines of prose about the
+puzzles — and nothing here pretends to have done it.
 
 **Sidney is the exception, and it is not one of the port's own screens.** `ESIDNEY.TXT` is
 re-cut for every release and carries every menu, button and refusal the machine has; the
@@ -409,9 +521,10 @@ built and none would be read.
 
 The 390 pages the search screen reaches are in the archives and read through the language
 pack, so nothing in the port has to know. What is worth knowing is what comes back: German,
-Spanish, French and Italian each translated **the same 80 pages** and shipped the other 310
-byte-identical to English, so `ABRAXAS.HTML` is in English inside the German `core.brn`.
-Portuguese translated all 390. Reproduced faithfully because it is what the disc holds.
+Spanish, French, Italian and Czech each translated **the same 80 pages** and shipped the
+other 310 byte-identical to English, so `ABRAXAS.HTML` is in English inside the German
+`core.brn`. Portuguese translated all 390 and Polish all but a couple of dozen. Reproduced
+faithfully because it is what the disc holds.
 
 **Seven hundred and fifty bitmaps differ, and only about a hundred are worth anybody's
 afternoon.** Six hundred and fifty of them are the 1999 interface — Sidney's buttons, the
@@ -477,6 +590,20 @@ Adding Russian is sourcing a Russian release, dropping it in as `Localized/RU`, 
 those two commands. It is not a code change, and nothing in the plan, the packer or the menu
 has to be edited — which is the whole point of the arrangement, and German, Spanish, Italian
 and Portuguese were each added exactly that way.
+
+**A patch release takes one extra step, and one line.** Polish and Czech are one archive over
+the English game rather than a copy of it, so the archive has to be extracted to loose files
+first — `extract-barn --source <the barn's directory> --workspace <scratch>`, then the
+contents into `Localized/<CODE>` — and the barn itself kept anywhere but inside a language
+directory. The one line is `GameLanguage.Known`, for a language the port has never heard of:
+Czech was not among Sierra's eight, so it needed its code, its prefix, its code page and its
+name. That is the only kind of language that costs a code change, and `GK3R2308` is what says
+a directory needs one.
+
+**The code the pack is named for is the ISO 639-1 one, not the directory's name.** Czech is
+`cs`, so `Localized/CZ` produces `Reborn_CS.rebarn`, exactly as `Localized/PT-BR` produces
+`Reborn_PT.rebarn`. The directory can be called whatever the person who unpacked it typed;
+`GameLanguage.Aliases` is what reconciles the two.
 
 **A release that is not a localisation is said out loud.** The smallest real one here changes
 8,150 assets; a release that changes a few dozen is the same game under a different label, or

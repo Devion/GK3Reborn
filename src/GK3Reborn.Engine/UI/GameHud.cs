@@ -827,7 +827,7 @@ public sealed class GameHud
 
         foreach (Game.RadioTopic topic in topics)
         {
-            w = Math.Max(w, Overlay.Measure(Pretty(topic.Label)));
+            w = Math.Max(w, Overlay.Measure(Thing(topic.Label)));
         }
 
         w += padding * 2;
@@ -867,7 +867,7 @@ public sealed class GameHud
             }
 
             Overlay.Text(
-                Pretty(topics[i].Label),
+                Thing(topics[i].Label),
                 x + padding,
                 top + ((row - Overlay.LineHeight) / 2),
                 chosen ? Accent : Ink);
@@ -1229,7 +1229,7 @@ public sealed class GameHud
     /// </remarks>
     public UiText Text { get; set; } = UiText.English;
 
-    private string Owned(string item) => Names.Item(item) ?? Pretty(item);
+    private string Owned(string item) => Thing(item);
 
     /// <summary>
     /// What a thing in the room is called.
@@ -1246,12 +1246,18 @@ public sealed class GameHud
     /// a "Morceau de scotch".
     /// </para>
     /// <para>
-    /// Most of the room is not in that table — <c>DRESSER</c> is scenery and GK3 never
-    /// named it in any language — and those fall through to the tidied noun, which is what
-    /// every label was before this.
+    /// <b>Most of the room is not in that table</b> — <c>DRESSER</c> is scenery and GK3
+    /// never named it in any language — so the port carries its own, keyed
+    /// <c>noun.DRESSER</c> in <c>interface-&lt;code&gt;.json</c> beside the ninety verbs and
+    /// written rather than extracted, for the 875 nouns the corpus declares. The 1999 table
+    /// is asked first, because where GK3 did name a thing its own words are the right ones.
+    /// A noun in neither still falls through to the tidied identifier, so a mod's noun draws
+    /// a word rather than nothing.
     /// </para>
     /// </remarks>
-    private string Thing(string noun) => Names.Item(noun) ?? Pretty(noun);
+    private string Thing(string noun) =>
+        Names.Item(noun) ??
+        Text.Say("noun." + noun.ToUpperInvariant(), Pretty(noun));
 
     /// <summary>
     /// What a verb is called under the cursor and in the menu.

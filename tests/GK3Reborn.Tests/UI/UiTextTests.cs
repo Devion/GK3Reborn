@@ -2,7 +2,12 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GK3Reborn.Content;
+using GK3Reborn.Formats.Bitmaps;
+using GK3Reborn.Formats.Ui;
+using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Foundation;
+using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Upscaling;
 using GK3Reborn.UI;
 using Xunit;
@@ -21,10 +26,10 @@ namespace GK3Reborn.Tests.UI;
 /// English in every language.
 /// </para>
 /// <para>
-/// The two checks that matter here are not about the words. One is that <b>the six files
-/// hold exactly the same keys</b>: a key present in five of them and absent from the sixth
-/// is a row that quietly reads English in one language and in no other, which nobody sees
-/// until they are playing in it. The other is that <b>the English in the file is the
+/// The two checks that matter here are not about the words. One is that <b>every file
+/// holds exactly the same keys</b>: a key present in all but one of them is a row that
+/// quietly reads English in one language and in no other, which nobody sees until they
+/// are playing in it. The other is that <b>the English in the file is the
 /// English in the source</b>, because the call sites carry their own fallback so that the
 /// code can be read — and a duplicated string that nothing compares is a duplicated string
 /// that drifts.
@@ -33,7 +38,7 @@ namespace GK3Reborn.Tests.UI;
 public sealed partial class UiTextTests
 {
     /// <summary>The languages the port carries words for.</summary>
-    private static readonly string[] Carried = ["en", "de", "es", "fr", "it", "pt"];
+    private static readonly string[] Carried = ["en", "cs", "de", "es", "fr", "it", "pl", "pt"];
 
     private static Dictionary<string, string> Words(string code)
     {
@@ -107,7 +112,7 @@ public sealed partial class UiTextTests
                     string.IsNullOrWhiteSpace(said), $"{key} is blank in {code}");
             }
 
-            // Not a rule about every row — plenty of words are shared across these six
+            // Not a rule about every row — plenty of words are shared across these
             // languages — but a whole file that matched English would be a file nobody
             // translated, and that is what this counts.
             int same = other.Count(pair =>
@@ -201,6 +206,70 @@ public sealed partial class UiTextTests
             Assert.True(english.ContainsKey(verb), $"{verb} has no word");
         }
     }
+
+    [Fact]
+    public void Every_noun_the_original_never_named_has_a_word()
+    {
+        // The other family GK3 never wrote down. Its string table names the 293 things the
+        // player carries and nothing else in a room — DRESSER is scenery, and no release in
+        // any language has a word for it — so the label under the cursor read the tidied
+        // identifier, and a French game pointed at "Front Door" beside a French verb. The
+        // corpus declares 875 nouns the picker can return; they are all here.
+        Dictionary<string, string> english = Words("en");
+
+        Assert.True(
+            english.Keys.Count(k => k.StartsWith("noun.", StringComparison.Ordinal)) >= 875,
+            "the room's nouns are not all there");
+
+        foreach (string noun in new[]
+        {
+            // One the string table does name, one it does not, the two the engine writes
+            // itself, and the format behind a hotel door's number.
+            "noun.FRONT_DOOR", "noun.DRESSER", "noun.BATHROOM_DOOR", "noun.CHESSBOARD",
+            "noun.WOMAN", "noun.MAN", "noun.ROOM",
+        })
+        {
+            Assert.True(english.ContainsKey(noun), $"{noun} has no word");
+        }
+
+        // The room number goes into the label rather than beside it, because languages put
+        // it in different places — "Room 27", "Chambre 27", "Pokój 27".
+        foreach (string code in Carried)
+        {
+            Assert.Contains("{0}", Words(code)["noun.ROOM"], StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void A_thing_in_the_room_reads_in_the_players_own_language()
+    {
+        // The whole point, as the hud asks it. GameStrings has no v_front_door — no release
+        // does — so this is the port's own table answering, and it has to answer for the
+        // room as well as for the pocket.
+        var hud = new GameHud(new Overlay(Atlas())) { Text = UiText.Carried("fr") };
+
+        Assert.Equal("Porte d'entrée", Label(hud, "FRONT_DOOR"));
+        Assert.Equal("Commode", Label(hud, "DRESSER"));
+
+        // A noun nobody has written stays the tidied identifier rather than becoming blank.
+        Assert.Equal("Mod Gadget", Label(hud, "MOD_GADGET"));
+    }
+
+    /// <summary>A sheet with letters on it, because a hud has to be given an overlay.</summary>
+    private static OverlayAtlas Atlas()
+    {
+        var image = new DecodedImage(
+            64, 16, [.. Enumerable.Repeat<byte>(255, 64 * 16 * 4)], HasAlpha: false, "sheet");
+
+        return OverlayAtlas.Build(
+            FontFile.Parse("Font=ABCDEFGH\n", image, "TEST", new DiagnosticBag()));
+    }
+
+    /// <summary>What the hud would draw under the pointer for a noun.</summary>
+    private static string Label(GameHud hud, string noun) =>
+        (string)typeof(GameHud)
+            .GetMethod("Thing", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(hud, [noun])!;
 
     [Fact]
     public void A_language_with_no_words_of_its_own_answers_in_English()
@@ -328,6 +397,52 @@ public sealed partial class UiTextTests
         Assert.DoesNotContain("Whatever the runtime prefers", values);
         Assert.DoesNotContain("Off", values);
         Assert.Contains("Ce que préfère le runtime", values);
+    }
+
+    [Fact]
+    public void Every_letter_the_interface_uses_can_actually_be_drawn()
+    {
+        // The atlas rasterises a list of characters, not a font: Noto Serif carries two
+        // thousand and the sheet carried the hundred and thirty of Latin-1, so a phrase
+        // could name a letter no glyph existed for and the letter simply was not there.
+        // Nothing looked broken -- "Dzien 1" reads as a typo, not as a renderer fault --
+        // which is why this is a test and not a code review.
+        //
+        // Two live cases when it was written: Polish n-acute, and the OE of the French
+        // menu's own "Oeufs de Paques", which is in Windows-1252 and not in Latin-1.
+        foreach (string code in Carried)
+        {
+            foreach ((string key, string said) in Words(code))
+            {
+                foreach (char c in said)
+                {
+                    Assert.True(
+                        OverlayAtlas.Everything.Contains(c, StringComparison.Ordinal),
+                        $"{code} {key} wants U+{(int)c:X4}, which no atlas draws");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void The_atlas_covers_every_code_page_the_engine_reads()
+    {
+        // Asked of the tables rather than spelled out, because the tables are what decides
+        // which bytes a release's text can hold. A language whose page grew a letter the
+        // atlas has not got is the fault this catches.
+        foreach (GameLanguage language in GameLanguage.Known)
+        {
+            foreach (char c in Gk3Encoding.Repertoire(language.CodePage))
+            {
+                Assert.True(
+                    OverlayAtlas.Everything.Contains(c, StringComparison.Ordinal),
+                    $"{language.Name} can spell U+{(int)c:X4}, which no atlas draws");
+            }
+        }
+
+        // Windows-936 is the one that cannot work this way: its repertoire is twenty
+        // thousand ideographs, so it says nothing rather than something useless.
+        Assert.Empty(Gk3Encoding.Repertoire(936));
     }
 
     [Fact]

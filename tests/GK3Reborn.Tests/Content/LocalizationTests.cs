@@ -37,13 +37,14 @@ public sealed class LocalizationTests : IDisposable
     [Fact]
     public void Every_language_GK3_was_published_in_is_known_by_its_code()
     {
-        // The eight official localisations, from GK3.ini's own list, plus Simplified
-        // Chinese, which somebody else translated. A code this build has never heard of is
-        // English rather than a failure to start, for the same reason every other setting
-        // is clamped.
-        Assert.Equal(9, GameLanguage.Known.Count);
+        // The eight official localisations, from GK3.ini's own list, plus Czech and
+        // Simplified Chinese, which somebody else translated. A code this build has never
+        // heard of is English rather than a failure to start, for the same reason every
+        // other setting is clamped.
+        Assert.Equal(10, GameLanguage.Known.Count);
 
-        foreach (string code in new[] { "en", "fr", "de", "it", "es", "pt", "ru", "pl", "zh" })
+        foreach (string code in
+                 new[] { "en", "cs", "fr", "de", "it", "es", "pt", "ru", "pl", "zh" })
         {
             Assert.NotNull(GameLanguage.Find(code));
         }
@@ -65,6 +66,13 @@ public sealed class LocalizationTests : IDisposable
         Assert.Equal("de", GameLanguage.Of("GER").Code);
         Assert.Equal("de", GameLanguage.Of("Deutsch").Code);
         Assert.Equal("pt", GameLanguage.Of("pt-BR").Code);
+
+        // CZ is the directory the Czech patch archive was unpacked into, and cs is the
+        // ISO 639-1 code the pack is named for. Both have to reach the same language or
+        // Localized/CZ is a directory nothing reads.
+        Assert.Equal("cs", GameLanguage.Of("CZ").Code);
+        Assert.Equal("cs", GameLanguage.Of("Czech").Code);
+        Assert.Equal("CS", GameLanguage.Of("CZ").FileCode);
 
         // Every alias belongs to exactly one language, or one of them is unreachable.
         List<string> all = [.. GameLanguage.Known.SelectMany(

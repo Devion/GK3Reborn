@@ -35,10 +35,12 @@
          pack at all still gets every language the port ships. A pack's own copy wins over
          these, so a translation can be corrected without rebuilding. See UI/UiText.cs. -->
     <EmbeddedResource Include="Assets/Ui/interface-en.json" />
+    <EmbeddedResource Include="Assets/Ui/interface-cs.json" />
     <EmbeddedResource Include="Assets/Ui/interface-de.json" />
     <EmbeddedResource Include="Assets/Ui/interface-es.json" />
     <EmbeddedResource Include="Assets/Ui/interface-fr.json" />
     <EmbeddedResource Include="Assets/Ui/interface-it.json" />
+    <EmbeddedResource Include="Assets/Ui/interface-pl.json" />
     <EmbeddedResource Include="Assets/Ui/interface-pt.json" />
 
   </ItemGroup>

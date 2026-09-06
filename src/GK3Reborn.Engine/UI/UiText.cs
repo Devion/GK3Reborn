@@ -187,7 +187,7 @@ public sealed class UiText
     public string Say(string key, string english, params object?[] values) =>
         string.Format(CultureInfo.CurrentCulture, Say(key, english), values ?? []);
 
-    /// <summary>Every key this holds, for the tests that check the six agree.</summary>
+    /// <summary>Every key this holds, for the tests that check the files agree.</summary>
     public IReadOnlyCollection<string> Keys => _said.Keys;
 
     /// <summary>Reads a table out of JSON, forgiving anything that is not one.</summary>

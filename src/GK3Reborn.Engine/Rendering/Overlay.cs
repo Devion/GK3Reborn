@@ -153,13 +153,19 @@ public sealed class OverlayAtlas
     }
 
     /// <summary>
-    /// The characters an interface atlas carries.
+    /// The characters an interface atlas carries whatever the language.
     /// </summary>
     /// <remarks>
     /// Latin-1 and no more. It covers the game's own language and the French it is set in —
     /// the accented letters of Hôtel de Rennes-le-Château — and stops well short of
-    /// rasterising two thousand glyphs to draw a menu of five words. Anything outside it
-    /// falls back to the bitmap sheets, which carry the same set.
+    /// rasterising two thousand glyphs to draw a menu of five words.
+    /// <para>
+    /// <b>It is not enough on its own, and Polish is what proved it.</b> Latin-1 has ó but
+    /// not ą, ć, ę, ł, ń, ś, ź or ż, so a Polish title bar drew "Dzie 1" for
+    /// <c>Dzie&#x0144; 1</c> — the letter silently absent rather than wrong, which is
+    /// harder to notice. <see cref="Of"/> is what callers should ask for: this set plus
+    /// whatever else the open language's code page can spell.
+    /// </para>
     /// </remarks>
     public const string Latin =
         " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`" +
@@ -171,6 +177,50 @@ public sealed class OverlayAtlas
         "\u00e3\u00e4\u00e5\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed" +
         "\u00ee\u00ef\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f8\u00f9\u00fa" +
         "\u00fb\u00fc\u00fd\u00ff\u2013\u2014\u2018\u2019\u201c\u201d\u2026";
+
+    /// <summary>
+    /// The characters an interface atlas should carry to draw one language.
+    /// </summary>
+    /// <param name="codePage">The language's code page — see <c>GameLanguage.CodePage</c>.</param>
+    /// <returns><see cref="Latin"/>, and the rest of that page's letters after it.</returns>
+    /// <remarks>
+    /// Asked of the code page rather than listed per language, because the code page
+    /// <em>is</em> the list: it says exactly which characters a 1999 text asset in that
+    /// language can contain, so an atlas built from it can draw anything the release holds
+    /// and nothing it does not. A page the engine has no table for adds nothing, which
+    /// leaves the Latin-1 set — the same answer as before, for the six languages that were
+    /// already right.
+    /// </remarks>
+    public static string Of(int codePage) =>
+        Latin + Foundation.Gk3Encoding.Repertoire(codePage);
+
+    /// <summary>
+    /// Every character any language the port knows can be written in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One atlas for every language rather than one per language</b>, because the atlas
+    /// is built when the window settles on a size and the language can move after that —
+    /// and a set chosen at build time is a set that goes stale the moment somebody changes
+    /// the row. Rebuilding it there instead would mean rebuilding the two overlays the room
+    /// and the screens hold, for about three hundred glyphs of difference.
+    /// </para>
+    /// <para>
+    /// Three hundred, not two thousand: the tabulated pages are 1252, 1250 and 1251, they
+    /// agree on most of Latin-1, and Cyrillic is ninety letters. Windows-936 is not among
+    /// them and cannot be — see <c>Gk3Encoding.Repertoire</c>.
+    /// </para>
+    /// <para>
+    /// It also fixes something that had nothing to do with Polish: <c>Œ</c> is in
+    /// Windows-1252 and not in Latin-1, so the French menu's own row — Œufs de Pâques —
+    /// was drawing without its first letter.
+    /// </para>
+    /// </remarks>
+    public static string Everything { get; } =
+        Latin +
+        Foundation.Gk3Encoding.Repertoire(1252) +
+        Foundation.Gk3Encoding.Repertoire(1250) +
+        Foundation.Gk3Encoding.Repertoire(1251);
 
     /// <summary>
     /// Builds an atlas by drawing an outline font at a size.
