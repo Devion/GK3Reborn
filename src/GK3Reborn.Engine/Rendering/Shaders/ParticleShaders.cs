@@ -88,7 +88,7 @@ public static class ParticleShaders
 
         layout(location = 0) out vec2 outCorner;
         layout(location = 1) out vec4 outTint;
-        layout(location = 2) out float outAdditive;
+        layout(location = 2) out float outShape;
 
         void main()
         {
@@ -110,9 +110,12 @@ public static class ParticleShaders
             gl_Position = push.viewProjection * vec4(world, 1.0);
 
             // The untumbled corner, so the disc below is round rather than turned with it.
+            // A bird is the other way round and gets the turn for free: its silhouette is
+            // drawn in this frame, so the spin that swung the quad swings the bird with it
+            // and is how a bird crossing the view lies along the way it is going.
             outCorner = inCornerAndShape.xy;
             outTint = inTint;
-            outAdditive = inCornerAndShape.w;
+            outShape = inCornerAndShape.w;
         }
         """;
 
@@ -129,7 +132,7 @@ public static class ParticleShaders
 
         layout(location = 0) in vec2 inCorner;
         layout(location = 1) in vec4 inTint;
-        layout(location = 2) in float inAdditive;
+        layout(location = 2) in float inShape;
 
         layout(location = 0) out vec4 outColor;
 
@@ -157,8 +160,69 @@ public static class ParticleShaders
             return mix(mix(a, b, weight.x), mix(c, d, weight.x), weight.y);
         }
 
+        // How much of this pixel a bird covers, in the sprite's own untumbled frame: the
+        // wings along x, the head along +y, and the beat from nought to one.
+        //
+        // Two strokes and nothing else. The wings are a pair of tapering blades whose tips
+        // rise and fall with the beat and sweep a little back as they go out, and the body
+        // is a short ellipse laid along the flight direction. At the size a bird in the sky
+        // actually draws — a dozen pixels across, often fewer — that is the whole of what
+        // the eye is reading, and a bitmap of a bird would be a blur at the same size.
+        float Bird(vec2 at, float beat)
+        {
+            float span = abs(at.x);
+
+            if (span > 1.0)
+            {
+                return 0.0;
+            }
+
+            // A wing goes further up than down. The upstroke is where a bird gathers the
+            // air and it is what makes a distant flock read as flapping rather than as
+            // flickering; a beat symmetric about the body reads as a blinking dash.
+            float wave = sin(6.28318530718 * beat);
+            float tip = (wave > 0.0 ? 0.62 : 0.42) * wave;
+
+            // Where the middle of the wing is at this point along it. Raised towards the
+            // tip by the beat, and swept back a little whatever the beat: a wing held
+            // square to the body is an aeroplane.
+            float middle = (tip * pow(span, 1.6)) - (0.12 * span);
+
+            // And how deep it is there, tapering to nothing at the tip.
+            float depth = (0.155 * pow(max(1.0 - span, 0.0), 0.45)) + 1e-5;
+
+            float wing = 1.0 - smoothstep(0.55, 1.0, abs(at.y - middle) / depth);
+
+            // The last tenth, so the wing ends in a point rather than a cut.
+            wing *= 1.0 - smoothstep(0.86, 1.0, span);
+
+            float body = 1.0 - smoothstep(
+                0.75, 1.05, length(vec2(at.x / 0.085, (at.y + 0.02) / 0.34)));
+
+            return max(wing, body);
+        }
+
         void main()
         {
+            // A bird, which is the one thing this pass draws that is not a disc. Tested
+            // half a unit clear of the disc range so that nothing an ember could round to
+            // can land in it. See Particle.Shape.
+            if (inShape >= 1.5)
+            {
+                float covered = Bird(inCorner, inShape - 2.0) * inTint.a;
+
+                if (covered <= 0.004)
+                {
+                    discard;
+                }
+
+                // Premultiplied and never additive: a bird is a thing between the eye and
+                // the sky and it takes the sky's light away, which is the whole of what a
+                // silhouette is.
+                outColor = vec4(inTint.rgb * covered, covered);
+                return;
+            }
+
             float radius = length(inCorner);
 
             if (radius >= 1.0)
@@ -172,7 +236,7 @@ public static class ParticleShaders
             float disc = 1.0 - radius;
             float coverage = disc * disc;
 
-            if (inAdditive < 0.5)
+            if (inShape < 0.5)
             {
                 // Smoke is not a disc. Two octaves of noise, keyed off the sprite's own
                 // spin through the corner it was given, break the outline up so that
@@ -199,9 +263,9 @@ public static class ParticleShaders
             // above white — the same allowance a bulb gets in the room's own pass, and the
             // same reason: on an HDR display a spark is several times the brightness of the
             // wall it flies past.
-            float gain = mix(1.0, push.up.w, inAdditive);
+            float gain = mix(1.0, push.up.w, inShape);
 
-            outColor = vec4(inTint.rgb * alpha * gain, alpha * (1.0 - inAdditive));
+            outColor = vec4(inTint.rgb * alpha * gain, alpha * (1.0 - inShape));
         }
         """;
 }

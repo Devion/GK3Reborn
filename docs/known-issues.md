@@ -1,8 +1,31 @@
-﻿# Known issues
+# Known issues
 
 Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
+
+## 0. Birds in the daytime skies (feature, done 2026-09-06)
+
+Requested: "It would be nice to have some birds flying around in the sky in RC1-2-3-4 during
+the daytime scenes, actually probably also in the poussin tomb and maybe other outdoor
+locations, they do not have to be detailed, can be black silouettes in the sky, a few of
+them, swarming, flying around?"
+
+Eleven rooms have a flock over them in daylight and nothing after six in the evening —
+`docs/birds.md` says which, why the list is a table and why the hours are not a judgement
+(RC1, RC2 and the cemetery already play birdsong through the morning and afternoon and an owl
+after that). They are drawn through the pass the fires' smoke goes through, as silhouettes cut
+out by arithmetic rather than from a bitmap.
+
+Two things went wrong on the way and both are in the write-up. The first flock sat 45 degrees
+above a camera whose frame stops at 27, because a room in this game is five fixed shots and a
+wheel centred on the walkable ground surrounds them rather than standing in them — measured at
+Poussin's tomb, five of six birds behind the camera and the sixth off the side of the frame.
+The second sat too low: reported as *"birds are flying too low, going through building geometry
+in RC3 museum"*, and caused by measuring one roofline for a whole village when RC1's flock flies
+over a square and RC3's over a walled street.
+
+`--no-birds`, and a **Birds in the sky** row on the Picture page, are the A/B.
 
 ## 0. Leaving the hotel took three clicks to get moving (done 2026-09-06)
 

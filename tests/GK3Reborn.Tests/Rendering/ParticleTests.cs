@@ -99,8 +99,8 @@ public sealed class ParticleTests
 
         IReadOnlyList<Particle> drawn = particles.Facing(new Vector3(0, 40, -100));
 
-        Assert.Contains(drawn, p => p.Additive > 0.5f);
-        Assert.Contains(drawn, p => p.Additive < 0.5f);
+        Assert.Contains(drawn, p => p.Shape > 0.5f);
+        Assert.Contains(drawn, p => p.Shape < 0.5f);
 
         // Everything is above the fire and none of it has gone through the floor.
         Assert.All(drawn, p => Assert.True(p.Position.Y > 39f, $"a mote fell to {p.Position.Y}"));

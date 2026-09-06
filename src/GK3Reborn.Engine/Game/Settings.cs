@@ -351,6 +351,19 @@ public sealed record Settings
     public bool TerrainBackdrop { get; init; } = true;
 
     /// <summary>
+    /// Whether birds fly in the sky over the outdoor rooms that have them.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="TerrainBackdrop"/> because it is a different kind of
+    /// addition: the horizon replaces something the game shipped, and this puts something
+    /// in a sky that was empty. It is also the only thing this renderer adds to a room that
+    /// <em>moves</em> without being asked to, and somebody who wants the still 1999 sky
+    /// should be able to have it with the rest of the enhancement left on. Off, every
+    /// outdoor sky is exactly as empty as it always was. See <see cref="SceneBirds"/>.
+    /// </remarks>
+    public bool Birds { get; init; } = true;
+
+    /// <summary>
     /// Whether a room's own objects are drawn from improved geometry where any has been
     /// built for them.
     /// </summary>

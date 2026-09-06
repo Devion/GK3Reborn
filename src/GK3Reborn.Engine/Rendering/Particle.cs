@@ -16,21 +16,50 @@ namespace GK3Reborn.Rendering;
 /// <param name="Size">Half the width of the square it draws as, in world units.</param>
 /// <param name="Tint">Its colour and how opaque it is, straight alpha.</param>
 /// <param name="Spin">How far the sprite is turned about the view axis, in radians.</param>
-/// <param name="Additive">
-/// Nought for something that hides what is behind it and one for something that only adds
-/// to it. Smoke is the first and an ember is the second, and both are drawn by one pass
-/// with one blend: see <see cref="Shaders.ParticleShaders"/>.
+/// <param name="Shape">
+/// What the sprite is, on one channel.
+/// <list type="bullet">
+/// <item>
+/// <b>Nought to one</b> is a disc: nought hides what is behind it and one only adds to it.
+/// Smoke is the first and an ember is the second, and both are drawn by one pass with one
+/// blend — see <see cref="Shaders.ParticleShaders"/>.
+/// </item>
+/// <item>
+/// <b><see cref="Bird"/> and above</b> is a bird, drawn as a silhouette rather than a
+/// disc, with the fraction above it the point its wings have reached in their beat. See
+/// <see cref="Game.BirdFlock"/>.
+/// </item>
+/// </list>
+/// One channel rather than a fourth vertex attribute, because a bird is the only thing
+/// this pass draws that is not a disc and every other sprite in the game would have paid
+/// sixteen bytes a corner for it. The disc values are exactly the numbers they always
+/// were, so a room with no birds in it is drawn by the arithmetic that has always drawn
+/// it.
 /// </param>
 public readonly record struct Particle(
-    Vector3 Position, float Size, Vector4 Tint, float Spin, float Additive);
+    Vector3 Position, float Size, Vector4 Tint, float Spin, float Shape)
+{
+    /// <summary>Where the bird silhouettes start on <see cref="Shape"/>.</summary>
+    /// <remarks>
+    /// Two rather than something adjoining the disc range, so that no rounding of a
+    /// perfectly ordinary ember can ever land in it: the shader's test is a comparison
+    /// against 1.5, half a unit clear of both.
+    /// </remarks>
+    public const float Bird = 2f;
+
+    /// <summary>A bird whose wings have reached a given point in their beat.</summary>
+    /// <param name="beat">Where in the beat, from nought to one; wrapped rather than clamped.</param>
+    /// <returns>The value to hand the pass as <see cref="Shape"/>.</returns>
+    public static float Flapping(float beat) => Bird + (beat - MathF.Floor(beat));
+}
 
 /// <summary>
 /// One corner of one particle, in the form the vertex shader reads.
 /// </summary>
 /// <param name="PositionAndSize">Where the particle is, and how big.</param>
 /// <param name="CornerAndShape">
-/// Which corner of the sprite this is, from -1 to 1 on each axis; then the spin and how
-/// additive it is.
+/// Which corner of the sprite this is, from -1 to 1 on each axis; then the spin and what
+/// kind of sprite it is. See <see cref="Particle.Shape"/>.
 /// </param>
 /// <param name="Tint">Colour and alpha.</param>
 /// <remarks>
@@ -90,7 +119,7 @@ public readonly record struct ParticleVertex(
                     corners[corner * 2],
                     corners[(corner * 2) + 1],
                     particle.Spin,
-                    particle.Additive),
+                    particle.Shape),
                 particle.Tint);
         }
     }

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using GK3Reborn.Rendering.Geometry;
 using System.Globalization;
 using System.Numerics;
@@ -3832,6 +3832,30 @@ public static class Application
             Log.Info($"Fire: {smoke.Glints} thing(s) lying in a fire, glinting");
         }
 
+        // And what is in the sky over it. Eleven rooms in the game have any and the rest
+        // get an empty flock that costs nothing; which rooms, and why it is a list rather
+        // than something derived, is in Game.SceneBirds.
+        //
+        // A switch for the usual reason: the picture that shows it working is the same
+        // square with and without it.
+        bool noBirds = options.Contains("--no-birds", StringComparer.OrdinalIgnoreCase);
+
+        Game.Flock overhead = Game.SceneBirds.For(here, story.Timeblock);
+
+        var birds = new Game.BirdFlock(
+            overhead, Game.SceneBirds.Over(overhead, scene.Geometry, scene.Walkable, scene.Cameras));
+
+        if (birds.Count > 0)
+        {
+            Log.Info(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Birds: {birds.Count} over {here}, wheeling at " +
+                $"({birds.Wheel.Centre.X:F0}, {birds.Wheel.Centre.Y:F0}, " +
+                $"{birds.Wheel.Centre.Z:F0}) within {birds.Wheel.Radius:F0} of it, " +
+                $"{overhead.Wingspan:F0} across at " +
+                $"{Game.BirdFlock.FlapsPerSecond(overhead.Wingspan):F1} beats a second"));
+        }
+
         // Whether anything was handed to the blended pass last frame. Only so that a room
         // which stops having any — the lasers being switched off — is told once, rather
         // than every frame of the two hundred rooms that never have any at all.
@@ -5527,6 +5551,25 @@ public static class Application
 
                 // Both, where a room has both. Neither list is long and the pass takes one.
                 blended = blended.Count == 0 ? puffs : [.. puffs, .. blended];
+            }
+
+            // And the birds, ahead of all of it. They are the furthest thing the pass
+            // draws by a long way — the sky is over the room and everything else here is
+            // in it — and the list is drawn in the order it arrives, so they go first.
+            //
+            // Advanced whatever the switch says and drawn only when it is on, so that
+            // turning the birds off and on again does not teleport the flock: it is the
+            // same room a moment later, not a new one.
+            if (birds.Count > 0)
+            {
+                birds.Advance(delta);
+
+                if (front.Settings.Birds && !noBirds)
+                {
+                    IReadOnlyList<Rendering.Particle> flying = birds.Facing(view);
+
+                    blended = blended.Count == 0 ? flying : [.. flying, .. blended];
+                }
             }
 
             if (blended.Count > 0 || blending)

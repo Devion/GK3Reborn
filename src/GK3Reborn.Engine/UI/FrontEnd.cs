@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Audio;
 using GK3Reborn.Game;
@@ -939,6 +939,11 @@ public sealed class FrontEnd
                 Text.Say("picture.rails", "Solid railings and fences"),
                 Settings.ThickCutoutCards),
 
+            Toggle(
+                "birds",
+                Text.Say("picture.birds", "Birds in the sky"),
+                Settings.Birds),
+
             // The one thing in this group a player cannot see for themselves: the room
             // standing round them was built from whichever set was chosen when it loaded,
             // and rebuilding it here would mean reloading the scene underneath them.
@@ -1859,6 +1864,7 @@ public sealed class FrontEnd
             "terrain" => Settings with { TerrainBackdrop = !Settings.TerrainBackdrop },
             "rooms" => Settings with { ImprovedSceneGeometry = !Settings.ImprovedSceneGeometry },
             "rails" => Settings with { ThickCutoutCards = !Settings.ThickCutoutCards },
+            "birds" => Settings with { Birds = !Settings.Birds },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "freecamera" => Settings with { FreeCamera = !Settings.FreeCamera },

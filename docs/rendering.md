@@ -1,4 +1,4 @@
-﻿# Rendering: capability tiers
+# Rendering: capability tiers
 
 The first thing the renderer needs is to know what the machine can do, and it is the last
 thing that should guess. `Plan/01-architecture.md` section 5.1 requires tiers to be
@@ -731,6 +731,16 @@ morning: the cemetery, the village, the dig site and Poussin's Tomb. It runs aft
 and before the smoke, at render resolution, and is not recorded at all in the rooms with no
 layer. See [fog.md](fog.md), which also says why the rooms are a list rather than something
 derived from the corpus, and why the hour is asked for beside the name.
+
+### What is in the air, and in the sky
+
+One blended forward pass runs after the picture is composed, against the depth the room left
+behind, and everything that has to be see-through goes through it: the smoke and embers off
+the nine rooms with an open flame ([fire.md](fire.md)), CS2's laser beams, and the birds over
+the eleven outdoor rooms that have any ([birds.md](birds.md)). A sprite is drawn by arithmetic
+rather than from a bitmap — a soft disc for smoke and a spark, a two-winged silhouette for a
+bird — and which of those it is rides on one channel of the vertex, so a room with no birds in
+it is drawn by exactly the arithmetic it always was.
 
 ### Which side of a surface is drawn
 
