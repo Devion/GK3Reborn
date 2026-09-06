@@ -4,6 +4,164 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 1. A texture blocks the open space in a dumbwaiter (open)
+
+Reported: "the dumbwaiter when opened still shows the door in place as if there were two
+doors there, a texture overlap"; and then "the problem is not open/closed — there is a
+texture *blocking the open space* within the dumbwaiter."
+
+**Which dumbwaiter is not yet known, and three of them were ruled out on 2026-09-06.**
+There are four places one can be looked into and each has its own geometry:
+
+| where | how to reproduce | what it showed |
+| --- | --- | --- |
+| R25, Gabriel's room | `--scene R25 --timeblock 110A --run '@100 CallSheep("r25_all","UnLock");@400 CallSheep("r25_all","Open")' --eye 100,55,120 --aim 0,0` | door swings clear, opening shows the shaft's far wall |
+| KIT, the hotel kitchen | `--scene KIT --timeblock 210A --run '@100 CallSheep("kit_all","DUMB_WAITER_GE_OPEN")'` | door swings clear, opening shows the shaft |
+| DU1, inside the shaft | `--scene R25 --timeblock 210A --run '@30 SetNounVerbCount("DUMB_WAITER_LOCK_R25","USE",2);@90 SetLocation("du1")'` | nothing obviously doubled |
+| R21 / R23 / R27, the rooms it opens into | not yet looked at | — |
+
+Things already eliminated, so as not to be tried again:
+
+- **Not the improved room geometry.** R25 renders the same with `ImprovedSceneGeometry`
+  off.
+- **Not the parked car.** `r25_dumbwaiter_platform_SCENE` is a scene object when the pulley
+  has not been used and a `hittest` after; hiding it changes nothing in the opening, and
+  `HideSceneModel` was proved to work on that room by hiding `r25wardrobe`.
+- **Not a doubled door prop.** R25's three conditional `[MODELS]` blocks for
+  `r25_dumbdoor`, and KIT's two for `dumdoorl`, resolve to one placement each.
+- Note that **`HideModel` does not touch a `type=scene` object** — `HideSceneModel` is the
+  one for those — which is what makes a probe of BSP geometry look like a negative result.
+
+What is wanted next is the room and the moment: which dumbwaiter, whose game, and whether
+the blocking texture is there before it is opened.
+
+
+## 0. The fingerprint kit took every click in the game (done 2026-09-06)
+
+Reported: "once Gabriel picks up the fingerprint scanner it tends to override most other
+nouns on everything, so most clicks afterwards need a right click to select the other
+options."
+
+Nothing special-cases the kit. The second line of `GLB_ALL.NVC` — which is in scope in
+every room of the game — is
+
+    ANY_OBJECT, FINGERPRINT_KIT, GABE_ALL, script={wait CallSheep("glb_all","FingerPrint");}
+
+the catch-all that gives Gabriel a line for dusting something with no prints on it. So from
+the moment the kit is in the bag it is a verb on **every noun there is**, and because it is
+written about the wildcard noun it was gathered before anything written about the thing
+itself. `Hover.Default` takes the first offer that is not a close-up, so it won the click on
+everything that has no `LOOK` — and on every noun the files say nothing about at all it
+*invented* an action where a click had previously meant "walk over there".
+
+Two changes, and the second is the one that matters:
+
+- `ActionCategory.Item`, so the resolver can say which offers are things out of the bag.
+  They sort last on the bar, behind whatever the thing itself does.
+- **`Hover.Default` is never an item.** Holding an item against a thing was two deliberate
+  steps in the original — take the item, then click what to use it on — and nothing about
+  pointing at something says the player wants that. The bar still offers it, and choosing it
+  runs the same rule; a right click is just no longer the only way past it.
+
+The other two wildcard item rules are `SCANNER` and `BLACK_FIBERS` in the inventory sets, so
+this was never only the kit. `DefaultVerbTests` holds it.
+
+## 0. The tour arrived at Poussin's tomb sitting on thin air (done 2026-09-06)
+
+Reported: "the tour starts at Poussin's tomb, switches the camera before all characters are
+settled into their standing position, so at the top of the hill all NPCs are still sitting
+for a second before correcting and Buthane's voice starts."
+
+Exactly what the script does, and the reference names this room in a comment. `POU207A.SHP`'s
+`TourArrives$` waits out `VanPouIN` — two hundred frames of the van pulling up with all eight
+of them **seated inside it** — then calls `positions$`, which is nine `SetActorPosition`
+calls that stand them on their marks at the top of the hill, then force-cuts to `TOUR_TOP`
+and waits a second before `walkers$` gives them their idle scripts back.
+
+That second was the bug. `SceneUpdate.Place` stops whatever clip was posing a character, and
+**stopping a clip leaves its last frame written into the model**, so the teleport carried the
+seated pose with it. `SetActorPosition` in the reference ends with
+
+    // This also *appears* to sample the actor's walk anim, to ensure the character is in a
+    // default "standing" position. If we don't do this, the characters are sometimes
+    // positioned incorrectly (e.g. 207A Poussin's Tomb).
+    gSceneManager.GetScene()->GetAnimator()->Sample(actor->GetConfig()->walkStartAnim, 0);
+
+`SceneUpdate.Stand` is that: the opening frame of the animation `CHARACTERS.TXT` gives a
+character to start walking with, which is a person standing upright with their weight even.
+`InitEgoPosition` takes it too — `GKActor::InitPosition` does the same thing for the same
+reason.
+
+    GK3Reborn.exe --scene POU --timeblock 207A --frames 340       --run '@300 StopAnimation("VanPouIN");@305 CallSheep("pou207a","positions");@310 ForceCutToCameraAngle("TOUR_TOP")'
+
+Before: Mosely, Buchelli and Lady Howard sitting in mid-air on the hilltop. After: eight
+people standing on their marks.
+
+## 0. "Ask About Rennes L C" in every language (done 2026-09-06)
+
+Reported: the context menu's Ask rows are never translated — a French game hovering over
+Emilio reads "Ask about introduce".
+
+Two faults in one label, and the same cause as the nouns above: `VERBS.TXT` has 287 entries,
+the ninety ordinary verbs had been written into `interface-<code>.json` and the **eighty-nine
+conversation topics had not**. With no key the port tidies the identifier, and for a topic it
+wraps the tidied remainder in an English frame — so the row was an English sentence around a
+word out of the 1999 data, in all eight languages, and wrong in English too.
+
+They are `verb.T_RENNES_L_C` and the rest, written in all eight. Each is the **whole label**
+rather than a subject slotted into one shared phrase, because that does not survive contact
+with the languages: German's frame takes the dative, French and Italian contract the article
+onto the preposition (*du trésor*, *dell'abate*), Polish and Czech take the accusative, and
+several of the topics are not questions at all — `T_INTRODUCE` is "Introduce yourself",
+`T_HANDSHAKE` is "Shake hands", `T_FLIRT` is "Flirt". See
+[localization.md](localization.md).
+
+**The language packs have to be rebuilt**, as they did for the nouns: `UiText.Of` reads the
+pack's `interface.json` before the assembly's. `pack-content --languages-only` is new and is
+the cheap way to do it — the words are the one part of a language volume that comes from the
+assembly rather than from the workspace, so correcting a translation leaves all eight
+volumes stale and the shared 14 GB untouched.
+
+## 0. The scene file's list of action files was read as a ranking (done 2026-09-06)
+
+Found while answering "when talking to NPCs it seems too many options are available and they
+aren't ordered". `LBY.SIF` lists its action files
+
+    [ACTIONS]
+    lby_all.nvc
+    lby_1all.nvc
+    ...
+
+and `ActionSets.For` took that order as priority, so **the file covering every day was
+consulted ahead of the one covering day one**. On the receptionist's bar that put his two
+day-one topics below the small talk the whole game shares; underneath, `ActionResolver.Best`
+was using the same order to settle a tie between two hand-written conditions, and settling it
+the wrong way round.
+
+The original never reads the order. `NVC::ParseFromData` gives every rule an `ActionType`
+computed from the **file's own name** — Global, Day, TimeblockRange, Timeblock — and
+`GetHighestPriorityAction` compares that when two custom cases tie, falling through to the
+case-name comparison only when the two files are equally particular.
+`TimeblockRange.Specificity` is that computation, `Best` uses it in place of the index, and
+`ActionSets.For` now orders each family by it so the bar reads the same way. Days two and
+three counting as global is the reference's own arithmetic and is kept.
+
+`check-scenes` before and after: **36,269 verbs**, 129 undefined-case diagnostics, every
+structural count identical — which is what a correct ordering fix looks like, because nothing
+about it should move content.
+
+**Both of the receptionist's topics really are available at once**, and that half of the
+report is not a defect. `LBY_1ALL.NVC` writes
+
+    JEAN, T_RENNES_L_C,    1ST_TIME, ...
+    JEAN, T_TWO_MEN_TRUNK, 1ST_TIME, ...
+
+and `1ST_TIME` on a topic is "you have not asked this yet", which is true of both from the
+first minute of day one. The original scores them the same way and offers both. Nothing in
+the shipped data makes the trunk wait on Rennes-le-Château, so making it wait would be
+writing content rather than porting it.
+
+
 ## 0. The room under the cursor was still English (done 2026-09-06)
 
 Reported: a French game in the hotel lobby, pointing at the front door, reads "Front door -
@@ -253,10 +411,14 @@ step. 275 phrases in six languages: the menus, all five settings sections and th
 the save slots, the toolbar, the journal's chrome, every screen's title and way out, and the
 ninety verbs the original drew as icons. See [localization.md](localization.md).
 
-**What is left** is the journal's 142 objectives and the walkthrough lines behind its hint
-button — `Assets/Story/Quests.txt` and `Walkthrough.txt`, five hundred lines of prose about
-this game's puzzles. The nouns under the cursor were the other gap and were written into the
-same mechanism on 2026-09-06.
+**The journal followed on 2026-09-06**, and with it the last of the port's own English: its
+142 objectives and the 341 walkthrough lines behind its hint button —
+`Assets/Story/Quests.txt` and `Walkthrough.txt` — are 483 more keys in the same files, keyed
+`quest.<timeblock>.<n>` and `hint.<timeblock>.<n>` by where the line comes rather than by what
+it says. The tables stay the one place the English is written; a test reads both and requires
+every line to have a key whose English is the table's, and no key to outlive its line. The
+nouns under the cursor were the other gap and were written into the same mechanism the same
+day.
 
 ## 0. The port's own interface text is not localised — as it stood
 
@@ -280,7 +442,7 @@ had, plus the two families GK3 itself never named:
 - **the toolbar's own labels**, "Pockets" and "Journal".
 - **the settings screen**, every row and every value.
 - **the journal**: 142 objectives and their hints, in `Assets/Story/Quests.txt` and
-  `Walkthrough.txt`.
+  `Walkthrough.txt`. *(Done 2026-09-06.)*
 
 That is translation rather than extraction, and it wants a different shape: a per-language
 JSON of the port's own strings, packed into that language's volume as a manifest entry and

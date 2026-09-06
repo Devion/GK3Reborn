@@ -76,6 +76,39 @@ public readonly record struct TimeblockRange(Timeblock Start, Timeblock End)
     public static bool Applies(string? name, Timeblock at) =>
         TryParse(name, out TimeblockRange range) && range.Covers(at);
 
+    /// <summary>How particular an asset's name is about when it applies.</summary>
+    /// <param name="name">The asset's name.</param>
+    /// <returns>
+    /// Nought for one that spans the story or says nothing, and up to three for one that
+    /// names a single timeblock.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// The reference's <c>ActionType</c>, computed the same way and from the same thing —
+    /// the name, never the order the scene file happens to list its files in. Four levels:
+    /// <c>LBY_ALL</c> and <c>LBY_23ALL</c> are global (they span days), <c>LBY_1ALL</c> is a
+    /// day, <c>LBY110A04P</c> is a stretch of one, and <c>LBY110A</c> is one block.
+    /// </para>
+    /// <para>
+    /// It decides which of two rules the player gets when both are written against
+    /// hand-written conditions and both hold — see <c>ActionResolver.Best</c>. Days two and
+    /// three counting as global is the reference's own arithmetic rather than a reading of
+    /// the intent, and is kept: a rule about it is a rule about the shipped data.
+    /// </para>
+    /// </remarks>
+    public static int Specificity(string? name)
+    {
+        if (!TryParse(name, out TimeblockRange range) || range.Start.Day != range.End.Day)
+        {
+            return 0;
+        }
+
+        return range.Start == range.End ? 3
+            : range.Start == Timeblock.StartOfDay(range.Start.Day) &&
+              range.End == Timeblock.EndOfDay(range.End.Day) ? 1
+            : 2;
+    }
+
     /// <summary>Reads the <c>ALL</c> forms: every day, or the days whose digits are given.</summary>
     private static bool ForDays(string text, int at, int all, out TimeblockRange range)
     {

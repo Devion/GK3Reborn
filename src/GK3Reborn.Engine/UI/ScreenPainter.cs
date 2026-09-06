@@ -789,7 +789,7 @@ public sealed class ScreenPainter
                     string mark = entry.Done ? "[x]" : "[ ]";
 
                     Overlay.Text(
-                        $"  {mark}  {entry.Quest.Title}",
+                        $"  {mark}  {entry.Title}",
                         x,
                         y,
                         entry.Done ? Dim : Ink);

@@ -148,12 +148,25 @@ public sealed class ActionResolver
 
         bool topics = found.Exists(f => Verbs?.IsTopic(f.Rule.Verb) ?? false);
 
-        // Inspect first, so left click always has something predictable to do. OrderBy is
-        // stable, so everything else keeps the order the files gave it.
+        // Inspect first, so left click always has something predictable to do, and the
+        // things out of the bag last, because they are the least likely of the three to be
+        // what the player means. OrderBy is stable, so within each the file order stands.
+        //
+        // The bag going last is not only tidiness. <c>ANY_OBJECT, FINGERPRINT_KIT,
+        // GABE_ALL</c> is the second line of GLB_ALL.NVC, which is in scope in every room
+        // in the game, so from the moment Gabriel picks the kit up it is a verb on *every
+        // noun there is* — and being a wildcard rule it was gathered before anything
+        // written about the thing itself. Reported as the kit overriding most other nouns
+        // on everything, with a right click needed to reach what the object actually does.
         return [.. found
             .Where(f => !topics || !OpensTheTopicList(f.Rule))
             .Select(f => f.Offer)
-            .OrderBy(a => a.Category == ActionCategory.Inspect ? 0 : 1)];
+            .OrderBy(a => a.Category switch
+            {
+                ActionCategory.Inspect => 0,
+                ActionCategory.Item => 2,
+                _ => 1,
+            })];
     }
 
     /// <summary>
@@ -459,11 +472,11 @@ public sealed class ActionResolver
     {
         NvcAction? best = null;
         int score = 0;
-        int from = int.MaxValue;
+        int from = int.MinValue;
 
-        for (int index = 0; index < _files.Count; index++)
+        foreach (NvcFile file in _files)
         {
-            NvcFile file = _files[index];
+            int particular = Particularity(file);
 
             foreach (NvcAction action in file.Actions)
             {
@@ -479,7 +492,7 @@ public sealed class ActionResolver
 
                 if (worth > score)
                 {
-                    (best, score, from) = (action, worth, index);
+                    (best, score, from) = (action, worth, particular);
                     continue;
                 }
 
@@ -488,18 +501,34 @@ public sealed class ActionResolver
                     continue;
                 }
 
-                // A tie between two conditions somebody wrote. The files are in scope most
-                // specific first, so a lower index is the more particular file and settles
-                // it; only when they come from the same kind of file does the name decide.
-                if (index < from || (index == from && Sooner(action.Case, best.Case)))
+                // A tie between two conditions somebody wrote. The more particular file
+                // settles it, and how particular a file is comes out of its own name rather
+                // than out of where the scene file happens to list it: LBY.SIF names
+                // lby_all.nvc above lby_1all.nvc, so reading order as priority gave day
+                // one's rules to the file that covers every day. Only when the two are
+                // equally particular does the case name decide.
+                if (particular > from || (particular == from && Sooner(action.Case, best.Case)))
                 {
-                    (best, from) = (action, index);
+                    (best, from) = (action, particular);
                 }
             }
         }
 
         return best;
     }
+
+    /// <summary>How particular a file in scope is, cached because it is asked per rule.</summary>
+    private int Particularity(NvcFile file)
+    {
+        if (!_particular.TryGetValue(file.Name, out int rank))
+        {
+            _particular[file.Name] = rank = TimeblockRange.Specificity(file.Name);
+        }
+
+        return rank;
+    }
+
+    private readonly Dictionary<string, int> _particular = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>How much a case label outranks another.</summary>
     /// <param name="file">The file the rule is in, which is asked first about the name.</param>
@@ -837,11 +866,20 @@ public sealed class ActionResolver
     /// be making on its own; <c>Plan/03</c> section 2.1 requires that no puzzle action
     /// fires because the engine guessed.
     /// </remarks>
-    private static ActionCategory CategoryFor(string verb) =>
-        verb.Equals("LOOK", StringComparison.OrdinalIgnoreCase) ||
-        verb.Equals("INSPECT", StringComparison.OrdinalIgnoreCase)
-            ? ActionCategory.Inspect
-            : ActionCategory.Primary;
+    /// <summary>Which of the three kinds of row a verb makes.</summary>
+    /// <remarks>
+    /// An inventory verb is its own kind, because it is an item being held against the
+    /// thing rather than something the thing does. <see cref="Verbs"/> is the only place
+    /// that says which verbs those are; with no library every verb is an ordinary one,
+    /// which is what a tool reading the files without <c>VERBS.TXT</c> should see.
+    /// </remarks>
+    private ActionCategory CategoryFor(string verb) =>
+        Verbs?.KindOf(verb) == Actions.VerbKind.Inventory
+            ? ActionCategory.Item
+            : verb.Equals("LOOK", StringComparison.OrdinalIgnoreCase) ||
+              verb.Equals("INSPECT", StringComparison.OrdinalIgnoreCase)
+                ? ActionCategory.Inspect
+                : ActionCategory.Primary;
 
     private static string IconFor(string verb) => verb.ToUpperInvariant() switch
     {

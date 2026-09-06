@@ -20,13 +20,34 @@ namespace GK3Reborn.Game.Story;
 /// checkable number in the file: an off-by-one in the parse shows up as a total that stops
 /// agreeing with the sum of the parts.
 /// </param>
+/// <param name="Ordinal">
+/// Where it comes in its own point in the story, counting from one. It is the number
+/// <c>Quests.txt</c> already writes when it points a hint at this line, and it is what the
+/// line is called in the interface tables — see <see cref="TextKey"/>.
+/// </param>
 public sealed record WalkthroughStep(
     Timeblock Timeblock,
     string Location,
     string Text,
     int Points,
-    int Running)
+    int Running,
+    int Ordinal)
 {
+    /// <summary>What this line is filed under in <c>interface-*.json</c>.</summary>
+    /// <remarks>
+    /// The position rather than the words, for the reason <c>Quest.TitleKey</c> gives. The
+    /// numbering is the file's own: <c>Quests.txt</c> asks for "line 3 of 110A" and this is
+    /// the same three, so a hint and its translation cannot be pointing at different lines.
+    /// </remarks>
+    public string TextKey => Key(Timeblock, Ordinal);
+
+    /// <summary>What the line at a position in a point in the story is filed under.</summary>
+    /// <param name="timeblock">Which point in the story.</param>
+    /// <param name="ordinal">Its position within that, counting from one.</param>
+    /// <returns>The key.</returns>
+    public static string Key(Timeblock timeblock, int ordinal) =>
+        string.Create(CultureInfo.InvariantCulture, $"hint.{timeblock}.{ordinal}");
+
     /// <summary>Whether the step scores anything.</summary>
     /// <remarks>
     /// A step that does not is a transition or an observation — "Go outside", "You'll see
@@ -123,6 +144,11 @@ public sealed partial class Walkthrough
         Timeblock? at = null;
         string location = string.Empty;
 
+        // How far into its own point in the story each line is. Kept per block rather than
+        // per file so that a line added to Day 1 does not renumber every hint after it —
+        // which is the same reason Quests.txt counts its hints that way.
+        var ordinals = new Dictionary<Timeblock, int>();
+
         foreach (string raw in text.Split('\n'))
         {
             string line = raw.TrimEnd('\r', ' ', '\t');
@@ -175,8 +201,11 @@ public sealed partial class Walkthrough
                 ? Split(scored)
                 : (0, 0);
 
+            ordinals.TryGetValue(timeblock, out int ordinal);
+            ordinals[timeblock] = ++ordinal;
+
             walkthrough._steps.Add(
-                new WalkthroughStep(timeblock, location, what, points, running));
+                new WalkthroughStep(timeblock, location, what, points, running, ordinal));
         }
 
         return walkthrough;

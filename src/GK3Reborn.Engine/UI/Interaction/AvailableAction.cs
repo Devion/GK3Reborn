@@ -11,6 +11,18 @@ public enum ActionCategory
 
     /// <summary>Consumes an item, closes a path, or is otherwise hard to undo.</summary>
     Destructive,
+
+    /// <summary>
+    /// Something out of the bag, used on the thing. Never what a plain click performs.
+    /// </summary>
+    /// <remarks>
+    /// An inventory verb is an item the player is holding against something, and in the
+    /// original that was always two deliberate steps: pick the item up off the inventory
+    /// screen, then click what to use it on. Nothing about pointing at a thing says the
+    /// player wants to do that to it, so these are offered on the bar and never chosen for
+    /// the player — see <c>Hover.Default</c>.
+    /// </remarks>
+    Item,
 }
 
 /// <summary>

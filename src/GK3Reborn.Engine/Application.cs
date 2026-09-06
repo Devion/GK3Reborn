@@ -2642,7 +2642,18 @@ public static class Application
 
             // The quest log. Built per room like everything else here, and holding nothing
             // of its own: what is done is read from the score events the story records.
-            var journal = new Game.Story.Journal(api.State);
+            //
+            // Given the language twice over, because the two halves of what it draws come
+            // from different places: its objectives and its hints are the port's own prose
+            // and are keyed into interface-<code>.json, and the heading over each point in
+            // the story is GK3's own Day110a line, already translated in every release. A
+            // change of language reloads the room, so this is also where a journal in the
+            // new one is built.
+            var journal = new Game.Story.Journal(api.State)
+            {
+                Text = words,
+                Names = strings,
+            };
 
             // The room is standing and about to be drawn, so this is where the two halves
             // of the transition meet: the picture finishes going out, and the way back is

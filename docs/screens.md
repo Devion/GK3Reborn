@@ -86,6 +86,15 @@ a hotspot is not a puzzle, and neither is guessing which icon means "look".
 noun as its heading, not a ring of icons whose meanings have to be learned. The row under
 the pointer is lit; clicking it performs that verb, clicking anywhere else dismisses it.
 
+**The click takes the first verb on the list, and never one out of the bag.** Using an item
+on something was two deliberate steps in the original — take the item, then click what to use
+it on — and pointing at a thing says nothing about wanting that. It has to be a rule rather
+than a preference because of one line: `ANY_OBJECT, FINGERPRINT_KIT, GABE_ALL` in
+`GLB_ALL.NVC`, the catch-all that answers a dusting nobody would get anything from, is in
+scope in every room in the game. From the moment Gabriel carries the kit it was an offer on
+every noun there is, so it won the click on everything that has no `Look` and put one on every
+noun the files say nothing about at all. Items sort last on the bar and are chosen there.
+
 **The original's icon is beside the word, not instead of it.** `VERBS.TXT` names a resting
 and a lit picture for all but three of the 287 verbs, and those pictures are the whole of
 what the original's ring ever showed — a magnifier for Inspect, an eye for Look, a speech

@@ -123,7 +123,11 @@ public sealed class ActionSetTests
         IReadOnlyList<string> names = ActionSets.For(
             Scene("r25_all.nvc\nr25_1all.nvc\nr25_3all.nvc"), at: null);
 
-        Assert.Equal(["r25_all.nvc", "r25_1all.nvc", "r25_3all.nvc"], names);
+        // All three, and the two that name a day ahead of the one that spans the story —
+        // the scene file's own order is not a ranking, and reading it as one put every rule
+        // about day one behind the file that covers every day. The two days tie, and a tie
+        // keeps the order the scene file gave it.
+        Assert.Equal(["r25_1all.nvc", "r25_3all.nvc", "r25_all.nvc"], names);
     }
 
     [Fact]

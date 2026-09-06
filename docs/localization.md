@@ -185,8 +185,8 @@ own `ESIDNEY.TXT` uses, and the reason its files survived being translated eight
 identifier is stable and only the value moves.
 
 ```
-src/GK3Reborn.Engine/Assets/Ui/interface-en.json     349 phrases
-                              interface-de.json      the same 349, in German
+src/GK3Reborn.Engine/Assets/Ui/interface-en.json   1,799 phrases
+                              interface-de.json   the same 1,799, in German
                               interface-cs.json      … cs, es, fr, it, pl, pt
 ```
 
@@ -245,10 +245,39 @@ can spell is one the atlas draws.
 the port was ignoring; see [sidney.md](sidney.md). Only the dozen sentences it says that
 the 1999 game never had a place for are written rather than extracted.
 
-**What is still English in every language**: the journal's 142 objectives and the
-walkthrough lines behind its hint button, which are `Assets/Story/Quests.txt` and
-`Walkthrough.txt` — five hundred lines of prose about this game's puzzles, and a different
-size of job from a settings screen.
+**The journal is localised too, as of 2026-09-06.** Its 142 objectives and the 341
+walkthrough lines behind its hint button — `Assets/Story/Quests.txt` and `Walkthrough.txt`,
+about 6,400 words of prose about this game's puzzles — are 483 more keys in the same
+`interface-<code>.json`, in all eight languages.
+
+**Keyed by position, never by the words.** An objective's key is
+`quest.<timeblock>.<n>` and a walkthrough line's is `hint.<timeblock>.<n>`, both counting
+from one within a point in the story — which is the numbering `Quests.txt` already uses when
+it points a hint at a line, so `quest.110A.3` and `hint.110A.3` are read the same way. A key
+made from the English would mean an edit to a comma silently dropping seven languages back to
+English; and the title in particular *cannot* be its own key, because it is half of what a
+save files the player's asked-for hints under. `Quest.Title` therefore stays the English the
+table was written in, and `JournalEntry.Title` is the same sentence for reading. Changing
+language mid-game does not hand back hints already spent.
+
+**Why the tables were not copied per language.** A `Quests-fr.txt` would have to agree with
+the English about its score names and its hint numbers, and nothing could check that a
+translator had not reordered a line. Keeping one table and translating only its prose means
+`JournalTests` still reads one file, and `UiTextTests` checks in both directions: every
+objective and every walkthrough line has a key whose English is *exactly* the table's, and no
+`quest.*` or `hint.*` key survives a line that has been deleted or renumbered.
+
+**The heading over each point in the story needed no translation written.** It used to be
+three English words built from the numbers — "Day 1, 10 AM". It is now `Day110a` out of the
+string table, the same line the corner of the room and Sidney's clock already draw, so a
+French journal reads "Jour 1, 10.00 - 12.00" for free.
+
+**The hints name Sidney's own buttons, in the words that are on them.** "Use the
+`Extract Anomalies` option" is useless to a French player whose button says
+*EXTRAIRE ANOMALIES*, so those labels were taken out of each release's `ESIDNEY.TXT` rather
+than translated, and the place and item names in the prose out of its string table — the
+hotel's rooms, L'Ermitage, the masking tape, the hanger. What is written rather than
+extracted is the sentences around them.
 
 ## What the interface can say, and what it cannot
 
@@ -264,6 +293,23 @@ pointed at, so `BATHROOM_DOOR` and `LOOK` have no translation to find. Both fami
 written rather than extracted, and both live in `interface-<code>.json` beside the menus:
 `verb.LOOK` for the ninety verbs of `VERBS.TXT`, and `noun.BATHROOM_DOOR` for the 875 nouns
 the corpus declares.
+
+**The eighty-nine conversation topics are the third family, and were missed.** They are the
+rest of `VERBS.TXT` — `T_RENNES_L_C`, `T_INTRODUCE`, `T_TWO_MEN_TRUNK`, entries of type
+`Topic` — and the original drew them as icons like everything else. Where the port has no
+word it tidies the identifier and, for a topic, wraps the tidied remainder in an English
+frame, so a French game hovering over Emilio read *"Ask About Introduce"*: an English
+sentence around a word out of the data. They are `verb.T_RENNES_L_C` and the rest, written
+in all eight languages like the other two families.
+
+Each is the **whole label**, not a subject slotted into a shared "ask about" phrase.
+Composing it would have been one string instead of eighty-nine, and it does not survive
+contact with the languages: German's frame takes the dative, French and Italian contract
+the article onto the preposition (*du trésor*, *dell'abate*), Polish and Czech take the
+accusative, and a handful of the topics are not questions at all — `T_INTRODUCE` is
+"Introduce yourself", `T_HANDSHAKE` is "Shake hands", `T_FLIRT` is "Flirt". Six topics are a
+second copy of another under a different name (`_ARM` at the Devil's Armchair, `T_LSR`
+beside `T_LE_SERPENT_ROUGE`) and read the same in every language.
 
 **The noun table is asked second, not first.** `GameStrings.Item` is tried before it, so
 the 293 things the player carries keep the game's own 1999 words in the language the player

@@ -1,9 +1,10 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 
+using System.Globalization;
 using GK3Reborn.Game;
 
 namespace GK3Reborn.Game.Story;
@@ -38,13 +39,43 @@ public enum QuestTest
 /// Which lines of the walkthrough answer "how", counting from one within this point in the
 /// story. Shown one at a time and only on request.
 /// </param>
+/// <param name="Ordinal">
+/// Where it comes in its own point in the story, counting from one. This is what the
+/// objective is called in the interface tables — see <see cref="TitleKey"/>.
+/// </param>
 public sealed record Quest(
     Timeblock Timeblock,
     string Title,
     QuestTest Test,
     IReadOnlyList<string> Scores,
-    IReadOnlyList<int> Hints)
+    IReadOnlyList<int> Hints,
+    int Ordinal)
 {
+    /// <summary>What this objective's title is filed under in <c>interface-*.json</c>.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The position, never the words.</b> The title is the thing being translated, so it
+    /// cannot also be the name of the translation; and a key made from the English would
+    /// mean an edit to a comma silently dropped seven languages back to English. The
+    /// numbering is the same one the hints already use — counting from one within a point in
+    /// the story — so <c>quest.110A.3</c> and <c>hint.110A.3</c> are read the same way.
+    /// </para>
+    /// <para>
+    /// <b>It is not what a save remembers.</b> That is <c>Journal.Key</c>, which is the
+    /// timeblock and the English title, because a player who asked for a hint in French has
+    /// asked for it in English too — and a key that moved with the language would hand them
+    /// their hints back the moment they changed it.
+    /// </para>
+    /// </remarks>
+    public string TitleKey => Key(Timeblock, Ordinal);
+
+    /// <summary>What the objective at a position in a point in the story is filed under.</summary>
+    /// <param name="timeblock">Which point in the story.</param>
+    /// <param name="ordinal">Its position within that, counting from one.</param>
+    /// <returns>The key.</returns>
+    public static string Key(Timeblock timeblock, int ordinal) =>
+        string.Create(CultureInfo.InvariantCulture, $"quest.{timeblock}.{ordinal}");
+
     /// <summary>Whether this objective has been achieved.</summary>
     /// <param name="scored">Whether a given score event has been earned.</param>
     /// <param name="past">Whether the story has moved past this point.</param>
@@ -160,6 +191,11 @@ public sealed class Quests
         var quests = new Quests();
         Timeblock? at = null;
 
+        // Where each point in the story has got to, so that an objective's key is its
+        // position within its own block rather than within the file. Adding a block at the
+        // top of the table then leaves every key below it alone.
+        var ordinals = new Dictionary<Timeblock, int>();
+
         foreach (string raw in text.Split('\n'))
         {
             string line = raw.Trim();
@@ -189,12 +225,16 @@ public sealed class Quests
 
             (QuestTest test, IReadOnlyList<string> scores) = Condition(fields[1]);
 
+            ordinals.TryGetValue(timeblock, out int ordinal);
+            ordinals[timeblock] = ++ordinal;
+
             quests._quests.Add(new Quest(
                 timeblock,
                 fields[0],
                 test,
                 scores,
-                fields.Length > 2 ? Numbers(fields[2]) : []));
+                fields.Length > 2 ? Numbers(fields[2]) : [],
+                ordinal));
         }
 
         return quests;

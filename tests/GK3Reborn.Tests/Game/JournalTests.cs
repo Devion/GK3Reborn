@@ -1,5 +1,6 @@
 ﻿using GK3Reborn.Game;
 using GK3Reborn.Game.Story;
+using GK3Reborn.UI;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -243,6 +244,103 @@ public sealed class JournalTests
 
     /// <summary>What an objective is filed under, mirroring the journal's own key.</summary>
     private static string JournalKey(Quest quest) => $"{quest.Timeblock}|{quest.Title}";
+
+    /// <summary>Every line of both tables has a key, and it is the line's own position.</summary>
+    /// <remarks>
+    /// The keys are how the journal is translated, and they are positions rather than words —
+    /// so the one thing that can go wrong is the numbering drifting from the file. It drifts
+    /// silently: a shifted key draws the neighbouring objective's translation, which reads as
+    /// a journal quietly telling the player to do the wrong thing.
+    /// </remarks>
+    [Fact]
+    public void Every_objective_and_every_line_is_numbered_by_where_it_comes()
+    {
+        foreach (Timeblock timeblock in Table.Timeblocks)
+        {
+            IReadOnlyList<Quest> quests = Table.Of(timeblock);
+
+            for (int at = 0; at < quests.Count; at++)
+            {
+                Assert.Equal(at + 1, quests[at].Ordinal);
+                Assert.Equal($"quest.{timeblock}.{at + 1}", quests[at].TitleKey);
+            }
+
+            IReadOnlyList<WalkthroughStep> steps = Guide.Of(timeblock);
+
+            for (int at = 0; at < steps.Count; at++)
+            {
+                Assert.Equal(at + 1, steps[at].Ordinal);
+                Assert.Equal($"hint.{timeblock}.{at + 1}", steps[at].TextKey);
+            }
+        }
+    }
+
+    /// <summary>The heading over a point in the story is the game's own words for it.</summary>
+    /// <remarks>
+    /// Which is the half of the journal that needed no translation writing: every release
+    /// names its own timeblocks, so a French journal reads "Jour 1, 10.00 - 12.00" over the
+    /// list without anybody having written that down. A game with no archives still gets a
+    /// heading rather than a blank.
+    /// </remarks>
+    [Fact]
+    public void The_heading_over_a_point_in_the_story_comes_from_the_string_table()
+    {
+        var story = new GameState { Timeblock = new Timeblock(1, 10, false) };
+
+        Assert.Equal(
+            "Day 1, 10 AM",
+            new Journal(story, Table, Guide).Read()[0].Chapters[0].Title);
+
+        var journal = new Journal(story, Table, Guide)
+        {
+            Names = GameStrings.Parse("Day110a = Jour 1, 10.00 - 12.00\n"),
+        };
+
+        Assert.Equal("Jour 1, 10.00 - 12.00", journal.Read()[0].Chapters[0].Title);
+    }
+
+    /// <summary>An objective and its hints read in the language the game is being played in.</summary>
+    [Fact]
+    public void The_journal_reads_in_the_players_own_language()
+    {
+        var story = new GameState { Timeblock = new Timeblock(1, 10, false) };
+        var journal = new Journal(story, Table, Guide) { Text = UiText.Carried("fr") };
+
+        Quest telephone = Table.Of(new Timeblock(1, 10, false))
+            .Single(q => q.Title.StartsWith("Telephone", StringComparison.Ordinal));
+
+        JournalEntry entry = journal.Now().Single(e => e.Quest == telephone);
+
+        Assert.NotEqual(telephone.Title, entry.Title);
+        Assert.Equal(UiText.Carried("fr").Say(telephone.TitleKey, "?"), entry.Title);
+
+        // And the hint behind it, which is the other half and the longer one.
+        string? hint = journal.Reveal(telephone);
+
+        Assert.NotNull(hint);
+        Assert.NotEqual(Guide.Of(telephone.Timeblock)[telephone.Hints[0] - 1].Text, hint);
+    }
+
+    /// <summary>What a save files a hint under does not move with the language.</summary>
+    /// <remarks>
+    /// The trap under the whole arrangement, and the reason <c>Quest.Title</c> stays English:
+    /// the key is the timeblock and the title, so a title translated in place would file a
+    /// French player's hints under a name an English one could not find — and changing
+    /// language mid-game would hand back every hint they had already spent.
+    /// </remarks>
+    [Fact]
+    public void Asking_for_a_hint_is_remembered_whatever_language_it_was_asked_in()
+    {
+        var story = new GameState { Timeblock = new Timeblock(1, 10, false) };
+        Quest first = Table.Of(new Timeblock(1, 10, false))[0];
+
+        new Journal(story, Table, Guide) { Text = UiText.Carried("de") }.Reveal(first);
+
+        var english = new Journal(story, Table, Guide);
+
+        Assert.Single(english.Now().Single(e => e.Quest == first).Hints);
+        Assert.Equal(1, story.HintsAsked(JournalKey(first)));
+    }
 
     /// <summary>Which score events were earned survives a save, which it never used to.</summary>
     /// <remarks>

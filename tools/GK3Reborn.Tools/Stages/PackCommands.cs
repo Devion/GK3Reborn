@@ -63,11 +63,25 @@ public static class PackCommands
         // The shared plan, then whichever languages have been extracted. Appended rather
         // than merged into the default, because which languages exist is a fact about the
         // workspace and not about this build — see ContentPackStage.LanguagePlan.
+        // --languages-only is the mirror, and it is a whole-volume build rather than a
+        // filter: a language's volume is its 1999 assets, its films, its painted pictures
+        // and its interface words together, so packing a subset of those kinds would write
+        // a volume missing the rest. It exists because the interface words are the one part
+        // of a language pack that comes from the assembly rather than from the workspace —
+        // correct a translation and every language volume is stale while the shared 14 GB
+        // is not. See UiText and ContentPackStage.WriteInterfaceWords.
+        bool languagesOnly = Has(args, "--languages-only");
+
         List<PackKind> plan =
         [
-            .. ContentPackStage.DefaultPlan,
+            .. languagesOnly ? [] : ContentPackStage.DefaultPlan,
             .. Has(args, "--no-languages") ? [] : ContentPackStage.LanguagePlan(workspace),
         ];
+
+        if (plan.Count == 0)
+        {
+            return Usage("pack-content was asked to pack nothing.");
+        }
 
         if (only is not null)
         {
@@ -375,14 +389,16 @@ public static class PackCommands
             """
 
             pack-content  --workspace <dir> [--output <dir>] [--kinds a,b] [--cap normals=1024]
-                          [--single-volume] [--no-languages] [--force] [--dry-run]
+                          [--single-volume] [--no-languages] [--languages-only]
+                          [--force] [--dry-run]
                           [--encode-only] [--no-gpu] [--no-size-plan] [--texconv <path>]
                 Encode the enhanced content to DDS and pack it into ReBarn volumes.
                 Uses manifests/pack-sizes.json when it is there, so each texture is
                 packed at the size its world area justifies rather than all at 2048.
                 Whatever extract-localized has left under enhanced/localized is packed
                 into Reborn_<CODE>.rebarn, one volume per language; --no-languages
-                leaves those alone.
+                leaves those alone and --languages-only writes nothing else, which is
+                what a change to the interface words needs.
 
             pack-plan     --workspace <dir> [--source <GK3 Data>] [--density N] [--floor N]
                 Work out that size for every texture and write the manifest. --source

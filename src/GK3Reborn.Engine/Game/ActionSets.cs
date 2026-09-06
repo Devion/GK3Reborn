@@ -20,11 +20,20 @@ namespace GK3Reborn.Game;
 /// it names is meant for now whatever it is called.
 /// </para>
 /// <para>
-/// Order is priority, because <see cref="ActionResolver"/> keeps the first rule it finds
-/// for a verb. Most specific first, then, which is the opposite of the order the original
-/// inserts them in — it can afford general-first because it keeps every rule and separates
-/// them by case at the point of use, where this keeps one entry per verb so that a menu can
-/// be built from the answer.
+/// Order is what the menu is built in, so it is most particular first: the room's own
+/// files, then the location's, then the global sets and the inventory ones, and inside each
+/// of those the files that name a narrower slice of the story before the ones that span it.
+/// The original inserts them general-first and can afford to, because it keeps every rule
+/// and separates them by case at the point of use; this keeps one entry per verb so that a
+/// menu can be built from the answer.
+/// </para>
+/// <para>
+/// <b>Order is not priority.</b> It used to be — a lower index settled a tie between two
+/// hand-written conditions — and that read the scene file's list as a ranking it never was:
+/// <c>LBY.SIF</c> names <c>lby_all.nvc</c> above <c>lby_1all.nvc</c>. The original ranks by
+/// what the *name* says instead (<see cref="TimeblockRange.Specificity"/>), and
+/// <see cref="ActionResolver"/> does now as well, so this ordering decides only what the
+/// player is shown first.
 /// </para>
 /// </remarks>
 public static class ActionSets
@@ -102,15 +111,23 @@ public static class ActionSets
 
         return names;
 
+        // Within a family, most particular first — which is what the name says and not what
+        // the order says. LBY.SIF lists lby_all.nvc above lby_1all.nvc, and taking that as
+        // priority put every rule about day one behind the file that covers every day: on
+        // the bar, Jean's two day-one topics came out below the small talk the whole game
+        // shares. OrderByDescending is stable, so files of equal particularity keep the
+        // order their scene file gave them.
         void Take(IReadOnlyList<string>? candidates, bool check)
         {
-            foreach (string name in candidates ?? [])
-            {
-                if (check && at is { } now && !TimeblockRange.Applies(name, now))
-                {
-                    continue;
-                }
+            IEnumerable<string> wanted = candidates ?? [];
 
+            if (check && at is { } now)
+            {
+                wanted = wanted.Where(name => TimeblockRange.Applies(name, now));
+            }
+
+            foreach (string name in wanted.OrderByDescending(TimeblockRange.Specificity))
+            {
                 if (seen.Add(name))
                 {
                     names.Add(name);

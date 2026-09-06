@@ -3218,6 +3218,47 @@ public sealed class SceneUpdate
         return true;
     }
 
+    /// <summary>
+    /// Puts a character into their default standing pose.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <returns>True when there was such a character and their walk-start clip was found.</returns>
+    /// <remarks>
+    /// <para>
+    /// The opening frame of the animation <c>CHARACTERS.TXT</c> gives them to start walking
+    /// with — <c>GraWalkStart</c>, <c>MadStartWalk</c> — which is a character standing
+    /// upright with their weight even. It is the reference's own answer, in three places
+    /// and with a comment at each: <c>GKActor::Init</c> ("ensures all 3D models are at a
+    /// sane default"), <c>GKActor::InitPosition</c>, and <c>SetActorPosition</c>.
+    /// </para>
+    /// <para>
+    /// <b>Standing somewhere is not a pose.</b> <see cref="Place"/> stops whatever clip was
+    /// posing a character, and stopping a clip leaves its last frame written into the
+    /// model — so a script that moves somebody across the room moves the pose with them.
+    /// Poussin's tomb on the second morning is the case the reference names: the eight
+    /// people on the tour arrive in a van, and <c>VanPouIN</c> ends with all of them
+    /// seated. <c>pou207a::positions</c> then stands them on their marks at the top of the
+    /// hill and the camera cuts there a frame later, a full second before
+    /// <c>pou207a::walkers</c> gives them their idle scripts back. That second was eight
+    /// people sitting on thin air, and then a snap to standing as Buthane began to speak.
+    /// </para>
+    /// </remarks>
+    public bool Stand(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (ModelNamed(actor) is not { Kind: PlacedModelKind.Actor } placed ||
+            Characters?.Of(placed.Name)?.StartAnimation is not { Length: > 0 } upright)
+        {
+            return false;
+        }
+
+        // Only this character's own clip out of it, and its first frame. The walk-start
+        // animations name one model each, but filtering costs nothing and is the rule
+        // everywhere else a pose is sampled rather than played — see Open.
+        return Pose(upright, [placed.Name], atEnd: false) > 0;
+    }
+
     /// <summary>Moves an actor's placement to where their opening pose left them.</summary>
     /// <param name="actor">The actor, as the room placed them.</param>
     /// <param name="position">Where the pose has them standing, in world space.</param>

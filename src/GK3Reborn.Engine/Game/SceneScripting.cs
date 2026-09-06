@@ -1777,6 +1777,14 @@ public static class SceneScripting
             return;
         }
 
+        // Standing them somewhere says nothing about how they are standing, and Place has
+        // just stopped whatever clip was posing them — which leaves that clip's last frame
+        // written into the model. Both of the calls that come through here put the actor
+        // upright afterwards in the reference, and the comment on the one in
+        // SetActorPosition names the room this was reported from: "if we don't do this, the
+        // characters are sometimes positioned incorrectly (e.g. 207A Poussin's Tomb)".
+        world.Stand(actor);
+
         if (moveCamera && named.Camera is { Length: > 0 } camera)
         {
             api.State.CameraGliding = false;

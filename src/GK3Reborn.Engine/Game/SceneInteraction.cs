@@ -45,11 +45,24 @@ public readonly record struct Hover(
     /// button now. Where a thing answers to nothing else, a left click means the same as a
     /// click on the floor and the player walks over.
     /// </para>
+    /// <para>
+    /// <b>And never something out of the bag.</b> Holding an item against a thing is a
+    /// deliberate two-step in the original — take the item, then click what to use it on —
+    /// and nothing about pointing at something says the player wants that. The case that
+    /// makes it a defect rather than a preference is <c>ANY_OBJECT, FINGERPRINT_KIT,
+    /// GABE_ALL</c> in <c>GLB_ALL.NVC</c>: a catch-all in scope in every room, so once
+    /// Gabriel is carrying the kit it answers for every noun in the game. It won the click
+    /// on everything that has no <c>LOOK</c>, and invented one on every noun that had
+    /// nothing to do at all. The bar still offers it; a right click is no longer the only
+    /// way past it.
+    /// </para>
     /// </remarks>
     public string? Default =>
         Pick?.Verb is { Length: > 0 } named && !IsCloseUp(named)
             ? named
-            : Actions.FirstOrDefault(a => !IsCloseUp(a.LocalizedVerb))?.LocalizedVerb;
+            : Actions.FirstOrDefault(a =>
+                a.Category != ActionCategory.Item &&
+                !IsCloseUp(a.LocalizedVerb))?.LocalizedVerb;
 
     /// <summary>The verb the middle button performs.</summary>
     /// <remarks>

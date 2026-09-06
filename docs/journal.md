@@ -20,6 +20,28 @@ takes them away.
 little stuck usually needs the first line, which says where to go; the one that
 gives a puzzle away is further down, and reaching it takes asking again.
 
+## It reads in the player's own language
+
+The two tables are English and stay English: they are where the prose is written,
+and `Quests.txt` also carries the score names and hint numbers that
+`JournalTests` checks. What is translated is only what the player reads, and it
+lives in `Assets/Ui/interface-<code>.json` beside the menus — `quest.110A.3` for
+the third objective of Day 1's morning, `hint.110A.3` for the third line of that
+morning's walkthrough. The numbering is the file's own: `Quests.txt` already asks
+for "line 3 of 110A", and this is the same three.
+
+**The key is the position, not the title**, and that is load-bearing rather than
+tidy. A save files a player's asked-for hints under the timeblock and the English
+title, so a title translated in place would file a French player's hints under a
+name an English one could not find — and changing language mid-game would hand
+back every hint they had already spent. `Quest.Title` is the English; the
+localized sentence is `JournalEntry.Title`, which is what the page draws.
+
+The heading over each point in the story comes from GK3's own string table
+(`Day110a = Day 1, 10am - 12pm`), so it is the line the corner of the room and
+Sidney's clock already draw and nobody had to write it. A run with no archives
+gets "Day 1, 10 AM" instead.
+
 ## It holds almost no state
 
 What is done is read from the **score events** the story already records, so the

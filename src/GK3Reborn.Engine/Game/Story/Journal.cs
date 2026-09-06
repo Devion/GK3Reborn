@@ -5,20 +5,31 @@
 // version 3 of the License, or (at your option) any later version.
 
 using GK3Reborn.Game;
+using GK3Reborn.UI;
 
 namespace GK3Reborn.Game.Story;
 
 /// <summary>How an objective stands.</summary>
 /// <param name="Quest">The objective.</param>
+/// <param name="Title">
+/// What to draw for it, in the language the game is being played in.
+/// </param>
 /// <param name="Done">Whether it has been achieved.</param>
 /// <param name="Progress">How far through it the player is, from nought to one.</param>
 /// <param name="Hints">
-/// The hints already asked for, in order. Empty until the player asks, and never longer than
-/// the objective has to give.
+/// The hints already asked for, in order and in the player's own language. Empty until they
+/// ask, and never longer than the objective has to give.
 /// </param>
 /// <param name="MoreHints">Whether there is another hint to ask for.</param>
+/// <remarks>
+/// <b>The title is here and not taken from the objective.</b> <c>Quest.Title</c> is the
+/// English the table was written in and stays that way: it is half of what a save files a
+/// player's hints under, so translating it in place would hand a French player their hints
+/// back the moment they changed language. This is the same sentence, for reading.
+/// </remarks>
 public sealed record JournalEntry(
     Quest Quest,
+    string Title,
     bool Done,
     float Progress,
     IReadOnlyList<string> Hints,
@@ -78,6 +89,38 @@ public sealed class Journal
     private readonly Quests _quests;
     private readonly Walkthrough _walkthrough;
     private readonly GameState _story;
+
+    /// <summary>
+    /// The port's own words, in the language being played.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The objectives and the walkthrough are the port's own prose — the 1999 game shipped no
+    /// journal, so there is nothing to extract — and they are keyed into
+    /// <c>interface-&lt;code&gt;.json</c> beside the menus rather than kept as a second copy
+    /// of <c>Quests.txt</c> per language. A per-language copy would have to agree with the
+    /// English about its score names and its hint numbers, and nothing could check that a
+    /// translator had not quietly reordered a line.
+    /// </para>
+    /// <para>
+    /// English by default, which is what the tests and the corpus tools get: every key falls
+    /// back to the English the table itself carries, so a language nobody has translated
+    /// loses the translation rather than the journal.
+    /// </para>
+    /// </remarks>
+    public UiText Text { get; init; } = UiText.English;
+
+    /// <summary>
+    /// GK3's own string table, for the heading over each point in the story.
+    /// </summary>
+    /// <remarks>
+    /// The one line of the journal that needed no translation written. Every release names
+    /// its own timeblocks — <c>Day110a = Day 1, 10am - 12pm</c>, and <c>Jour 1, 10.00 -
+    /// 12.00</c> in French — and it is the line the corner of the room and Sidney's clock
+    /// already draw, so the journal says it their way rather than in three English words of
+    /// its own. Null in a tool with no archives, which then gets those three words.
+    /// </remarks>
+    public GameStrings? Names { get; init; }
 
     /// <summary>Builds a journal over a game in progress.</summary>
     /// <param name="story">The game.</param>
@@ -161,7 +204,7 @@ public sealed class Journal
     {
         ArgumentNullException.ThrowIfNull(quest);
 
-        IReadOnlyList<string> lines = Lines(quest);
+        IReadOnlyList<WalkthroughStep> lines = Steps(quest);
         int shown = _story.HintsAsked(Key(quest));
 
         if (shown >= lines.Count)
@@ -170,22 +213,28 @@ public sealed class Journal
         }
 
         _story.AskedForHint(Key(quest));
-        return lines[shown];
+
+        return Text.Say(lines[shown].TextKey, lines[shown].Text);
     }
 
     /// <summary>How an objective stands.</summary>
     private JournalEntry Entry(Quest quest, bool past)
     {
-        IReadOnlyList<string> lines = Lines(quest);
+        IReadOnlyList<string> lines = Said(quest);
         int shown = Math.Min(_story.HintsAsked(Key(quest)), lines.Count);
 
         return new JournalEntry(
             quest,
+            Text.Say(quest.TitleKey, quest.Title),
             quest.Done(_story.HasScored, past),
             quest.Progress(_story.HasScored, past),
             [.. lines.Take(shown)],
             shown < lines.Count);
     }
+
+    /// <summary>The lines an objective points at, in the language being played.</summary>
+    private IReadOnlyList<string> Said(Quest quest) =>
+        [.. Steps(quest).Select(step => Text.Say(step.TextKey, step.Text))];
 
     /// <summary>The walkthrough lines an objective points at.</summary>
     /// <remarks>
@@ -193,7 +242,7 @@ public sealed class Journal
     /// number is only meaningful next to the timeblock it belongs to, and numbering the whole
     /// file would make every hint in the game shift when one line is added at the top.
     /// </remarks>
-    private IReadOnlyList<string> Lines(Quest quest)
+    private IReadOnlyList<WalkthroughStep> Steps(Quest quest)
     {
         IReadOnlyList<WalkthroughStep> steps = _walkthrough.Of(quest.Timeblock);
 
@@ -201,7 +250,7 @@ public sealed class Journal
         [
             .. quest.Hints
                 .Where(n => n >= 1 && n <= steps.Count)
-                .Select(n => steps[n - 1].Text),
+                .Select(n => steps[n - 1]),
         ];
     }
 
@@ -232,8 +281,19 @@ public sealed class Journal
     public static string Key(Quest quest) => $"{quest.Timeblock}|{quest.Title}";
 
     /// <summary>What to call a point in the story.</summary>
-    private static string Name(Timeblock timeblock)
+    /// <remarks>
+    /// The game's own name for it wherever there is one, and there is one in every release
+    /// and every language. The three English words below are what a tool with no archives
+    /// gets, and what would be drawn if a release ever turned up without the <c>Day110a</c>
+    /// family — never a player with the game installed.
+    /// </remarks>
+    private string Name(Timeblock timeblock)
     {
+        if (Names?.When(timeblock.ToString()) is { Length: > 0 } called)
+        {
+            return called;
+        }
+
         int hour = timeblock.Hour == 0 ? 12 : timeblock.Hour;
 
         return $"Day {timeblock.Day}, {hour} {(timeblock.IsAfternoon ? "PM" : "AM")}";

@@ -6,6 +6,7 @@ using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Ui;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Story;
 using GK3Reborn.Foundation;
 using GK3Reborn.Rendering;
 using GK3Reborn.Rendering.Upscaling;
@@ -208,6 +209,46 @@ public sealed partial class UiTextTests
     }
 
     [Fact]
+    public void Every_thing_a_character_can_be_asked_about_has_a_word()
+    {
+        // The other eighty-nine entries of VERBS.TXT: the conversation topics, which are
+        // verbs of type Topic and which this port puts on the verb bar directly rather than
+        // behind a second click on Talk. They were the half of that file nobody wrote down,
+        // so a French game hovering over Emilio read "Ask About Introduce" — the English
+        // frame the tidier makes up, wrapped around a bare identifier. Reported as such.
+        Dictionary<string, string> english = Words("en");
+
+        Assert.True(
+            english.Keys.Count(k => k.StartsWith("verb.T_", StringComparison.Ordinal)) >= 89,
+            "the eighty-nine topics are not all there");
+
+        foreach (string topic in new[]
+        {
+            // Two of the four that a right click on the hotel's receptionist offers, one
+            // that is not a question at all, and the one whose subject is a French title
+            // no language translates.
+            "verb.T_RENNES_L_C", "verb.T_TWO_MEN_TRUNK", "verb.T_INTRODUCE",
+            "verb.T_LE_SERPENT_ROUGE",
+        })
+        {
+            Assert.True(english.ContainsKey(topic), $"{topic} has no word");
+        }
+
+        // And no language may leave one reading as its identifier: the fallback is what
+        // was wrong, so a table that still contains it has not been filled in.
+        foreach (string code in Carried)
+        {
+            foreach ((string key, string said) in Words(code))
+            {
+                Assert.False(
+                    key.StartsWith("verb.T_", StringComparison.Ordinal) &&
+                    said.Contains("T_", StringComparison.Ordinal),
+                    $"{code}: {key} still reads as its identifier");
+            }
+        }
+    }
+
+    [Fact]
     public void Every_noun_the_original_never_named_has_a_word()
     {
         // The other family GK3 never wrote down. Its string table names the 293 things the
@@ -238,6 +279,61 @@ public sealed partial class UiTextTests
         {
             Assert.Contains("{0}", Words(code)["noun.ROOM"], StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void Every_line_of_the_journal_has_a_word_and_it_is_the_line_itself()
+    {
+        // The journal's objectives and the walkthrough behind its hint button are the port's
+        // own prose — the 1999 game had no journal, so there is nothing to extract — and they
+        // are keyed in here beside the menus rather than copied per language. The tables stay
+        // the one place the English is written; this is what stops the file drifting from
+        // them, in either direction.
+        Dictionary<string, string> english = Words("en");
+        Quests table = Quests.Open();
+        Walkthrough guide = Walkthrough.Open();
+        List<string> wrong = [];
+
+        foreach (Quest quest in table.All)
+        {
+            if (!english.TryGetValue(quest.TitleKey, out string? said))
+            {
+                wrong.Add($"{quest.TitleKey} has no word for \"{quest.Title}\"");
+            }
+            else if (!string.Equals(said, quest.Title, StringComparison.Ordinal))
+            {
+                wrong.Add(
+                    $"{quest.TitleKey}: Quests.txt has \"{quest.Title}\", the file has \"{said}\"");
+            }
+        }
+
+        foreach (WalkthroughStep step in guide.Steps)
+        {
+            if (!english.TryGetValue(step.TextKey, out string? said))
+            {
+                wrong.Add($"{step.TextKey} has no word for \"{Walkthrough.Shorten(step.Text)}\"");
+            }
+            else if (!string.Equals(said, step.Text, StringComparison.Ordinal))
+            {
+                wrong.Add($"{step.TextKey} is not the line Walkthrough.txt has");
+            }
+        }
+
+        // And nothing left behind by a line that was deleted or renumbered, which would sit
+        // in seven translated files answering for an objective that no longer exists.
+        var live = new HashSet<string>(
+            table.All.Select(q => q.TitleKey).Concat(guide.Steps.Select(s => s.TextKey)),
+            StringComparer.Ordinal);
+
+        wrong.AddRange(english.Keys
+            .Where(k =>
+                (k.StartsWith("quest.", StringComparison.Ordinal) ||
+                 k.StartsWith("hint.", StringComparison.Ordinal)) &&
+                !live.Contains(k))
+            .Select(k => $"{k} is a line neither table has any more"));
+
+        Assert.Empty(wrong);
+        Assert.True(live.Count > 400, $"only {live.Count} journal lines were found");
     }
 
     [Fact]
