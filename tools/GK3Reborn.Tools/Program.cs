@@ -162,7 +162,12 @@ public static class Program
             Environment.CurrentDirectory, options.Model + ".png");
 
         bool rendered = options.Command == "render-scene"
-            ? new SceneRenderStage(Console.WriteLine) { Restore = options.Restore, Fog = options.Fog }.Run(
+            ? new SceneRenderStage(Console.WriteLine)
+            {
+                Restore = options.Restore,
+                Fog = options.Fog,
+                Cull = options.Cull,
+            }.Run(
                 options.Source,
                 options.Model,
                 options.Timeblock,
@@ -844,6 +849,9 @@ public static class Program
               --no-card-shadows    render-scene keeps the thickness but lets the sun
                                    straight through it, as builds before the card
                                    occluders did. The A/B for the shadow alone.
+              --no-cull            render-scene draws both sides of every surface in
+                                   the room, as builds before this one did. The A/B
+                                   for the culling.
               --no-improved-geometry
                                    render-scene draws every room as it shipped, with
                                    1999's infinitely sharp edges, rather than from
@@ -1019,6 +1027,16 @@ public static class Program
         /// </remarks>
         public bool CardShadows { get; init; } = true;
 
+        /// <summary>
+        /// Whether render-scene draws the room's surfaces only on the side they face.
+        /// </summary>
+        /// <remarks>
+        /// The A/B for the culling. Off is what every build before it drew, and the picture
+        /// that says what it is worth is a room with an open door in it: R25's dumbwaiter,
+        /// whose shaft is sealed by its own room-side wall when both faces are drawn.
+        /// </remarks>
+        public bool Cull { get; init; } = true;
+
         /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
         public bool Trees { get; init; } = true;
 
@@ -1075,6 +1093,7 @@ public static class Program
             bool improved = true;
             bool thickCards = true;
             bool cardShadows = true;
+            bool cull = true;
             bool expandBlocks = false;
             string? tool = null;
             string? enhanced = null;
@@ -1111,6 +1130,9 @@ public static class Program
                         break;
                     case "--no-card-shadows":
                         cardShadows = false;
+                        break;
+                    case "--no-cull":
+                        cull = false;
                         break;
                     case "--no-trees":
                         trees = false;
@@ -1276,6 +1298,7 @@ public static class Program
                 Improved = improved,
                 ThickCards = thickCards,
                 CardShadows = cardShadows,
+                Cull = cull,
                 ExpandBlocks = expandBlocks,
                 Tool = tool,
                 Enhanced = enhanced,

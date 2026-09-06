@@ -471,7 +471,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         camera.Jitter = jitter;
         _frames.MirrorPlane = Vector4.Zero;
 
-        _mesh.Begin(list, _geometry, _frames.Table(0, reflection: true), width, height);
+        _mesh.Begin(
+            list, _geometry, _frames.Table(0, reflection: true), width, height, reflection: true);
         _mesh.Record(list, _geometry, scene.Draws(_frames.PreviousSeconds));
 
         _mirror.Transition(list, ResourceStates.PixelShaderResource);

@@ -1,4 +1,4 @@
-# Direct3D 12 — what is left
+﻿# Direct3D 12 — what is left
 
 Where the second backend stands as of 2026-08-30, and what to pick up next.
 
@@ -231,8 +231,11 @@ only because of that drain. Both would need per-frame buffers first.
 - **Every instance carried a mask of `0xFF`.** The trace stages ask for the room alone or
   the models alone by mask — `kRoomOnly` and `kModelsOnly` — and were handed both. The rule
   is `TracedWorld` now, stated once and read by both backends, and so is the room's
-  cull-disable: a BSP's polygons carry no consistent winding, so `kSkipShells` must not be
-  allowed to cull them.
+  cull-disable: `kSkipShells` must not be allowed to cull the room's triangles. (The reason
+  given here used to be that a BSP's polygons carry no consistent winding. **They do** — see
+  `docs/known-issues.md` item 0, the dumbwaiter, where the raster path started culling them.
+  What the ray path is actually working around is that BSP triangles are given their own
+  plane's normals at load, so a ray leaving one has no per-triangle winding to trust.)
 - **A one-shot command list inside an upload batch.** A model group the artists gave no
   texture is drawn as a one-pixel texture of its own colour, uploaded from inside
   `SceneGeometry.Add`'s open batch — which on Direct3D threw and took the scene down.

@@ -1659,6 +1659,13 @@ public static class Application
                 settings.ThickCutoutCards &&
                 !args.Contains("--no-thick-cards", StringComparer.OrdinalIgnoreCase);
 
+            // Whether the room is drawn one side at a time, which is what the original does
+            // for all opaque world geometry. A switch for the usual reason: the picture that
+            // shows it working is the same room with and without it.
+            geometry.CullBackFaces =
+                settings.CullBackFaces &&
+                !args.Contains("--no-cull", StringComparer.OrdinalIgnoreCase);
+
             // And whether it stops the sun. Its own switch, because it is its own thing:
             // the thickness is geometry anybody can see and the shadow is an instance in
             // the acceleration structure, and a picture that shows one going wrong shows

@@ -215,6 +215,33 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         set => _textures.MeasureCutouts = value;
     }
 
+    /// <summary>
+    /// Whether the room's own surfaces are drawn only on the side their winding faces.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What the original does — <c>Renderer::Render</c> sets <c>CullMode::Back</c> for all
+    /// opaque world geometry — and what this renderer did not, which is a visible fault
+    /// rather than a lost optimisation. A GK3 room is a shell of inward-facing surfaces and
+    /// some of them are solid sheets with no hole where a door goes: R25's dumbwaiter shaft
+    /// is a closed box of lath whose room-side face covers the doorway, so drawing its back
+    /// paints the shaft shut the moment the door is opened. See <c>docs/known-issues.md</c>.
+    /// </para>
+    /// <para>
+    /// <b>Only the room.</b> A placed model keeps both faces whatever this says, and that is
+    /// not timidity: this port grows modelled trees where 1999 hung a painted quad, and a
+    /// leaf card is a single sheet with no back — culling models takes every crown in the
+    /// game and leaves the boles standing. The rooms are where the fault is and the rooms
+    /// are what this covers.
+    /// </para>
+    /// <para>
+    /// Set by whoever loads the scene, from the player's own settings, and read per draw
+    /// rather than baked into the geometry, so the same room can be photographed both ways
+    /// without being loaded twice.
+    /// </para>
+    /// </remarks>
+    public bool CullBackFaces { get; set; } = true;
+
     /// <summary>Whether a thickened card is also given a shadow to cast.</summary>
     /// <remarks>
     /// Separate from <see cref="ThickenCutoutCards"/> and not implied by it, because the two
@@ -2055,6 +2082,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         uploads.Submit();
         Timeline?.Stamp("room: vertex and index buffers");
 
+
     }
 
     /// <summary>
@@ -3151,6 +3179,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // Two streams: this pose and the one before it. A batch nothing has animated
             // reports the same buffer twice, which is the truth about it — its vertices are
             // where they have always been, and only its transform can have moved.
+            // Both faces, unless this is the room's own solid geometry and the room is
+            // being culled. See CullBackFaces. Two exemptions, and they are the same
+            // exemption twice: a card has no back. A placed model may be a grown tree,
+            // whose leaves are single sheets; a keyed surface in the room is the 1999
+            // spelling of the same thing, a crown painted on crossed quads.
             yield return new SceneDraw(
                 batch.Live ?? batch.Vertices,
                 batch.Was ?? batch.Live ?? batch.Vertices,
@@ -3159,7 +3192,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 batch.ShortIndices,
                 batch.Material,
                 constants,
-                shells);
+                shells,
+                DoubleSided: !CullBackFaces || batch.IsModel || batch.Keyed);
         }
     }
 
@@ -3357,6 +3391,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // knows: a grown tree is two batches, one of bark and one of leaves, and only
             // the leaves move. See MoveInWind.
             Foliage = _wind.Contains(Path.GetFileNameWithoutExtension(texture)),
+
+            // Whether the picture on it has holes the colour key cut. Read here rather than
+            // per frame because it is a fact about the texture and the texture is already
+            // uploaded by the time any batch using it is made. See CullBackFaces.
+            Keyed = _textures.Keyed.Contains(texture),
         });
 
     private IGeometryTexture TextureFor(string name) => _textures.Get(name);
@@ -3420,6 +3459,15 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         /// <summary>Whether this batch is foliage, and so moves in the wind.</summary>
         public bool Foliage { get; init; }
+
+        /// <summary>Whether the picture on it is a cutout: holes rather than a solid sheet.</summary>
+        /// <remarks>
+        /// Which is what a card is, and cards are the room's one class of surface with no
+        /// back. A 1999 tree is a handful of crossed quads painted with a crown and keyed
+        /// out around it, and every one of them is meant to be seen from either side. See
+        /// <see cref="CullBackFaces"/>.
+        /// </remarks>
+        public bool Keyed { get; init; }
 
         /// <summary>A model standing in the room, rather than the room itself.</summary>
         /// <remarks>

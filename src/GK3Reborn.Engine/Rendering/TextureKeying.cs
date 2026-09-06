@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 
 namespace GK3Reborn.Rendering;
 
@@ -41,6 +41,41 @@ public static class TextureKeying
         for (int at = 0; at + 3 < pixels.Length; at += 4)
         {
             if (IsKey(pixels[at], pixels[at + 1], pixels[at + 2]) || pixels[at + 3] < 128)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether a decoded image already has holes in it.</summary>
+    /// <param name="image">The decoded image, whose alpha channel is meaningful.</param>
+    /// <returns>True when at least one texel is see-through.</returns>
+    /// <remarks>
+    /// <para>
+    /// Asked of a picture that has <em>already been keyed</em>, which is what a packed
+    /// texture is: <c>pack-content</c> encodes the enhanced set, and the enhanced set
+    /// resolved GK3's magenta into a real alpha channel before it was ever compressed. So
+    /// the question here is not <see cref="NeedsKey"/>'s — is there a key colour to remove —
+    /// but whether the removal already happened.
+    /// </para>
+    /// <para>
+    /// The same threshold as <see cref="NeedsKey"/>, and asked of the level the silhouette
+    /// was drawn at rather than of the largest: a hole authored at 256 texels is still a
+    /// hole there, and expanding a 2,048-square base colour to answer this costs a second of
+    /// a room's load. See <c>CutoutMask.ReferenceTexels</c>.
+    /// </para>
+    /// </remarks>
+    public static bool HasHoles(DecodedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image.Pixels);
+
+        byte[] pixels = image.Pixels;
+
+        for (int at = 3; at < pixels.Length; at += 4)
+        {
+            if (pixels[at] < 128)
             {
                 return true;
             }

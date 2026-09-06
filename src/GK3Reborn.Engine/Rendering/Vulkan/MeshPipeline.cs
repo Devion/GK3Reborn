@@ -38,6 +38,8 @@ public sealed unsafe class MeshPipeline : IDisposable
     private DescriptorSetLayout _materialLayout;
     private PipelineLayout _layout;
     private Pipeline _pipeline;
+    private Pipeline _culled;
+    private Pipeline _culledMirror;
 
     private MeshPipeline(Vk vk, Device device, bool rayTracing)
     {
@@ -49,8 +51,19 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// <summary>Whether this variant can trace rays.</summary>
     public bool RayTracing { get; }
 
-    /// <summary>The pipeline handle.</summary>
+    /// <summary>The pipeline handle: both faces of every triangle.</summary>
     public Pipeline Handle => _pipeline;
+
+    /// <summary>The same pipeline with back faces discarded.</summary>
+    /// <remarks>
+    /// What the room's own geometry is drawn with when <c>SceneGeometry.CullBackFaces</c> is
+    /// on, which is what the original does for all opaque world geometry. A placed model
+    /// keeps <see cref="Handle"/> whatever the setting says; see the remark there.
+    /// </remarks>
+    public Pipeline CulledHandle => _culled;
+
+    /// <summary>That one again for the mirror pass, whose view reverses every winding.</summary>
+    public Pipeline CulledMirrorHandle => _culledMirror;
 
     /// <summary>The pipeline layout, for binding descriptor sets and push constants.</summary>
     public PipelineLayout Layout => _layout;
@@ -128,6 +141,10 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// <param name="command">Command buffer, inside an active rendering scope.</param>
     /// <param name="pipeline">The pipeline currently bound.</param>
     /// <param name="draws">What to draw, from <c>SceneGeometry.Draws</c>.</param>
+    /// <param name="reflection">
+    /// Whether this is the mirror's pass. Its view is reflected, so a culled draw within it
+    /// wants the opposite front face; nothing else about the pass changes.
+    /// </param>
     /// <remarks>
     /// <para>
     /// The caller binds the pipeline, the viewport and the frame is descriptor set first;
@@ -145,7 +162,11 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// </para>
     /// </remarks>
     public static void Record(
-        Vk vk, CommandBuffer command, MeshPipeline pipeline, IEnumerable<SceneDraw> draws)
+        Vk vk,
+        CommandBuffer command,
+        MeshPipeline pipeline,
+        IEnumerable<SceneDraw> draws,
+        bool reflection = false)
     {
         ArgumentNullException.ThrowIfNull(vk);
         ArgumentNullException.ThrowIfNull(pipeline);
@@ -154,9 +175,25 @@ public sealed unsafe class MeshPipeline : IDisposable
         // Reused for every draw: two vertex streams, both from the start of their buffer.
         Silk.NET.Vulkan.Buffer* streams = stackalloc Silk.NET.Vulkan.Buffer[2];
         ulong* offsets = stackalloc ulong[2] { 0, 0 };
+        bool? bound = null;
 
         foreach (SceneDraw draw in draws)
         {
+            // One bind per run of draws that agree rather than one per draw: the room's own
+            // batches are built before any model is placed, so a frame normally switches
+            // once. Nothing here sorts them, because a sort would be a decision and this
+            // method makes none.
+            if (bound != draw.DoubleSided)
+            {
+                bound = draw.DoubleSided;
+                vk.CmdBindPipeline(
+                    command,
+                    PipelineBindPoint.Graphics,
+                    draw.DoubleSided
+                        ? pipeline.Handle
+                        : reflection ? pipeline.CulledMirrorHandle : pipeline.CulledHandle);
+            }
+
             DescriptorSet material = VulkanGeometry.Set(draw.Material);
             vk.CmdBindDescriptorSets(
                 command, PipelineBindPoint.Graphics, pipeline.Layout, 1, 1, in material, 0, null);
@@ -188,6 +225,16 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        if (_culledMirror.Handle != 0)
+        {
+            _vk.DestroyPipeline(_device, _culledMirror, null);
+        }
+
+        if (_culled.Handle != 0)
+        {
+            _vk.DestroyPipeline(_device, _culled, null);
+        }
+
         if (_pipeline.Handle != 0)
         {
             _vk.DestroyPipeline(_device, _pipeline, null);
@@ -499,10 +546,18 @@ public sealed unsafe class MeshPipeline : IDisposable
                 PolygonMode = PolygonMode.Fill,
                 LineWidth = 1f,
 
-                // Culling stays off: GK3's winding is not consistently counter-clockwise,
-                // which is also why the exported glTF marks its materials double-sided.
+                // Both overwritten below, once per variant.
+                //
+                // <b>Clockwise, the same as the Direct3D path asks for.</b> An older comment
+                // here said the two APIs needed opposite spellings because they disagree
+                // about which way up a framebuffer is. They do not: both put the origin at
+                // the top left, and this renderer hands them the same left-handed
+                // projection, so the same triangle comes out wound the same way in each. The
+                // claim was never tested, because until there was a culled variant nothing
+                // read this field at all - and it was wrong. RayTracingTests, which draw a
+                // floor from straight above through the Vulkan backend, are what says so.
                 CullMode = CullModeFlags.None,
-                FrontFace = FrontFace.CounterClockwise,
+                FrontFace = FrontFace.Clockwise,
             };
 
             var multisample = new PipelineMultisampleStateCreateInfo
@@ -575,11 +630,45 @@ public sealed unsafe class MeshPipeline : IDisposable
                 Layout = _layout,
             };
 
-            if (_vk.CreateGraphicsPipelines(_device, default, 1, in createInfo, null, out _pipeline)
+            // Three pipelines over one layout and one pair of modules, differing in nothing
+            // but which faces survive the rasteriser, and built in one call.
+            //
+            // A draw says which it wants. Placed models take the first, because a grown
+            // tree's leaf is a single sheet with no back; the room takes the second, because
+            // a GK3 room is a shell of inward-facing surfaces and drawing their backs paints
+            // over what is meant to be seen through them - R25's dumbwaiter, where the
+            // shaft's room-side face is a solid sheet of lath with no hole cut for the door.
+            // The third is that one again for the mirror pass, whose reflected view turns
+            // every triangle the other way.
+            PipelineRasterizationStateCreateInfo* rasterizers =
+                stackalloc PipelineRasterizationStateCreateInfo[3];
+
+            for (int i = 0; i < 3; i++)
+            {
+                rasterizers[i] = rasterization;
+                rasterizers[i].CullMode = i == 0 ? CullModeFlags.None : CullModeFlags.BackBit;
+                rasterizers[i].FrontFace =
+                    i == 2 ? FrontFace.CounterClockwise : FrontFace.Clockwise;
+            }
+
+            GraphicsPipelineCreateInfo* infos = stackalloc GraphicsPipelineCreateInfo[3];
+            Pipeline* built = stackalloc Pipeline[3];
+
+            for (int i = 0; i < 3; i++)
+            {
+                infos[i] = createInfo;
+                infos[i].PRasterizationState = &rasterizers[i];
+            }
+
+            if (_vk.CreateGraphicsPipelines(_device, default, 3, infos, null, built)
                 != Result.Success)
             {
                 throw new VulkanException("Could not create the mesh pipeline.");
             }
+
+            _pipeline = built[0];
+            _culled = built[1];
+            _culledMirror = built[2];
         }
         finally
         {

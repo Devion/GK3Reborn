@@ -45,12 +45,15 @@ public readonly record struct VertexBufferLayout(uint Stride, bool PerInstance =
 public sealed unsafe class D3D12Pipeline : IDisposable
 {
     private ComPtr<ID3D12PipelineState> _state;
+    private readonly bool _ownsSignature;
     private bool _disposed;
 
-    private D3D12Pipeline(ComPtr<ID3D12PipelineState> state, D3D12RootSignature signature)
+    private D3D12Pipeline(
+        ComPtr<ID3D12PipelineState> state, D3D12RootSignature signature, bool ownsSignature = true)
     {
         _state = state;
         Signature = signature;
+        _ownsSignature = ownsSignature;
     }
 
     /// <summary>The root signature this pipeline binds through.</summary>
@@ -78,6 +81,10 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     /// the far plane needs: see the remark in the depth state.
     /// </param>
     /// <param name="cull">Which faces are discarded.</param>
+    /// <param name="frontCounterClockwise">
+    /// Which way round a front face is wound. Clockwise for everything this renderer draws
+    /// except the mirror pass, whose reflected view turns every triangle the other way.
+    /// </param>
     /// <param name="blend">Whether the colour target is blended over rather than replaced.</param>
     /// <param name="premultiplied">
     /// Whether the fragment's colour already carries its own alpha, so the source factor is
@@ -86,6 +93,12 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     /// </param>
     /// <param name="vertexEntryPoint">Entry point of the vertex shader in its own source.</param>
     /// <param name="fragmentEntryPoint">Entry point of the fragment shader in its own source.</param>
+    /// <param name="reuse">
+    /// A root signature to bind through rather than building another. What a second pipeline
+    /// differing only in fixed-function state wants: Direct3D checks that the signature set
+    /// on the command list is the one the pipeline was created with, so two pipelines a pass
+    /// switches between have to share it — and the borrower does not free it.
+    /// </param>
     /// <returns>The pipeline.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
     public static D3D12Pipeline CreateGraphics(
@@ -104,10 +117,12 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         bool depthTest = true,
         bool depthEqual = false,
         CullMode cull = CullMode.Back,
+        bool frontCounterClockwise = false,
         bool blend = false,
         bool premultiplied = false,
         string vertexEntryPoint = "main",
-        string fragmentEntryPoint = "main")
+        string fragmentEntryPoint = "main",
+        D3D12RootSignature? reuse = null)
     {
         ArgumentNullException.ThrowIfNull(compiler);
         ArgumentNullException.ThrowIfNull(name);
@@ -130,7 +145,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
             fragmentEntryPoint,
             language);
 
-        D3D12RootSignature signature =
+        D3D12RootSignature signature = reuse ??
             D3D12RootSignature.Create(device, layout, allowInputLayout: attributes.Count > 0);
 
         try
@@ -183,7 +198,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
                         PInputElementDescs = attributes.Count > 0 ? elementsPointer : null,
                         NumElements = (uint)attributes.Count,
                     },
-                    RasterizerState = Rasterizer(cull),
+                    RasterizerState = Rasterizer(cull, frontCounterClockwise),
                     BlendState = Blender(blend, premultiplied, colorFormats.Count),
                     DepthStencilState = DepthStencil(
                         depthFormat != Format.FormatUnknown, depthWrite, depthTest, depthEqual),
@@ -202,12 +217,16 @@ public sealed unsafe class D3D12Pipeline : IDisposable
                         &description, &stateId, (void**)state.GetAddressOf()),
                     $"create the {name} pipeline");
 
-                return new D3D12Pipeline(state, signature);
+                return new D3D12Pipeline(state, signature, ownsSignature: reuse is null);
             }
         }
         catch
         {
-            signature.Dispose();
+            if (reuse is null)
+            {
+                signature.Dispose();
+            }
+
             throw;
         }
     }
@@ -307,18 +326,26 @@ public sealed unsafe class D3D12Pipeline : IDisposable
 
         _disposed = true;
         _state.Dispose();
-        Signature.Dispose();
+
+        // A variant borrows the signature of the pipeline it was cut from; only the
+        // original may free it. See the `reuse` argument to CreateGraphics.
+        if (_ownsSignature)
+        {
+            Signature.Dispose();
+        }
     }
 
-    private static RasterizerDesc Rasterizer(CullMode cull) => new()
+    private static RasterizerDesc Rasterizer(CullMode cull, bool frontCounterClockwise = false) => new()
     {
         FillMode = FillMode.Solid,
         CullMode = cull,
 
         // GK3's world is left-handed and its scenes were authored for Direct3D, so a
         // front face is clockwise. The Vulkan path says the same thing in its own words;
-        // see Rendering/Camera.cs and docs/known-issues.md.
-        FrontCounterClockwise = false,
+        // see Rendering/Camera.cs and docs/known-issues.md. Reversed only for the mirror
+        // pass, which draws the room through a reflected view and so sees every triangle
+        // wound the other way.
+        FrontCounterClockwise = frontCounterClockwise,
         DepthBias = 0,
         DepthBiasClamp = 0f,
         SlopeScaledDepthBias = 0f,

@@ -148,6 +148,9 @@ public static class CommandLine
                                 shipped as, rather than giving it a thickness.
           --no-card-shadows     Keep the thickness but let the light through, as builds
                                 before this one did.
+          --no-cull             Draw both sides of every surface in the room, as builds
+                                before this one did. The A/B for the culling; it is what
+                                shows a solid sheet standing where a doorway should be.
           --no-sun              Leave out the synthesized sun, which stands in for the
                                 artists' scenekey in any room whose asset names a sky.
           --real-light          Switch off the artists' fills, ambients and bounces so

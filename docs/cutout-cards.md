@@ -273,6 +273,15 @@ a deepest shadow of 208, through Direct3D 12 and through Vulkan alike.
 | `GK3Reborn.exe` | `--no-card-shadows` | Keep the thickness, let the light through |
 | `render-scene` | `--no-card-shadows` | The same: the A/B for the shadow alone |
 
+A keyed card is one of the two things the back-face culling leaves alone — see
+[rendering.md](rendering.md), "Which side of a surface is drawn". `TextureCache.Keyed` is
+what says so, and until 2026-09-06 that set was **empty in every shipped build**: it was
+filled only where a texture arrived as texels, and a keyed texture arrives as blocks
+whenever the pack holds it. The same fault had `RecordTraceable` putting every packed keyed
+surface into the acceleration structure, where a hole casts the shadow of its whole quad —
+so a railing shipped with the packs was casting both its own occluders' shadow and its
+uncut quad's.
+
 The two switches are separate on purpose. What is drawn and what is traced are two different
 sets of triangles built from one silhouette, so a picture in which a fence looks right and
 shades wrongly says which of the two to go and read.

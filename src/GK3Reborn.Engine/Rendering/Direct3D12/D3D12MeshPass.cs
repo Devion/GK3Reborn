@@ -46,11 +46,18 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         (uint)System.Runtime.InteropServices.Marshal.SizeOf<MeshVertex>();
 
     private readonly D3D12Pipeline _pipeline;
+    private readonly D3D12Pipeline _culled;
+    private readonly D3D12Pipeline _culledMirror;
+    private bool _reflection;
+    private bool? _bound;
     private bool _disposed;
 
-    private D3D12MeshPass(D3D12Pipeline pipeline, bool rayTracing)
+    private D3D12MeshPass(
+        D3D12Pipeline pipeline, D3D12Pipeline culled, D3D12Pipeline culledMirror, bool rayTracing)
     {
         _pipeline = pipeline;
+        _culled = culled;
+        _culledMirror = culledMirror;
         RayTracing = rayTracing;
     }
 
@@ -100,30 +107,61 @@ public sealed unsafe class D3D12MeshPass : IDisposable
             new(4, Format.FormatR32G32B32Float, 0, 1),
         ];
 
-        D3D12Pipeline pipeline = D3D12Pipeline.CreateGraphics(
-            context.Device,
-            compiler,
-            MeshShaders.Compose(fragment: false, rayTracing),
-            MeshShaders.Compose(fragment: true, rayTracing),
-            rayTracing ? "mesh.rt" : "mesh",
-            MeshLayout.For(rayTracing),
-            colorFormats,
-            depthFormat,
-            attributes,
-            [new VertexBufferLayout(VertexStride), new VertexBufferLayout(VertexStride)],
-            ShaderLanguage.Glsl,
-            depthWrite: true,
-            depthTest: true,
+        // Three pipelines over one pair of shaders, differing in nothing but which faces
+        // survive the rasteriser. The shader compiler caches by source, so the second and
+        // third cost a pipeline object and no compilation at all.
+        //
+        // A draw says which it wants. Placed models take the first, because a grown tree's
+        // leaf is a single sheet with no back; the room takes the second, because a GK3 room
+        // is a shell of inward-facing surfaces and drawing their backs paints over what is
+        // meant to be seen through them — R25's dumbwaiter, where the shaft's room-side
+        // face is a solid sheet of lath with no hole cut for the door. The third is that one
+        // again for the mirror pass, where the reflected view reverses every winding.
+        D3D12Pipeline Build(CullMode cull, bool mirrored, D3D12RootSignature? reuse) =>
+            D3D12Pipeline.CreateGraphics(
+                context.Device,
+                compiler,
+                MeshShaders.Compose(fragment: false, rayTracing),
+                MeshShaders.Compose(fragment: true, rayTracing),
+                rayTracing ? "mesh.rt" : "mesh",
+                MeshLayout.For(rayTracing),
+                colorFormats,
+                depthFormat,
+                attributes,
+                [new VertexBufferLayout(VertexStride), new VertexBufferLayout(VertexStride)],
+                ShaderLanguage.Glsl,
+                depthWrite: true,
+                depthTest: true,
+                cull: cull,
+                frontCounterClockwise: mirrored,
+                reuse: reuse);
 
-            // Nothing is culled, which is what the Vulkan pipeline does and not an oversight
-            // on either. GK3’s geometry is not consistently wound - a room is a BSP whose
-            // surfaces face whichever way the level editor left them, and several of the
-            // placed models are single-sided sheets meant to be seen from both sides. Culling
-            // back faces throws away about half of a room, which looks less like a culling
-            // mistake than like a renderer that draws nothing.
-            cull: CullMode.None);
+        D3D12Pipeline pipeline = Build(CullMode.None, mirrored: false, reuse: null);
+        D3D12Pipeline culled;
+        D3D12Pipeline culledMirror;
 
-        return new D3D12MeshPass(pipeline, rayTracing);
+        try
+        {
+            culled = Build(CullMode.Back, mirrored: false, reuse: pipeline.Signature);
+        }
+        catch
+        {
+            pipeline.Dispose();
+            throw;
+        }
+
+        try
+        {
+            culledMirror = Build(CullMode.Back, mirrored: true, reuse: pipeline.Signature);
+        }
+        catch
+        {
+            culled.Dispose();
+            pipeline.Dispose();
+            throw;
+        }
+
+        return new D3D12MeshPass(pipeline, culled, culledMirror, rayTracing);
     }
 
     /// <summary>Binds the pass, ready for the draws.</summary>
@@ -132,6 +170,10 @@ public sealed unsafe class D3D12MeshPass : IDisposable
     /// <param name="frame">Where the frame's own descriptors start.</param>
     /// <param name="width">Viewport width in pixels.</param>
     /// <param name="height">Viewport height in pixels.</param>
+    /// <param name="reflection">
+    /// Whether this is the mirror's pass. Its view is reflected, so a culled draw within it
+    /// wants the opposite front face; nothing else about the pass changes.
+    /// </param>
     /// <remarks>
     /// The heaps are bound here rather than per draw. Direct3D allows one shader-visible
     /// heap of each kind at a time and changing either is a pipeline flush on some hardware,
@@ -142,7 +184,8 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         D3D12GeometryDevice geometry,
         GpuDescriptorHandle frame,
         int width,
-        int height)
+        int height,
+        bool reflection = false)
     {
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(geometry);
@@ -153,8 +196,10 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         heaps[1] = geometry.Samplers.Handle;
         list->SetDescriptorHeaps(2, heaps);
 
+        _reflection = reflection;
+        _bound = null;
+
         list->SetGraphicsRootSignature(_pipeline.Signature.Handle);
-        list->SetPipelineState(_pipeline.Handle);
         list->IASetPrimitiveTopology(Silk.NET.Core.Native.D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
 
         var viewport = new Viewport
@@ -221,6 +266,19 @@ public sealed unsafe class D3D12MeshPass : IDisposable
 
         foreach (SceneDraw draw in draws)
         {
+            // One state change per run of draws that agree rather than one per draw: the
+            // room's own batches are built before any model is placed, so a frame normally
+            // switches once. Nothing here sorts them, because a sort would be a decision and
+            // this file makes none.
+            if (_bound != draw.DoubleSided)
+            {
+                _bound = draw.DoubleSided;
+                list->SetPipelineState(
+                    draw.DoubleSided
+                        ? _pipeline.Handle
+                        : _reflection ? _culledMirror.Handle : _culled.Handle);
+            }
+
             var material = (D3D12GeometryMaterial)draw.Material;
 
             list->SetGraphicsRootDescriptorTable(
@@ -260,6 +318,8 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         }
 
         _disposed = true;
+        _culledMirror.Dispose();
+        _culled.Dispose();
         _pipeline.Dispose();
     }
 

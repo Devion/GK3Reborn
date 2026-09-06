@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 
 namespace GK3Reborn.Rendering.Geometry;
@@ -63,6 +63,10 @@ public readonly record struct DrawConstants(
 /// The coat over it, a shell at a time, or empty for a surface with no fur. Each is another
 /// draw of the same triangles with only the constants changed.
 /// </param>
+/// <param name="DoubleSided">
+/// Whether both faces of these triangles are drawn, rather than only the one their winding
+/// says is the front.
+/// </param>
 /// <remarks>
 /// <para>
 /// The seam between deciding what to draw and issuing it. Everything about a batch that
@@ -87,7 +91,8 @@ public readonly record struct SceneDraw(
     bool ShortIndices,
     IGeometryMaterial Material,
     DrawConstants Constants,
-    IReadOnlyList<DrawConstants> Shells);
+    IReadOnlyList<DrawConstants> Shells,
+    bool DoubleSided = true);
 
 /// <summary>One vertex of a mesh, as both backends receive it.</summary>
 /// <param name="Position">Where it is, in the model's own space.</param>

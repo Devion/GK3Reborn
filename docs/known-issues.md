@@ -4,37 +4,108 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
-## 1. A texture blocks the open space in a dumbwaiter (open)
+## 0. A texture blocks the open space in a dumbwaiter (done 2026-09-06)
 
 Reported: "the dumbwaiter when opened still shows the door in place as if there were two
-doors there, a texture overlap"; and then "the problem is not open/closed — there is a
-texture *blocking the open space* within the dumbwaiter."
+doors there, a texture overlap"; then "the problem is not open/closed — there is a texture
+*blocking the open space* within the dumbwaiter"; and finally, which is what found it, "it
+is the texture of the inner shaft wall".
 
-**Which dumbwaiter is not yet known, and three of them were ruled out on 2026-09-06.**
-There are four places one can be looked into and each has its own geometry:
+**It is R25, and it is one polygon.** `R25.BSP`, object `r25_duwalls`, surface 625,
+polygon 4159, painted with `DU1LATHE` — the horizontal lath boards the shaft is lined with.
+Its four corners are
 
-| where | how to reproduce | what it showed |
-| --- | --- | --- |
-| R25, Gabriel's room | `--scene R25 --timeblock 110A --run '@100 CallSheep("r25_all","UnLock");@400 CallSheep("r25_all","Open")' --eye 100,55,120 --aim 0,0` | door swings clear, opening shows the shaft's far wall |
-| KIT, the hotel kitchen | `--scene KIT --timeblock 210A --run '@100 CallSheep("kit_all","DUMB_WAITER_GE_OPEN")'` | door swings clear, opening shows the shaft |
-| DU1, inside the shaft | `--scene R25 --timeblock 210A --run '@30 SetNounVerbCount("DUMB_WAITER_LOCK_R25","USE",2);@90 SetLocation("du1")'` | nothing obviously doubled |
-| R21 / R23 / R27, the rooms it opens into | not yet looked at | — |
+    (96.0, 54.4, 279.08)  (91.2, 31.1, 279.09)  (102.0, 31.1, 279.07)  (102.0, 54.4, 279.07)
 
-Things already eliminated, so as not to be tried again:
+and it is one of a set. The shaft is a closed box of lath, `x 77.9-126.0`, `z 279.03-338.63`,
+`y -33 to 200`, and **its near face has no hole cut for the doorway**: the whole
+cross-section is sheeted over, the door centre `(101, 49)` included. All four walls of the
+box are wound facing inward — `(0,0,1)`, `(0,0,-1)`, `(1,0,0)`, `(-1,0,0)` — which is right,
+because a player standing in the shaft at DU1 wants lath on all four sides. The player in the
+room is at `z ≈ 241` and is therefore looking at that face's *back*.
 
-- **Not the improved room geometry.** R25 renders the same with `ImprovedSceneGeometry`
-  off.
-- **Not the parked car.** `r25_dumbwaiter_platform_SCENE` is a scene object when the pulley
-  has not been used and a `hittest` after; hiding it changes nothing in the opening, and
-  `HideSceneModel` was proved to work on that room by hiding `r25wardrobe`.
-- **Not a doubled door prop.** R25's three conditional `[MODELS]` blocks for
-  `r25_dumbdoor`, and KIT's two for `dumdoorl`, resolve to one placement each.
-- Note that **`HideModel` does not touch a `type=scene` object** — `HideSceneModel` is the
-  one for those — which is what makes a probe of BSP geometry look like a negative result.
+Casting a ray from the room through the door centre finds, in order:
 
-What is wanted next is the room and the moment: which dumbwaiter, whose game, and whether
-the blocking texture is there before it is opened.
+| z | object | texture | facing |
+| --- | --- | --- | --- |
+| 279.08 | `r25_duwalls` | `DU1LATHE` | away — the fault |
+| 338.27 | `r25_dudoortor27` | `DWDBACK` | towards |
+| 338.62 | `r25_duwalls` | `DU1LATHE` | towards |
 
+`r25_walls`, the room's own wall, has nothing at `z ≈ 279` there: the doorway is properly
+holed. Everything past the first row is what the opening is meant to show.
+
+**The original never showed it, because it culls back faces.** `Renderer::Render` sets
+`CullMode::Back` for all opaque world geometry — BSP and meshes both — and this renderer
+culled nothing at all. So the fix is not to the room: it is `SceneGeometry.CullBackFaces`,
+on by default, `--no-cull` to compare.
+
+### What is culled and what is not
+
+Only the room's own surfaces.
+
+- **A placed model keeps both faces.** Not timidity: this port grows modelled trees where
+  1999 hung a painted quad, and a leaf card is a single sheet with no back. Culling models
+  takes every crown in the game and leaves the boles standing — measured on RC1, where the
+  cypresses vanish and their trunks stay.
+- **A keyed surface of the room keeps both faces too**, and the reason is not the one the
+  old comment in `MeshPipeline` gave. GK3's foliage cards are *not* single-sided: every one
+  of the 334 `maple1trileaf` polygons in CEM's maple carries an opposite-wound duplicate at
+  the same vertices, and so do all 436 of its `mapletop1` polygons. What the duplicates do
+  not share is their **texture coordinates** — 434 of those 436 differ from their own twin.
+  So the two faces of one card are painted with different parts of the leaf sheet, drawing
+  both gives the union of two silhouettes, and culling gives one: 3,251 pixels of that one
+  tree's canopy turn to sky in a single frame. The denser crown is an accident of drawing
+  both sides and the thinner one is probably what 1999 showed — but that is a change to
+  every tree in the game and it is not this fix.
+
+### Two things this turned up on the way
+
+**`TextureCache.Keyed` was empty in every shipped build.** It is filled where a texture
+arrives as texels, and a keyed texture arrives as *blocks* whenever the pack holds it — which
+`pack-content` makes sure of, so that the magenta is resolved to alpha before encoding.
+Every caller of `Keyed` therefore got the answer for a solid sheet: the culling above would
+have taken every railing, fence and crown in the game with it, and `RecordTraceable` has been
+putting keyed surfaces into the acceleration structure, where a hole casts the shadow of its
+whole quad. `TextureCache.Add(string, CompressedImage)` now expands the level the silhouette
+was authored at — the one it already expanded to measure a cutout — and asks
+`TextureKeying.HasHoles` of it, so one decode answers both questions. It costs nothing: RC1
+loads in 1,838 ms of texture work against 1,793 with the cutouts switched off, which is
+noise.
+
+**That second half is a fix in its own right and a large one.** RC1 at 112P, `--rt high`,
+packs installed: the room traced **350,189 opaque triangles before and 172,962 after**, and
+5% of the frame changes — a hard-edged slab of shadow lying across the courtyard, cast by
+the wrought ironwork of the hotel sign as though it were a solid board. The railings' own
+occluders were being traced *as well as* their uncut quads.
+
+**Vulkan's front face was the wrong way round.** A comment said counter-clockwise was
+Vulkan's spelling of the clockwise front face Direct3D asks for, because the two APIs
+disagree about which way up a framebuffer is. They do not, and the claim had never been
+tested, because until there was a culled variant nothing read the field. `RayTracingTests`
+draw a floor from straight above through the Vulkan backend and are what said so; the two
+backends now agree on a culled frame to within a pixel or two.
+
+### What it changes across the corpus
+
+Every room at its own default camera, `--rt none`, packs installed, culled against not:
+
+| | rooms |
+| --- | --- |
+| unchanged | 2 |
+| under 0.1% of the frame | 60 of 77 |
+| largest | B29 at 1.15% |
+
+The six hotel bathrooms lead the list, and what changes in them is the shower curtain: a
+fold whose back face was drawn over its front, which reads as a seam down the plastic and is
+gone. Everything else inspected is the same shape of thing — a doorway pillar in TE3 whose
+silhouette was torn by its own back, a sliver of rock at MCF, a wall edge in R23's doorway.
+No foliage moved anywhere.
+
+`BackFaceCullingTests` holds it: the room's own surfaces culled and models not, a keyed
+surface of the room exempt, a packed keyed texture known to be keyed, and the fault itself —
+a sealed sheet behind a doorway, which paints the doorway shut with the culling off and does
+not with it on.
 
 ## 0. The fingerprint kit took every click in the game (done 2026-09-06)
 
@@ -1820,9 +1891,16 @@ surfaces are coincident.
 
 **The original avoids it by culling back faces** — `Renderer::Render` sets `CullMode::Back`
 for opaque world geometry, so only the side facing the camera is drawn. That was tried here
-and cannot be taken: GK3's winding is not consistent enough (`FrontFace.CounterClockwise`
-erases the ground, and `Clockwise` renders correctly but takes every foliage card in the
-game with it, since those are single quads meant to be seen from both sides).
+and refused at the time: GK3's winding was thought not to be consistent enough
+(`FrontFace.CounterClockwise` erases the ground, and `Clockwise` renders correctly but takes
+every foliage card in the game with it).
+
+**Both halves of that were wrong, and the culling is on since 2026-09-06** — see item 0, the
+dumbwaiter. The winding is consistent; the counter-clockwise reading was Vulkan's front face
+being set the wrong way round, and the foliage goes because a card's two faces carry
+different texture coordinates, not because it has no back. What is culled is the room's own
+opaque surfaces; a keyed card and a placed model still keep both faces, so everything this
+section is about is still drawn twice and still needs what follows.
 
 So `Rendering.CoplanarCards` gives the cards a thickness instead: each face moves 0.05 units
 along its own normal, which puts a tenth of a unit between them — half a millimetre at the
@@ -4883,7 +4961,8 @@ BSP's winding is consistent, contrary to the comment on `CullMode` in
 `MeshPipeline`: signed volumes come out positive for every solid prop and negative
 for the room shells, exactly as an outward-wound solid inside an inward-wound room
 should. Culling is therefore switchable on if a reason to appears; it changes
-nothing visible in R25.
+nothing visible in R25. **A reason appeared: see item 0, the dumbwaiter, and the
+culling is on since 2026-09-06.**
 
 The grain itself is tracked as issue 1 above.
 

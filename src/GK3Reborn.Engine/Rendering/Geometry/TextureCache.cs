@@ -270,9 +270,29 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        if (MeasureCutouts && MayCutOut(image.Format) && !CutoutCards.Leaves.Contains(name))
+        // Whether this picture has holes, and if so what shape the bars around them are.
+        // Both questions are answered from one expanded level, because expanding is the
+        // expensive half and asking twice would double a room's load for nothing.
+        //
+        // <b>The first question has to be asked here and not only on the decoded path.</b>
+        // A keyed texture reaches the device as blocks whenever the pack holds it, which is
+        // every shipped build; asking only where texels arrive as texels left `Keyed` empty
+        // in exactly the configuration players run, and every caller of it — the culling,
+        // and what goes into the acceleration structure — silently got the answer for a
+        // solid sheet.
+        if (MayCutOut(image.Format) && Expand(image) is { } expanded)
         {
-            Measure(name, image);
+            if (TextureKeying.HasHoles(expanded))
+            {
+                _keyed.Add(name);
+            }
+
+            if (MeasureCutouts &&
+                !CutoutCards.Leaves.Contains(name) &&
+                CutoutMask.Measure(expanded) is { } cutout)
+            {
+                _cutouts[name] = cutout;
+            }
         }
 
         _textures[name] = _device.CreateTexture(image);
@@ -288,7 +308,7 @@ public sealed class TextureCache : IDisposable
         format is BlockFormat.Bc7Srgb or BlockFormat.Bc7Unorm;
 
     /// <summary>
-    /// Expands one level of a packed texture and measures the holes in it.
+    /// Expands the level of a packed texture that the silhouette was authored at.
     /// </summary>
     /// <remarks>
     /// <b>Not the largest level.</b> A shipped base colour is up to 2,048 square, and
@@ -299,11 +319,11 @@ public sealed class TextureCache : IDisposable
     /// the same answer; taking level zero instead put a second and a quarter on a room's
     /// load, which is what found this.
     /// </remarks>
-    private void Measure(string name, CompressedImage image)
+    private static DecodedImage? Expand(CompressedImage image)
     {
         if (!BlockDecoder.CanDecode(image.Format) || image.Mips < 1)
         {
-            return;
+            return null;
         }
 
         int level = 0;
@@ -324,7 +344,7 @@ public sealed class TextureCache : IDisposable
 
         if (width < 4 || height < 4)
         {
-            return;
+            return null;
         }
 
         byte[] pixels = new byte[BlockDecoder.DecodedLength(width, height)];
@@ -335,14 +355,10 @@ public sealed class TextureCache : IDisposable
         }
         catch (NotSupportedException)
         {
-            return;
+            return null;
         }
 
-        if (CutoutMask.Measure(
-                new DecodedImage(width, height, pixels, HasAlpha: true, name)) is { } cutout)
-        {
-            _cutouts[name] = cutout;
-        }
+        return new DecodedImage(width, height, pixels, HasAlpha: true, image.Name);
     }
 
     /// <summary>Uploads a block-compressed normal map, or keeps the one already here.</summary>

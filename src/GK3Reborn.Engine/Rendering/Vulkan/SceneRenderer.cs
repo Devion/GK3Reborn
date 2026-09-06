@@ -1065,6 +1065,7 @@ public static unsafe class VulkanSceneDraw
 
         frames.Bind(
             command, pipeline, frame, camera, (float)width / height, width, height, reflection);
-        MeshPipeline.Record(vk, command, pipeline, geometry.Draws(frames.PreviousSeconds));
+        MeshPipeline.Record(
+            vk, command, pipeline, geometry.Draws(frames.PreviousSeconds), reflection);
     }
 }

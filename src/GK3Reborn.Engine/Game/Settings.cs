@@ -378,6 +378,25 @@ public sealed record Settings
     public bool ThickCutoutCards { get; init; } = true;
 
     /// <summary>
+    /// Whether the room's own surfaces are drawn only on the side they face.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What the original does for all opaque world geometry, and restoring it is a fix
+    /// rather than an optimisation: a GK3 room is a shell of inward-facing surfaces, and
+    /// several of them are solid sheets with no hole where a door goes. Drawing their backs
+    /// paints over what the door was opened to show — R25's dumbwaiter, where the shaft's
+    /// room-side face is an unbroken sheet of lath.
+    /// </para>
+    /// <para>
+    /// On, and here as a switch only so that the same room can be photographed both ways.
+    /// It never touches a placed model: this port grows modelled trees where 1999 hung a
+    /// painted quad, and a leaf card has no back to draw.
+    /// </para>
+    /// </remarks>
+    public bool CullBackFaces { get; init; } = true;
+
+    /// <summary>
     /// How many times a character's head is subdivided, or zero to draw it as authored.
     /// </summary>
     /// <remarks>

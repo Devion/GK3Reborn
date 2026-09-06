@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering.Geometry;
+﻿using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Rendering.Materials;
 
@@ -83,6 +83,15 @@ public interface ISceneGeometry : ISceneSink, IDisposable
     /// geometry, and the measurement happens as a texture is uploaded.
     /// </remarks>
     bool ThickenCutoutCards { get; set; }
+
+    /// <summary>
+    /// Whether the room's own surfaces are drawn only on the side their winding faces.
+    /// </summary>
+    /// <remarks>
+    /// Read per draw, so it may be changed after the room is built. Placed models keep both
+    /// faces whatever it says.
+    /// </remarks>
+    bool CullBackFaces { get; set; }
 
     /// <summary>Whether a thickened card also casts a traced shadow.</summary>
     /// <remarks>Set before the room is added; it decides what goes into the structure.</remarks>

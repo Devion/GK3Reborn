@@ -52,6 +52,17 @@ public sealed class SceneRenderStage
     public CutContentTier Restore { get; set; }
 
     /// <summary>
+    /// Whether the room's own surfaces are drawn only on the side they face.
+    /// </summary>
+    /// <remarks>
+    /// A property rather than another argument to <see cref="Run"/> for the reason the one
+    /// above is, and here at all for the reason the thick cards have a switch: the only way
+    /// to say what culling is worth is two renders of one room that differ in nothing else.
+    /// Off is what every build before it drew. See <c>docs/known-issues.md</c>.
+    /// </remarks>
+    public bool Cull { get; set; } = true;
+
+    /// <summary>
     /// Whether the room's fog is drawn, for the rooms that have any.
     /// </summary>
     /// <remarks>
@@ -212,6 +223,10 @@ public sealed class SceneRenderStage
         // because the two failures look nothing alike and only one of them is in the
         // picture's geometry.
         geometry.CardShadows = cardShadows;
+
+        // And whether the room shows its surfaces' backs. Off is what every build before
+        // this one drew, which is the only thing to compare a culled room against.
+        geometry.CullBackFaces = Cull;
 
         SceneRequest request = SceneRequest.For(sceneName, timeblock);
 

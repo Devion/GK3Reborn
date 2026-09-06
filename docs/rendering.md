@@ -732,6 +732,47 @@ and before the smoke, at render resolution, and is not recorded at all in the ro
 layer. See [fog.md](fog.md), which also says why the rooms are a list rather than something
 derived from the corpus, and why the hour is asked for beside the name.
 
+### Which side of a surface is drawn
+
+The room's own opaque surfaces are drawn only on the side their winding faces, which is what
+the original does — `Renderer::Render` sets `CullMode::Back` for all opaque world geometry.
+It is a fix rather than an optimisation. A GK3 room is a shell of inward-facing surfaces and
+some of them are solid sheets with no hole where a door goes: R25's dumbwaiter shaft is a
+closed box of lath whose room-side face covers the doorway, so drawing its back painted the
+shaft shut the moment the door was opened.
+
+Two classes keep both faces, and each is a card rather than a shell.
+
+- **A placed model.** This port grows modelled trees where 1999 hung a painted quad, and a
+  leaf card is a single sheet with no back.
+- **A keyed surface of the room.** GK3's own foliage cards *do* carry an opposite-wound
+  duplicate — but not the same texture coordinates on it, so the two faces are painted with
+  different parts of the leaf sheet and drawing both is what makes the crown as dense as it
+  is here.
+
+`SceneDraw.DoubleSided` carries the decision and each backend keeps three pipelines over one
+pair of shaders: both faces, back faces culled, and that one again for the mirror pass, whose
+reflected view turns every triangle the other way. A frame normally switches state once,
+because the room's batches are built before any model is placed. `--no-cull`, or
+`CullBackFaces` in the settings, draws both sides of everything as builds before 2026-09-06
+did.
+
+Front faces are **clockwise** in both backends. Direct3D says so with
+`FrontCounterClockwise = false` and Vulkan with `FrontFace.Clockwise`; an older comment
+claiming the two APIs need opposite spellings was wrong and had never been exercised, since
+nothing read the field while nothing was culled.
+
+| Where | Switch | Effect |
+|---|---|---|
+| `GK3Reborn.exe` | `--no-cull` | Both sides of every surface, as builds before this drew |
+| `render-scene` | `--no-cull` | The same, for comparison shots |
+| settings.json | `CullBackFaces`, on by default | The same, kept between runs |
+
+No row in the Video page, unlike the trees and the railings. Those are judgements about what
+a room should look like and this is not one: it is a fault being fixed, and the switch is
+here to photograph the fault rather than to be chosen between. It costs nothing either way —
+900 frames of RC1 present at 148 fps culled against 146 not.
+
 ### What is hidden
 
 A scene's initialisation file distinguishes three things that look identical in the
