@@ -268,6 +268,30 @@ public sealed class Gk3SheepApi : ISheepApi
     /// </remarks>
     public Action? Starts { get; set; }
 
+    /// <summary>Told as an action's last statement has run.</summary>
+    /// <remarks>
+    /// <para>
+    /// The closing bracket to <see cref="Starts"/>. The room notes what its scheduler was
+    /// holding before the action; this says the action is through its statements, so
+    /// whatever is still parked and was not waited on is the room's own background rather
+    /// than the action still running.
+    /// </para>
+    /// <para>
+    /// It exists because an action may deliberately leave a script running behind it — 640
+    /// of the corpus's <c>CallSheep</c> calls have no <c>wait</c> in front of them — and
+    /// counting those as the story being busy is a room that never becomes idle again.
+    /// RC1's arrival from the lobby is the reported one: its enter script leaves a loop
+    /// parked that waits for Gabriel to step away from the door, and the story reading as
+    /// busy is what stopped him being sent anywhere.
+    /// </para>
+    /// <para>
+    /// Not the same as the action being over. A waited call is still outstanding after this
+    /// — see <see cref="Awaits"/>, which is what answers for that — and this says nothing
+    /// about it.
+    /// </para>
+    /// </remarks>
+    public Action? Ends { get; set; }
+
     /// <summary>How long a movie runs, asked before it is played.</summary>
     /// <remarks>
     /// A hook rather than a library lookup, because the length lives in the movie's own

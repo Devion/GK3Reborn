@@ -1902,6 +1902,7 @@ public static class SceneScripting
         // as long as that script runs. The room is where the scheduler is, so the room is
         // the only thing that can tell.
         api.Starts = world.Starting;
+        api.Ends = world.Ended;
 
         api.Register("StartAnimation", a => SheepValue.FromInt(
             (int)world.Play(Name(a, 0))));

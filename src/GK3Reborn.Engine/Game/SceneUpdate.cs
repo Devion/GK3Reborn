@@ -4249,14 +4249,21 @@ public sealed class SceneUpdate
     /// <summary>The verb a trigger's noun is looked up with.</summary>
     private const string Walked = "WALK";
 
-    /// <summary>How many scripts were waiting before the last action started.</summary>
+    /// <summary>How many scripts the room was left holding, as of the last action.</summary>
     /// <remarks>
-    /// Minus one until one has. A room's own background scripts sit in the scheduler for as
-    /// long as the room stands — the dining room and the third-floor hall each keep two
+    /// <para>
+    /// Minus one until one has run. A room's own background scripts sit in the scheduler for
+    /// as long as the room stands — the dining room and the third-floor hall each keep two
     /// parked permanently — so "any script is waiting" is not a usable answer to whether
-    /// something is happening. The number of them when an action last started is, because
-    /// what that action starts is on top of that and what it started going away is the
-    /// action being over.
+    /// something is happening. A count against a mark is, because what an action starts is
+    /// on top of the mark and what it started going away is the action being over.
+    /// </para>
+    /// <para>
+    /// The mark moves twice: down as an action begins, to whatever was already parked, and
+    /// up again as it comes to the end of its statements. See <see cref="Starting"/> and
+    /// <see cref="Ended"/> — the second of those is what keeps a room that was handed a
+    /// background loop on the way in from reading as busy for the rest of its life.
+    /// </para>
     /// </remarks>
     private int _quiet = -1;
 
@@ -4286,6 +4293,35 @@ public sealed class SceneUpdate
         }
     }
 
+    /// <summary>Notes what the room is left holding, once an action is through.</summary>
+    /// <remarks>
+    /// <para>
+    /// The mark is taken before an action runs, so everything the action parks counts
+    /// against it — including the scripts it deliberately left running without waiting on
+    /// them. Those are not the action still playing: 640 of the corpus's <c>CallSheep</c>
+    /// calls have no <c>wait</c> in front of them and every one of them is a room being
+    /// given something to get on with in the background. Counting them made the mark
+    /// permanently wrong, because the action that set it is the same action that raised the
+    /// count above it, and nothing ever brought it back down.
+    /// </para>
+    /// <para>
+    /// <b>RC1's arrival from the lobby is what this is for.</b> Its 110A enter rule is
+    /// <c>wait CallSheep("RC1", "PlaceEgo$"); CallSheep("rc1110a", "SceneEnter_Background")</c>,
+    /// and that second, unwaited script parks a loop which polls every two seconds until
+    /// Gabriel is more than a hundred units from <c>FR_LBY</c> — the very spot
+    /// <c>PlaceEgo$</c> has just stood him on. So the room read as busy, the busy room
+    /// swallowed every click, and the click it swallowed was the one that would have walked
+    /// him off the mark and let the script go on. The only way out was the three-click
+    /// unstick.
+    /// </para>
+    /// <para>
+    /// Raising the mark is safe because the term it feeds is not the only one:
+    /// <see cref="Acting"/> answers for whatever the action <em>waited</em> on, through
+    /// <see cref="Awaiting"/>, and that is untouched by this. What stops counting here is
+    /// exactly what the script said it was not waiting for.
+    /// </para>
+    /// </remarks>
+    public void Ended() => _quiet = _scripts?.Count ?? 0;
 
     /// <summary>
     /// Whether the story is in the middle of something.
@@ -4304,10 +4340,11 @@ public sealed class SceneUpdate
     /// script rather than a number of seconds — which is most of what the triggers run.
     /// </para>
     /// <para>
-    /// <b>It is deliberately generous and cannot be made otherwise.</b> That last term is a
-    /// count against a baseline, so a room that parks a script and leaves it parked is busy
-    /// for as long as it stands — which every temple room does. Ask <see cref="Acting"/>
-    /// instead wherever the answer decides what the player is allowed to do.
+    /// <b>It is deliberately generous.</b> That last term is a count against a mark, and a
+    /// mark is a guess: it covers a script the room started and has not finished, without
+    /// being able to say what the script is doing. Ask <see cref="Acting"/> where the answer
+    /// has to be exact. What it no longer does is stick — a background loop the arrival left
+    /// running is behind the mark rather than in front of it, which is <see cref="Ended"/>.
     /// </para>
     /// </remarks>
     public bool Occupied => Acting || (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);

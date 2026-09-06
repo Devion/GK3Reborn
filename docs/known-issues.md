@@ -4,6 +4,56 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. Leaving the hotel took three clicks to get moving (done 2026-09-06)
+
+Reported: "odd issue when leaving the hotel the first time, it sort of gets stuck in some
+kind of script/action as I have to click 3 times to get gabriel moving."
+
+Three clicks is not a coincidence: it is `Application`'s own escape hatch. A click the room
+refuses is counted, and the third in a row calls `SceneUpdate.Unstick`, which is what let
+Gabriel go. The room really was wedged, and it wedged itself.
+
+**RC1's arrival from the lobby is a deadlock in one line.** `RC1110A.NVC` opens with
+
+    SCENE, ENTER, TIME_BLOCK, script={wait CallSheep("RC1", "PlaceEgo$");
+                                      CallSheep("rc1110a", "SceneEnter_Background");}
+
+The second call has no `wait` in front of it, so the room is handed a script to get on with
+in the background. That script — the one that walks Emilio out of the lobby — is
+
+    while IsActorNear("Gabriel", "FR_LBY", 100.0) { wait SetTimerSeconds(2.0); }
+
+and `RC1`'s `PlaceEgo$` has just stood Gabriel on `FR_LBY` itself, because that is where
+somebody arriving from `LBY` comes in. It runs only when the player came from the lobby and
+Emilio is still inside, which is why it is the *first* time out of the hotel and no other.
+
+So the loop waited for Gabriel to walk away, and nothing could walk him away:
+`SceneUpdate.Occupied` counted that parked loop as the story being busy, and a busy room
+takes the clicks. Measured on the real room, `--scene LBY --timeblock 110A --do
+FRONT_DOOR:OPEN`:
+
+    acting=False occupied=True directing=True pending=[RC1110A.SHP:SceneEnter_Background$]
+
+for every frame of the run. `acting` is the honest signal and it says nothing is playing;
+`occupied` is a count against a mark, and the mark was wrong.
+
+**The mark was taken before the action that moved it.** `Starting` notes what the scheduler
+was already holding as an action begins — nothing, in a room that has just been built — and
+then the very same action parks the loop above it. Nothing ever brought the count back down,
+because bringing it down is what the loop was waiting for.
+
+`SceneUpdate.Ended` is the closing bracket: the runner says so once an action is through its
+statements, and the mark moves up to whatever is still parked. Nothing is lost by it. A
+script the action *waited* on is answered for by `Acting`, through the threads
+`Gk3SheepApi.Awaits` reports, and that is untouched; what stops counting is exactly the 640
+`CallSheep` calls in the corpus that the scripts deliberately left running. The reference
+agrees — `ActionManager::IsActionPlaying` is a current action or a manual counter, and a
+Sheep thread parked in the background is neither.
+
+After it, the same run reads `occupied=False directing=False` with the loop still parked and
+still doing its job, the Jean conversation in the lobby still holds the room for its full
+eleven seconds, and DIN's coffee scene still reads `acting=True` throughout.
+
 ## 0. A texture blocks the open space in a dumbwaiter (done 2026-09-06)
 
 Reported: "the dumbwaiter when opened still shows the door in place as if there were two

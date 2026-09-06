@@ -280,10 +280,19 @@ public sealed class ActionRunner
                     action.Source, null, "a statement the host can perform", sources[i],
                     "Check the script field against the surrounding rules."));
 
+                // Through its statements, whatever became of them: what is still parked
+                // and was not waited on is the room's own from here. See Gk3SheepApi.Ends.
+                _api.Ends?.Invoke();
+
                 return new ActionOutcome(
                     action.Noun, action.Verb, action.Case, statements[..i], Ran: false);
             }
         }
+
+        // The last statement has run. Anything the action waited on is still outstanding
+        // and is answered for by Gk3SheepApi.Awaits; anything else it started, it started
+        // deliberately without waiting and the story is not held up by it.
+        _api.Ends?.Invoke();
 
         Finish(action);
 

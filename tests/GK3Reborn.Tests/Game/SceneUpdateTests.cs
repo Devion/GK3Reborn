@@ -768,6 +768,7 @@ public sealed class SceneUpdateTests
             scheduler);
 
         api.Starts = update.Starting;
+        api.Ends = update.Ended;
         api.DefersUntil = update.Until;
         api.Awaits = update.Awaiting;
 
@@ -787,11 +788,122 @@ public sealed class SceneUpdateTests
             update.Advance(1.0 / 60);
         }
 
-        // Over, and the player may act again -- while Occupied is still true and will stay
-        // true for as long as the background loop is parked, which is the whole point.
+        // Over, and the player may act again. The background loop is still parked and no
+        // longer counts: the enter action left it running without waiting on it, and
+        // SceneUpdate.Ended moved the mark past it once the action was through its
+        // statements. Before that it was counted for the life of the room -- see
+        // A_room_is_handed_back_once_its_arrival_has_left_a_loop_running.
         Assert.True(state.GetFlag("arrived"));
         Assert.False(update.Acting, "the arrival is over");
-        Assert.True(update.Occupied, "the background loop is still parked");
+        Assert.False(update.Occupied, "the loop it left running is not the story being busy");
+    }
+
+    [Fact]
+    public void A_room_is_handed_back_once_its_arrival_has_left_a_loop_running()
+    {
+        // Reported as "leaving the hotel the first time, I have to click three times to get
+        // Gabriel moving" -- three clicks being the unstick, which is the only thing that
+        // ever answered.
+        //
+        // RC1's 110A arrival is
+        //
+        //   SCENE, ENTER, TIME_BLOCK, script={wait CallSheep("RC1", "PlaceEgo$");
+        //                                     CallSheep("rc1110a", "SceneEnter_Background");}
+        //
+        // and that second script -- unwaited, deliberately left running -- polls every two
+        // seconds until Gabriel is more than a hundred units from FR_LBY, the mark PlaceEgo$
+        // has just stood him on. The mark for "how much was parked before this action" is
+        // taken before the action runs, so the loop the action itself parked was counted
+        // against it and Occupied never came back down. Occupied takes the clicks, and the
+        // click it was taking was the one that would have walked him off FR_LBY.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+
+        host.Scheduler = scheduler;
+
+        var resolver = new ActionResolver(api);
+
+        resolver.Add(NvcFile.Parse(
+            """
+            SCENE, ENTER, ALL, script={wait CallSheep("RC1", "PlaceEgo$"); CallSheep("RC1", "Background$");}
+            BENCH, LOOK, ALL, script={wait CallSheep("RC1", "Look$");}
+            """,
+            "test.nvc",
+            new DiagnosticBag()));
+
+        host.Add(SheepCompiler.Compile(
+            """
+            code
+            {
+                PlaceEgo$()
+                {
+                    SetFlag("placed");
+                }
+
+                Background$()
+                {
+                    wait SetTimerSeconds(600.0);
+                }
+
+                Look$()
+                {
+                    wait SetTimerSeconds(3.0);
+                }
+            }
+            """,
+            "RC1.SHP",
+            Signatures(
+                ("SetTimerSeconds", SheepSignatures.Void, [SheepSignatures.Float]),
+                ("SetFlag", SheepSignatures.Void, [SheepSignatures.String]))));
+
+        var update = new SceneUpdate(
+            Scene(),
+            api,
+            new Glances(),
+            new Watcher(),
+            resolver,
+            new ActionRunner(api),
+            scheduler);
+
+        api.Starts = update.Starting;
+        api.Ends = update.Ended;
+        api.DefersUntil = update.Until;
+        api.Awaits = update.Awaiting;
+
+        new ActionRunner(api).Run(resolver.Find("SCENE", "ENTER")!);
+
+        Assert.True(state.GetFlag("placed"));
+
+        // The arrival is over in the frame it began: PlaceEgo$ waits on nothing and the
+        // loop was not waited on. So the room is the player's, with the loop still running.
+        Assert.Equal(1, scheduler.Count);
+        Assert.False(update.Acting, "nothing is playing");
+        Assert.False(update.Occupied, "the loop the arrival left running is not an action");
+
+        for (int frame = 0; frame < 60 * 5; frame++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.Equal(1, scheduler.Count);
+        Assert.False(update.Occupied, "and it stays the player's for as long as the loop runs");
+
+        // And the room can still be taken away again. An action that waits on a script is
+        // the story being busy for as long as that script runs, loop or no loop.
+        new ActionRunner(api).Run(resolver.Find("BENCH", "LOOK")!);
+
+        Assert.True(update.Acting, "looking at the bench is an action playing");
+        Assert.True(update.Occupied);
+
+        for (int frame = 0; frame < 60 * 4; frame++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.False(update.Acting, "and it is over");
+        Assert.False(update.Occupied);
     }
 
     private static SheepSignatures Signatures(
