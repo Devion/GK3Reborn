@@ -688,51 +688,13 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
     private static int Tiles(int width, int height) =>
         Divide(width, TileWidth) * Divide(height, TileHeight);
 
+    /// <summary>What the trace stage binds, from the layout both backends are built against.</summary>
     private static DescriptorSetLayoutBinding[] TraceBindings() =>
-    [
-        Binding(0, DescriptorType.SampledImage),
-        Binding(1, DescriptorType.SampledImage),
-        Binding(2, DescriptorType.AccelerationStructureKhr),
-        Binding(3, DescriptorType.StorageBuffer),
-        Binding(4, DescriptorType.StorageBuffer),
-        Binding(5, DescriptorType.StorageBuffer),
-        Binding(6, DescriptorType.StorageImage),
-        Binding(7, DescriptorType.StorageImage),
+        VulkanBindings.Of(DenoiseLayout.Trace);
 
-        // The dynamic-shadow channel, out of order because the rig took five.
-        // TraceMaskBinding and TraceFractionBinding are the same table read the other way.
-        Binding(8, DescriptorType.StorageBuffer),
-        Binding(9, DescriptorType.StorageImage),
-    ];
-
+    /// <summary>And what the two filtering stages bind, from the same one.</summary>
     private static DescriptorSetLayoutBinding[] DenoiseBindings() =>
-    [
-        Binding(0, DescriptorType.SampledImage),
-        Binding(1, DescriptorType.SampledImage),
-        Binding(2, DescriptorType.SampledImage),
-        Binding(3, DescriptorType.SampledImage),
-        Binding(4, DescriptorType.SampledImage),
-        Binding(5, DescriptorType.SampledImage),
-        Binding(6, DescriptorType.SampledImage),
-        Binding(7, DescriptorType.Sampler),
-        Binding(8, DescriptorType.StorageBuffer),
-        Binding(9, DescriptorType.StorageBuffer),
-        Binding(10, DescriptorType.StorageImage),
-        Binding(11, DescriptorType.StorageImage),
-        Binding(12, DescriptorType.StorageImage),
-        Binding(13, DescriptorType.StorageImage),
-        Binding(14, DescriptorType.UniformBuffer),
-        Binding(15, DescriptorType.SampledImage),
-    ];
-
-    private static DescriptorSetLayoutBinding Binding(uint index, DescriptorType type) =>
-        new()
-        {
-            Binding = index,
-            DescriptorType = type,
-            DescriptorCount = 1,
-            StageFlags = ShaderStageFlags.ComputeBit,
-        };
+        VulkanBindings.Of(DenoiseLayout.Denoise);
 
     private static WriteDescriptorSet Sampled(
         DescriptorSet set, uint binding, DescriptorImageInfo* info) =>

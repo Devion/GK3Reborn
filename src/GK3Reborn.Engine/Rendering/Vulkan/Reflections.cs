@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 the GK3Reborn authors.
+// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -378,27 +378,7 @@ internal sealed unsafe class Reflections : IDisposable
     private static int Divide(int value, int divisor) => (value + divisor - 1) / divisor;
 
     private static DescriptorSetLayoutBinding[] Bindings() =>
-    [
-        Binding(0, DescriptorType.SampledImage),
-        Binding(1, DescriptorType.SampledImage),
-        Binding(2, DescriptorType.SampledImage),
-        Binding(3, DescriptorType.SampledImage),
-        Binding(4, DescriptorType.SampledImage),
-        Binding(5, DescriptorType.SampledImage),
-        Binding(6, DescriptorType.Sampler),
-        Binding(7, DescriptorType.StorageImage),
-        Binding(8, DescriptorType.StorageImage),
-        Binding(9, DescriptorType.UniformBuffer),
-    ];
-
-    private static DescriptorSetLayoutBinding Binding(uint index, DescriptorType type) =>
-        new()
-        {
-            Binding = index,
-            DescriptorType = type,
-            DescriptorCount = 1,
-            StageFlags = ShaderStageFlags.ComputeBit,
-        };
+        VulkanBindings.Of(ReflectLayout.Bindings);
 
     private static DescriptorImageInfo Read(ImageView view) =>
         new() { ImageView = view, ImageLayout = ImageLayout.ShaderReadOnlyOptimal };
