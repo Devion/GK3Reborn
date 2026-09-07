@@ -269,6 +269,28 @@ public sealed class HeadlessSceneSink : ISceneSink
         }
     }
 
+    /// <summary>How many models were left turning to face the camera.</summary>
+    public int BillboardCount => _billboards.Count;
+
+    /// <summary>Which placements are billboards, in the order they were declared.</summary>
+    public IReadOnlyList<ModelPlacement> Billboards => _billboards;
+
+    private readonly List<ModelPlacement> _billboards = [];
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Recorded rather than turned. Which way a billboard ends up facing is a question
+    /// about a camera, and there is no camera here; that it was <em>asked</em> to turn is
+    /// what a test of the loader can check, and it is the thing that was missing.
+    /// </remarks>
+    public void FaceCamera(ModelPlacement placement)
+    {
+        if (placement.Exists)
+        {
+            _billboards.Add(placement);
+        }
+    }
+
     /// <inheritdoc/>
     /// <remarks>
     /// Nothing to do: this counts what a scene contains rather than drawing it, and an

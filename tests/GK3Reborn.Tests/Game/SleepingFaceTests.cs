@@ -512,6 +512,10 @@ public sealed class SleepingFaceTests : IDisposable
 
         public bool SwapLightmaps(MulFile lightmaps) => true;
 
+        public void FaceCamera(ModelPlacement placement)
+        {
+        }
+
         public void SetSelfLit(ModelPlacement placement, bool selfLit)
         {
         }

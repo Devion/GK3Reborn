@@ -232,6 +232,30 @@ public interface ISceneSink
     /// </remarks>
     void SetSelfLit(ModelPlacement placement, bool selfLit);
 
+    /// <summary>Turns a standing model to the camera, and keeps turning it.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <remarks>
+    /// <para>
+    /// GK3 flags a few hundred models as billboards — bit 1 of a <c>.MOD</c> header — and
+    /// the 1999 engine spun each of them about its own vertical every frame so that its
+    /// one quad always presented its face. It is how a painted pine reads as a tree from
+    /// anywhere on the path, how a hanging chain keeps its width, and how the five saints
+    /// in the church are drawn.
+    /// </para>
+    /// <para>
+    /// The flag was read and never acted on, so every one of them stood in whatever plane
+    /// it happened to be authored in. That is invisible on a chain hanging in a doorway
+    /// and total on a statue in a niche: the five saints face along the nave, so the wall
+    /// they stand against hides them completely from the one direction a player looks into
+    /// the niche from, and each was simply missing.
+    /// </para>
+    /// <para>
+    /// About the vertical only. A billboard that pitched as well would lie down when
+    /// looked at from a balcony, and nothing GK3 flags is meant to.
+    /// </para>
+    /// </remarks>
+    void FaceCamera(ModelPlacement placement);
+
     /// <summary>Paints one of a standing model's textures with something else.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
     /// <param name="texture">The texture the model was built with, such as <c>GAB_FACE</c>.</param>

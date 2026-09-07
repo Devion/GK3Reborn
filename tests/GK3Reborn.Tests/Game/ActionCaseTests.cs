@@ -1,6 +1,7 @@
 ﻿using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Actions;
 using GK3Reborn.UI;
 using GK3Reborn.UI.Interaction;
 using Xunit;
@@ -122,24 +123,44 @@ public sealed class ActionCaseTests
     [Fact]
     public void Whether_there_is_anything_left_to_say_is_asked_of_the_topics()
     {
+        // Asked of the topics by offering them: the question is "would any of them be on
+        // the bar", and it has to be, because Resolve takes the Talk off the bar precisely
+        // when there are topics to show instead. Answered any other way the two come apart
+        // and the player gets a Talk with nothing behind it.
+        //
+        // It used to be asked of the noun/verb counts, which raising a topic does not
+        // touch: ActionRunner.Finish records a topic count and the line that was said, and
+        // an ordinary count moves only when a script says IncNounVerbCount. So the case
+        // answered yes for ever, Mosely never ran out of things to say, and the nine
+        // NOT_DIALOGUE_TOPICS_LEFT rules in the corpus were unreachable.
         var state = new GameState();
 
-        ActionResolver Build() => Resolver(
-            state,
-            """
-            MOSELY, TALK, DIALOGUE_TOPICS_LEFT, script={}
-            MOSELY, Z_CHAT, NOT_DIALOGUE_TOPICS_LEFT, script={}
-            MOSELY, T_THE_BODY, ALL, script={}
-            """);
+        ActionResolver Build()
+        {
+            ActionResolver resolver = Resolver(
+                state,
+                """
+                MOSELY, TALK, DIALOGUE_TOPICS_LEFT, script={}
+                MOSELY, Z_CHAT, NOT_DIALOGUE_TOPICS_LEFT, script={}
+                MOSELY, T_THE_BODY, ALL, script={}
+                """);
 
-        // A topic nobody has raised yet means there is something to talk about.
-        Assert.Contains("TALK", Verbs(Build(), "MOSELY"));
-        Assert.DoesNotContain("Z_CHAT", Verbs(Build(), "MOSELY"));
+            resolver.Verbs = VerbLibrary.Parse("[VERBS]\nT_THE_BODY, up=i_body_std, type=Topic");
 
-        state.IncrementNounVerbCount("MOSELY", "T_THE_BODY");
+            return resolver;
+        }
 
-        Assert.DoesNotContain("TALK", Verbs(Build(), "MOSELY"));
-        Assert.Contains("Z_CHAT", Verbs(Build(), "MOSELY"));
+        // A topic nobody has raised yet means there is something to talk about — and the
+        // bar shows the topic itself rather than the Talk that would only have opened it.
+        Assert.Equal(["T_THE_BODY"], Verbs(Build(), "MOSELY"));
+        Assert.Equal("DIALOGUE_TOPICS_LEFT", Build().Find("MOSELY", "TALK", "GABRIEL")?.Case);
+
+        // And raising it, exactly as ActionRunner.Finish does.
+        state.SetTopicCount("MOSELY", "T_THE_BODY", 1);
+        state.Said("MOSELY", "T_THE_BODY", "ALL");
+
+        Assert.Equal(["Z_CHAT"], Verbs(Build(), "MOSELY"));
+        Assert.Null(Build().Find("MOSELY", "TALK", "GABRIEL"));
     }
 
     [Fact]

@@ -326,6 +326,7 @@ public sealed class ActionResolver
     /// <summary>
     /// Whether an action belongs to a different point in the story than this one.
     /// </summary>
+    /// <param name="file">The file the rule is written in, which says when it belongs.</param>
     /// <param name="action">The rule.</param>
     /// <returns>True when it cannot sensibly run now.</returns>
     /// <remarks>
@@ -337,21 +338,33 @@ public sealed class ActionResolver
     /// moment the game begins. The original offers it early too.
     /// </para>
     /// <para>
-    /// <b>The rule says when it belongs, in its own script.</b> Those actions end in
-    /// <c>CallSheep("chu205p", "Done")</c> — they hand off to the compiled script of one
-    /// point in the story, which is loaded at that point and at no other. An action that
-    /// calls into a script the game has not got is an action that cannot finish, and
-    /// offering it is offering a verb that does half of something.
+    /// The clue is the script the rule hands off to. Those actions end in
+    /// <c>CallSheep("chu205p", "Done")</c>, which is the completion of one point in the
+    /// story, and running it from another is running that point's ending out of turn.
+    /// 107 distinct timeblock scripts are called this way across the corpus, so reading the
+    /// name is a general reading of the data rather than a patch for one statue. A rule
+    /// that names no such script is not filtered by it at all.
     /// </para>
     /// <para>
-    /// 107 distinct timeblock scripts are called this way across the corpus, so this is a
-    /// general reading of the data rather than a patch for one statue. A rule that names no
-    /// such script is not filtered by it at all.
+    /// <b>Only for a file that makes no claim about when it belongs.</b> The name of an
+    /// action file is a condition — <see cref="TimeblockRange"/> — and a file that names a
+    /// timeblock, a stretch of one or a day has already been checked against the clock
+    /// before it was brought into scope, so its rules are meant for now whatever script
+    /// they call. That is not a nicety: <c>TR1102P04P.NVC</c> covers two o'clock and four,
+    /// and every one of the taxi driver's topics hands off to <c>tr1102p</c> — the only
+    /// script the pair of them has. Filtered on the name alone, the whole conversation
+    /// disappeared at four while <c>DIALOGUE_TOPICS_LEFT</c> went on answering yes, so Talk
+    /// stayed on the bar, walked Gabriel over, and had nothing to say. Five more rules went
+    /// the same way, among them picking up the glass in the hotel corridor and petting the
+    /// cat. Only <c>CHU_ALL.NVC</c> and its kind span the whole story and say nothing, and
+    /// there the script really is the only clue there is.
     /// </para>
     /// </remarks>
-    private bool Elsewhen(NvcAction action)
+    private bool Elsewhen(NvcFile file, NvcAction action)
     {
-        if (Now is not { } now || action.Script is not { Length: > 0 } script)
+        if (Now is not { } now ||
+            action.Script is not { Length: > 0 } script ||
+            TimeblockRange.Specificity(file.Name) > 0)
         {
             return false;
         }
@@ -482,7 +495,7 @@ public sealed class ActionResolver
             {
                 if (!string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(action.Verb, written, StringComparison.OrdinalIgnoreCase) ||
-                    Elsewhen(action) ||
+                    Elsewhen(file, action) ||
                     !IsCaseSatisfied(file, action.Case, ego, noun, asked))
                 {
                     continue;
@@ -817,45 +830,70 @@ public sealed class ActionResolver
     /// <remarks>
     /// <para>
     /// A topic is a verb: dialogue is written as actions whose verbs are named
-    /// <c>T_SOMETHING</c>, so "are there topics left" is "is there a <c>T_</c> action for
-    /// this noun whose case holds and which has not been used up". The original tracks the
-    /// topics played this conversation; this reads the count the story keeps, which says
-    /// the same thing for everything except a topic said twice in one sitting.
+    /// <c>T_SOMETHING</c>, so "is there anything left to ask" is "would any of them be
+    /// offered on this noun right now".
     /// </para>
     /// <para>
-    /// Topic cases are not consulted recursively. A topic whose own case is
-    /// <c>DIALOGUE_TOPICS_LEFT</c> would ask this question to answer this question, and
-    /// the original does not define what that means either.
+    /// <b>It is asked through <see cref="Find"/>, which is the same question the menu
+    /// asks.</b> This used to answer it on its own terms — a topic whose case holds and
+    /// whose noun/verb count is nought — and the two came apart, which is a defect with no
+    /// symptom of its own: <c>DIALOGUE_TOPICS_LEFT</c> is what puts Talk on the bar, and
+    /// <see cref="Resolve"/> takes Talk off again precisely when there are topics to show
+    /// instead. Where this said yes and the menu found nothing, the player got a Talk that
+    /// walked their character over and then stood there. Reported from the Couiza station
+    /// with the taxi driver, whose topics <see cref="Elsewhen"/> was withholding.
+    /// </para>
+    /// <para>
+    /// One <see cref="Find"/> per distinct topic verb, stopping at the first that answers.
+    /// A topic whose own case is <c>DIALOGUE_TOPICS_LEFT</c> would ask this question to
+    /// answer this question; nothing in the shipped data does, and the guard answers no to
+    /// the inner one rather than leaving that to a stack overflow.
     /// </para>
     /// </remarks>
     private bool HasTopicsLeft(string noun, string ego)
     {
-        foreach (NvcFile file in _files)
+        if (_asking)
         {
-            foreach (NvcAction action in file.Actions)
-            {
-                if (!action.Verb.StartsWith("T_", StringComparison.OrdinalIgnoreCase) ||
-                    !string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (action.Case.StartsWith("DIALOGUE_TOPICS_LEFT", StringComparison.OrdinalIgnoreCase) ||
-                    action.Case.StartsWith("NOT_DIALOGUE_TOPICS_LEFT", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (Done(noun, action.Verb) == 0 &&
-                    IsCaseSatisfied(file, action.Case, ego, noun, action.Verb))
-                {
-                    return true;
-                }
-            }
+            return false;
         }
 
-        return false;
+        _asking = true;
+
+        try
+        {
+            HashSet<string> tried = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (NvcFile file in _files)
+            {
+                foreach (NvcAction action in file.Actions)
+                {
+                    // The prefix, and not the verb library, decides what counts as a topic
+                    // here. It is what the original asks, and it keeps the answer the same
+                    // for a tool reading the files without VERBS.TXT.
+                    if (!action.Verb.StartsWith("T_", StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase) ||
+                        !tried.Add(action.Verb))
+                    {
+                        continue;
+                    }
+
+                    if (Find(noun, action.Verb, ego) is not null)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            _asking = false;
+        }
     }
+
+    /// <summary>Guards the one question in here that can be asked while it is being answered.</summary>
+    private bool _asking;
 
     /// <summary>
     /// Classifies a verb for presentation.

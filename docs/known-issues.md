@@ -4,6 +4,40 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. The church's five saints were missing, and GK3's billboard flag was never read (done 2026-09-07)
+
+Requested: "Is it possible to voxelize/3dify the statues in the church, they are currently
+billboard'ish sprites, these need to look more set in 3d space".
+
+They were worse than flat: from the direction a player actually looks into a niche, four of
+the five were **not drawn at all**. Reproduce with
+
+```bash
+GK3Reborn.exe --scene CHU --frames 4 --eye -90,100,146 --aim 90,0 --screenshot roch.png
+```
+
+which is within a few units of `CHU.SIF`'s own `ST_ROCH` inspect camera and used to show a
+pedestal, a nameplate and bare wall.
+
+**The cause is one flag with no reader.** Bit 1 of a `.MOD` header marks a billboard, and
+`ModFile.Parse` has always turned it into `IsBillboard`; nothing in the renderer looked at
+it. 527 of the game's models carry it. For the 372 foliage cards and the 48 flames that
+hardly shows — the grown trees and the shader flames replace most of them anyway — but the
+five saints are authored facing along the nave and stand in niches that open across it, so
+their one quad was edge-on to the only useful viewpoint and hidden inside the wall besides.
+The shadow-casting copies in `chu_statueshadowcasters` are `hidden` in the scene file and
+do not cover for it.
+
+Fixed in two halves. `SceneGeometry.TurnBillboards` turns everything still flagged and still
+flat about its own vertical every frame, from where it was *measured* to be facing rather
+than from an assumed axis; and the five saints are replaced by 6,000-triangle models
+sculpted from their own photographs, placed on the card's rectangle, faced at the inspect
+camera and painted with the game's own bitmap. See [statues.md](statues.md), which also
+records the three ways the UV projection went wrong first.
+
+Not covered: `chu_mary`, `chu_joe` and the Baptist are surfaces of the room's own geometry
+rather than props, so they are still flat.
+
 ## 0. Birds in the daytime skies (feature, done 2026-09-06)
 
 Requested: "It would be nice to have some birds flying around in the sky in RC1-2-3-4 during

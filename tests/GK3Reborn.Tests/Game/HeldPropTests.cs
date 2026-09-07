@@ -120,6 +120,10 @@ public sealed class HeldPropTests
 
         public bool SwapLightmaps(GK3Reborn.Formats.Lightmaps.MulFile lightmaps) => true;
 
+        public void FaceCamera(ModelPlacement placement)
+        {
+        }
+
         public void SetSelfLit(ModelPlacement placement, bool selfLit)
         {
         }

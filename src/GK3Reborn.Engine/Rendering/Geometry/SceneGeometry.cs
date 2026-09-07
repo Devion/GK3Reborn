@@ -963,6 +963,147 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </remarks>
     private readonly HashSet<int> _invisibleParts = [];
 
+    /// <summary>Every placement that turns to the camera, and the pose it was placed in.</summary>
+    /// <remarks>
+    /// The authored transform is kept rather than read back each frame, because the turn
+    /// is applied <em>to</em> it: reading back a transform this already turned and turning
+    /// that would compound the angle and spin the model.
+    /// </remarks>
+    private readonly List<(ModelPlacement Placement, Matrix4x4 Placed, Vector3 Pivot, float Authored)>
+        _billboards = [];
+
+    /// <summary>How many models are turning to face the camera.</summary>
+    public int BillboardCount => _billboards.Count;
+
+    /// <inheritdoc/>
+    public void FaceCamera(ModelPlacement placement)
+    {
+        if (!placement.Exists || placement.Id >= _placed.Count)
+        {
+            return;
+        }
+
+        (ModFile model, Matrix4x4 placed) = _placed[placement.Id];
+
+        // What it turns about is its own middle, in the room. A card is authored centred
+        // on its own origin in every one of GK3's billboards, but a quad hung off to one
+        // side would swing round the wrong point and travel across the room as the player
+        // walked; taking the pivot from the bounds costs nothing and cannot do that.
+        Vector3 middle = Vector3.Zero;
+        int meshes = 0;
+
+        foreach (ModMesh mesh in model.Meshes)
+        {
+            middle += Vector3.Transform((mesh.BoundsMin + mesh.BoundsMax) / 2f, mesh.MeshToLocal);
+            meshes++;
+        }
+
+        if (meshes > 0)
+        {
+            middle /= meshes;
+        }
+
+        // Which way it is already looking, measured rather than assumed. GK3's cards are
+        // authored facing their own -Z and most of them are then placed by a matrix that
+        // flips Z, so "the front is world +Z" is true of nearly all of them and wrong for
+        // the rest — and the ones it is wrong for would face away and be culled, which
+        // reads as a card that vanished rather than as one that turned the wrong way.
+        Vector3 front = Facing(model, placed);
+
+        if (front.LengthSquared() < 1e-8f)
+        {
+            // Flat on its back: there is no heading to turn, and spinning it about its own
+            // vertical would not change what is seen anyway.
+            return;
+        }
+
+        _billboards.Add((
+            placement,
+            placed,
+            Vector3.Transform(middle, placed),
+            MathF.Atan2(front.X, front.Z)));
+    }
+
+    /// <summary>Which way a model's triangles face, in the room, ignoring any tilt.</summary>
+    /// <param name="model">The model, in its own space.</param>
+    /// <param name="placed">Where the scene stood it.</param>
+    /// <returns>The horizontal front direction, or zero when it has none.</returns>
+    /// <remarks>
+    /// The area-weighted sum of the face normals, which for a card is the card. Summed
+    /// rather than averaged: a closed shape cancels to nothing and is refused by the
+    /// caller, which is the right answer for a thing that has no front.
+    /// </remarks>
+    private static Vector3 Facing(ModFile model, Matrix4x4 placed)
+    {
+        Vector3 total = Vector3.Zero;
+
+        foreach (ModMesh mesh in model.Meshes)
+        {
+            Matrix4x4 toRoom = mesh.MeshToLocal * placed;
+
+            foreach (ModSubmesh submesh in mesh.Submeshes)
+            {
+                for (int index = 0; index + 2 < submesh.Indices.Length; index += 3)
+                {
+                    Vector3 a = Vector3.Transform(submesh.Positions[submesh.Indices[index]], toRoom);
+                    Vector3 b = Vector3.Transform(submesh.Positions[submesh.Indices[index + 1]], toRoom);
+                    Vector3 c = Vector3.Transform(submesh.Positions[submesh.Indices[index + 2]], toRoom);
+
+                    total += Vector3.Cross(b - a, c - a);
+                }
+            }
+        }
+
+        total.Y = 0f;
+
+        return total.LengthSquared() < 1e-8f ? Vector3.Zero : Vector3.Normalize(total);
+    }
+
+    /// <summary>Turns every billboard to face where the camera is now.</summary>
+    /// <param name="eye">Where the camera stands, in the room's coordinates.</param>
+    /// <returns>How many were turned.</returns>
+    /// <remarks>
+    /// <para>
+    /// Called once a frame, after the frame's camera is decided and before anything is
+    /// drawn with it. About the vertical only, and by the angle between where the model
+    /// was authored looking and where the camera is: the authored transform stays, so a
+    /// billboard the scene placed, hid, or lit keeps all of that.
+    /// </para>
+    /// <para>
+    /// The cost is one <see cref="MoveModel"/> per billboard per frame, which rewrites its
+    /// batches and moves it in the traced world. That is affordable because there are few
+    /// of them left — the grown trees replace the foliage cards that are the bulk of the
+    /// set, so what remains in a room is chains, lanterns and the odd small pine.
+    /// </para>
+    /// </remarks>
+    public int TurnBillboards(Vector3 eye)
+    {
+        foreach ((ModelPlacement placement, Matrix4x4 placed, Vector3 pivot, float authored)
+                 in _billboards)
+        {
+            Vector3 toward = eye - pivot;
+            toward.Y = 0f;
+
+            if (toward.LengthSquared() < 1e-6f)
+            {
+                continue;
+            }
+
+            // How far it has to come round from where it was authored looking, which is
+            // what makes this work for a card facing any direction at all.
+            float yaw = MathF.Atan2(toward.X, toward.Z) - authored;
+
+            MoveModel(
+                placement,
+                placed
+                    * Matrix4x4.CreateTranslation(-pivot)
+                    * Matrix4x4.CreateRotationY(yaw)
+                    * Matrix4x4.CreateTranslation(pivot));
+        }
+
+        return _billboards.Count;
+    }
+
     /// <inheritdoc/>
     public void SetVisible(ModelPlacement placement, bool visible)
     {

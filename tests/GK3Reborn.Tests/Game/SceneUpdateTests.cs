@@ -175,6 +175,10 @@ public sealed class SceneUpdateTests
             return true;
         }
 
+        public void FaceCamera(ModelPlacement placement)
+        {
+        }
+
         public void SetSelfLit(ModelPlacement placement, bool selfLit)
         {
         }

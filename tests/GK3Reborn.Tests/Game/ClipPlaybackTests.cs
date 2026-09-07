@@ -145,6 +145,10 @@ public sealed class ClipPlaybackTests
             return true;
         }
 
+        public void FaceCamera(ModelPlacement placement)
+        {
+        }
+
         public void SetSelfLit(ModelPlacement placement, bool selfLit)
         {
         }

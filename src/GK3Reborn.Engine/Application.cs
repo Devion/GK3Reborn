@@ -4548,6 +4548,13 @@ public static class Application
 
             Camera view = camera.ToCamera(template);
 
+            // What GK3's billboard flag has always meant, done here because here is where
+            // the frame's camera is finally known — the free camera and the story's own
+            // both end up in `view`, and a billboard turned to either of them separately
+            // would be facing the wrong way in half the screenshots this port is checked
+            // with. See ISceneSink.FaceCamera.
+            geometry.TurnBillboards(view.Position);
+
             // Where the player's ears are. Without this every sound plays at the origin
             // facing nowhere, so the fountain across the square is as loud as the one you
             // are standing in.

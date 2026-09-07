@@ -314,6 +314,8 @@ public sealed class SceneLoader
     private readonly Action<string>? _log;
     private int _enhancedUsed;
     private int _treesGrown;
+    private int _statuesCarved;
+    private int _billboards;
 
     /// <summary>Which of a room's trees the budget stretched to growing in full.</summary>
     private readonly HashSet<int> _nearTrees = [];
@@ -505,6 +507,12 @@ public sealed class SceneLoader
     /// <summary>How many flat cards were replaced by a modelled tree in the last load.</summary>
     public int TreesGrown => _treesGrown;
 
+    /// <summary>How many billboard cards were replaced by a sculpted model.</summary>
+    public int StatuesCarved => _statuesCarved;
+
+    /// <summary>How many billboards were left to turn to the camera every frame.</summary>
+    public int Billboards => _billboards;
+
     /// <summary>
     /// The same textures and maps, block-compressed, if the pipeline has built them.
     /// </summary>
@@ -629,6 +637,8 @@ public sealed class SceneLoader
         _nearTrees.Clear();
         _trunked.Clear();
         _woods.Clear();
+        _statuesCarved = 0;
+        _billboards = 0;
 
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
         Timeline?.Stamp("scene files (.SIF)");
@@ -851,6 +861,13 @@ public sealed class SceneLoader
         if (_treesGrown > 0)
         {
             _log?.Invoke($"trees: {_treesGrown} cards grown into modelled trees");
+        }
+
+        if (_statuesCarved > 0 || _billboards > 0)
+        {
+            _log?.Invoke(
+                $"billboards: {_statuesCarved} carved into models, " +
+                $"{_billboards} left turning to the camera");
         }
 
         LoadedScene loaded = new(
@@ -1748,6 +1765,14 @@ public sealed class SceneLoader
             standing = grown.Standing;
             _treesGrown++;
         }
+        else if (Carve(parsed, model.Name, diagnostics) is { } carved)
+        {
+            // A carved statue is modelled in the room's own coordinates, exactly as the
+            // card it replaces was, so there is nothing to stand it on. It keeps the
+            // card's noun, its scene flags and its name; only the shape changed.
+            parsed = carved;
+            _statuesCarved++;
+        }
 
         // Where the scene says it stands, for a prop borrowed from another room. A .MOD's
         // vertices are in the coordinates of the room it was modelled for, so a suitcase
@@ -1772,6 +1797,16 @@ public sealed class SceneLoader
         // player heard Gabriel remark on a bike that was not there.
         ModelPlacement placement = geometry.Add(
             parsed, standing.IsIdentity ? null : standing);
+
+        // Anything still flagged a billboard and still flat is turned to the camera every
+        // frame, which is what the flag has always meant and what the port did not do:
+        // the chains, the lanterns, the flowers and the small pines no grown tree
+        // replaced. A model that was carved or grown is a shape now and must hold still.
+        if (Statues.IsCard(parsed))
+        {
+            geometry.FaceCamera(placement);
+            _billboards++;
+        }
 
         if (model.Hidden)
         {
@@ -2300,6 +2335,44 @@ public sealed class SceneLoader
 
         _standing.Add((site.Foot, site.Radius));
         return (grown, Foliage.Standing(site, chosen));
+    }
+
+    /// <summary>Stands a sculpted model where a billboard card was, when there is one.</summary>
+    /// <param name="card">The prop as the archives hold it.</param>
+    /// <param name="name">What the scene called it, which is what the content is keyed by.</param>
+    /// <param name="diagnostics">Receives anything about the sculpt that will not read.</param>
+    /// <returns>The carved model, or null to keep the card.</returns>
+    /// <remarks>
+    /// <para>
+    /// The one place the model library is allowed to answer for a name the archives
+    /// <em>do</em> have, and the conditions are what makes that safe. What the archives
+    /// hold has to be a billboard card — one flagged quad, nothing that could be mistaken
+    /// for a modelled prop — and what the library offers has to have real geometry. See
+    /// <see cref="Statues"/> for both tests and why they are tests rather than a list of
+    /// five names.
+    /// </para>
+    /// <para>
+    /// The sculpt carries the room's own coordinates, like the card and like every
+    /// <c>.MOD</c>, so nothing is applied on top of it. That is deliberate: a billboard's
+    /// authored plane is arbitrary — it is the one thing about it the engine was always
+    /// going to throw away — so the direction a carved statue faces is decided where the
+    /// scene files can be read, in <c>tools/blender/carve_statues.py</c>, and baked in.
+    /// </para>
+    /// <para>
+    /// A sculpt that will not read leaves the card, rather than leaving a gap, for the
+    /// same reason a tree that will not read does.
+    /// </para>
+    /// </remarks>
+    private ModFile? Carve(ModFile card, string name, DiagnosticBag diagnostics)
+    {
+        if (Models is not { IsEmpty: false } library || !Statues.IsCard(card))
+        {
+            return null;
+        }
+
+        ModFile? sculpt = library.Read(name, diagnostics);
+
+        return Statues.IsSculpt(sculpt) ? sculpt : null;
     }
 
     /// <summary>
