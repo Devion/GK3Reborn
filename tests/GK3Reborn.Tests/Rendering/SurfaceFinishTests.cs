@@ -348,4 +348,71 @@ public sealed class SurfaceFinishTests
         Assert.Equal(12, again.Shells);
         Assert.Equal(1.4f, again.ShellDepth);
     }
+
+    [Fact]
+    public void A_screen_needs_both_the_flag_and_a_measured_glass()
+    {
+        // Belt and braces on purpose. The flag says somebody decided this picture is a
+        // computer that is switched on; the rectangle says where its glass is. A flag with
+        // no rectangle would draw scanlines over the beige case as well, which is worse
+        // than drawing none at all.
+        SurfaceFinishes finishes = SurfaceFinishes.From(Library(
+            Material("LHICOMPANIM1", 0.18f, AuthoringProvenance.Edited).ApplyPatch(
+                new MaterialPatch
+                {
+                    Screen = true,
+                    ScreenGlass = new Vector4(0.109375f, 0.140625f, 0.890625f, 0.84375f),
+                }),
+            Material("HALFMARKED", 0.18f).ApplyPatch(new MaterialPatch { Screen = true }),
+            Material("LHICOMPSCR", 0.18f)));
+
+        Assert.True(finishes.Of("LHICOMPANIM1").Lit);
+        Assert.False(finishes.Of("HALFMARKED").Lit);
+
+        // And the dark screen is deliberately not one, which is the whole of how the
+        // raster switches off again: the room paints this back and the effect goes with it.
+        Assert.False(finishes.Of("LHICOMPSCR").Lit);
+
+        Assert.Equal(1, finishes.Screens);
+    }
+
+    [Fact]
+    public void A_screens_glass_is_kept_inside_its_own_texture()
+    {
+        // A rectangle is texture coordinates and nothing else. One that ran past the edge
+        // would put the raster on whatever the surface wraps around to, which on a room's
+        // shared texture is another surface entirely.
+        SurfaceFinishes finishes = SurfaceFinishes.From(Library(
+            Material("WILD", 0.2f).ApplyPatch(new MaterialPatch
+            {
+                Screen = true,
+                ScreenGlass = new Vector4(-3f, -0.5f, 8f, 4f),
+            })));
+
+        Assert.Equal(new Vector4(0f, 0f, 1f, 1f), finishes.Of("WILD").Glass);
+    }
+
+    [Fact]
+    public void A_correction_can_take_a_screen_back_off_again()
+    {
+        MaterialDefinition monitor = Material("LHICOMPANIM1", 0.18f).ApplyPatch(
+            new MaterialPatch
+            {
+                Screen = true,
+                ScreenGlass = new Vector4(0.11f, 0.14f, 0.89f, 0.84f),
+            });
+
+        Assert.True(monitor.Screen);
+        Assert.Equal(0.11f, monitor.ScreenGlass.X);
+
+        // A patch that says nothing about the screen leaves it alone...
+        Assert.True(monitor.ApplyPatch(new MaterialPatch { Roughness = 0.3f }).Screen);
+
+        // ...and one that says so turns it off without disturbing the measurement, so that
+        // switching the effect off for a look does not lose where the glass was.
+        MaterialDefinition dark = monitor.ApplyPatch(new MaterialPatch { Screen = false });
+
+        Assert.False(dark.Screen);
+        Assert.Equal(0.11f, dark.ScreenGlass.X);
+    }
 }

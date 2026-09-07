@@ -24,6 +24,11 @@ namespace GK3Reborn.Rendering.Geometry;
 /// cross one turn of the texture. All zero for everything that is not an animal, which is
 /// everything but the cat.
 /// </param>
+/// <param name="Screen">
+/// Where the lit glass of a CRT is inside this surface's texture: u and v of one corner,
+/// then the other. A rectangle with no area for everything that is not a screen, which is
+/// everything but Larry's monitor.
+/// </param>
 /// <remarks>
 /// <para>
 /// Push constants on Vulkan and root constants on Direct3D, which are the same thing under
@@ -31,13 +36,18 @@ namespace GK3Reborn.Rendering.Geometry;
 /// no synchronisation between frames in flight.
 /// </para>
 /// <para>
-/// <b>A hundred and ninety-two bytes, which is past the hundred and twenty-eight Vulkan
+/// <b>Two hundred and eight bytes, which is past the hundred and twenty-eight Vulkan
 /// guarantees.</b> Every desktop driver this renderer has run on offers 256, and the two
 /// matrices alone were already past the floor. Direct3D counts a root signature in
-/// thirty-two-bit words and allows sixty-four of them, so this is forty-eight of the
+/// thirty-two-bit words and allows sixty-four of them, so this is fifty-two of the
 /// sixty-four and the descriptor tables have to fit in what is left — which they do, at one
 /// word each. It is the number to look at first if either API ever refuses the layout, and
 /// the fix is a uniform buffer rather than a smaller struct.
+/// </para>
+/// <para>
+/// <b>Nothing here is written by hand twice.</b> Both backends take the size from this
+/// struct, so a member added to it travels without either of them being told — which is
+/// what the Direct3D side used to need, in two places, as a literal count of words.
 /// </para>
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
@@ -47,7 +57,15 @@ public readonly record struct DrawConstants(
     Vector4 Shading,
     Vector4 Material,
     Vector4 Wind,
-    Vector4 Fur);
+    Vector4 Fur,
+    Vector4 Screen)
+{
+    /// <summary>How many bytes of push constants one of these is.</summary>
+    public static uint Bytes { get; } = (uint)Marshal.SizeOf<DrawConstants>();
+
+    /// <summary>And how many thirty-two-bit words, which is what Direct3D counts in.</summary>
+    public static uint Words { get; } = Bytes / 4;
+}
 
 /// <summary>One batch, ready to be drawn, with nothing left to decide.</summary>
 /// <param name="Vertices">This pose.</param>

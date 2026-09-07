@@ -267,4 +267,17 @@ public interface IRenderer : IDisposable
     /// <summary>Shows a still picture behind everything, without expanding its blocks.</summary>
     /// <param name="picture">The picture.</param>
     void SetBackdrop(CompressedImage picture);
+
+    /// <summary>Where the film or backdrop is on screen, in the overlay's own pixels.</summary>
+    /// <param name="width">Window width, as the overlay was begun with.</param>
+    /// <param name="height">Window height.</param>
+    /// <returns>Left, top, width and height, or all noughts when nothing is showing.</returns>
+    /// <remarks>
+    /// So that something drawn over a picture can be placed against the picture rather than
+    /// against the window. The timeblock card's lettering belongs at a spot on its painting
+    /// and nowhere else; without this it would have to guess how the backdrop was fitted,
+    /// and the two backends would have to guess the same way for ever. A covered picture is
+    /// bigger than the window and the rectangle says so — see <see cref="PictureFit"/>.
+    /// </remarks>
+    Vector4 PictureRect(int width, int height);
 }

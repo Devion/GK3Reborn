@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -60,7 +60,7 @@ public sealed class CutContent
     private readonly Dictionary<string, List<Edit>> _edits = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, byte[]> _done = new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly Dictionary<CutContentTier, CutContent> Tables = [];
+    private static readonly Dictionary<(CutContentTier Tier, bool Dressing), CutContent> Tables = [];
     private int _applied;
     private int _failed;
     private int _unreadable;
@@ -98,54 +98,91 @@ public sealed class CutContent
 
     /// <summary>The table the engine ships.</summary>
     /// <param name="tier">How much of it to take.</param>
-    /// <returns>The restorations, or an empty set for <see cref="CutContentTier.None"/>.</returns>
-    public static CutContent Open(CutContentTier tier)
+    /// <param name="dressing">
+    /// Whether to take the scene dressing as well — see <see cref="SceneDressing"/>. It is
+    /// a separate table on a separate switch because it is not a restoration: nobody at
+    /// Sierra wrote, recorded or modelled any of it.
+    /// </param>
+    /// <returns>
+    /// The edits, or an empty set when the tier is <see cref="CutContentTier.None"/> and
+    /// there is no dressing either.
+    /// </returns>
+    public static CutContent Open(CutContentTier tier, bool dressing = false)
     {
-        if (tier == CutContentTier.None)
+        if (tier == CutContentTier.None && !dressing)
         {
             return new CutContent();
         }
 
-        // One table per tier for the life of the process. A restoration is applied to an
-        // asset once and the result kept; handing out a fresh table each time a room asks
-        // whether to restore anything would apply every edit again, count it again, and
-        // report a failure once per room rather than once.
+        // One table per tier and switch for the life of the process. An edit is applied to
+        // an asset once and the result kept; handing out a fresh table each time a room
+        // asks whether to change anything would apply every edit again, count it again,
+        // and report a failure once per room rather than once.
+        var key = (tier, dressing);
+
         lock (Tables)
         {
-            if (Tables.TryGetValue(tier, out CutContent? already))
+            if (Tables.TryGetValue(key, out CutContent? already))
             {
                 return already;
             }
         }
 
-        CutContent table = Read(tier);
+        CutContent table = Read(tier, dressing);
 
         lock (Tables)
         {
-            if (Tables.TryGetValue(tier, out CutContent? raced))
+            if (Tables.TryGetValue(key, out CutContent? raced))
             {
                 return raced;
             }
 
-            Tables[tier] = table;
+            Tables[key] = table;
         }
 
         return table;
     }
 
-    private static CutContent Read(CutContentTier tier)
+    private static CutContent Read(CutContentTier tier, bool dressing)
     {
-        using Stream? stream = typeof(CutContent).Assembly
-            .GetManifestResourceStream("GK3Reborn.Assets.Story.CutContent.txt");
+        var table = new CutContent();
+
+        if (tier != CutContentTier.None)
+        {
+            FillFromResource(table, "GK3Reborn.Assets.Story.CutContent.txt", section => section switch
+            {
+                "OBSERVATION" => true,
+                "PUZZLE" => tier >= CutContentTier.All,
+                "RECONSTRUCTED" => tier >= CutContentTier.Reconstructed,
+                _ => false,
+            });
+        }
+
+        if (dressing)
+        {
+            // Both of the dressing's sections or neither. They are two sections rather
+            // than one because the buildings and the trees fail differently — a facade is
+            // placed by pos, a tree card is authored where it stands — and reading the
+            // table is easier when the two are not interleaved.
+            FillFromResource(table, "GK3Reborn.Assets.Story.Dressing.txt",
+                section => section is "FACADES" or "TREES");
+        }
+
+        return table;
+    }
+
+    private static void FillFromResource(CutContent table, string resource, Func<string, bool> wanted)
+    {
+        using Stream? stream = typeof(CutContent).Assembly.GetManifestResourceStream(resource);
 
         if (stream is null)
         {
-            return new CutContent();
+            return;
         }
 
         using var reader = new StreamReader(stream);
 
-        return Parse(reader.ReadToEnd(), tier);
+        Fill(table, reader.ReadToEnd(), wanted);
     }
 
     /// <summary>Reads a table.</summary>
@@ -163,6 +200,27 @@ public sealed class CutContent
             return table;
         }
 
+        Fill(table, text, section => section switch
+        {
+            "OBSERVATION" => true,
+            "PUZZLE" => tier >= CutContentTier.All,
+            "RECONSTRUCTED" => tier >= CutContentTier.Reconstructed,
+            _ => false,
+        });
+
+        return table;
+    }
+
+    /// <summary>Reads a table's lines into one that is already being built.</summary>
+    /// <param name="table">Where the edits go.</param>
+    /// <param name="text">The table's contents.</param>
+    /// <param name="sectionWanted">
+    /// Which sections to take, by name and upper-cased. An unknown section is skipped
+    /// rather than refused: a table from a later version may name one this build has no
+    /// opinion about, and taking its other sections is better than taking none of it.
+    /// </param>
+    private static void Fill(CutContent table, string text, Func<string, bool> sectionWanted)
+    {
         bool wanted = true;
 
         foreach (string raw in text.Split('\n'))
@@ -176,19 +234,7 @@ public sealed class CutContent
 
             if (line.StartsWith('['))
             {
-                string section = line.Trim('[', ']').Trim();
-
-                // An unknown section is skipped rather than refused: a table from a later
-                // version may name a tier this build has no opinion about, and taking its
-                // other sections is better than taking none of it.
-                // Cumulative: each tier is everything below it and one section more.
-                wanted = section.ToUpperInvariant() switch
-                {
-                    "OBSERVATION" => true,
-                    "PUZZLE" => tier >= CutContentTier.All,
-                    "RECONSTRUCTED" => tier >= CutContentTier.Reconstructed,
-                    _ => false,
-                };
+                wanted = sectionWanted(line.Trim('[', ']').Trim().ToUpperInvariant());
 
                 continue;
             }
@@ -265,8 +311,6 @@ public sealed class CutContent
 
             list.Add(edit);
         }
-
-        return table;
     }
 
     /// <summary>Whether this table has anything to say about an asset.</summary>

@@ -285,7 +285,7 @@ public sealed unsafe class D3D12MeshPass : IDisposable
                 materialParameter, geometry.Views.Gpu(material.First));
 
             DrawConstants block = draw.Constants;
-            list->SetGraphicsRoot32BitConstants(constants, 48, &block, 0);
+            list->SetGraphicsRoot32BitConstants(constants, DrawConstants.Words, &block, 0);
 
             streams[0] = Buffer(draw.Vertices).AsVertices(VertexStride);
             streams[1] = Buffer(draw.Previous).AsVertices(VertexStride);
@@ -303,7 +303,7 @@ public sealed unsafe class D3D12MeshPass : IDisposable
             foreach (DrawConstants shell in draw.Shells)
             {
                 DrawConstants over = shell;
-                list->SetGraphicsRoot32BitConstants(constants, 48, &over, 0);
+                list->SetGraphicsRoot32BitConstants(constants, DrawConstants.Words, &over, 0);
                 list->DrawIndexedInstanced(draw.IndexCount, 1, 0, 0, 0);
             }
         }

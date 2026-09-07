@@ -43,6 +43,12 @@ public sealed record MaterialPatch
     /// <summary>How much of each edge is drawn frame rather than glass, or null to keep.</summary>
     public float? MirrorInset { get; init; }
 
+    /// <summary>Whether the surface is a lit CRT screen, or null to keep.</summary>
+    public bool? Screen { get; init; }
+
+    /// <summary>Where the glass is within the texture, or null to keep.</summary>
+    public Vector4? ScreenGlass { get; init; }
+
     /// <summary>New emissive color, or null to keep.</summary>
     public Vector3? Emissive { get; init; }
 
@@ -251,6 +257,56 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
     /// </remarks>
     public float MirrorInset { get; init; }
 
+    /// <summary>
+    /// Whether this texture is a lit CRT screen, whose raster the shader draws.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off everywhere by default and set by hand, for the same reason <see cref="Mirror"/>
+    /// is: it is a fact about what a surface <em>is</em>. GK3 draws a working computer as a
+    /// bitmap of a screen with the text already on it, and makes it look switched on by
+    /// cycling five of them — <c>LHICOMPANIM1</c> to <c>5</c>, Larry's lines of amber text
+    /// appearing a row at a time. Cycling pictures is the only trick the 1999 engine had.
+    /// </para>
+    /// <para>
+    /// A phosphor raster is arithmetic, so the remake draws one: scanlines at the screen's
+    /// own pitch, a refresh bar crossing it, and the whole picture breathing slightly. That
+    /// is a thing a shader does every frame rather than five times a second, and it does not
+    /// need four more pictures to do it.
+    /// </para>
+    /// <para>
+    /// <b>It is what says the machine is on</b>, so it belongs to the pictures that are on
+    /// and to no others. <c>LHICOMPSCR</c> — the same monitor with a dark screen — is not
+    /// marked, which is the whole of how the effect switches itself off: the room paints the
+    /// dark screen back and the raster goes with it.
+    /// </para>
+    /// </remarks>
+    public bool Screen { get; init; }
+
+    /// <summary>
+    /// Where the lit glass is inside the texture: u and v of one corner, then the other.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one thing a screen needs beyond the flag, and for the same reason a mirror needs
+    /// <see cref="MirrorInset"/>: the texture is not a picture of a screen, it is a picture
+    /// of a <em>monitor</em>. Draw scanlines over all of it and the beige case gets them
+    /// too.
+    /// </para>
+    /// <para>
+    /// Measured rather than guessed, and the same on both the 1999 bitmap and the enhanced
+    /// one: the dark glass runs from column 14 to 114 and row 18 to 108 of 128, which is
+    /// 0.109 to 0.891 across and 0.141 to 0.844 down. The enhanced 2048 picture agrees to
+    /// within five texels on every edge, which is what says the upscale kept the monitor
+    /// where the artists put it.
+    /// </para>
+    /// <para>
+    /// Zero — a rectangle with no area — for everything that is not a screen, which is what
+    /// switches the whole of the raster off on its first line.
+    /// </para>
+    /// </remarks>
+    public Vector4 ScreenGlass { get; init; }
+
     /// <summary>Linear emissive color. Zero for non-emissive surfaces.</summary>
     public Vector3 Emissive { get; init; }
 
@@ -338,6 +394,8 @@ public sealed record MaterialDefinition : IAuthorable<MaterialDefinition, Materi
             Displaced = patch.Displaced ?? Displaced,
             Mirror = patch.Mirror ?? Mirror,
             MirrorInset = patch.MirrorInset ?? MirrorInset,
+            Screen = patch.Screen ?? Screen,
+            ScreenGlass = patch.ScreenGlass ?? ScreenGlass,
             Emissive = patch.Emissive ?? Emissive,
             AlphaCutoff = patch.AlphaCutoff ?? AlphaCutoff,
             DoubleSided = patch.DoubleSided ?? DoubleSided,

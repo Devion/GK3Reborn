@@ -118,6 +118,15 @@ public static class MeshShaders
             // all — so the shading below can darken the skin under a coat without also
             // darkening every surface in the game.
             vec4 fur;
+
+            // Where the lit glass of a CRT is inside this surface's texture: xy one corner,
+            // zw the other. A rectangle with no area — which is what all zero is — for
+            // everything that is not a screen, and that is everything but one monitor.
+            //
+            // A rectangle rather than an inset, unlike the mirror's, because a monitor's
+            // glass is not centred in its case: the picture sits 0.141 down from the top and
+            // 0.156 up from the bottom, and the case's brow is the difference.
+            vec4 screen;
         } draw;
         """;
 
@@ -581,6 +590,115 @@ public static class MeshShaders
 
             return all(greaterThan(within, vec2(inset))) &&
                    all(lessThan(within, vec2(1.0 - inset)));
+        }
+
+        // How many scanlines the raster is drawn at, down the glass.
+        //
+        // A number about the monitor and not about the texture. GK3 paints Larry's screen at
+        // 128 texels and the enhanced pack at 2048, and the machine is the same machine
+        // either way: a nine-inch monochrome terminal, which is a few hundred lines.
+        const float ScreenLines = 240.0;
+
+        // How many pixels one of those lines is never allowed to be thinner than.
+        //
+        // <b>The raster is drawn at whichever is coarser, its own pitch or this.</b> Seen
+        // through Larry's window the whole glass is a couple of hundred pixels tall, and 240
+        // lines into 200 pixels is not a raster: it is a moiré that crawls whenever the
+        // camera moves and that a temporal filter will smear across the room. Fading the
+        // contrast out instead was the first attempt, and it is worse — the honest answer is
+        // that the screen is too far away to resolve a raster, and the effect that says a
+        // computer is on then shows nothing at all at every distance the game ever draws it.
+        //
+        // So the lines coarsen with distance rather than disappearing, which is also what
+        // one actually looks like across a room: the pitch is not what an eye picks out at
+        // ten feet, the *fact of a raster* is.
+        const float ScreenLineFloor = 2.5;
+
+        // How dark the gaps between them are. Past about a half the screen reads as a
+        // venetian blind rather than as a phosphor raster, because the lines stop being the
+        // texture between the beams and start being the picture.
+        const float ScreenLineDepth = 0.32;
+
+        // How long the refresh bar takes to cross the glass, in seconds, and how broad it is
+        // as a share of the glass — a standard deviation rather than an edge, because a
+        // refresh has no edge.
+        //
+        // Slower and wider than a real one, and deliberately: a CRT refreshes sixty times a
+        // second, which at sixty frames a second is a bar that never appears to move — and
+        // at any other frame rate is a bar that beats against it. What is drawn here is what
+        // a camera sees rather than what an eye does, because what a camera sees is the
+        // thing everybody recognises as a screen that is switched on.
+        const float ScreenSweep = 2.6;
+        const float ScreenBar = 0.085;
+
+        // How much brighter the phosphor is under the bar, and how much of the screen's own
+        // colour the bar puts on the black between the letters.
+        const float ScreenLift = 0.30;
+        const float ScreenGlow = 0.55;
+
+        // A lit CRT, drawn over the glass of a monitor and nowhere else.
+        //
+        // GK3 makes a computer look switched on the only way its engine could: five pictures
+        // of the same screen with a row more amber text on each, cycled three times a second
+        // by an animation. What a phosphor raster actually is — lines, a refresh crossing
+        // them, and the whole picture breathing — is arithmetic, so this draws it, and the
+        // texture goes back to being one picture of one screen.
+        //
+        // <b>The rectangle is the whole of what makes it safe.</b> The texture is a picture
+        // of a monitor and not of a screen: the beige case is in it, and scanlines over a
+        // beige case are not a computer, they are a fault. A screen with no measured glass
+        // is not treated as a screen at all; see SurfaceFinish.Lit.
+        vec3 Raster(vec3 phosphor, vec2 coord, float seconds)
+        {
+            // A rectangle with no area: not a screen. This is every surface in the game but
+            // one, so it is the first line and it is a comparison rather than a texture read.
+            if (draw.screen.z <= draw.screen.x || draw.screen.w <= draw.screen.y)
+            {
+                return phosphor;
+            }
+
+            // Wrapped, for the same reason InsideGlass wraps: GK3 stores v running from -1
+            // to 0 across most of the corpus, and Larry's monitor is one of them. Unwrapped,
+            // every fragment of it is outside the rectangle and the screen never lights.
+            vec2 span = draw.screen.zw - draw.screen.xy;
+            vec2 glass = (fract(coord) - draw.screen.xy) / span;
+
+            if (any(lessThan(glass, vec2(0.0))) || any(greaterThan(glass, vec2(1.0))))
+            {
+                return phosphor;
+            }
+
+            // Scanlines, at the coarser of the monitor's own pitch and what this many
+            // pixels of screen can hold.
+            //
+            // Measured on the unwrapped coordinate. fract has a step in it, and a derivative
+            // taken across that step is the width of the whole texture rather than of a
+            // pixel — which would put a bright seam along one edge of the monitor.
+            float pixels = span.y / max(fwidth(coord.y), 1e-7);
+            float lines = min(ScreenLines, pixels / ScreenLineFloor);
+            float line = 0.5 - (0.5 * cos(6.2831853 * glass.y * lines));
+            float raster = mix(1.0 - ScreenLineDepth, 1.0, line);
+
+            // The refresh bar, wrapped so that it leaves the bottom of the glass and arrives
+            // at the top in the same instant rather than jumping back.
+            float sweep = fract((seconds / ScreenSweep) - glass.y);
+            float away = min(sweep, 1.0 - sweep);
+            float bar = exp(-(away * away) / (2.0 * ScreenBar * ScreenBar));
+
+            // What colour the screen is, read from the middle of its own glass at a level
+            // coarse enough to be the phosphor rather than one texel of one letter. It is
+            // what gives the bar something to lift on the black between the lines, and it is
+            // measured rather than chosen: a screen the artists painted amber gets an amber
+            // bar without anybody writing the word amber down.
+            vec3 glow = textureLod(baseColor, mix(draw.screen.xy, draw.screen.zw, vec2(0.5)), 5.0).rgb;
+
+            // And a slow, irregular breath over all of it. Two waves whose periods do not
+            // divide into each other, so it wanders instead of pulsing; a screen that pulses
+            // on the beat reads as a lamp with a loose contact rather than as a computer.
+            float breath = 1.0 + (0.015 * sin(seconds * 11.0) * sin(seconds * 3.1));
+
+            return (phosphor * raster * (breath + (bar * ScreenLift))) +
+                   (glow * bar * ScreenGlow);
         }
 
         float Distribution(float nDotH, float roughness)
@@ -1154,6 +1272,17 @@ public static class MeshShaders
             {
                 discard;
             }
+
+            // A running computer, if this surface is one. Over the glass and nowhere else,
+            // and nothing at all for every other surface in the game — the rectangle that
+            // says where the glass is has no area for them, which Raster tests first.
+            //
+            // Here rather than after the shading, so the screen is a brighter *picture*
+            // rather than a brighter pixel: what a lamp adds to it, what an occlusion term
+            // takes away, and what a temporal filter is told it moved all still follow from
+            // one albedo. A screen the room happens to be dark around is still lit by its
+            // own phosphor, because a self-lit surface returns this albedo untouched.
+            albedo = Raster(albedo, uv, frame.tuning.y);
 
             // A shell of a coat keeps only what a hair still reaches. The innermost shell
             // is the skin and is not tested: something has to be solid under the fur, or

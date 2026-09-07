@@ -94,8 +94,9 @@ public static class MeshLayout
                 new ShaderBinding(MaterialSet, i, ShaderBindingKind.CombinedImageSampler, ShaderStages.Fragment));
         }
 
-        // A hundred and ninety-two bytes; see DrawConstants, which explains why that is past
-        // what Vulkan guarantees and why it is nevertheless what this uses.
-        return new ShaderLayout(bindings, PushConstantBytes: 192);
+        // Two hundred and eight bytes; see DrawConstants, which explains why that is past
+        // what Vulkan guarantees and why it is nevertheless what this uses. Taken from the
+        // struct rather than written down, so that the two cannot drift apart.
+        return new ShaderLayout(bindings, PushConstantBytes: DrawConstants.Bytes);
     }
 }

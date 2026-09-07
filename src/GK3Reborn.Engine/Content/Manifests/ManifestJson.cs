@@ -27,6 +27,6 @@ public static class ManifestJson
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         NumberHandling = JsonNumberHandling.Strict,
-        Converters = { new Vector3JsonConverter() },
+        Converters = { new Vector3JsonConverter(), new Vector4JsonConverter() },
     };
 }

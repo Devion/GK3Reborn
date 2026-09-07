@@ -143,6 +143,30 @@ public sealed class SurfaceFinishes
         }
     }
 
+    /// <summary>How many of those are lit CRT screens.</summary>
+    /// <remarks>
+    /// Reported for the same reason <see cref="Mirrors"/> is: it is a handful of names set
+    /// by hand, and a rename or a stale edits file looks exactly like the screens having
+    /// been left alone — which is what they looked like before any of this existed.
+    /// </remarks>
+    public int Screens
+    {
+        get
+        {
+            int count = 0;
+
+            foreach (SurfaceFinish finish in _finishes.Values)
+            {
+                if (finish.Lit)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
     /// <summary>How many of the finishes a person corrected by hand.</summary>
     /// <remarks>
     /// Reported because a correction that silently failed to apply — a texture renamed, an
@@ -312,6 +336,11 @@ public sealed class SurfaceFinishes
                     material.Emissive,
                     System.Numerics.Vector3.Zero,
                     new System.Numerics.Vector3(8f)),
+                Screen = material.Screen,
+                Glass = System.Numerics.Vector4.Clamp(
+                    material.ScreenGlass,
+                    System.Numerics.Vector4.Zero,
+                    System.Numerics.Vector4.One),
             };
         }
 
@@ -413,6 +442,27 @@ public readonly record struct SurfaceFinish(
     /// colour and the strength as well. See <c>Game.EmissiveLighting</c>.
     /// </remarks>
     public System.Numerics.Vector3 Emission { get; init; }
+
+    /// <summary>Whether this texture is a lit CRT screen. See <see cref="MaterialDefinition.Screen"/>.</summary>
+    public bool Screen { get; init; }
+
+    /// <summary>
+    /// Where the lit glass is inside it: u and v of one corner, then the other.
+    /// </summary>
+    /// <remarks>
+    /// A rectangle with no area for everything that is not a screen, which is what
+    /// <see cref="Lit"/> reads and what switches the raster off in the shader.
+    /// </remarks>
+    public System.Numerics.Vector4 Glass { get; init; }
+
+    /// <summary>Whether a phosphor raster is drawn over this surface.</summary>
+    /// <remarks>
+    /// <b>Both halves, and that is not belt and braces.</b> The flag says a person decided
+    /// this picture is a screen that is on; the rectangle says where its glass is. A flag
+    /// with no rectangle would draw scanlines over the whole monitor, case and all, which
+    /// is worse than drawing none — so a screen nobody has measured is not a screen.
+    /// </remarks>
+    public bool Lit => Screen && Glass.Z > Glass.X && Glass.W > Glass.Y;
 
     /// <summary>Whether anything grows on this surface.</summary>
     public bool Furred => Shells > 0 && ShellDepth > 0f;

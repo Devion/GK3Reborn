@@ -1680,6 +1680,25 @@ public sealed class MenuPage
     }
 
     /// <summary>
+    /// Puts the game's own lettering for a part of the day on its painting.
+    /// </summary>
+    /// <param name="lettering">The frame, as the renderer numbers its pictures.</param>
+    /// <param name="where">Where it goes, in window pixels.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <remarks>
+    /// No band and nothing centred: the frame is a piece of the painting's own artwork and
+    /// belongs exactly where the artists put it. Placing it is
+    /// <see cref="Game.TimeblockCard.Over"/>'s job, because the offsets are in the card's
+    /// coordinates and this page has never heard of them.
+    /// </remarks>
+    public void Announcing(int lettering, Vector4 where, int width, int height)
+    {
+        Overlay.Begin(width, height);
+        Overlay.Picture(lettering, where.X, where.Y, where.Z, where.W, Vector4.One);
+    }
+
+    /// <summary>
     /// Names the part of the day the story has moved on to, across the middle of the screen.
     /// </summary>
     /// <param name="text">What this part of the day is called.</param>

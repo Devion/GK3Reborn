@@ -1207,6 +1207,10 @@ public sealed unsafe class VulkanRenderer : IRenderer
     public void SetBackdrop(Formats.Bitmaps.DecodedImage? picture) =>
         SetMovieFrame(picture, cover: true);
 
+    /// <inheritdoc/>
+    public Vector4 PictureRect(int width, int height) =>
+        _movie?.Rectangle(width, height) ?? Vector4.Zero;
+
     /// <summary>Sets the picture behind the menu, from blocks.</summary>
     /// <param name="picture">The compressed image.</param>
     /// <remarks>

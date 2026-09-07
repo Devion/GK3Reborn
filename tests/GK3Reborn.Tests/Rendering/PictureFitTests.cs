@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering.Vulkan;
+﻿using GK3Reborn.Rendering;
 using Xunit;
 
 namespace GK3Reborn.Tests.Rendering;
@@ -53,7 +53,7 @@ public sealed class PictureFitTests
     {
         foreach (bool cover in new[] { false, true })
         {
-            (float x, float y) = MoviePipeline.Fit(pw, ph, ww, wh, cover);
+            (float x, float y) = PictureFit.Fit(pw, ph, ww, wh, cover);
 
             // What is drawn, in window pixels. Its shape has to be the picture's own.
             float drawn = ww * x / (wh * y);
@@ -68,13 +68,13 @@ public sealed class PictureFitTests
     {
         // 4:3 in 16:9. Fitted, the height is the window's and the width falls short, which
         // is the bar down each side.
-        (float x, float y) = MoviePipeline.Fit(640, 480, 1280, 720, cover: false);
+        (float x, float y) = PictureFit.Fit(640, 480, 1280, 720, cover: false);
 
         Assert.Equal(0.75f, x, 3);
         Assert.Equal(1f, y, 3);
 
         // Covered, the width is the window's and the height overshoots, which is the crop.
-        (x, y) = MoviePipeline.Fit(640, 480, 1280, 720, cover: true);
+        (x, y) = PictureFit.Fit(640, 480, 1280, 720, cover: true);
 
         Assert.Equal(1f, x, 3);
         Assert.Equal(4f / 3f, y, 3);
@@ -85,7 +85,7 @@ public sealed class PictureFitTests
     {
         foreach (bool cover in new[] { false, true })
         {
-            (float x, float y) = MoviePipeline.Fit(1920, 1080, 1280, 720, cover);
+            (float x, float y) = PictureFit.Fit(1920, 1080, 1280, 720, cover);
 
             Assert.Equal(1f, x, 3);
             Assert.Equal(1f, y, 3);
@@ -97,9 +97,9 @@ public sealed class PictureFitTests
     {
         // An ultrawide display with the game's 4:3 art. Covering it outright would mean
         // showing 56% of the picture's height, which cuts the lettering.
-        (float x, float y) = MoviePipeline.Fit(640, 480, 3440, 1440, cover: true);
+        (float x, float y) = PictureFit.Fit(640, 480, 3440, 1440, cover: true);
 
-        Assert.Equal(MoviePipeline.MostCropped, y, 3);
+        Assert.Equal(PictureFit.MostCropped, y, 3);
         Assert.True(x < 1f, "it filled the window by cropping further than it is allowed to");
 
         // Two thirds of the height is still on screen, which is enough to keep the name.
@@ -107,13 +107,38 @@ public sealed class PictureFitTests
     }
 
     [Fact]
+    public void A_covered_picture_reports_the_part_of_it_that_is_off_the_screen()
+    {
+        // 4:3 art covering a 16:9 window: as wide as the window, a third taller, and the
+        // overshoot split between the top and the bottom. Something drawn against the
+        // picture has to go off the edge with it, so the rectangle is not clamped.
+        System.Numerics.Vector4 where = PictureFit.Rectangle(640, 480, 1280, 720, cover: true);
+
+        Assert.Equal(0f, where.X, 3);
+        Assert.Equal(-120f, where.Y, 3);
+        Assert.Equal(1280f, where.Z, 3);
+        Assert.Equal(960f, where.W, 3);
+    }
+
+    [Fact]
+    public void A_fitted_picture_reports_the_bars_around_it()
+    {
+        System.Numerics.Vector4 where = PictureFit.Rectangle(640, 480, 1280, 720, cover: false);
+
+        Assert.Equal(160f, where.X, 3);
+        Assert.Equal(0f, where.Y, 3);
+        Assert.Equal(960f, where.Z, 3);
+        Assert.Equal(720f, where.W, 3);
+    }
+
+    [Fact]
     public void Nothing_asked_of_it_makes_it_divide_by_zero()
     {
         foreach (bool cover in new[] { false, true })
         {
-            Assert.Equal((1f, 1f), MoviePipeline.Fit(0, 0, 1280, 720, cover));
-            Assert.Equal((1f, 1f), MoviePipeline.Fit(640, 480, 0, 0, cover));
-            Assert.Equal((1f, 1f), MoviePipeline.Fit(-1, 480, 1280, 720, cover));
+            Assert.Equal((1f, 1f), PictureFit.Fit(0, 0, 1280, 720, cover));
+            Assert.Equal((1f, 1f), PictureFit.Fit(640, 480, 0, 0, cover));
+            Assert.Equal((1f, 1f), PictureFit.Fit(-1, 480, 1280, 720, cover));
         }
     }
 }

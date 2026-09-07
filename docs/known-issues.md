@@ -4,6 +4,51 @@ Open defects and requested work, newest first. Each records how to reproduce it
 and whatever was already established about the cause, so picking one up does not
 start with rediscovery. Items marked **feature** are requests rather than bugs.
 
+## 0. The taxi driver could not be talked to, and neither could anyone out of topics (done 2026-09-07)
+
+**Reported:** 2026-09-07, from the Couiza train station save, as "talking to taxi driver does
+nothing", with the log line `TAXI_DRIVER:TALK [DIALOGUE_TOPICS_LEFT] - walking 0.5s first,
+then 1 statement(s)` and the walk and the talking animation that followed it.
+
+**Talk and the topic list were answering the same question two different ways.**
+`DIALOGUE_TOPICS_LEFT` is what puts Talk on the bar, and `ActionResolver.Resolve` takes Talk
+off the bar precisely when there are topics to show instead. Where the two disagree the
+player gets a Talk with nothing behind it: their character walks over, plays the enter
+animation of the conversation `SetConversation` started, and stands there.
+
+Two causes, either of which is enough on its own.
+
+**`Elsewhen` read a script name as a date and got the taxi driver wrong.** It withholds a
+rule that hands off to another point in the story — added for the church's four angels, whose
+`CallSheep("chu205p", "Done")` is the second afternoon's ending — by comparing the timeblock
+in the script's name against the clock. `TR1102P04P.NVC` covers two o'clock *and* four and
+every one of the taxi driver's topics calls `tr1102p`, the only script the pair of them has,
+so at four the whole conversation was withheld. It now only applies to a file whose own name
+makes no claim about when it belongs: an action file's name is a condition, `TimeblockRange`
+reads it, and a file that names a timeblock has been checked against the clock before it was
+ever in scope. Five more rules came back with it — picking up the glass in the hotel
+corridor, petting the cat at Rennes-le-Château, the syrup packets, knocking on Mosely's door
+and both of the eavesdropping actions.
+
+**And "is there anything left to say" was asked of the noun/verb counts, which raising a
+topic never touches.** `ActionRunner.Finish` records a topic count and which line was said;
+an ordinary count moves only when a script says `IncNounVerbCount`. So the case answered yes
+for ever — nobody in the game ever ran out of things to say, the nine
+`NOT_DIALOGUE_TOPICS_LEFT` rules were unreachable, and once a character's topics really were
+used up the Talk that reappeared was the one that does nothing. It is asked through `Find`
+now, which is the same question the menu asks, so the two cannot come apart again.
+
+Reproduce either half with the bar itself, which is what `--do` addresses past:
+
+```bash
+GK3Reborn.exe --scene TR1 --timeblock 104P --eye 476.1,63,-688.9 --aim 135.28,1.29 \
+  --pointer 480,270 --menu --frames 90 --screenshot taxi.png
+```
+
+Before, the bar read Inspect / Look / Think / **Talk**; it now reads Inspect / Look / Think /
+**Introduce yourself**. The corpus sweep goes from 36,269 performable verbs to 36,275 — the
+rules that came back, less the Talks that correctly stopped being offered.
+
 ## 0. The church's five saints were missing, and GK3's billboard flag was never read (done 2026-09-07)
 
 Requested: "Is it possible to voxelize/3dify the statues in the church, they are currently

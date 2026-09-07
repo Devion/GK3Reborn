@@ -437,8 +437,18 @@ public static class Application
         //
         // Under the override layer on purpose: a file the player put in overrides/ is
         // theirs, and is the one thing this must not rewrite.
+        // Scenery added to a room that shipped without enough of it — the town of Couiza,
+        // so far. Gated on the geometry being installed rather than on a setting, because
+        // a table naming forty models nothing has would place nothing and warn forty
+        // times. See Content/SceneDressing.
+        bool dressing = SceneDressing.Available(
+            packsOnly || enhancedDirectory is not { Length: > 0 }
+                ? string.Empty
+                : Beside(enhancedDirectory, "models"),
+            packs);
+
         var restoreDiagnostics = new DiagnosticBag();
-        CutContent restored = CutContent.Open(RestorationTier(args, settings));
+        CutContent restored = CutContent.Open(RestorationTier(args, settings), dressing);
 
         if (!restored.IsEmpty)
         {
@@ -460,6 +470,14 @@ public static class Application
                 Log.Report(diagnostic);
             }
         }
+
+        // Said either way, and said here rather than left to be inferred from a fuller
+        // room. The whole gate is "is the geometry installed", so a player wondering why
+        // Couiza is empty should be able to read the answer off the first screen of log.
+        Log.Info(dressing
+            ? "Scene dressing: the town of Couiza, from the installed geometry"
+            : $"Scene dressing: none — nothing has {SceneDressing.Sentinel}, so TR1 is the "
+              + "town the game shipped with");
 
         // The other half of a restoration: files no barn has and none can, for content that
         // was cut before there was anything to cut it from. Only with the tier that admits
@@ -1634,6 +1652,7 @@ public static class Application
                         $"{finishes.Reflective} smooth enough to reflect, " +
                         $"{finishes.Metallic} metal" +
                         (finishes.Mirrors > 0 ? $", {finishes.Mirrors} mirrors" : string.Empty) +
+                        (finishes.Screens > 0 ? $", {finishes.Screens} lit screens" : string.Empty) +
                         (finishes.Corrected > 0
                             ? $", {finishes.Corrected} corrected by hand"
                             : string.Empty));
@@ -1792,7 +1811,7 @@ public static class Application
             // turning it on or off in the menu takes effect the next time the player walks
             // into one. The table itself is one per tier for the life of the process, so
             // this costs a dictionary lookup rather than a re-read and a re-apply.
-            CutContent restoring = CutContent.Open(RestorationTier(args, settings));
+            CutContent restoring = CutContent.Open(RestorationTier(args, settings), dressing);
             archives.Restoration = restoring.IsEmpty ? null : restoring;
             archives.RestorationDiagnostics = restoring.IsEmpty ? null : restoreDiagnostics;
 
@@ -2386,24 +2405,23 @@ public static class Application
             // What makes a texture an animation asks for resident. The scene loaded only
             // what its models were painted with, and 168 animations repaint one part-way
             // through — an alarm clock counting, a monitor changing what it shows.
+            //
+            // Through the loader rather than out of the archives, and that is the whole of
+            // the fix: this used to read <name>.BMP straight from the 1999 barns, so no
+            // picture an animation ever brought in could be enhanced — not the workspace's
+            // PNG, not the packed BC7, not the player's own override, and no normal,
+            // occlusion or height map with it. Larry's monitor is the plain case: an office
+            // at 2048 texels a surface, with a 128-texel screen dropped into it the moment
+            // he starts typing.
             SceneGeometry paint = geometry;
+            SceneLoader late = loader;
 
+            // The bag is thrown away on purpose. What the caller needs to know is whether
+            // the picture arrived, which is the return value; the one thing that goes wrong
+            // here — an animation naming a texture no archive has — is already reported by
+            // whoever asked, as GK3R3345, with the surface and the name in it.
             update.Textures = name =>
-            {
-                if (paint.HasTexture(name))
-                {
-                    return true;
-                }
-
-                if (archives.Read(name + ".BMP") is not { } bytes ||
-                    !Formats.Bitmaps.BitmapDecoder.CanDecode(bytes))
-                {
-                    return false;
-                }
-
-                paint.AddTexture(name, Formats.Bitmaps.BitmapDecoder.Decode(bytes, name));
-                return true;
-            };
+                late.LoadTextureLate(paint, name, new Foundation.Diagnostics.DiagnosticBag());
 
             // What lets a script light the room a second way. The bake is named after the
             // scene asset rather than the geometry, which is the whole trick: several
@@ -2847,7 +2865,16 @@ public static class Application
                                 ? null
                                 : CompressedTextures.Open(string.Empty, null, overrides, localized),
                         diagnostics,
-                        $"TBT{api.State.Timeblock}.BMP"));
+                        $"TBT{api.State.Timeblock}.BMP"),
+
+                    // Always out of the archives, whatever the paintings are being read
+                    // from. The lettering is recovered by subtracting the painting it was
+                    // blended into, and the picture it was blended into is the original —
+                    // an upscale of it is a different set of pixels and would leave the
+                    // letters full of the difference between the two.
+                    Game.TimeblockCard.Read(archives, api.State.Timeblock.ToString()),
+                    audio,
+                    sounds);
 
                 // And the card goes out into the next room the same way a room does, which
                 // also gives the load that follows something to draw frames of.
@@ -5800,6 +5827,20 @@ public static class Application
     /// </remarks>
     private const double CardSeconds = 4.0;
 
+    /// <summary>How long the lettering is left standing once it has finished typing.</summary>
+    /// <remarks>
+    /// Added to the typing rather than counted from the start of the card, so that the
+    /// eighteen frames of <c>309P</c> and the nine of <c>202A</c> both leave the finished
+    /// name up for the same length of time.
+    /// </remarks>
+    private const double CardHeldSeconds = 2.8;
+
+    /// <summary>How long the ticking clock takes to go quiet at the end, in seconds.</summary>
+    private const double CardFadeSeconds = 0.6;
+
+    /// <summary>The ticking the original runs under its timeblock card.</summary>
+    private const string TimeblockClock = "CLOCKTIMEBLOCK.WAV";
+
     /// <summary>
     /// Says that the story has moved on to another part of the day.
     /// </summary>
@@ -5809,6 +5850,9 @@ public static class Application
     /// <param name="strings">What the game calls this part of the day.</param>
     /// <param name="now">Where the clock has got to.</param>
     /// <param name="art">The painting for it, or nothing.</param>
+    /// <param name="card">The lettering that types itself, or null when it cannot be had.</param>
+    /// <param name="audio">The device, or null when there is none.</param>
+    /// <param name="sounds">Where the ticking clock comes from.</param>
     /// <remarks>
     /// <para>
     /// <b>The original has this screen and the port did not.</b> A timeblock ending was a
@@ -5816,19 +5860,20 @@ public static class Application
     /// itself, and two hours of story had passed with nothing said about it.
     /// <c>TimeblockScreen</c> in the reference shows a painting for the point in the story
     /// with its name lettered over it, and every one of those paintings is in the archives
-    /// as <c>TBT110A.BMP</c> and its fifteen siblings.
+    /// as <c>TBT110A.BMP</c> and its sixteen siblings.
     /// </para>
     /// <para>
-    /// The painting is kept and the lettering is not. The original draws the name as a
-    /// fifteen-frame sprite animation whose position it has to hard-code per timeblock
-    /// because the artists placed each one differently; the name itself is already in
-    /// <c>ESTRINGS.TXT</c> as <c>Day110a = Day 1, 10am - 12pm</c>, and setting it in the
-    /// port's own face costs nothing and is legible at any window size. That is the same
-    /// division the title screen makes: the picture is art and the words are a widget.
+    /// The name types itself across the painting a few letters at a time, which is the
+    /// original's own animation rather than an imitation of it: <see cref="Game.TimeblockCard"/>
+    /// lifts the lettering off the frames in the archives, so it lands on the upscaled
+    /// painting as readily as on the one the game shipped. Where it cannot be had — no
+    /// sequence, no painting, a language pack whose two halves do not agree — the name is
+    /// written out in the port's own face instead, which is what this screen did before and
+    /// is still better than a room that silently becomes another room.
     /// </para>
     /// <para>
-    /// It sits over a black screen when the archives have no painting, which is what an
-    /// installation without the art gets and is still better than the room simply changing.
+    /// A clock ticks under it, as it does in the original. It is nearly seven seconds long
+    /// and the card is not, so it is faded out at the end rather than cut off.
     /// </para>
     /// </remarks>
     private static void Announce(
@@ -5837,7 +5882,10 @@ public static class Application
         MenuPage? pages,
         GameStrings strings,
         Timeblock now,
-        TitleScreen art)
+        TitleScreen art,
+        Game.TimeblockCard? card,
+        Audio.OpenAlBackend? audio,
+        SoundLibrary sounds)
     {
         art.Show(renderer);
 
@@ -5845,7 +5893,37 @@ public static class Application
             ? called
             : now.ToString();
 
-        Log.Info($"Card: {name}{(art.Exists ? $", over {art.Width}x{art.Height} of painting" : ", with no painting")}");
+        // The frames go on the device once. They are small — the widest is 433 by 69 — and
+        // there are never more than eighteen of them. Nothing to place them against means
+        // nothing to draw: the lettering belongs at a spot on the painting, and without the
+        // painting, or without a page to draw it on, there is no spot.
+        Game.TimeblockCard? typed = art.Exists && pages is not null ? card : null;
+
+        int[] lettering = typed is null ? [] : Lettering(renderer, typed);
+
+        if (lettering.Length == 0)
+        {
+            typed = null;
+        }
+
+        double typing = typed?.Seconds ?? 0;
+        double stays = typed is not null ? typing + CardHeldSeconds : CardSeconds;
+
+        string behind = art.Exists
+            ? $", over {art.Width}x{art.Height} of painting"
+            : ", with no painting";
+
+        string written = typed is not null
+            ? string.Create(
+                CultureInfo.InvariantCulture,
+                $", typed in {lettering.Length} frames over {typing:F1}s")
+            : ", named in the port's own face";
+
+        Log.Info($"Card: {name}{behind}{written}");
+
+        Audio.AudioVoice ticking = audio is not null && sounds.Read(TimeblockClock) is { } clockwork
+            ? audio.Play(clockwork, Audio.AudioBus.Effects)
+            : Audio.AudioVoice.None;
 
         var clock = Stopwatch.StartNew();
 
@@ -5853,7 +5931,7 @@ public static class Application
         // through the door is what brought the player here.
         window.Forget();
 
-        while (!window.IsClosing && clock.Elapsed.TotalSeconds < CardSeconds)
+        while (!window.IsClosing && clock.Elapsed.TotalSeconds < stays)
         {
             window.PumpEvents();
 
@@ -5864,8 +5942,36 @@ public static class Application
                 break;
             }
 
-            pages?.Announcing(name, window.FramebufferWidth, window.FramebufferHeight);
+            double elapsed = clock.Elapsed.TotalSeconds;
+
+            // Against the painting rather than against the window. Where the painting went
+            // is the renderer's answer, because covering it crops it and only the renderer
+            // knows by how much.
+            if (typed is not null &&
+                renderer.PictureRect(window.FramebufferWidth, window.FramebufferHeight)
+                    is { Z: > 0, W: > 0 } painting)
+            {
+                pages!.Announcing(
+                    lettering[typed.At(elapsed)],
+                    typed.Over(painting),
+                    window.FramebufferWidth,
+                    window.FramebufferHeight);
+            }
+            else
+            {
+                pages?.Announcing(name, window.FramebufferWidth, window.FramebufferHeight);
+            }
+
             renderer.SetOverlay(pages?.Overlay);
+
+            // The clock goes quiet as the card does. It is the only sound there is at this
+            // point, so cutting it mid-tick is heard as the game stalling rather than as
+            // the story moving on.
+            if (audio is not null && stays - elapsed < CardFadeSeconds)
+            {
+                audio.SetVoiceGain(
+                    ticking, (float)Math.Clamp((stays - elapsed) / CardFadeSeconds, 0, 1));
+            }
 
             window.EndFrame();
             renderer.SetScene(null, null);
@@ -5873,10 +5979,61 @@ public static class Application
 
         }
 
+        audio?.Silence(ticking);
+
+        for (int i = 0; typed is not null && i < lettering.Length; i++)
+        {
+            renderer.DropOverlayPicture(LetteringName(typed.Timeblock, i));
+        }
+
         window.Forget();
         renderer.SetOverlay(null);
         renderer.SetBackdrop(null);
     }
+
+    /// <summary>Puts a card's frames on the device.</summary>
+    /// <param name="renderer">What holds them.</param>
+    /// <param name="card">The lettering.</param>
+    /// <returns>A picture number per frame, or nothing when the device refused one.</returns>
+    /// <remarks>
+    /// All of them or none. A run of frames with a hole in it types the name and then
+    /// blinks, which reads as a fault rather than as an animation.
+    /// </remarks>
+    private static int[] Lettering(Rendering.IRenderer renderer, Game.TimeblockCard card)
+    {
+        var numbers = new int[card.Frames.Count];
+
+        for (int i = 0; i < numbers.Length; i++)
+        {
+            numbers[i] = renderer.AddOverlayPicture(
+                LetteringName(card.Timeblock, i), card.Frames[i]);
+
+            if (numbers[i] > 0)
+            {
+                continue;
+            }
+
+            for (int drop = 0; drop < i; drop++)
+            {
+                renderer.DropOverlayPicture(LetteringName(card.Timeblock, drop));
+            }
+
+            Log.Warning(
+                "WARNING GK3R3458: the card's lettering would not go on the device, so the "
+                + "name is written out instead.");
+
+            return [];
+        }
+
+        return numbers;
+    }
+
+    /// <summary>What one frame of lettering is called on the device.</summary>
+    /// <param name="timeblock">Which card it belongs to.</param>
+    /// <param name="frame">Which frame.</param>
+    /// <returns>The name.</returns>
+    private static string LetteringName(string timeblock, int frame) =>
+        string.Create(CultureInfo.InvariantCulture, $"card:{timeblock}:{frame:00}");
 
     /// <summary>The picture behind the menu, in whichever form it was found.</summary>
     /// <param name="Picture">Pixels, from a loose file or the archives.</param>

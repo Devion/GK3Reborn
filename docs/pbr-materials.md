@@ -272,6 +272,87 @@ Measured on RC3's `Pet_Cat` camera, which is the only shot in the game where the
 large enough to judge. The push constant grew by one `vec4` to 192 bytes — still past the
 128 Vulkan guarantees, as the two matrices already were.
 
+## A computer that is switched on
+
+GK3 has one working computer in it: Larry Chester's, seen through his study window while he
+types. It is switched on the only way the 1999 engine could switch anything on — by
+repainting the monitor with five pictures of itself. `LARLHESFIGB2` lands `LHICOMPANIM1` to
+`5` at frames 0, 8, 16, 24 and 31 of 42, and each has a row more amber text on it than the
+last.
+
+**A phosphor raster is arithmetic, so the remake draws one.** Scanlines at the screen's own
+pitch, a refresh bar crossing it every 2.6 seconds and a slow irregular breath over the
+whole picture — every frame, rather than three times a second, and over whatever the
+monitor is showing rather than over five specific pictures of it.
+
+Two hand-authored fields say so, and they are the mirror pattern exactly — a flag for what
+the surface *is*, and the one measurement it needs beyond the flag:
+
+| Field | What it says |
+|---|---|
+| `Screen` | this picture is a computer that is on, and its raster is drawn |
+| `ScreenGlass` | where the lit glass is inside the texture: `u0, v0, u1, v1` |
+
+**The rectangle is what makes it safe.** The texture is a picture of a *monitor*, not of a
+screen: the beige case is in it, and scanlines over a beige case are a fault rather than a
+computer. A flag with no rectangle is not treated as a screen at all — see
+`SurfaceFinish.Lit`. It is measured, not guessed: the dark glass runs from column 14 to 114
+and row 18 to 108 of 128 in the 1999 bitmap, which is 0.109 to 0.891 across and 0.141 to
+0.844 down, and the enhanced 2048 picture agrees to within five texels on every edge.
+
+**`LHICOMPSCR` is deliberately not marked**, and that is the whole of how the effect
+switches off. The monitor's own texture is a dark screen; the animation puts a running one
+over it, and painting the dark one back takes the raster with it. The constant follows the
+picture that is *drawn* rather than the texture the surface is filed under — `Batch.Drawn`,
+the same distinction a mirror needs and for the same reason.
+
+### Three things it has to get right
+
+**The frames after the first are refused.** A screen is not repainted by another frame of
+one: the first lands, the raster starts, and `LHICOMPANIM2` to `5` are ignored in
+`SceneGeometry.PaintSceneObject`. They are pictures of a thing the shader is already doing,
+and only the first has an enhanced version — left in, a 2048-texel screen flickers back to
+a 128-texel one three times a second. Only *another screen* is refused, so turning the
+machine off still works.
+
+**The lines coarsen with distance rather than fading.** Seen through the window the whole
+glass is a couple of hundred pixels tall, and 240 lines drawn into 200 pixels is a moiré
+that crawls whenever the camera moves and that a temporal filter will smear across the room.
+Fading the contrast out with the derivative was the first attempt and it is worse: the
+screen is then too far away to resolve a raster at every distance the game ever draws it,
+so the effect that says a computer is on shows nothing at all. The raster is drawn at
+whichever is coarser — the monitor's 240 lines, or one line per 2.5 pixels of screen — which
+is also what a CRT looks like across a room. The pitch is not what an eye picks out at ten
+feet; the fact of a raster is.
+
+**The glass stays matte.** A CRT face is glass and is deliberately not shaded as glass. The
+glare on it is painted into the texture, and a roughness low enough to be glass also hands
+the surface to the screen-space reflection pass — which cannot answer a screen facing the
+player any better than it can answer a mirror. Marked at 0.18 the monitor came back a flat
+grey rectangle with the wall smeared over it, at `--rt medium`, and looked perfectly
+correct at `--rt off`. So the edit sets `roughness` 1.0 and `specularReflectance` 0, and
+marking a surface a screen changes what is drawn on the glass and nothing about how the
+glass is lit.
+
+The push constant grew by one more `vec4` to 208 bytes, which both backends now take from
+`DrawConstants` rather than writing down — the Direct3D side had the word count as a
+literal, twice.
+
+### The bug it uncovered
+
+**No picture an animation ever brought in could be enhanced.** A hundred and sixty-eight of
+the game's animations repaint something part-way through — an alarm clock counting down, a
+van arriving in a window, this monitor — and every one of those textures arrives after the
+load that would have resolved it. The callback that fetched them read `<name>.BMP` straight
+out of the 1999 archives: not the workspace's PNG, not the packed BC7, not the player's own
+override, and no normal, occlusion or height map with it.
+
+It is invisible in every room where it happens, because a 128-texel picture of a clock face
+still looks like a clock face. Larry's office is where it is not: 2048 texels a surface,
+with a 128-texel screen dropped into the middle of it the moment he starts typing.
+`SceneLoader.LoadTextureLate` sends it through the same stack the room's own surfaces
+resolve through.
+
 ## Why this is a separate pass, and why it comes second
 
 A normal map is derived detail. Deriving it from a 64×64 diffuse gives 64×64 worth of

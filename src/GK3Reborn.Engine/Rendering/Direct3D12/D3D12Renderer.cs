@@ -505,6 +505,12 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// </remarks>
     public void SetBackdrop(DecodedImage? picture) => SetMovieFrame(picture, cover: true);
 
+    /// <inheritdoc/>
+    public Vector4 PictureRect(int width, int height) =>
+        _film is null
+            ? Vector4.Zero
+            : PictureFit.Rectangle(_film.Width, _film.Height, width, height, _coverFilm);
+
     /// <summary>Shows a still picture behind everything, without expanding its blocks.</summary>
     /// <param name="picture">The picture.</param>
     public void SetBackdrop(CompressedImage picture)
@@ -829,24 +835,12 @@ public sealed unsafe class D3D12Renderer : IRenderer
         // How much of the window the picture covers. Fitted to whichever dimension runs out
         // first, so a 4:3 cutscene in a widescreen window keeps its shape and the rest is
         // letterboxed; a backdrop covers instead, because a backdrop is the whole picture.
-        float pictureAspect = (float)_film.Width / Math.Max(1, _film.Height);
-        float windowAspect = (float)width / Math.Max(1, height);
-
-        float sx = 1f;
-        float sy = 1f;
-
-        if (_coverFilm)
-        {
-            // Nothing to fit: the picture is stretched over the whole window.
-        }
-        else if (pictureAspect > windowAspect)
-        {
-            sy = windowAspect / pictureAspect;
-        }
-        else
-        {
-            sx = pictureAspect / windowAspect;
-        }
+        //
+        // **This used to stretch a backdrop.** Covering was read here as filling the window
+        // outright, so the game's 4:3 title art and every timeblock painting were short and
+        // wide on this backend and the right shape on the other one. PictureFit is the one
+        // answer now, and the shape it keeps is what PictureFitTests is about.
+        (float sx, float sy) = PictureFit.Fit(_film.Width, _film.Height, width, height, _coverFilm);
 
         var block = new MovieConstants(new Vector4(sx, sy, 0f, 0f), display);
         _movie.Draw(list, [target], [_film], block, width, height);

@@ -157,6 +157,74 @@ public sealed class StoryCheckStage
              "script. Most are the original's own dead entries; the ones the journal uses " +
              "are reported above.");
 
+        ok &= Cards(archives, diagnostics);
+
+        return ok;
+    }
+
+    /// <summary>
+    /// Whether every part of the day can letter its own card.
+    /// </summary>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="diagnostics">Receives what it finds.</param>
+    /// <returns>True when every one of them can.</returns>
+    /// <remarks>
+    /// <para>
+    /// The card between two parts of the day types its name across a painting, and the
+    /// lettering is lifted out of the frames in the archives rather than redrawn — see
+    /// <see cref="TimeblockCard"/>. Whether that worked is not something a player can be
+    /// asked to notice: a card that failed still says what time it is, in the port's own
+    /// face, and looks deliberate. So it is swept for here, where a language pack that
+    /// shipped half a set is a line in a report rather than a screen nobody mentions.
+    /// </para>
+    /// <para>
+    /// The offsets are worth printing even when they are all right. Sixteen of the
+    /// seventeen sit at the same place and the odd ones out are the artists' own doing; a
+    /// change in that column between two runs is the first sign that a pack replaced some
+    /// of the art and not the rest of it.
+    /// </para>
+    /// </remarks>
+    private bool Cards(GameArchives archives, DiagnosticBag diagnostics)
+    {
+        List<string> blocks =
+        [
+            .. archives.Names(".SEQ")
+                .Select(Path.GetFileNameWithoutExtension)
+                .Where(n => n is { Length: 5 } && n[0] is 'D' or 'd')
+                .Select(n => n![1..].ToUpperInvariant())
+                .Where(n => Timeblock.TryParse(n, out _))
+                .Distinct()
+                .Order(StringComparer.Ordinal),
+        ];
+
+        _log(string.Empty);
+        _log("point   frames  seconds  lettering        at");
+
+        bool ok = true;
+
+        foreach (string block in blocks)
+        {
+            if (TimeblockCard.Read(archives, block) is not { } card)
+            {
+                diagnostics.Add(new Diagnostic(
+                    "GK3R3458", DiagnosticSeverity.Warning,
+                    "A part of the day cannot letter its own card.",
+                    $"D{block}.SEQ", null, "frames cut from that card's painting", "neither",
+                    $"{block}: the card names itself in the port's own face instead, which "
+                    + "is legible but is not the original's animation."));
+
+                _log($"{block,-8}{"-",6}{"-",9}  {"-",-15}  written out");
+
+                ok = false;
+                continue;
+            }
+
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{block,-8}{card.Frames.Count,6}{card.Seconds,9:F2}  "
+                + $"{$"{card.Width}x{card.Height}",-15}  {card.Left},{card.Top}"));
+        }
+
         return ok;
     }
 

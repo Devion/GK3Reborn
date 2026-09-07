@@ -3331,6 +3331,67 @@ public sealed class SceneLoader
     /// </remarks>
     private static int Decoders => Math.Max(1, Environment.ProcessorCount);
 
+    /// <summary>
+    /// Brings one texture in after the room is already standing, the same way the room's
+    /// own were brought in.
+    /// </summary>
+    /// <param name="geometry">The room, already built.</param>
+    /// <param name="name">The texture, without an extension.</param>
+    /// <param name="diagnostics">Receives anything that went wrong reading it.</param>
+    /// <returns>Whether the room now has a picture of that name.</returns>
+    /// <remarks>
+    /// <para>
+    /// A hundred and sixty-eight of the game's animations repaint something part-way
+    /// through — an alarm clock counting down, a monitor changing what it shows, a van
+    /// arriving in a window — and every one of those textures arrives after the load that
+    /// would have resolved it. Something has to fetch them, and until this existed the
+    /// something read <c>&lt;name&gt;.BMP</c> straight out of the 1999 archives.
+    /// </para>
+    /// <para>
+    /// <b>Which meant no picture an animation ever brought in could be enhanced.</b> Not
+    /// the enhanced PNG, not the packed BC7, not the player's own override, and no normal,
+    /// occlusion or height map either — the whole stack the room's own surfaces resolve
+    /// through, skipped, silently, for exactly the textures nobody looks at while the room
+    /// is loading. Larry's monitor is the plain case: the office is 2048 texels a surface
+    /// and the screen the animation puts on it was 128.
+    /// </para>
+    /// <para>
+    /// It costs a decode and an upload on the frame it happens, which is why it is not
+    /// speculative: the swap is the first anybody knows that the texture is wanted, and a
+    /// room that pre-loaded every picture its animations might reach for would pay for all
+    /// of them at the door.
+    /// </para>
+    /// </remarks>
+    public bool LoadTextureLate(ISceneSink geometry, string name, DiagnosticBag diagnostics)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (geometry.HasTexture(name))
+        {
+            return true;
+        }
+
+        // Nothing is fading. Progress is the transition's own hook — it presents a frame of
+        // the fade so a long load does not look like a hung window — and the room this is
+        // called from is already up and being drawn. Left in, one texture arriving in the
+        // middle of an animation would present a frame of a fade that finished minutes ago,
+        // which is a black screen.
+        Action? offer = Progress;
+        Progress = null;
+
+        try
+        {
+            LoadTextures(geometry, [name], "an animation", diagnostics);
+        }
+        finally
+        {
+            Progress = offer;
+        }
+
+        return geometry.HasTexture(name);
+    }
+
     /// <summary>Reads, decodes and uploads the textures a room asks for.</summary>
     /// <remarks>
     /// <para>

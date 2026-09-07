@@ -427,6 +427,76 @@ between giving up on a moment and giving up on a save. What it let go of is writ
 console in full, because somebody who reached for this has already spent a while wondering
 whether the game was broken.
 
+## The card between two parts of the day
+
+When a timeblock ends, the room goes dark, the film that block goes out on plays if it has
+one, and then a card says where the clock has got to. It has a painting — `TBT110A.BMP` and
+its sixteen siblings, one per timeblock — and the name of the block types itself across the
+bottom of it a few letters at a time, over about a second, with a clock ticking underneath.
+Then it holds for another two and a half seconds, or until the player clicks.
+
+The typing is the original's own animation and not an imitation of it. `D110A.SEQ` lists the
+frames, thirteen to eighteen of them per block, and the engine plays them at fifteen a
+second, which is the rate the original's sequencer used and the rate they were drawn
+against.
+
+**The frames are opaque.** Each one is not lettering on a transparent ground: it is a
+rectangle cut out of the painting itself, with white text blended into it. Drawn as they
+are they only line up over the 640x480 painting the game shipped, so on an installation with
+the enhanced set — where `TBT102P` is 2048x1536 — the card would show a soft postage stamp
+of 1999 artwork in the middle of a sharp picture. That is why none of this is shipped as
+enhanced textures: at four times the size the lettering would have to be repainted by hand,
+seventeen times over, in eight languages.
+
+`TimeblockCard` gets it back instead. Outside the letters a frame is bit-identical to the
+painting under it, and inside them it is the painting blended towards white, so
+
+    alpha = (frame - painting) / (255 - painting)
+
+recovers exactly the coverage the artists drew. What comes out is white lettering with a
+real alpha channel, which lays over a painting of any size. The three channels are pooled
+rather than averaged — a channel whose background was already near white had no room to
+move and carries nothing but rounding.
+
+The painting subtracted is always **the original**, out of the archives, whatever is being
+drawn on screen. An upscale of it is a different set of pixels, and subtracting one would
+leave the letters full of the difference between the two.
+
+### Where the lettering goes
+
+Nothing in the data says. The artists placed each block's lettering by hand, so the offsets
+are a table, adapted from G-Engine's `TimeblockScreen`. They are measured **up from the
+bottom-left corner**, which is not decoration: `TBT306P.BMP` is 640x481 where every other
+painting is 640x480, and the enhanced set upscales it to 2048x1539 rather than quietly
+squaring it up. Measured down from the top, that one card's lettering is a pixel out.
+
+The table is a hint rather than the answer. A frame is only ever lighter than the painting
+it came from, so at the offset it was cut from, no channel of any pixel is darker — and one
+pixel out, a quarter of them are. `Locate` scores the offsets within four pixels of the hint
+by that count and takes the best; nothing under it means the frames do not belong to this
+painting at all, which is what a language pack that shipped its own lettering over a
+painting it did not also ship looks like. Then the card writes its name out in the port's
+own face instead, as this screen did before any of this existed.
+
+`GK3Reborn.Tools check-story` sweeps all seventeen and prints the frame count, the length of
+the typing, the size of the lettering and where it landed. Sixteen of the seventeen sit at
+the same place; a change in that column between two runs is the first sign that something
+replaced some of the art and not the rest of it.
+
+### Where it is drawn
+
+Over the painting, not over the window, and the difference matters because the painting is
+4:3 and the window is not. `IRenderer.PictureRect` answers where the backdrop went and
+`TimeblockCard.Over` scales the card's own coordinates into it, so a painting cropped into a
+widescreen window takes its lettering off the top and the bottom of the screen with it
+rather than leaving it stranded in the middle.
+
+`PictureFit` is the arithmetic behind that, and it is shared because it was not: it had been
+written once per backend, and the two answers were not the same. Direct3D filled the window
+with a backdrop by stretching it, Vulkan by cropping it, so the game's 4:3 title art was the
+right shape on one machine and short and wide on the next. `PictureFitTests` is about the one
+property worth checking — whatever comes back, what is drawn has the picture's own shape.
+
 ## Flags
 
 | flag | |

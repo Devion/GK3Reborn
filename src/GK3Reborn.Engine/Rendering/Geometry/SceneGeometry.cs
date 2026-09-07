@@ -1537,6 +1537,24 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 continue;
             }
 
+            // A screen is not repainted by another frame of one.
+            //
+            // GK3 makes a computer look switched on by cycling five pictures of it, and the
+            // remake draws the raster instead — so the frames after the first are pictures
+            // of a thing the shader is already doing, at three a second, in a resolution
+            // nobody made an enhanced version of. The first frame lands, the raster starts,
+            // and the rest are ignored.
+            //
+            // Only *another screen* is refused, which is what keeps this from being a lock.
+            // Turning the machine off means painting the dark screen back, and the dark
+            // screen is not marked as one; so is anything else the story ever puts there.
+            if (texture is { Length: > 0 } frame &&
+                Materials.Of(frame).Lit &&
+                Materials.Of(batch.Drawn).Lit)
+            {
+                continue;
+            }
+
             _batches[index] = batch with
             {
                 Painted = texture,
@@ -3280,7 +3298,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 // no coat is told so with a zero depth in y rather than by being left out,
                 // because the shader darkens the skin under fur and has to be able to tell
                 // "the innermost of twelve shells" from "not an animal".
-                FurOf(batch.TextureName, 0f));
+                FurOf(batch.TextureName, 0f),
+
+                // Where this surface's lit glass is, and a rectangle with no area for
+                // everything that is not a screen.
+                //
+                // Asked of the picture that is *drawn* rather than of the texture the
+                // surface is filed under, which is the whole of how the screen switches on
+                // and off: the monitor's own texture is a dark screen, and it becomes a
+                // running computer only when an animation repaints it with one. The same
+                // distinction mirrors need, and for the same reason. See Batch.Drawn.
+                Materials.Of(batch.Drawn) is { Lit: true } screen
+                    ? screen.Glass
+                    : Vector4.Zero);
 
             // And the coat over it, if it has one: the same triangles again, each shell
             // pushed a little further out along the vertices' own normals and keeping only
