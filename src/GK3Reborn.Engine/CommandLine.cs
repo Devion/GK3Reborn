@@ -1,4 +1,4 @@
-namespace GK3Reborn;
+﻿namespace GK3Reborn;
 
 /// <summary>
 /// What can be typed after the executable's name, and what each thing means.
@@ -135,6 +135,7 @@ public static class CommandLine
           --no-card-shadows     Thick cards cast no shadow.
           --no-cull             Draw both sides of every room surface.
           --no-birds            No birds render in the sky.
+          --no-shader-fire      Draw the game's painted flame cards instead of fire.
           --no-sun              No synthesized sun outdoors.
           --real-light          Light rooms from real sources only. Some get darker.
           --no-real-light       Keep the artists' fill lights on.

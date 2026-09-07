@@ -7,6 +7,7 @@
 using System.Numerics;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
+using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Models;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Game;
@@ -284,6 +285,148 @@ public sealed class FlameTests
 
         Assert.Equal(new Vector4(0.15f, 1f, 1.8f, 0.42f), packed.Flicker);
     }
+
+    [Fact]
+    public void Each_of_the_three_bitmaps_is_its_own_kind_of_fire()
+    {
+        // The models are all the same flat card with the same script over it, so which set
+        // was painted onto it is the only thing that tells the temple's bowl of fire from a
+        // candle in a lantern — and they are drawn as three different fires.
+        Assert.Equal(FlameKind.Candle, Flames.KindOf("CS5FLAME02"));
+        Assert.Equal(FlameKind.Hearth, Flames.KindOf("TE2FIREHI1T"));
+        Assert.Equal(FlameKind.Cauldron, Flames.KindOf("TE4FIRETRANSP7"));
+        Assert.Null(Flames.KindOf("RL2FLOOR"));
+    }
+
+    [Fact]
+    public void A_fire_burns_over_the_part_of_its_card_that_is_painted()
+    {
+        // A flame card is nearly always bigger than the flame on it: the bar's fire is a
+        // quad twenty-four units tall with a low fire across the bottom third. Read the
+        // card as the fire and the bar gets a bonfire in its fireplace.
+        Flame flame = Assert.Single(Flames.In(
+            [Prop("rl2_fire", "TE2FIREHI1T", new Vector3(0, 31, 0), height: 24f)],
+            null,
+            Painted(rows: (16, 47), columns: (16, 47))));
+
+        // Rows 16 to 47 of 64 and the card textured the right way up.
+        Assert.Equal(0.25f, flame.Paint.X, 2);
+        Assert.Equal(0.75f, flame.Paint.Y, 2);
+
+        Assert.Equal(12f, flame.Plume, 1);
+        Assert.Equal(25f, flame.Foot.Y, 1);
+
+        // And the card's own measurements are untouched, because the light and the smoke
+        // are scaled off how big the fire is rather than off what is drawn.
+        Assert.Equal(24f, flame.Height, 1);
+    }
+
+    [Fact]
+    public void A_card_whose_texture_coordinates_are_negative_is_measured_all_the_same()
+    {
+        // GK3's are: a flame card's corners carry -0.02 and -0.98 rather than 0.98 and
+        // 0.02. The sampler repeats and draws the same texels either way; taken at face
+        // value the painted band falls outside the card and every fire in the game comes
+        // out an inch tall.
+        PlacedModel wrapped = Prop("te4firetransp", "TE4FIRETRANSP1", Vector3.Zero, height: 10f)
+            with { Model = Wrapped("te4firetransp", "TE4FIRETRANSP1", 10f) };
+
+        Flame flame = Assert.Single(Flames.In(
+            [wrapped], null, Painted(rows: (16, 47), columns: (0, 63))));
+
+        Assert.Equal(5f, flame.Plume, 1);
+    }
+
+    [Fact]
+    public void A_fire_with_no_bitmap_to_read_burns_the_whole_of_its_card()
+    {
+        Flame flame = Assert.Single(Flames.In(
+            [Prop("cs5_flame01", "CS5FLAME", Vector3.Zero, height: 3.4f)], null));
+
+        Assert.Equal(3.4f, flame.Plume, 3);
+        Assert.Equal(new Vector3(0f, 1f, 1f), flame.Paint);
+    }
+
+    [Fact]
+    public void The_painted_cards_are_taken_out_of_the_picture()
+    {
+        // The card is the 1999 fire and it is opaque where it is lit, so a fire drawn as a
+        // volume with its card still standing is a flame with a rectangle through it. Both
+        // halves of a back-to-back card go, or one of them is that rectangle.
+        var sink = new HeadlessSceneSink();
+
+        PlacedModel doubled = Prop(
+            "cs5_flame01", "CS5FLAME", new Vector3(10, 60, 20), height: 3.4f, copies: 2)
+            with { Stage = sink, Placement = new ModelPlacement(0) };
+
+        Flame flame = Assert.Single(Flames.In([doubled], null));
+
+        Assert.Equal(2, flame.Cards.Count);
+        Assert.Equal(2, Flames.Hide([flame], [doubled]));
+        Assert.Equal(2, sink.HiddenPartCount);
+    }
+
+    /// <summary>A bitmap with flame painted on one band of it and nothing anywhere else.</summary>
+    private static Func<string, DecodedImage?> Painted(
+        (int First, int Last) rows, (int First, int Last) columns)
+    {
+        const int Size = 64;
+        byte[] pixels = new byte[Size * Size * 4];
+
+        for (int y = rows.First; y <= rows.Last; y++)
+        {
+            for (int x = columns.First; x <= columns.Last; x++)
+            {
+                int at = ((y * Size) + x) * 4;
+
+                pixels[at] = 255;
+                pixels[at + 1] = 128;
+                pixels[at + 3] = 255;
+            }
+        }
+
+        return _ => new DecodedImage(Size, Size, pixels, HasAlpha: true, "flame");
+    }
+
+    /// <summary>One upright quad textured the way GK3 textures them, with negative V.</summary>
+    private static ModFile Wrapped(string name, string texture, float height) =>
+        ModFile.FromMeshes(
+            name,
+            [
+                new ModMesh
+                {
+                    MeshToLocal = Matrix4x4.Identity,
+                    BoundsMin = new Vector3(-1, -height / 2, 0),
+                    BoundsMax = new Vector3(1, height / 2, 0),
+                    Submeshes =
+                    [
+                        new ModSubmesh
+                        {
+                            TextureName = texture,
+                            Color = (255, 255, 255),
+                            Positions =
+                            [
+                                new Vector3(-1, -height / 2, 0),
+                                new Vector3(1, -height / 2, 0),
+                                new Vector3(1, height / 2, 0),
+                                new Vector3(-1, height / 2, 0),
+                            ],
+                            Normals =
+                            [
+                                Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ,
+                            ],
+                            TexCoords =
+                            [
+                                new Vector2(0f, -1f + 1e-3f),
+                                new Vector2(1f, -1f + 1e-3f),
+                                new Vector2(1f, -1e-3f),
+                                new Vector2(0f, -1e-3f),
+                            ],
+                            Indices = [0, 1, 2, 0, 2, 3],
+                        },
+                    ],
+                },
+            ]);
 
     private static AuthoredLight Light(string name, Vector3 position) =>
         new(name, AuthoredLightKind.Point, position, -Vector3.UnitY, Vector3.One,

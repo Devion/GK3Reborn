@@ -29,15 +29,24 @@ namespace GK3Reborn.Rendering;
 /// disc, with the fraction above it the point its wings have reached in their beat. See
 /// <see cref="Game.BirdFlock"/>.
 /// </item>
+/// <item>
+/// <b><see cref="Fire"/> and above</b> is an open flame, raymarched through the sprite
+/// rather than drawn on it, with <see cref="Fire"/> carrying the plume. See
+/// <see cref="Game.FlameParticles"/>.
+/// </item>
 /// </list>
-/// One channel rather than a fourth vertex attribute, because a bird is the only thing
-/// this pass draws that is not a disc and every other sprite in the game would have paid
-/// sixteen bytes a corner for it. The disc values are exactly the numbers they always
-/// were, so a room with no birds in it is drawn by the arithmetic that has always drawn
-/// it.
+/// One channel rather than a vector of its own, because what a sprite <em>is</em> is one
+/// number and the things that need more than that carry it separately. The disc values
+/// are exactly the numbers they always were, so a room with no birds and no fire in it is
+/// drawn by the arithmetic that has always drawn it.
+/// </param>
+/// <param name="Plume">
+/// What the flame is, for the one shape that is a volume rather than a picture: how tall
+/// the plume is, how wide, where in its own cycle it is, and which of the game's three
+/// fires it is. Zero for everything else. See <see cref="Game.Flame"/>.
 /// </param>
 public readonly record struct Particle(
-    Vector3 Position, float Size, Vector4 Tint, float Spin, float Shape)
+    Vector3 Position, float Size, Vector4 Tint, float Spin, float Shape, Vector4 Plume = default)
 {
     /// <summary>Where the bird silhouettes start on <see cref="Shape"/>.</summary>
     /// <remarks>
@@ -51,6 +60,14 @@ public readonly record struct Particle(
     /// <param name="beat">Where in the beat, from nought to one; wrapped rather than clamped.</param>
     /// <returns>The value to hand the pass as <see cref="Shape"/>.</returns>
     public static float Flapping(float beat) => Bird + (beat - MathF.Floor(beat));
+
+    /// <summary>Where the open flames start on <see cref="Shape"/>.</summary>
+    /// <remarks>
+    /// A whole unit clear of the birds above it, which end at three, for the reason the
+    /// birds are clear of the discs: the shader's tests are comparisons, and nothing any
+    /// other sprite can round to may land in another sprite's range.
+    /// </remarks>
+    public const float Fire = 4f;
 }
 
 /// <summary>
@@ -62,6 +79,10 @@ public readonly record struct Particle(
 /// kind of sprite it is. See <see cref="Particle.Shape"/>.
 /// </param>
 /// <param name="Tint">Colour and alpha.</param>
+/// <param name="Plume">
+/// The plume, for a sprite that is an open flame; zero for every other kind. See
+/// <see cref="Particle.Fire"/>.
+/// </param>
 /// <remarks>
 /// <para>
 /// Six of these per particle in a plain vertex buffer, rather than a storage buffer
@@ -76,13 +97,13 @@ public readonly record struct Particle(
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ParticleVertex(
-    Vector4 PositionAndSize, Vector4 CornerAndShape, Vector4 Tint)
+    Vector4 PositionAndSize, Vector4 CornerAndShape, Vector4 Tint, Vector4 Plume)
 {
     /// <summary>How many particles one buffer holds.</summary>
     /// <remarks>
     /// A busy room is twelve fires, and a fire drawing more than sixty particles at once is
     /// drawing more smoke than a room in this game has ever contained. Eight hundred at six
-    /// corners and forty-eight bytes apiece is 230 KB, rewritten once a frame.
+    /// corners and sixty-four bytes apiece is 307 KB, rewritten once a frame.
     /// </remarks>
     public const int Capacity = 800;
 
@@ -120,7 +141,8 @@ public readonly record struct ParticleVertex(
                     corners[(corner * 2) + 1],
                     particle.Spin,
                     particle.Shape),
-                particle.Tint);
+                particle.Tint,
+                particle.Plume);
         }
     }
 

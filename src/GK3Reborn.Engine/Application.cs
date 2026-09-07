@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using GK3Reborn.Rendering.Geometry;
 using System.Globalization;
 using System.Numerics;
@@ -1966,9 +1966,27 @@ public static class Application
             // The room's open flames, and the lights that stand in them. Nine of the
             // corpus's rooms have a fire in them and the other seventy-two get an empty
             // list and an unchanged rig. See Game.FlameLighting.
-            IReadOnlyList<Game.Flame> fires = Game.Flames.In(scene.Models, api.Animations);
+            IReadOnlyList<Game.Flame> fires =
+                Game.Flames.In(scene.Models, api.Animations, scene.Bitmaps);
             IReadOnlyList<Formats.Scenes.AuthoredLight> burning =
                 Game.FlameLighting.Rig(scene.Lights, fires);
+
+            // And the painted flame cards out of the picture, because the fire is drawn as
+            // a volume now and the card is the 1999 picture of one: opaque where it is lit,
+            // writing depth, and a brown rectangle through the middle of anything drawn in
+            // its place. Before the emitters are gathered, so that a hidden card is not
+            // also counted as something in the room that glows.
+            if (!args.Contains("--no-shader-fire", StringComparer.OrdinalIgnoreCase))
+            {
+                int cards = Game.Flames.Hide(fires, scene.Models);
+
+                if (cards > 0)
+                {
+                    Log.Info(
+                        $"Fire: {fires.Count} flame(s) drawn as burning gas, " +
+                        $"{cards} painted card(s) taken out of the picture");
+                }
+            }
 
             // And the things in the room that glow. A self-lit surface is drawn at full
             // brightness and lights nothing, so every lamp shade, lit bulb, stained-glass
@@ -2234,7 +2252,10 @@ public static class Application
                     Log.Info(string.Create(
                         CultureInfo.InvariantCulture,
                         $"  flame {flame.Model} at {flame.Position.X:F0},{flame.Position.Y:F0}," +
-                        $"{flame.Position.Z:F0} {flame.Height:F1} tall, " +
+                        $"{flame.Position.Z:F0} {flame.Height:F1} tall and " +
+                        $"{flame.Width:F1} across, a {flame.Kind} burning " +
+                        $"{flame.Plume:F1} tall and {flame.Radius * 2f:F1} across from " +
+                        $"y {flame.Foot.Y:F1}, " +
                         $"swings {flame.Swing * 100:F0}% at {flame.Rate:F1} Hz{drawn}"));
                 }
 
@@ -3816,8 +3837,12 @@ public static class Application
         // What rises off the room's fires. Found again here rather than handed in — the
         // parameter list above is long enough — and it is a walk over models the scene has
         // already parsed. Empty in the seventy-two rooms with no fire in them.
-        IReadOnlyList<Game.Flame> burning = Game.Flames.In(scene.Models, api.Animations);
-        var smoke = new Game.FlameParticles(burning);
+        IReadOnlyList<Game.Flame> burning =
+            Game.Flames.In(scene.Models, api.Animations, scene.Bitmaps);
+
+        var smoke = new Game.FlameParticles(
+            burning,
+            volumes: !options.Contains("--no-shader-fire", StringComparer.OrdinalIgnoreCase));
 
         smoke.Follow(scene.Models);
 

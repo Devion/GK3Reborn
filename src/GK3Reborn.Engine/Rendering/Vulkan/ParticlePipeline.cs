@@ -263,7 +263,7 @@ public sealed unsafe class ParticlePipeline : IDisposable
             };
 
             VertexInputAttributeDescription* attributes =
-                stackalloc VertexInputAttributeDescription[3];
+                stackalloc VertexInputAttributeDescription[4];
 
             attributes[0] = new VertexInputAttributeDescription
             {
@@ -277,13 +277,17 @@ public sealed unsafe class ParticlePipeline : IDisposable
             {
                 Location = 2, Binding = 0, Format = Format.R32G32B32A32Sfloat, Offset = 32,
             };
+            attributes[3] = new VertexInputAttributeDescription
+            {
+                Location = 3, Binding = 0, Format = Format.R32G32B32A32Sfloat, Offset = 48,
+            };
 
             var vertexInput = new PipelineVertexInputStateCreateInfo
             {
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
                 VertexBindingDescriptionCount = 1,
                 PVertexBindingDescriptions = &binding,
-                VertexAttributeDescriptionCount = 3,
+                VertexAttributeDescriptionCount = 4,
                 PVertexAttributeDescriptions = attributes,
             };
 

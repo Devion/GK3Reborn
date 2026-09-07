@@ -6,10 +6,34 @@
 
 using System.Numerics;
 using GK3Reborn.Content;
+using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Animation;
 using GK3Reborn.Formats.Models;
 
 namespace GK3Reborn.Game;
+
+/// <summary>
+/// What sort of fire a flame is.
+/// </summary>
+/// <remarks>
+/// The three bitmap sets the artists painted fires with, and they are three different
+/// fires: a candle is a still teardrop, a hearth is a wood fire with tongues that come
+/// away from it, and the temple's bowl is a body of burning fuel. Nothing else separates
+/// them — the models are all the same flat card — so the bitmap is the evidence.
+/// </remarks>
+public enum FlameKind
+{
+    /// <summary>
+    /// <c>CS5FLAME</c>: the generic flame — candles, lanterns, chafing dishes, braziers.
+    /// </summary>
+    Candle,
+
+    /// <summary><c>TE2FIRE</c>: a wood fire, in the bar, the chapel and TE1's brazier.</summary>
+    Hearth,
+
+    /// <summary><c>TE4FIRETRANSP</c>: the temple's bowl of fire.</summary>
+    Cauldron,
+}
 
 /// <summary>
 /// An open flame standing in a room: a candle, a lantern, a brazier, a fire.
@@ -52,6 +76,101 @@ public readonly record struct Flame(
     /// single thing that makes an artificial fire look artificial.
     /// </remarks>
     public float Rate => 2.2f - (0.9f * Size);
+
+    /// <summary>What sort of fire it is; see <see cref="FlameKind"/>.</summary>
+    public FlameKind Kind { get; init; }
+
+    /// <summary>
+    /// Which of the model's groups draw the flame card, so that they can be taken out of
+    /// the picture.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The card is the 1999 fire: a flat quad with a bitmap cycled over it. The volume
+    /// drawn in its place is the whole point of drawing a fire as a shader, and the two
+    /// cannot both be there — the card is opaque where it is lit, so it would stand as a
+    /// grey-brown rectangle in the middle of the flame. See <see cref="Flames.Hide"/>.
+    /// </para>
+    /// <para>
+    /// A list rather than one pair, because a flame card is usually modelled twice, back
+    /// to back, and both halves are one fire.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<(int Mesh, int Submesh)> Cards
+    {
+        get => _cards ?? [];
+        init => _cards = value;
+    }
+
+    private readonly IReadOnlyList<(int Mesh, int Submesh)>? _cards;
+
+    /// <summary>
+    /// Which part of the card the artists actually painted a flame on: how far up the foot
+    /// of it is, how far up the tip, and how much of the width it takes, all as fractions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A flame card is nearly always bigger than the flame on it.</b> The bar's fire is
+    /// a quad twenty-four units tall with a low fire painted across the bottom third of it;
+    /// TE4's bowl fills nearly all of its own. Reading the card as the fire makes the bar's
+    /// hearth two and a half times the size it has ever been — a bonfire in a fireplace.
+    /// </para>
+    /// <para>
+    /// Nought to one over the whole card when nothing has measured it, which is what
+    /// <see cref="Flames.In"/> gives when it is not handed anything to read bitmaps with.
+    /// </para>
+    /// </remarks>
+    public Vector3 Paint
+    {
+        get => _paint == default ? new Vector3(0f, 1f, 1f) : _paint;
+        init => _paint = value;
+    }
+
+    private readonly Vector3 _paint;
+
+    /// <summary>How wide the plume is at its widest, in world units.</summary>
+    /// <remarks>
+    /// Half of as much of the card's width as carries any flame. The volume is allowed to
+    /// lean and lick outside that — see the shader — but this is the body of it.
+    /// </remarks>
+    public float Radius => MathF.Max(Width * Paint.Z / 2f, 0.05f);
+
+    /// <summary>Where the flame stands, at the bottom of the card.</summary>
+    public Vector3 Base => Position - new Vector3(0f, Height / 2f, 0f);
+
+    /// <summary>Where the burning gas starts, which is not where the card does.</summary>
+    public Vector3 Foot => Base + new Vector3(0f, Paint.X * Height, 0f);
+
+    /// <summary>How tall the burning gas is, in world units.</summary>
+    public float Plume => MathF.Max((Paint.Y - Paint.X) * Height, 0.05f);
+
+    /// <summary>
+    /// How fast the shape of the fire itself moves, as a multiplier on the clock.
+    /// </summary>
+    /// <remarks>
+    /// The same reading as <see cref="Rate"/> and for the same reason: a small flame is
+    /// pushed about by every draught and a large one takes time to move. This is the shape
+    /// rather than the light, so it is slower than the flicker — a fire that changes
+    /// outline twice a second is a fire in a film played at the wrong speed.
+    /// </remarks>
+    /// <remarks>
+    /// Steeper than it was, reported as a hanging lantern being "way too static": a candle
+    /// at 1.4 was a shape that moved once every second and a half, which for something the
+    /// size of a thumb reads as a painting of a flame rather than as one.
+    /// </remarks>
+    public float Churn => 2.6f - (1.7f * Size);
+
+    /// <summary>
+    /// Where in its own cycle this fire is, so that no two in a room burn in step.
+    /// </summary>
+    /// <remarks>
+    /// From where it stands rather than from a stream, because it has to be the same on
+    /// every run and in both backends, and because CS6's twelve lanterns burning as one is
+    /// the thing that gives a room away.
+    /// </remarks>
+    public float Phase =>
+        MathF.Abs(((Position.X * 0.317f) + (Position.Y * 0.113f) + (Position.Z * 0.531f))
+            % 97f);
 }
 
 /// <summary>
@@ -90,7 +209,12 @@ public static class Flames
     /// <c>TE4FIRETRANSP8</c>; and <c>TE2FIRESM1</c> through <c>TE2FIREHI7T</c>, which is a
     /// fire in three sizes with a blend between each pair.
     /// </remarks>
-    private static readonly string[] Bitmaps = ["CS5FLAME", "TE4FIRETRANSP", "TE2FIRE"];
+    private static readonly (string Bitmap, FlameKind Kind)[] Bitmaps =
+    [
+        ("CS5FLAME", FlameKind.Candle),
+        ("TE4FIRETRANSP", FlameKind.Cauldron),
+        ("TE2FIRE", FlameKind.Hearth),
+    ];
 
     /// <summary>
     /// How far apart two flame cards of one model have to be to be two flames.
@@ -106,22 +230,32 @@ public static class Flames
     /// <summary>Whether a bitmap is an open flame.</summary>
     /// <param name="texture">The texture's name, with or without an extension.</param>
     /// <returns>True when it is one of the flame sets.</returns>
-    public static bool IsFlame(string? texture)
+    public static bool IsFlame(string? texture) => KindOf(texture) is not null;
+
+    /// <summary>What sort of fire a bitmap is.</summary>
+    /// <param name="texture">The texture's name, with or without an extension.</param>
+    /// <returns>The kind, or null when it is not a flame at all.</returns>
+    /// <remarks>
+    /// The bitmap is the only evidence there is. Every fire in the game is the same flat
+    /// card with the same script over it, so what tells the temple's bowl of fire from a
+    /// candle in a lantern is which of the three sets was painted onto it.
+    /// </remarks>
+    public static FlameKind? KindOf(string? texture)
     {
         if (texture is not { Length: > 0 })
         {
-            return false;
+            return null;
         }
 
-        foreach (string bitmap in Bitmaps)
+        foreach ((string bitmap, FlameKind kind) in Bitmaps)
         {
             if (texture.StartsWith(bitmap, StringComparison.OrdinalIgnoreCase))
             {
-                return true;
+                return kind;
             }
         }
 
-        return false;
+        return null;
     }
 
     /// <summary>Finds every open flame a room places.</summary>
@@ -130,11 +264,20 @@ public static class Flames
     /// The animation library, for the textures a flame's script paints onto it. Null finds
     /// only the flames that ship painted as one, which is most but not all of them.
     /// </param>
+    /// <param name="bitmaps">
+    /// Where to read a flame's own bitmap from, for measuring how much of its card it is
+    /// actually painted on; null leaves every fire filling the whole of its card. See
+    /// <see cref="Flame.Paint"/>, which is what this is for.
+    /// </param>
     /// <returns>One entry per fire, in the order the scene placed them.</returns>
     public static IReadOnlyList<Flame> In(
-        IReadOnlyList<PlacedModel> models, AnimationLibrary? animations)
+        IReadOnlyList<PlacedModel> models,
+        AnimationLibrary? animations,
+        Func<string, DecodedImage?>? bitmaps = null)
     {
         ArgumentNullException.ThrowIfNull(models);
+
+        Dictionary<string, Vector3>? measured = bitmaps is null ? null : [];
 
         List<Flame> found = [];
 
@@ -147,12 +290,13 @@ public static class Flames
                 continue;
             }
 
-            HashSet<(int Mesh, int Submesh)>? painted = null;
+            Dictionary<(int Mesh, int Submesh), (FlameKind Kind, string Texture)>? painted = null;
 
-            foreach ((int mesh, int submesh) in Painted(placed, animations))
+            foreach ((int mesh, int submesh, FlameKind kind, string texture)
+                in Painted(placed, animations))
             {
                 painted ??= [];
-                painted.Add((mesh, submesh));
+                painted[(mesh, submesh)] = (kind, texture);
             }
 
             List<Flame> mine = [];
@@ -163,8 +307,18 @@ public static class Flames
 
                 for (int submesh = 0; submesh < group.Submeshes.Count; submesh++)
                 {
-                    if (!IsFlame(group.Submeshes[submesh].TextureName) &&
-                        !(painted?.Contains((mesh, submesh)) ?? false))
+                    string? bitmap = group.Submeshes[submesh].TextureName;
+                    FlameKind? kind = KindOf(bitmap);
+
+                    if (kind is null &&
+                        painted is not null &&
+                        painted.TryGetValue((mesh, submesh), out (FlameKind Kind, string Texture) swapped))
+                    {
+                        kind = swapped.Kind;
+                        bitmap = swapped.Texture;
+                    }
+
+                    if (kind is not { } burning)
                     {
                         continue;
                     }
@@ -173,7 +327,13 @@ public static class Flames
                     // sink puts them in — see ISceneSink.Add.
                     Matrix4x4 toWorld = group.MeshToLocal * placed.Transform;
 
-                    if (Card(placed, group.Submeshes[submesh].Positions, toWorld) is { } card)
+                    if (Card(placed,
+                            group.Submeshes[submesh],
+                            toWorld,
+                            burning,
+                            (mesh, submesh),
+                            Painting(bitmap, group.Submeshes[submesh], bitmaps, measured))
+                        is { } card)
                     {
                         Merge(mine, card);
                     }
@@ -187,7 +347,7 @@ public static class Flames
     }
 
     /// <summary>Which of a model's groups its own behaviour script paints with fire.</summary>
-    private static IEnumerable<(int Mesh, int Submesh)> Painted(
+    private static IEnumerable<(int Mesh, int Submesh, FlameKind Kind, string Texture)> Painted(
         PlacedModel placed, AnimationLibrary? animations)
     {
         if (animations is null || placed.Idle is not { } script)
@@ -217,10 +377,10 @@ public static class Flames
                 // model, but the animations it plays are shared — TE2FIREHI is played by
                 // the bar's fire, the chapel's and the temple's brazier alike — so the name
                 // has to be matched or one room's fire marks another room's floor.
-                if (IsFlame(swap.Texture) &&
+                if (KindOf(swap.Texture) is { } kind &&
                     string.Equals(swap.Model, placed.Name, StringComparison.OrdinalIgnoreCase))
                 {
-                    yield return (swap.Mesh, swap.Submesh);
+                    yield return (swap.Mesh, swap.Submesh, kind, swap.Texture);
                 }
             }
         }
@@ -228,8 +388,15 @@ public static class Flames
 
     /// <summary>Measures one flame card in world space.</summary>
     private static Flame? Card(
-        PlacedModel placed, Vector3[] positions, Matrix4x4 toWorld)
+        PlacedModel placed,
+        ModSubmesh group,
+        Matrix4x4 toWorld,
+        FlameKind kind,
+        (int Mesh, int Submesh) card,
+        Vector3 paint)
     {
+        Vector3[] positions = group.Positions;
+
         if (positions.Length == 0)
         {
             return null;
@@ -255,7 +422,158 @@ public static class Flames
             sum / positions.Length,
             span.Y,
             MathF.Max(span.X, span.Z),
-            placed.Visible);
+            placed.Visible)
+        {
+            Kind = kind,
+            Cards = [card],
+            Paint = Along(group, positions, toWorld, paint),
+        };
+    }
+
+    /// <summary>
+    /// Which band of a flame bitmap has any flame on it, and how much of its width.
+    /// </summary>
+    /// <param name="texture">The bitmap the card draws, or null.</param>
+    /// <param name="group">The card, for nothing but a guard on it having any vertices.</param>
+    /// <param name="bitmaps">Where to read it from, or null to measure nothing.</param>
+    /// <param name="measured">What has already been read, since a room's flames share bitmaps.</param>
+    /// <returns>
+    /// The lowest and highest painted row as fractions of the image from the top, and the
+    /// painted fraction of its width; the whole image when there is nothing to read.
+    /// </returns>
+    /// <remarks>
+    /// <b>Alpha, because these bitmaps are colour-keyed.</b> GK3 marks a texture alpha-tested
+    /// by its top-left pixel being magenta, and the decoder turns that magenta into
+    /// transparency — so a flame bitmap arrives with nothing anywhere the flame is not. A
+    /// threshold rather than any alpha at all: the edge of a keyed shape is a fringe of
+    /// nearly-transparent texels once it has been filtered, and counting those puts the tip
+    /// of the flame a few rows higher than it is.
+    /// </remarks>
+    private static Vector3 Painting(
+        string? texture,
+        ModSubmesh group,
+        Func<string, DecodedImage?>? bitmaps,
+        Dictionary<string, Vector3>? measured)
+    {
+        Vector3 whole = new(0f, 1f, 1f);
+
+        if (bitmaps is null || measured is null ||
+            texture is not { Length: > 0 } || group.TexCoords.Length == 0)
+        {
+            return whole;
+        }
+
+        if (measured.TryGetValue(texture, out Vector3 known))
+        {
+            return known;
+        }
+
+        measured[texture] = whole;
+
+        if (bitmaps(texture) is not { Width: > 0, Height: > 0 } image)
+        {
+            return whole;
+        }
+
+        int lowRow = int.MaxValue;
+        int highRow = -1;
+        int lowColumn = int.MaxValue;
+        int highColumn = -1;
+
+        for (int y = 0; y < image.Height; y++)
+        {
+            for (int x = 0; x < image.Width; x++)
+            {
+                int at = ((y * image.Width) + x) * 4;
+
+                if (at + 3 >= image.Pixels.Length || image.Pixels[at + 3] < 96)
+                {
+                    continue;
+                }
+
+                lowRow = Math.Min(lowRow, y);
+                highRow = Math.Max(highRow, y);
+                lowColumn = Math.Min(lowColumn, x);
+                highColumn = Math.Max(highColumn, x);
+            }
+        }
+
+        if (highRow < 0)
+        {
+            // Nothing transparent anywhere, which is what an unkeyed bitmap looks like: the
+            // flame fills its card and there is nothing to measure.
+            return whole;
+        }
+
+        Vector3 band = new(
+            lowRow / (float)image.Height,
+            (highRow + 1) / (float)image.Height,
+            (highColumn - lowColumn + 1) / (float)image.Width);
+
+        measured[texture] = band;
+        return band;
+    }
+
+    /// <summary>
+    /// Turns a band of a bitmap into a band of the card, the way the card is textured.
+    /// </summary>
+    /// <remarks>
+    /// The rows are measured from the top of the image and the card is measured from its
+    /// foot, and which way round the two are is the card's own business: a quad may be
+    /// textured either way up. So the mapping is taken from the card itself — the texture
+    /// coordinate at its lowest corner against the one at its highest — rather than
+    /// assumed, and a card textured upside down comes out the same way as one that is not.
+    /// </remarks>
+    private static Vector3 Along(
+        ModSubmesh group, Vector3[] positions, Matrix4x4 toWorld, Vector3 band)
+    {
+        // Which row of the bitmap a texture coordinate lands on.
+        //
+        // Wrapped, because GK3's are negative. A flame card's corners carry -0.09
+        // and -0.91 rather than 0.91 and 0.09; the sampler repeats and draws the same
+        // texels either way, and taking them at face value put the whole painted band
+        // outside the card and every fire in the game an inch tall.
+        //
+        // Left alone within the range, because a card whose top edge is a round 1.0 is a
+        // card whose top edge is the bottom row of the bitmap, not the top row of it.
+        static float Row(float v) => v is >= 0f and <= 1f ? v : v - MathF.Floor(v);
+
+        if (band == new Vector3(0f, 1f, 1f) || group.TexCoords.Length < positions.Length)
+        {
+            return band;
+        }
+
+        float lowY = float.MaxValue;
+        float highY = float.MinValue;
+        float atLow = 0f;
+        float atHigh = 1f;
+
+        for (int i = 0; i < positions.Length; i++)
+        {
+            float y = Vector3.Transform(positions[i], toWorld).Y;
+
+            if (y < lowY)
+            {
+                lowY = y;
+                atLow = Row(group.TexCoords[i].Y);
+            }
+
+            if (y > highY)
+            {
+                highY = y;
+                atHigh = Row(group.TexCoords[i].Y);
+            }
+        }
+
+        if (MathF.Abs(atHigh - atLow) < 1e-4f)
+        {
+            return new Vector3(0f, 1f, band.Z);
+        }
+
+        float first = Math.Clamp((band.X - atLow) / (atHigh - atLow), 0f, 1f);
+        float last = Math.Clamp((band.Y - atLow) / (atHigh - atLow), 0f, 1f);
+
+        return new Vector3(MathF.Min(first, last), MathF.Max(first, last), band.Z);
     }
 
     /// <summary>
@@ -330,6 +648,62 @@ public static class Flames
         return held;
     }
 
+    /// <summary>
+    /// Stops the room drawing its flame cards.
+    /// </summary>
+    /// <param name="flames">The fires; see <see cref="In"/>.</param>
+    /// <param name="models">The models the scene loaded, so the cards can be found again.</param>
+    /// <returns>How many cards were taken out of the picture.</returns>
+    /// <remarks>
+    /// <para>
+    /// The 1999 fire is a flat quad with a bitmap cycled over it, and it is what the volume
+    /// drawn by <see cref="Rendering.Shaders.ParticleShaders"/> replaces. The two cannot
+    /// both be drawn: the card is opaque where it is lit and it writes depth, so a fire
+    /// with its card still standing is a flame with a brown rectangle through the middle
+    /// of it.
+    /// </para>
+    /// <para>
+    /// <b>By part rather than by model.</b> A flame is often one group of something larger
+    /// — a lantern, a chafing dish, a candlestick — and hiding the model would take the
+    /// lantern with it. It also has to survive a script: TE6 keeps its candles hidden until
+    /// somebody lights them, and <c>ShowModel</c> puts back the model without putting back
+    /// a part that was switched off separately, which is exactly the behaviour wanted here.
+    /// </para>
+    /// <para>
+    /// What it cannot do is take the card out of the traced world — one instance stands for
+    /// a whole model, so a hidden card still occludes a shadow ray, which is what it did
+    /// while it was being drawn.
+    /// </para>
+    /// </remarks>
+    public static int Hide(IReadOnlyList<Flame> flames, IReadOnlyList<PlacedModel> models)
+    {
+        ArgumentNullException.ThrowIfNull(flames);
+        ArgumentNullException.ThrowIfNull(models);
+
+        int hidden = 0;
+
+        foreach (Flame flame in flames)
+        {
+            foreach (PlacedModel placed in models)
+            {
+                if (!string.Equals(placed.Name, flame.Model, StringComparison.OrdinalIgnoreCase) ||
+                    placed.Stage is not { } stage ||
+                    !placed.Placement.Exists)
+                {
+                    continue;
+                }
+
+                foreach ((int mesh, int submesh) in flame.Cards)
+                {
+                    stage.SetPartVisible(placed.Placement, mesh, submesh, visible: false);
+                    hidden++;
+                }
+            }
+        }
+
+        return hidden;
+    }
+
     /// <summary>Adds a card to a model's flames, or folds it into the one it doubles.</summary>
     private static void Merge(List<Flame> flames, Flame card)
     {
@@ -343,6 +717,12 @@ public static class Flames
                 {
                     Height = MathF.Max(flames[i].Height, card.Height),
                     Width = MathF.Max(flames[i].Width, card.Width),
+
+                    // Both halves, so that hiding the fire hides all of it. The back of a
+                    // card is a separate group with its own texture and a fire drawn as a
+                    // volume with one of the two still standing is a bright rectangle
+                    // through the middle of it.
+                    Cards = [.. flames[i].Cards, .. card.Cards],
                 };
 
                 return;

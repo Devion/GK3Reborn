@@ -107,6 +107,77 @@ public sealed class ParticleTests
     }
 
     [Fact]
+    public void A_fire_hands_the_pass_one_sprite_for_the_flame_itself()
+    {
+        // The fire, as against what rises off it: one sprite per fire, big enough to
+        // contain the plume the shader marches through it, carrying how tall the plume is,
+        // how wide, where in its own cycle it is and which of the three fires it is.
+        var particles = new FlameParticles(
+            [new Flame("te4firetransp", new Vector3(0, 40, 0), 12.6f, 13.2f, true)
+                { Kind = FlameKind.Cauldron }]);
+
+        Particle flame = Assert.Single(
+            particles.Facing(Vector3.Zero), p => p.Shape >= Particle.Fire);
+
+        Assert.Equal(12.6f, flame.Plume.X, 2);
+        Assert.Equal(6.6f, flame.Plume.Y, 2);
+        Assert.Equal((float)FlameKind.Cauldron, flame.Plume.W);
+
+        // Centred on the plume, and wide enough to cover the cylinder it lives in from any
+        // angle: a sprite the size of the fire would clip its own tongues.
+        Assert.Equal(40f, flame.Position.Y, 2);
+        Assert.True(flame.Size > 6.6f, $"the sprite was {flame.Size} across the fire's 6.6");
+    }
+
+    [Fact]
+    public void Two_fires_in_a_room_are_not_at_the_same_point_in_their_cycle()
+    {
+        // Twelve lanterns in CS6 burning in step is the thing that gives a room away, and
+        // the shader has no way of telling them apart: the phase comes off where the fire
+        // stands, so it is the same on every machine and in both backends.
+        var particles = new FlameParticles(
+            [
+                new Flame("cs6_flame01", new Vector3(-25, 62, -344), 3.4f, 2.2f, true),
+                new Flame("cs6_flame02", new Vector3(125, 62, -427), 3.4f, 2.2f, true),
+            ]);
+
+        List<Particle> flames =
+            [.. particles.Facing(Vector3.Zero).Where(p => p.Shape >= Particle.Fire)];
+
+        Assert.Equal(2, flames.Count);
+        Assert.NotEqual(flames[0].Plume.Z, flames[1].Plume.Z);
+    }
+
+    [Fact]
+    public void A_fire_the_room_is_not_drawing_is_not_drawn()
+    {
+        var hidden = new FlameParticles(
+            [new Flame("te6_candles", new Vector3(0, 40, 0), 8f, 4f, Visible: false)]);
+
+        Assert.DoesNotContain(hidden.Facing(Vector3.Zero), p => p.Shape >= Particle.Fire);
+    }
+
+    [Fact]
+    public void The_room_can_be_left_to_draw_its_own_painted_flames()
+    {
+        // What --no-shader-fire asks for, and what the game shipped with. The smoke and the
+        // embers stay: they are not the card's business and never were.
+        var painted = new FlameParticles(
+            [new Flame("te4firetransp", new Vector3(0, 40, 0), 12.6f, 13.2f, true)],
+            volumes: false);
+
+        for (int i = 0; i < 60; i++)
+        {
+            painted.Advance(1f / 60f, Vector3.Zero);
+        }
+
+        IReadOnlyList<Particle> drawn = painted.Facing(Vector3.Zero);
+
+        Assert.DoesNotContain(drawn, p => p.Shape >= Particle.Fire);
+        Assert.NotEmpty(drawn);
+    }
+
+    [Fact]
     public void A_bigger_fire_makes_more_of_it()
     {
         // A chafing dish's sterno against the temple's bowl of fire. It is the whole of
@@ -322,6 +393,81 @@ public sealed class ParticleTests
         (byte r, byte _, byte _) = Pixel(renderer.Render(geometry, 128, 128, Facing()), 64, 64);
 
         Assert.True(r < 80, $"an ember behind the wall drew through it: red was {r}");
+    }
+
+    [Fact]
+    public void A_fire_is_drawn_as_a_volume_over_the_room()
+    {
+        // The fire itself, and not what rises off it. It is the one thing this pass draws
+        // that is a volume rather than a picture on a quad, and the only way to know the
+        // march ran is to read the pixel it left.
+        Assert.SkipUnless(HasDevice(), "no Vulkan device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        geometry.AddTexture("wall", Solid(20, 20, 90));
+        geometry.Add(Wall("wall"));
+
+        Camera camera = Facing();
+
+        renderer.SetParticles(
+            [new Particle(
+                new Vector3(0, 0, -1f),
+                1.4f,
+                Vector4.One,
+                0f,
+                Particle.Fire,
+                new Vector4(2f, 0.5f, 0.4f, 2f))]);
+
+        DecodedImage lit = renderer.Render(geometry, 128, 128, camera);
+
+        (byte r, byte g, byte b) = Pixel(lit, 64, 64);
+
+        Assert.True(r > 100, $"the flame drew nothing: red was {r}");
+        Assert.True(r > b, $"the flame was not warm: {r},{g},{b}");
+
+        // And it is a flame rather than the whole quad: the corners of a square around a
+        // fire are not fire.
+        (byte cornerR, byte _, byte _) = Pixel(lit, 4, 4);
+
+        Assert.True(cornerR < 80, $"the flame filled its own quad: red was {cornerR}");
+    }
+
+    [Fact]
+    public void A_fire_is_drawn_as_a_volume_on_Direct3D_too()
+    {
+        // The march is thirty samples of value noise and a good deal of arithmetic either
+        // side, translated to HLSL by SPIRV-Cross rather than written twice. Whether it
+        // survives that translation is exactly the sort of thing only the picture says.
+        Assert.SkipUnless(HasDirect3D(), "no Direct3D device");
+
+        using var renderer = GK3Reborn.Rendering.Direct3D12.D3D12SceneRenderer.Create();
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        geometry.AddTexture("wall", Solid(20, 20, 90));
+        geometry.Add(Wall("wall"));
+
+        renderer.SetParticles(
+            [new Particle(
+                new Vector3(0, 0, -1f),
+                1.4f,
+                Vector4.One,
+                0f,
+                Particle.Fire,
+                new Vector4(2f, 0.5f, 0.4f, 2f))]);
+
+        DecodedImage lit = renderer.Render(geometry, 128, 128, Facing());
+
+        (byte r, byte g, byte b) = Pixel(lit, 64, 64);
+
+        Assert.True(r > 100, $"the flame drew nothing: red was {r}");
+        Assert.True(r > b, $"the flame was not warm: {r},{g},{b}");
+
+        (byte cornerR, byte _, byte _) = Pixel(lit, 4, 4);
+
+        Assert.True(cornerR < 80, $"the flame filled its own quad: red was {cornerR}");
     }
 
     private static bool HasDirect3D()

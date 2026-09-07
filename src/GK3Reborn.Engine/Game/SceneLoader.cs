@@ -77,6 +77,17 @@ public sealed record LoadedScene(
     internal (Vector3 Minimum, Vector3 Maximum) Bounds { get; init; }
 
     /// <summary>
+    /// Reads one of the game's bitmaps by name, decoded.
+    /// </summary>
+    /// <remarks>
+    /// Here because one thing after the load needs a picture rather than a surface: an open
+    /// flame is measured by how much of its card the artists painted a flame on, and that
+    /// is in the bitmap's alpha and nowhere else. See <see cref="Flame.Paint"/>. Null on a
+    /// scene composed from text alone, which has no archive behind it.
+    /// </remarks>
+    public Func<string, Formats.Bitmaps.DecodedImage?>? Bitmaps { get; init; }
+
+    /// <summary>
     /// The room's own foliage cards that a grown tree stands in for, by surface.
     /// </summary>
     /// <remarks>
@@ -875,6 +886,10 @@ public sealed class SceneLoader
             // What is painted on the room's hit tests, which is the only thing that tells
             // four quads in the same place apart. See ReadHitTestMasks.
             HitTestMasks = ReadHitTestMasks(init, bsp),
+
+            // And a way back to the archive for the one thing after this that wants a
+            // picture rather than a surface. See LoadedScene.Bitmaps.
+            Bitmaps = ReadBitmap,
         };
 
         // The walk boundary, the action files, the soundtracks and the camera shell, all
@@ -982,6 +997,29 @@ public sealed class SceneLoader
             ReadActions(init, request, diagnostics),
             init.Soundtracks(),
             ReadSoundtracks(init, diagnostics));
+    }
+
+    /// <summary>Reads one of the game's bitmaps and decodes it.</summary>
+    /// <param name="texture">Its name, with or without the extension.</param>
+    /// <returns>The decoded image, or null when there is no such bitmap.</returns>
+    /// <remarks>
+    /// The original rather than anything the enhanced packs put in front of it: what asks
+    /// for this wants the shape the artists painted, and a generated texture is the same
+    /// shape at a higher resolution — but only the original is certain to carry GK3's
+    /// magenta key, which is where that shape is written down.
+    /// </remarks>
+    private Formats.Bitmaps.DecodedImage? ReadBitmap(string texture)
+    {
+        if (texture is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        byte[]? bytes = _archives.Read(texture) ?? _archives.Read(texture + ".BMP");
+
+        return bytes is not null && Formats.Bitmaps.BitmapDecoder.CanDecode(bytes)
+            ? Formats.Bitmaps.BitmapDecoder.Decode(bytes, texture)
+            : null;
     }
 
     /// <summary>Builds a camera from one of a scene's own viewpoints.</summary>

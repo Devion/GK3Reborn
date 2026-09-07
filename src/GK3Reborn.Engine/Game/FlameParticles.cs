@@ -61,13 +61,21 @@ public sealed class FlameParticles
     private readonly List<Emitter> _emitters = [];
     private readonly List<Particle> _drawn = [];
     private readonly List<(Flame Fire, string Object, Vector3 Centre)> _glints = [];
+    private readonly bool _volumes;
     private float _clock;
 
     /// <summary>Sets up the emitters for a room's fires.</summary>
     /// <param name="flames">The fires; see <see cref="Flames.In"/>.</param>
-    public FlameParticles(IReadOnlyList<Flame> flames)
+    /// <param name="volumes">
+    /// Whether the fire itself is drawn as a volume. False leaves the room's painted flame
+    /// cards to do it, which is what <c>--no-shader-fire</c> asks for and what the game
+    /// shipped with.
+    /// </param>
+    public FlameParticles(IReadOnlyList<Flame> flames, bool volumes = true)
     {
         ArgumentNullException.ThrowIfNull(flames);
+
+        _volumes = volumes;
 
         foreach (Flame flame in flames)
         {
@@ -77,6 +85,9 @@ public sealed class FlameParticles
 
     /// <summary>How many fires are burning.</summary>
     public int Emitters => _emitters.Count;
+
+    /// <summary>Whether the fires themselves are drawn, and not just what rises off them.</summary>
+    public bool Volumes => _volumes;
 
     /// <summary>
     /// The things lying in the room's fires, which are given a glint of their own.
@@ -195,6 +206,14 @@ public sealed class FlameParticles
         foreach (Emitter emitter in _emitters)
         {
             emitter.Collect(_drawn);
+
+            // And the fire itself, which is the one thing this pass draws that is a volume
+            // rather than a picture. Before the sort, because the smoke a fire makes is in
+            // front of it as often as behind it and the blend cares which.
+            if (_volumes && emitter.Alight)
+            {
+                _drawn.Add(Body(emitter.Flame, _clock));
+            }
         }
 
         _drawn.Sort((a, b) =>
@@ -209,6 +228,61 @@ public sealed class FlameParticles
         }
 
         return _drawn;
+    }
+
+    /// <summary>
+    /// The fire itself, as the sprite the shader marches a plume through.
+    /// </summary>
+    /// <param name="flame">The fire.</param>
+    /// <param name="clock">How long the room has been standing, in seconds.</param>
+    /// <returns>One sprite, big enough to cover the plume from any angle.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The sprite is not the flame.</b> Everything else this pass draws is a picture on
+    /// a quad; this is a quad wide enough to contain a volume, and what is drawn inside it
+    /// is found by marching a ray through burning gas. So the size here is a bound rather
+    /// than a shape — the far corner of the cylinder the plume lives in, from wherever it
+    /// is looked at — and most of the quad draws nothing at all.
+    /// </para>
+    /// <para>
+    /// <b>Where in its own cycle it is is carried, not the clock.</b> Two fires in one room
+    /// have to burn differently or a row of lanterns pulses as one, and the shader has no
+    /// way of telling them apart: the phase comes off where the fire stands, so it is the
+    /// same on every machine and in both backends. See <see cref="Flame.Phase"/>.
+    /// </para>
+    /// </remarks>
+    private static Particle Body(Flame flame, float clock)
+    {
+        // What the shader marches: a cylinder from the foot of the plume to a little over
+        // the top of it, half again as wide, so that the lean and the tongues at the tip
+        // have somewhere to go. See ParticleShaders.
+        //
+        // The plume and not the card. A flame card is nearly always larger than the flame
+        // painted on it — the bar's fire is a quad twenty-four units tall with a low fire
+        // across the bottom third — and reading the card as the fire puts a bonfire in a
+        // fireplace. See Flame.Paint.
+        // Half the plume below the middle and three quarters above it: the shader's
+        // cylinder reaches a quarter past the top of the plume so that the flame has room
+        // to lengthen without being cut off at its tip. See ParticleShaders.
+        float lift = flame.Plume * 0.75f;
+        float reach = flame.Radius * 1.5f;
+
+        return new Particle(
+            // The middle of the plume: the shader takes half its height back off to find
+            // the foot again.
+            flame.Foot + new Vector3(0f, flame.Plume / 2f, 0f),
+            MathF.Sqrt((lift * lift) + (reach * reach)) * 1.04f,
+
+            // White, because the colour of a fire is the fire's business and not a tint
+            // laid over it. Kept here so that a room could dim one without a new shape.
+            Vector4.One,
+            0f,
+            Particle.Fire,
+            new Vector4(
+                flame.Plume,
+                flame.Radius,
+                (clock * flame.Churn) + flame.Phase,
+                (float)flame.Kind));
     }
 
     /// <summary>The spark held over something lying in a fire.</summary>

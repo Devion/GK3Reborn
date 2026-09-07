@@ -79,6 +79,7 @@ public sealed unsafe class D3D12ParticlePass : IDisposable
                     new VertexInput(0, Format.FormatR32G32B32A32Float, 0),
                     new VertexInput(1, Format.FormatR32G32B32A32Float, 16),
                     new VertexInput(2, Format.FormatR32G32B32A32Float, 32),
+                    new VertexInput(3, Format.FormatR32G32B32A32Float, 48),
                 ],
                 [new VertexBufferLayout((uint)Marshal.SizeOf<ParticleVertex>())],
                 ShaderLanguage.Glsl,

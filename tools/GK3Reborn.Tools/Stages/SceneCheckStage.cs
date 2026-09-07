@@ -326,7 +326,8 @@ public sealed class SceneCheckStage
         // actually been read: a composed scene knows a fire is named and not what it is
         // painted with, and being painted with fire is the whole of what a flame is.
         if (deep && loaded.Models.Count > 0 &&
-            Flames.In(loaded.Models, tally.Api.Animations) is { Count: > 0 } fires)
+            Flames.In(loaded.Models, tally.Api.Animations, loaded.Bitmaps)
+                is { Count: > 0 } fires)
         {
             tally.Fires[loaded.Name] = Math.Max(tally.Fires.GetValueOrDefault(loaded.Name), fires.Count);
 

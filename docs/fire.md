@@ -3,20 +3,27 @@
 Every fire in Gabriel Knight 3 is one flat quad, always facing the camera, painted with a
 bitmap that a behaviour script cycles through two to eight frames of for as long as the room
 is loaded. It animates and nothing else happens: the light in the room is perfectly steady,
-and nothing rises off it. Both are what make a fire in this game read as a picture of one
-pinned to the air.
+nothing rises off it, and from anywhere but square on it is a picture of a fire seen at an
+angle.
 
-This gives the nine rooms that have a fire in them a light that wavers and smoke and embers
-that leave. Nothing here needs any content built: the fires are found in the models the
-scene already loaded, and a sprite is a disc drawn by arithmetic rather than a bitmap
-somebody has to author.
+The nine rooms that have a fire in them get a light that wavers, smoke and embers that
+leave, and — since 2026-09-07 — **a fire that is a volume of burning gas rather than a
+bitmap**, raymarched through a sprite by the same pass that draws the smoke. The painted
+cards are taken out of the picture when it is on. Nothing here needs any content built: the
+fires are found in the models the scene already loaded, and everything drawn is arithmetic.
 
 ```bash
-# What a room's fires are, and which of its lights waver with them.
+# What a room's fires are, how much of each card is actually painted with flame, and which
+# of the room's lights waver with them.
 GK3Reborn.exe --scene TE4 --timeblock 205P --frames 2 --lights
+#   Fire: 1 flame(s) drawn as burning gas, 1 painted card(s) taken out of the picture
 #   Fire: 1 open flame(s), 0 of the artists' lights wavering with them and 1 lit that had none
-#     flame te4firetransp at -110,39,-213 12.6 tall, swings 25% at 1.3 Hz
+#     flame te4firetransp at -110,39,-213 12.6 tall and 13.2 across, a Cauldron burning
+#     12.6 tall and 13.2 across from y 32.3, swings 25% at 1.3 Hz
 #     light flame:te4firetransp r=6.6 i=1.10 reach=177 flickers 25% about 0
+
+# The game's own painted cards instead, which is what it shipped with.
+GK3Reborn.exe --scene TE4 --timeblock 205P --frames 2 --no-shader-fire
 
 # And across the whole game.
 dotnet run --project tools/GK3Reborn.Tools -- check-scenes --source ../GK3/Data --deep
@@ -48,6 +55,139 @@ back**, so it draws from either side — counted as two, a room gets twice the l
 the smoke. And `TE6_CANDLES` is **five candles in one model**, a hundred units apart, so the
 merge cannot simply be "one model, one fire": cards are merged when they are within two
 units of each other and not otherwise.
+
+## The fire itself
+
+**A flame is drawn as a volume, not as a picture.** One camera-facing sprite per fire, large
+enough to contain the plume, and the fragment stage marches thirty samples along the ray
+through it. What it finds is burning gas: a profile that swells above the fuel and tapers to
+a point, an outline the noise pushes in and out, a temperature that falls with height and
+with distance from the middle, and a colour that runs from a white heart through orange to a
+dull red at the tips.
+
+It costs nothing measurable — 144 fps against 144 in the bar with the fire filling the
+screen, and 145 against 147 in CS6 with twelve of them alight. There are at most twelve
+fires in a room and a fire is small on the screen.
+
+### The three fires
+
+`Flames.KindOf` reads the bitmap and the bitmap is the only evidence there is: the models are
+all the same flat card with the same script over them.
+
+| Kind | Bitmaps | How it burns |
+|---|---|---|
+| `Candle` | `CS5FLAME*` | A teardrop, widest a third of the way up, that moves more than either of the others, with the blue foot of a flame burning clean |
+| `Hearth` | `TE2FIRE*` | A wood fire whose tongues come away from it, leaning as it goes |
+| `Cauldron` | `TE4FIRETRANSP*` | A body of burning fuel that barely has an outline: the most turbulent of the three and the one that goes nowhere |
+
+### The candle moves the most
+
+**Reported as a hanging lantern being "way too static", and the first pass had it exactly
+backwards.** It swayed a fifth as far as the temple's bowl of fire and its shape changed once
+every second and a half. That is the same reading as the flicker of the light, which the rest
+of this document is at pains to get the right way round: a small flame is pushed about by
+every draught in the room and a bonfire takes time to move. What a large fire has instead is
+*turbulence* — it churns violently and goes nowhere.
+
+Three things carry it, and they are separate on purpose:
+
+- **The lean**, `shape.w`, is how far the plume travels sideways. A candle is at 0.70 and the
+  bowl of fire at 0.44. Mostly with the square of the height, because a flame is held where
+  it is fed — but a fifth of it linear, because a draught strong enough to bend the tip of a
+  candle moves the whole of it, and a flame pinned at the wick and waving only at the top is
+  a rubber shape rather than a light.
+- **The breath**, new with it: a flame lengthens and shortens as the fuel reaching its tip
+  varies, which for a candle is most of what the eye reads as movement. Two rates that share
+  no common multiple, scaled by the lean, so it never repeats. The cylinder the march runs
+  through reaches a quarter past the top of the plume to leave room for it.
+- **The churn**, `Flame.Churn`, is how fast all of it happens: `2.6 - 1.7 x Size`, so a
+  candle's shape moves at 2.3 and the bowl of fire's at 0.9.
+
+Turning the *erosion* up instead was tried and is wrong: it makes a candle a thin dagger
+rather than a flame that dances.
+
+### A card is bigger than the flame on it
+
+**This is the number that decides whether a room gets its own fire or somebody else's.** The
+bar's fire is a quad twenty-four units tall with a low fire painted across the bottom third
+of it; CS5's lantern flame fills two-thirds of a card twice its own width; TE4's bowl of fire
+fills nearly all of its own. Read the card as the fire and the bar gets a bonfire in its
+fireplace and every lantern in the game gets a column.
+
+So the flame's own bitmap is read and the band of it that carries any flame is measured, in
+its alpha — GK3 marks a texture alpha-tested by its top-left pixel being magenta, and the
+decoder turns that magenta into transparency, so a flame bitmap arrives with nothing wherever
+the flame is not. `Flame.Paint` is that band as fractions of the card, and `Flame.Foot`,
+`Flame.Plume` and `Flame.Radius` are what the shader is given.
+
+**The texture coordinates are negative and have to be wrapped.** A flame card's corners carry
+-0.09 and -0.91 rather than 0.91 and 0.09; the sampler repeats and draws the same texels
+either way. Taken at face value the painted band falls outside the card, `Flame.Plume` comes
+back as the floor of a tenth of a unit, and every fire in the game is an inch tall. A round
+1.0 is left alone, because that is a card's top edge meeting the last row of the bitmap
+rather than the first.
+
+The card's own `Height` and `Width` are untouched by any of this: how far the light swings,
+how fast, and how much smoke there is are all scaled off how big the *fire* is, and the fire
+is as big as the artists drew the card.
+
+### What the march does, and the two things it got wrong first
+
+Both mistakes made a fire that was there and invisible, and both are worth writing down
+because neither shows up as an error anywhere.
+
+**A temperature is not an amount.** The first version multiplied the density in three times —
+once as the density, once through a heat that was itself the density, and once more through
+the colour ramp. A fire came out at a thousandth of the brightness it should have, which
+looked exactly like nothing being drawn at all. Heat has to reach one in the heart of the
+plume whatever is there.
+
+**How much there is decides how brightly it is drawn; it does not decide the colour.** A ray
+through the heart of a bowl of fire crosses ten times as much burning gas as one through a
+tongue at the top. Adding the samples up as they stand blew the heart out to white and left
+everything above the rim of the bowl at nothing. Averaging the samples instead fixed the
+range and destroyed the variation, which is a warm smudge. What works is both: the total is
+saturated through `1 - exp(-x)` and a root, and the colour is divided back out of it, so the
+hue the plume actually had survives and so does the variation through it.
+
+Two more that are smaller and just as invisible:
+
+- **The noise moves the edge of the plume; it does not punch holes through it.** Thresholding
+  noise against a solid profile gives a lump with bites taken out — hard-edged, flat-topped,
+  unmistakably a shape. Displacing the boundary is what gives a flame an outline that is
+  never still.
+- **The noise is taller than it is wide.** Fire is drawn upward by its own heat, so its
+  structure is streaks. Noise at the same scale on every axis reads as boiling cloud.
+
+**A little of the wall behind is taken away.** A fire drawn as pure light over a lit hearth
+adds orange to a beige wall and comes out pale peach. A wood fire is thick with soot and does
+genuinely hide what is behind it; a candle does not, and is left almost wholly additive. It
+goes in the alpha channel, which is what the one blend already means by coverage.
+
+**Where in its cycle a fire is comes off where it stands.** Twelve lanterns in CS6 burning in
+step is the thing that gives a room away, and the shader has no other way of telling them
+apart. From the position rather than from a stream, so it is the same on every machine and in
+both backends.
+
+### The cards go
+
+The card is the 1999 fire, it is opaque where it is lit, and it writes depth — so a fire
+drawn as a volume with its card still standing is a flame with a brown rectangle through the
+middle of it. `Flames.Hide` takes them out.
+
+**By part rather than by model.** A flame is often one group of something larger — a lantern,
+a chafing dish, a candlestick — and hiding the model would take the lantern with it. It also
+has to survive a script: TE6 keeps its candles hidden until somebody lights them, and
+`ShowModel` puts back the model without putting back a part that was switched off separately,
+which is exactly the behaviour wanted. Both halves of a back-to-back card go, or one of them
+is that rectangle.
+
+What it cannot do is take the card out of the traced world: one instance stands for a whole
+model, so a hidden card still occludes a shadow ray — which is what it did while it was being
+drawn, so nothing changed.
+
+`--no-shader-fire` leaves the cards alone and draws no volume, which is the picture the game
+has always drawn.
 
 ## The flicker
 
@@ -174,6 +314,11 @@ not at the object. The object is at the bottom of whatever holds the fire, so a 
 it actually is would be behind the near wall of the bowl as well as behind the flame, and
 the pass tests depth.
 
+**The volume has made this less necessary and not unnecessary.** A fire drawn as burning gas
+is mostly light rather than a surface — its soot hides about a fifth of what is behind it at
+the thickest — so the stone is no longer wholly invisible from the side. It is still a small
+grey pebble at the bottom of a bright bowl, and the glint is kept.
+
 The test for "lying in a fire" is geometric rather than a name: an object smaller than the
 flame is wide, whose middle is inside the flame's footprint and below its top.
 `Flames.Holding` finds **one thing in the whole game** — nothing else among the corpus's 49
@@ -199,7 +344,15 @@ would still have to be drawn after the smoke they are flying through.
 **There is no texture.** A sprite is a disc with a soft edge and, for smoke, two octaves of
 value noise cut out of it — a few lines of arithmetic against a bitmap that would have to be
 authored, packed and shipped. It also means a particle is as sharp as the display is at any
-size, which a 32-pixel puff from 1999 would not be.
+size, which a 32-pixel puff from 1999 would not be. The fire itself is the same argument
+carried one step further: a volume marched through a sprite rather than a picture on one.
+
+**The pass now draws four kinds and one blend still does all of them.** A smoke puff writes
+its own coverage and hides what is behind it, an ember and a bird write nothing and are added
+or take the sky away, and a flame writes the little of the wall its soot hides while adding
+its own light. Which one a sprite is arrives on a single channel, and a fire carries what it
+needs beyond that in a vector of its own — how tall the plume is, how wide, where in its
+cycle it is, and which of the three fires it is.
 
 Depth is **tested and never written**. A puff behind a wall is hidden by it; two puffs in
 front of one another both draw, which is the whole point of blending them, and a sprite that
@@ -208,11 +361,13 @@ from the eye first, because it is blended over what is behind it.
 
 ## What this does not do
 
-**The particles have no motion vectors.** The G-buffer's motion target was written by the
-room and read by the denoiser long before this pass runs, and a smoke sprite has no surface
-to report the movement of. A temporal upscaler therefore sees them as pixels that changed
-without moving and smears them rather than resolving them, so a spark leaves a short trail
-with DLSS or FSR on. The pass is where it is because the alternative is after the upscale,
+**The particles have no motion vectors, and that now includes the fire.** The G-buffer's
+motion target was written by the room and read by the denoiser long before this pass runs,
+and a smoke sprite has no surface to report the movement of. A temporal upscaler therefore
+sees them as pixels that changed without moving and smears them rather than resolving them,
+so a spark leaves a short trail with DLSS or FSR on. A flame does not move, so what it loses
+is sharpness rather than position — the card it replaced was geometry and reported its
+movement like anything else. The pass is where it is because the alternative is after the upscale,
 where there is no depth at the right size to test against and every fire in the game would
 burn through the wall in front of it. Trails behind a spark are the smaller of the two
 faults.
