@@ -489,6 +489,14 @@ once, which happens before the player reaches a room, threw the map's art away a
 drawing the fallback list for the rest of the session. `OverlayPipeline.SetAtlas` swaps the
 sheet in place now and keeps everything else.
 
+**And a picture is found without regard to case.** The markers are stored under the
+archive entry's name, `DM_LHE`, and asked for as `dm_lhe` — the name the retail driving
+layer calls the sprite. The Direct3D backend's list of screen pictures was an ordinal
+dictionary and the Vulkan one was not, so on Direct3D every marker lookup answered nothing;
+a picture that is not found is simply not drawn and no place is offered, which took the
+map's hovering, ringing, naming and clicking with it and left only the column of names.
+`LayeringTests` now checks that both backends declare that store the same way.
+
 `PATHDATA.TXT` is in the archives and describes twenty road junctions with their map
 positions and the roads between them. It is parsed and held; riding the moped along it
 rather than cutting straight there is the next step.

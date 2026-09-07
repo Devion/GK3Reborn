@@ -134,6 +134,19 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     /// <remarks><c>heading=90</c>, and only meaningful beside a <see cref="Position"/>.</remarks>
     public float? Heading { get; init; }
 
+    /// <summary>Whether a model is ground surfacing rather than a thing in the room.</summary>
+    /// <remarks>
+    /// <c>type=decal</c>. Not a 1999 type -- no shipped scene uses it -- and it exists for
+    /// the roads and forecourts the scene dressing lays over a room's floor. A decal is
+    /// drawn and never picked: `ScenePicker` skips it, so a click on a road reaches the
+    /// floor underneath and the player walks there. Without that the surfacing swallows
+    /// every click on it, and the yard becomes ground the player can see and not cross.
+    /// </remarks>
+    /// <param name="model">The line's model.</param>
+    /// <returns>True when the line declares a decal.</returns>
+    public static bool IsDecal(SceneModel? model) =>
+        string.Equals(model?.Type, "decal", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>An animation that puts it into its opening pose.</summary>
     /// <remarks>
     /// <c>initanim=Rc1PlaceLbyDoor</c>. It states where the thing rests rather than being

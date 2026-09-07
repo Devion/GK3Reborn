@@ -220,6 +220,48 @@ public sealed partial class LayeringTests
         Assert.Empty(violations);
     }
 
+    /// <summary>The two backends' stores of the screens' own pictures.</summary>
+    private static readonly string[] PictureStores =
+    [
+        Path.Combine("Rendering", "Direct3D12", "D3D12Renderer.cs"),
+        Path.Combine("Rendering", "Vulkan", "VulkanRenderer.cs"),
+    ];
+
+    [Fact]
+    public void Both_backends_look_a_screen_picture_up_without_regard_to_case()
+    {
+        // Every other name this engine resolves an asset by ignores case, because the
+        // archives and the code that asks them for something do not agree on it: the
+        // driving map's markers are stored under DM_LHE and asked for as dm_lhe. An
+        // ordinal dictionary in one backend answers nothing, and a picture that is not
+        // found is simply not drawn — so every marker vanished on Direct3D, taking the
+        // whole map's hovering and clicking with it, while Vulkan was right.
+        List<string> violations = [];
+
+        foreach (string relative in PictureStores)
+        {
+            string[] declarations =
+            [
+                .. CodeIn(Path.Combine(EngineRoot, relative))
+                    .Where(line => PictureStore().IsMatch(line)),
+            ];
+
+            if (declarations.Length != 1)
+            {
+                violations.Add($"{relative} declares {declarations.Length} picture stores");
+
+                continue;
+            }
+
+            if (!declarations[0].Contains("OrdinalIgnoreCase", StringComparison.Ordinal))
+            {
+                violations.Add($"{relative} looks a picture up with regard to case");
+            }
+        }
+
+        Assert.Empty(violations);
+    }
+
     /// <summary>A file's lines with the comment-only ones dropped.</summary>
     /// <remarks>
     /// Both rules above are about what the engine calls, and this tree explains itself at
@@ -252,4 +294,7 @@ public sealed partial class LayeringTests
 
     [GeneratedRegex(@"\b_?(?<handle>al|alc|cross|dxc|dxgi|d3d12|shaderc|vk)\.Dispose\s*\(\s*\)")]
     private static partial Regex UnloadsANativeLibrary();
+
+    [GeneratedRegex(@"Dictionary<string,\s*int>\s+_pictures\b")]
+    private static partial Regex PictureStore();
 }

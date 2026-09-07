@@ -161,6 +161,10 @@ public sealed class SceneDressingTests
     {
         // A lane follows the ground, so its vertices are the room's own coordinates and a
         // pos would move it off the floor it was draped over.
+        //
+        // And it is a decal, which is what keeps it out of the picker. A road declared
+        // `prop` is the nearest thing the ray meets, `FloorTarget` wants the floor by
+        // name, and the player cannot walk on ground he can plainly see.
         List<(string Model, string Line)> lanes = [.. Added().Where(a => IsSurface(a.Model))];
 
         Assert.NotEmpty(lanes);
@@ -168,7 +172,7 @@ public sealed class SceneDressingTests
         foreach ((string model, string line) in lanes)
         {
             Assert.DoesNotContain("pos=", line, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("type=prop", line, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("type=decal", line, StringComparison.OrdinalIgnoreCase);
         }
     }
 

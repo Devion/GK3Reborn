@@ -341,9 +341,16 @@ SINGLES = [
 # rather than a hairline of daylight showing under a wall.
 SINK = 6.0
 
-# Two units was not enough: the floor rolls more than that between samples, and the grass
-# came up through the car park in patches. Four, with the grids sampled closer together.
-ROAD_LIFT = 4.0
+# How far the surfacing floats above the floor. Two units is about five centimetres, and
+# it matters because actors walk on the *floor* -- the engine knows nothing about this
+# surfacing -- so every unit of lift is a unit the taxi driver stands under the tarmac.
+#
+# It was four for a while, because the floor rolls and the grass came up through the car
+# park. `Ground.highest` fixes that properly by making each quad clear the ground inside
+# its own footprint, so the lift came back down -- twice, to two and then to one, which
+# with the envelope's own margin leaves the taxi driver about four centimetres under the
+# tarmac instead of twelve.
+ROAD_LIFT = 1.0
 
 # And every surface after the first gets a little more, because two of them at the same
 # height fight. The station approach crosses the forecourt apron and a side street joins
@@ -1144,6 +1151,7 @@ def build_road(name, points, width, ground, lift, step=35.0):
     walked.append(points[-1])
 
     verts = []
+    ground_xz = []
     faces = []
 
     for i, (x, z) in enumerate(walked):
@@ -1162,10 +1170,24 @@ def build_road(name, points, width, ground, lift, step=35.0):
 
             # Blender is Z-up and the exporter sends its +Y to the game's -Z.
             verts.append((sx, -sz, height))
+            ground_xz.append((sx, sz))
 
         if i:
             base = (i - 1) * 2
             faces.append((base, base + 1, base + 3, base + 2))
+
+    # The surface is an upper envelope over the floor, not a sample of it: each quad is
+    # raised to clear the highest ground inside its own footprint, and a corner shared with
+    # the next quad takes whichever of the two is higher.
+    for face in faces:
+        corners = [(ground_xz[i][0], ground_xz[i][1]) for i in face]
+        top = ground.highest(corners)
+
+        if top is None:
+            continue
+
+        for i in face:
+            verts[i] = (verts[i][0], verts[i][1], max(verts[i][2], top + lift))
 
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts, [], faces)
@@ -1655,6 +1677,7 @@ def build_apron(name, x0, z0, x1, z1, ground, lift, step=40.0):
     through = max(2, int((z1 - z0) / step) + 1)
 
     verts = []
+    ground_xz = []
     faces = []
 
     for i in range(across):
@@ -1663,11 +1686,22 @@ def build_apron(name, x0, z0, x1, z1, ground, lift, step=40.0):
         for j in range(through):
             z = z0 + (z1 - z0) * j / (through - 1)
             verts.append((x, -z, ground.at(x, z) + lift))
+            ground_xz.append((x, z))
 
     for i in range(across - 1):
         for j in range(through - 1):
             a = i * through + j
             faces.append((a, a + 1, a + through + 1, a + through))
+
+    # An upper envelope, as for the roads.
+    for face in faces:
+        top = ground.highest([ground_xz[i] for i in face])
+
+        if top is None:
+            continue
+
+        for i in face:
+            verts[i] = (verts[i][0], verts[i][1], max(verts[i][2], top + lift))
 
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts, [], faces)
@@ -1887,6 +1921,28 @@ class Ground:
                 best = y
 
         return default if best is None else best
+
+    def highest(self, corners, steps=4):
+        """The highest ground anywhere inside a quad, sampled on a grid.
+
+        Surfacing takes this rather than the height at its own corners. A quad is flat and
+        the floor is not, so a road whose corners sit on the ground dips below it wherever
+        the ground bulges in between -- which showed as grass growing up through the car
+        park and a strip of it across the forecourt.
+        """
+        found = None
+
+        for i in range(steps + 1):
+            for j in range(steps + 1):
+                u, v = i / steps, j / steps
+                x = (corners[0][0] * (1 - u) + corners[1][0] * u) * (1 - v) +                     (corners[3][0] * (1 - u) + corners[2][0] * u) * v
+                z = (corners[0][1] * (1 - u) + corners[1][1] * u) * (1 - v) +                     (corners[3][1] * (1 - u) + corners[2][1] * u) * v
+                y = self.at(x, z, None)
+
+                if y is not None and (found is None or y > found):
+                    found = y
+
+        return found
 
     def off_map(self, x, z):
         """Whether there is no floor under a point at all."""
@@ -2183,7 +2239,7 @@ def main():
             export_glb(road, os.path.join(out, name + ".glb"))
 
         made[name] = os.path.join(out, name + ".glb")
-        road_lines.append(f"append TR1.SIF MODELS model={name}, type=prop\n")
+        road_lines.append(f"append TR1.SIF MODELS model={name}, type=decal\n")
         report.append(f"  {name:22s} {len(road.data.polygons):5d} faces  {label}")
 
     # 9. The placements, with the ground sampled under each one.
@@ -2232,7 +2288,7 @@ def main():
             export_glb(apron, os.path.join(out, name + ".glb"))
 
         made[name] = os.path.join(out, name + ".glb")
-        road_lines.append(f"append TR1.SIF MODELS model={name}, type=prop\n")
+        road_lines.append(f"append TR1.SIF MODELS model={name}, type=decal\n")
         report.append(f"  {name:22s} {len(apron.data.polygons):5d} faces  {label}")
 
     tree_lines = []

@@ -57,7 +57,15 @@ public sealed unsafe class D3D12Renderer : IRenderer
     private Camera? _camera;
     private Overlay? _list;
     private OverlayAtlas? _atlas;
-    private readonly Dictionary<string, int> _pictures = [];
+    /// <summary>The screens' own pictures, by the name they were given.</summary>
+    /// <remarks>
+    /// Without regard to case, like every other name this engine looks a file up by, and
+    /// like the Vulkan backend's own list. An ordinal one here made the driving map's
+    /// markers invisible and unclickable on Direct3D: they are stored under
+    /// <c>DM_LHE</c> — the archive entry's name — and asked for as <c>dm_lhe</c>, the name
+    /// the retail engine's driving layer calls the sprite.
+    /// </remarks>
+    private readonly Dictionary<string, int> _pictures = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _needsRecreate;
     /// <summary>The picture without the interface, kept for frame generation.</summary>

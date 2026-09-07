@@ -48,10 +48,10 @@ append TR1.SIF MODELS model=RBN_CZ_OLD2_01, noun=OTR_BUILDINGS, type=prop, pos={
 append TR1.SIF MODELS model=RBN_CZ_HOUSE1_01, noun=OTR_BUILDINGS, type=prop, pos={569,-19.3,1085}, heading=82
 append TR1.SIF MODELS model=RBN_CZ_OLD3_04, noun=OTR_BUILDINGS, type=prop, pos={584,-24.5,1465}, heading=81
 append TR1.SIF MODELS model=RBN_CZ_COTTAGE_01, noun=OTR_BUILDINGS, type=prop, pos={483,-31.5,1833}, heading=81
-append TR1.SIF MODELS model=RBN_CZ_CROSSING, noun=OTR_BUILDINGS, type=prop, pos={-271,-5.5,-1080}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_CROSSING, noun=OTR_BUILDINGS, type=prop, pos={-271,-8.5,-1080}, heading=0
 append TR1.SIF MODELS model=RBN_CZ_CROSSKEEP, noun=OTR_BUILDINGS, type=prop, pos={150,-8.1,-1230}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_BENCH2, noun=OTR_BUILDINGS, type=prop, pos={1075,23.6,-552}, heading=180
-append TR1.SIF MODELS model=RBN_CZ_BIN, noun=OTR_BUILDINGS, type=prop, pos={1125,25.1,-552}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_BENCH2, noun=OTR_BUILDINGS, type=prop, pos={1075,20.6,-552}, heading=180
+append TR1.SIF MODELS model=RBN_CZ_BIN, noun=OTR_BUILDINGS, type=prop, pos={1125,22.1,-552}, heading=0
 
 [TREES]
 # Foliage cards, and they carry no pos on purpose: each one is authored at
@@ -60,17 +60,17 @@ append TR1.SIF MODELS model=RBN_CZ_BIN, noun=OTR_BUILDINGS, type=prop, pos={1125
 # pass has claimed never consults pos. TR1's own seventeen are built the
 # same way. type=prop matches those seventeen; no noun, because a tree in
 # this room is scenery and has never had one.
-append TR1.SIF MODELS model=RBN_CZ_ROAD01, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD02, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD03, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD04, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD05, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD06, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD07, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD08, type=prop
-append TR1.SIF MODELS model=RBN_CZ_ROAD09, type=prop
-append TR1.SIF MODELS model=RBN_CZ_APRON01, type=prop
-append TR1.SIF MODELS model=RBN_CZ_APRON02, type=prop
+append TR1.SIF MODELS model=RBN_CZ_ROAD01, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD02, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD03, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD04, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD05, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD06, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD07, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD08, type=decal
+append TR1.SIF MODELS model=RBN_CZ_ROAD09, type=decal
+append TR1.SIF MODELS model=RBN_CZ_APRON01, type=decal
+append TR1.SIF MODELS model=RBN_CZ_APRON02, type=decal
 append TR1.SIF MODELS model=RBN_CZ_TREE01, type=prop
 append TR1.SIF MODELS model=RBN_CZ_TREE02, type=prop
 append TR1.SIF MODELS model=RBN_CZ_TREE03, type=prop

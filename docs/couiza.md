@@ -157,6 +157,22 @@ track is the trackbed at about y -9.5 with the ballast and sleepers drawn on top
 road that followed the floor there was buried: it ran up to the rails on one side and
 reappeared on the other with nothing between.
 
+## Surfacing is a decal, and that is an engine change
+
+A road laid over the floor is the nearest thing a click meets, and `SceneInteraction.
+FloorTarget` only walks the player when the pick **is** the floor object by name. So the
+first roads swallowed every click on them: ground the player could see and not cross.
+
+`type=decal` is a new model type — no 1999 scene uses one. It loads a model file like a
+prop, draws like a prop, and `ScenePicker` skips it entirely, so a click passes through to
+the floor underneath. Two lines in `SceneLoader.IsBakedIn` and one guard in the picker.
+
+It also has to float clear of the floor or the two z-fight, and every unit of that is a
+unit the player stands *under* the tarmac: actors walk on the floor and the engine knows
+nothing about this surfacing. The lift is one unit — about two and a half centimetres —
+which with the envelope's own margin leaves the taxi driver four centimetres down. It was
+twelve before the envelope let the lift come down.
+
 ## The houses line the roads
 
 A frontage is a road, a side of it, and how far back to stand: the packer walks the road's

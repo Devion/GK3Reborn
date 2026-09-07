@@ -1308,14 +1308,15 @@ public sealed class SceneLoader
 
     /// <summary>Whether a model refers to geometry inside the BSP rather than a file.</summary>
     /// <remarks>
-    /// Only <c>prop</c> and <c>gasprop</c> load a model file; everything else names an
-    /// object the geometry already contains. Loading a file for those draws the same
-    /// furniture twice, in slightly different places, which reads as z-fighting rather
+    /// Only <c>prop</c>, <c>gasprop</c> and <c>decal</c> load a model file; everything else
+    /// names an object the geometry already contains. Loading a file for those draws the
+    /// same furniture twice, in slightly different places, which reads as z-fighting rather
     /// than as a loading mistake.
     /// </remarks>
     private static bool IsBakedIn(SceneModel model) =>
         !string.Equals(model.Type, "prop", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase);
+        !string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase) &&
+        !SceneModel.IsDecal(model);
 
     /// <summary>Reads the bitmap that says where actors may stand.</summary>
     private WalkBoundary? ReadBoundary(SceneDefinition init, DiagnosticBag diagnostics)

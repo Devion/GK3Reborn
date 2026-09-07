@@ -113,6 +113,15 @@ public sealed class ScenePicker
 
         foreach (PlacedModel placed in scene.Models)
         {
+            // Surfacing is drawn and never picked. A road laid over the floor is the
+            // nearest thing the ray meets, and FloorTarget wants the floor by name -- so
+            // without this a click on the road reaches a nameless prop, nothing happens,
+            // and the player cannot walk on the ground he can see.
+            if (SceneModel.IsDecal(declared.GetValueOrDefault(placed.Name ?? string.Empty)))
+            {
+                continue;
+            }
+
             AddModel(placed);
         }
     }
