@@ -96,14 +96,20 @@ public sealed class OverlayBlendTests
         // it come out right at less than full opacity, so the two have to agree about which
         // of the three is being drawn.
         Assert.Equal(OverlayShaders.PictureOver, OverlayShaders.PictureMode(OverlayBlend.Alpha));
-        Assert.Equal(OverlayShaders.PictureScreen, OverlayShaders.PictureMode(OverlayBlend.Screen));
+
+        // Screen and multiply want the same thing written, and the blend factors are the
+        // whole difference. One branch, so that no run can have its shader take one of them
+        // while its pipeline carries the other: that wrote a factor where a colour belonged
+        // and drew the sigils as flat dark squares the size of their own quads.
+        Assert.Equal(
+            OverlayShaders.PictureBlended, OverlayShaders.PictureMode(OverlayBlend.Screen));
 
         Assert.Equal(
-            OverlayShaders.PictureMultiply, OverlayShaders.PictureMode(OverlayBlend.Multiply));
+            OverlayShaders.PictureBlended, OverlayShaders.PictureMode(OverlayBlend.Multiply));
 
-        // And the fragment stage reads them as the numbers they are.
+        // And the fragment stage reads it as the number it is, once.
         Assert.Contains("draw.picture == 2", OverlayShaders.Fragment, StringComparison.Ordinal);
-        Assert.Contains("draw.picture == 3", OverlayShaders.Fragment, StringComparison.Ordinal);
+        Assert.DoesNotContain("draw.picture == 3", OverlayShaders.Fragment, StringComparison.Ordinal);
     }
 
     [Fact]

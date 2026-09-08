@@ -355,10 +355,12 @@ public sealed unsafe class D3D12Pipeline : IDisposable
             IndependentBlendEnable = false,
         };
 
-        // Screen is S + D(1 - S) and multiply is D * S, both exactly; what makes either
-        // right at less than full opacity is the colour the shader hands them, which is
-        // where the arithmetic is written down. See Shaders.OverlayShaders. Neither
-        // touches the destination's alpha: neither is covering anything.
+        // Both take the same thing from the shader -- the picture faded by its own coverage
+        // -- and these factors are the whole difference between them: screen comes out as
+        // D + aS(1 - D) and multiply as D(1 - a(1 - S)), each exact at any opacity, each
+        // leaving the destination alone where the picture is transparent. See
+        // Shaders.OverlayShaders.PictureBlended. Neither touches the destination's alpha:
+        // neither is covering anything.
         var target = mode switch
         {
             OverlayBlend.Screen => new RenderTargetBlendDesc
@@ -380,7 +382,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
                 BlendEnable = blend,
                 LogicOpEnable = false,
                 SrcBlend = Blend.DestColor,
-                DestBlend = Blend.Zero,
+                DestBlend = Blend.InvSrcAlpha,
                 BlendOp = BlendOp.Add,
                 SrcBlendAlpha = Blend.Zero,
                 DestBlendAlpha = Blend.One,

@@ -110,16 +110,23 @@ under it — so each is a pipeline of its own in each backend, and the display l
 into runs on the blend as well as on the picture. A screen that uses neither, which is every
 screen but this one, still costs exactly the one run it did.
 
-- **Screen** is exact, at any opacity. The state is `(one, one minus source colour)`, which
-  gives `S + D(1 - S)`; the shader writes the colour already faded by its own coverage,
-  which makes that `D + aS(1 - D)` — the screen of the two mixed towards the destination by
-  `a`.
-- **Colour burn** is not reachable. It is `1 - (1 - D) / S`, and no pair of blend factors
+**Both take the same thing from the shader**: the picture already faded by its own
+coverage, `aS`, with the coverage in the alpha. The pair of blend factors is the whole
+difference between them.
+
+- **Screen** is `(one, one minus source colour)`, which gives `aS + D(1 - aS)`, or
+  `D + aS(1 - D)` — the screen of the two mixed towards the destination by `a`. Exact at
+  any opacity, not an approximation.
+- **Colour burn** is not reachable: it is `1 - (1 - D) / S`, and no pair of blend factors
   gives a division. What the sigils use instead is multiply, faded towards leaving the
-  destination alone: the state is `(destination colour, zero)` and the shader writes
-  `1 - a(1 - S)`. At the opacities a sigil is drawn at the two are within a step of each
-  other. At full opacity they are not, which is one more reason nothing here draws at full
-  opacity.
+  destination alone — `(destination colour, one minus source alpha)`, which gives
+  `D·aS + D(1 - a)`, or `D(1 - a(1 - S))`. Also exact.
+
+Both leave the destination *exactly* alone where the picture is transparent, which is the
+property the whole thing turns on, and both get there from the same fragment output. That
+is deliberate: it was two shader branches, and a run whose branch and whose pipeline
+disagreed wrote a **factor** where a **colour** belonged and drew each sigil as a flat dark
+square the size of its own quad. One branch leaves nothing to disagree about.
 
 And a sigil is **not** multiplied in its own colour. The sigils are painted a saturated red
 and the wall they surface in is a saturated red: the wall's green and blue are near nought

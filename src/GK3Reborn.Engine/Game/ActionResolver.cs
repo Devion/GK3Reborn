@@ -151,6 +151,7 @@ public sealed class ActionResolver
                 foreach (NvcAction action in file.Actions)
                 {
                     if (string.Equals(action.Noun, under, StringComparison.OrdinalIgnoreCase) &&
+                        Offerable(action.Verb) &&
                         seen.Add(action.Verb))
                     {
                         verbs.Add(action.Verb);
@@ -168,6 +169,22 @@ public sealed class ActionResolver
 
         return verbs;
     }
+
+    /// <summary>
+    /// Whether a verb is one the player could ever pick, rather than one only a script fires.
+    /// </summary>
+    /// <param name="verb">The verb a rule is written for.</param>
+    /// <returns>True when it belongs on the menu.</returns>
+    /// <remarks>
+    /// Action files write rules under names that are not verbs at all: <c>TIMER_EXP</c> and
+    /// the per-character timers behind it (<c>EMILIO_TIMER</c>, <c>MOSELY_TIMER</c>,
+    /// <c>ESTELLE_TIMER</c>, <c>MAID_TIMER</c>, <c>JEAN_TIMER</c>) fire when a
+    /// <c>SetGameTimer</c> runs out, <c>ENTER</c> when the room loads, <c>WALK</c> when
+    /// somebody steps on a spot. <c>VERBS.TXT</c> lists none of them, and that is the whole
+    /// of the distinction — so a name the file does not list is not offered. Reported as
+    /// Grace answering to "Emilio timer" on a right click.
+    /// </remarks>
+    private bool Offerable(string verb) => Verbs is null || Verbs.Knows(verb);
 
     /// <summary>The noun any rule may be written about, whatever the player clicked.</summary>
     private const string Wildcard = "ANY_OBJECT";

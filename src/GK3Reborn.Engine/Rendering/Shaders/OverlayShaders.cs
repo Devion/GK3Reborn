@@ -18,10 +18,10 @@ public readonly record struct OverlayVertex(Vector2 Position, Vector2 TexCoord, 
 
 /// <summary>What the interface's fragment stage is told, per run of quads.</summary>
 /// <param name="Picture">
-/// Nought for a glyph, and otherwise which of <see cref="OverlayShaders.PictureOver"/>,
-/// <see cref="OverlayShaders.PictureScreen"/> and <see cref="OverlayShaders.PictureMultiply"/>
-/// this run is. The blend state does the combining; this decides what the shader has to
-/// hand the blender to make that state come out right at less than full opacity.
+/// Nought for a glyph, and otherwise <see cref="OverlayShaders.PictureOver"/> or
+/// <see cref="OverlayShaders.PictureBlended"/>. The blend state does the combining; this
+/// decides what the shader has to hand the blender to make that state come out right at
+/// less than full opacity.
 /// </param>
 /// <param name="Pad0">Padding to the vector's alignment.</param>
 /// <param name="Pad1">Padding.</param>
@@ -53,19 +53,32 @@ public static class OverlayShaders
     /// <summary>One of the screens' own pictures, over what is behind it.</summary>
     public const int PictureOver = 1;
 
-    /// <summary>The same, screened onto what is behind it.</summary>
-    public const int PictureScreen = 2;
-
-    /// <summary>The same, multiplied into what is behind it.</summary>
-    public const int PictureMultiply = 3;
+    /// <summary>
+    /// One of the screens' own pictures, screened or multiplied into what is behind it.
+    /// </summary>
+    /// <remarks>
+    /// <b>One value for both, on purpose.</b> Each wants the picture already faded by its
+    /// own coverage — <c>aS</c> — and the pair of blend factors does the rest: screen is
+    /// <c>(one, one minus source colour)</c>, which gives <c>D + aS(1 - D)</c>, and multiply
+    /// is <c>(destination colour, one minus source alpha)</c>, which gives
+    /// <c>D(1 - a(1 - S))</c>. Both leave the destination exactly alone where the picture is
+    /// transparent, which is the property the whole thing turns on.
+    /// <para>
+    /// It was two values and two branches, and the failure that cost was ugly and hard to
+    /// see: a run whose shader took one branch while its pipeline carried the other blend
+    /// wrote a *factor* where a *colour* was wanted, and the sigils came out as flat dark
+    /// squares the size of their own quads. With one branch there is nothing left to
+    /// disagree about.
+    /// </para>
+    /// </remarks>
+    public const int PictureBlended = 2;
 
     /// <summary>Which run kind a blend wants written.</summary>
     /// <param name="blend">How the run is combined with the screen.</param>
     /// <returns>The constant the fragment stage is pushed.</returns>
     public static int PictureMode(OverlayBlend blend) => blend switch
     {
-        OverlayBlend.Screen => PictureScreen,
-        OverlayBlend.Multiply => PictureMultiply,
+        OverlayBlend.Screen or OverlayBlend.Multiply => PictureBlended,
         _ => PictureOver,
     };
 
@@ -139,29 +152,16 @@ public static class OverlayShaders
                 vec3 art = texel.rgb * fragColor.rgb;
                 float cover = fragColor.a * texel.a;
 
-                // Screen, at whatever opacity the quad asked for. The blend state is
-                // (one, one minus source colour), which gives S + D(1 - S); writing the
-                // colour already faded by its own coverage makes that D + aS(1 - D),
-                // which is the screen of the two mixed towards the destination by a.
-                // Exactly Photoshop's Screen at that opacity, not an approximation.
+                // Screened or multiplied, at whatever opacity the quad asked for. Both
+                // want the same thing written: the colour already faded by its own
+                // coverage, with the coverage in the alpha. The pair of blend factors is
+                // what makes one of them a screen and the other a multiply, and neither
+                // touches the destination where the picture is transparent. See
+                // PictureBlended, which is why this is one branch and not two.
                 if (draw.picture == 2)
                 {
                     outColor = vec4(
                         EncodeForDisplay(art * cover, draw.display.xyz), cover);
-
-                    return;
-                }
-
-                // Multiply, likewise: the state is (destination colour, zero), so what is
-                // written is the factor the destination is scaled by. One leaves it alone,
-                // which is why fading the layer out is fading this towards white and not
-                // towards black.
-                if (draw.picture == 3)
-                {
-                    vec3 factor = vec3(1.0) - (cover * (vec3(1.0) - art));
-
-                    outColor = vec4(
-                        EncodeForDisplay(factor, draw.display.xyz), cover);
 
                     return;
                 }

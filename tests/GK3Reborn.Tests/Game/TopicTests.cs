@@ -18,6 +18,7 @@ public sealed class TopicTests
         [VERBS]
         LOOK, up=v_look_std, hover=v_look_hov, type=Normal
         OPEN, up=v_open_std
+        TALK, up=v_talk_std, hover=v_talk_hov, type=Normal
         CLICK, type=Normal
         BLACK_MARKER, up=i_blkmarker_std, hover=i_blkmarker_hov, type=Inventory
         T_INTRODUCE, up=i_intro_std, type=Topic
@@ -268,6 +269,6 @@ public sealed class TopicTests
         Assert.Null(verbs.IconOf("CLICK"));
         Assert.Null(verbs.IconOf("NOT_A_VERB"));
         Assert.Null(verbs.IconOf(null));
-        Assert.Equal(6, verbs.IconCount);
+        Assert.Equal(7, verbs.IconCount);
     }
 }

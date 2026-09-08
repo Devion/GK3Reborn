@@ -115,6 +115,19 @@ public sealed class VerbLibrary
         return string.Concat((lit ? art.Hover : art.Up).ToUpperInvariant(), ".BMP");
     }
 
+    /// <summary>
+    /// Whether the file lists a verb at all.
+    /// </summary>
+    /// <param name="verb">The verb, as an action file writes it.</param>
+    /// <returns>True when <c>VERBS.TXT</c> names it.</returns>
+    /// <remarks>
+    /// An action file writes rules for things the player can never pick — <c>TIMER_EXP</c>,
+    /// <c>EMILIO_TIMER</c>, <c>ENTER</c>, <c>WALK</c> — which scripts and the engine fire by
+    /// name. The only thing separating those from a real verb is that the file does not list
+    /// them, so anything it does not list is not on the menu.
+    /// </remarks>
+    public bool Knows(string? verb) => verb is { Length: > 0 } && _verbs.ContainsKey(verb);
+
     /// <summary>Whether a verb is something to say rather than something to do.</summary>
     /// <param name="verb">The verb.</param>
     /// <returns>True for a topic, recurring or not.</returns>

@@ -100,9 +100,14 @@ public sealed class SceneDressingTests
     [Fact]
     public void EveryEditAppliesToTheRoomItNames()
     {
+        // Both rooms, because the table is one table: CutContent.Open hands out a single
+        // cached instance per switch and its counters are that instance's, so a test that
+        // applies TR1 alone is asking whether 65 edits equals 258 and only passes when
+        // some other test happened to run first and apply RL1 to the same table.
         CutContent table = Dressing();
 
         Apply(table);
+        ApplyRl1(table);
 
         Assert.Equal(0, table.Failed);
         Assert.Equal(table.EditCount, table.Applied);

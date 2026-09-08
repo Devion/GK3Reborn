@@ -662,10 +662,12 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// <param name="blend">How a run is combined with what is already on the screen.</param>
     /// <returns>The attachment state.</returns>
     /// <remarks>
-    /// The shader hands each of these the colour that makes it come out right at less than
-    /// full opacity; <see cref="OverlayShaders"/> carries that arithmetic. Both of the new
-    /// two leave the destination's alpha alone rather than compositing coverage into it:
-    /// neither is covering anything, and the swapchain's alpha is already one.
+    /// The shader writes the same thing for both of the new two -- the picture faded by its
+    /// own coverage -- and these factors are what make one a screen and the other a
+    /// multiply. <see cref="OverlayShaders.PictureBlended"/> carries the arithmetic and the
+    /// reason it is one branch. Both leave the destination's alpha alone rather than
+    /// compositing coverage into it: neither is covering anything, and the swapchain's
+    /// alpha is already one.
     /// </remarks>
     private static PipelineColorBlendAttachmentState Blending(OverlayBlend blend)
     {
@@ -688,12 +690,12 @@ public sealed unsafe class OverlayPipeline : IDisposable
                 ColorWriteMask = Everything,
             },
 
-            // D * S.
+            // D(1 - a(1 - S)), which is D * S faded towards leaving D alone by a.
             OverlayBlend.Multiply => new PipelineColorBlendAttachmentState
             {
                 BlendEnable = true,
                 SrcColorBlendFactor = BlendFactor.DstColor,
-                DstColorBlendFactor = BlendFactor.Zero,
+                DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
                 ColorBlendOp = BlendOp.Add,
                 SrcAlphaBlendFactor = BlendFactor.Zero,
                 DstAlphaBlendFactor = BlendFactor.One,

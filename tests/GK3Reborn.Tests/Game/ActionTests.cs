@@ -1,7 +1,8 @@
-using GK3Reborn.Formats;
+﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Game;
+using GK3Reborn.Game.Actions;
 using GK3Reborn.Sheep;
 using GK3Reborn.UI.Interaction;
 using Xunit;
@@ -252,5 +253,39 @@ public sealed class ActionResolverTests
     {
         ActionResolver resolver = Build(new GameState());
         Assert.Empty(resolver.Resolve("NOT_A_THING"));
+    }
+
+    [Fact]
+    public void The_names_only_a_script_fires_are_not_on_the_menu()
+    {
+        // Real: HAL306P writes GRACE, EMILIO_TIMER and GRACE, TIMER_EXP. A SetGameTimer
+        // running out fires those by name, ENTER fires when the room loads, and VERBS.TXT
+        // lists none of them — which is the whole of what separates them from a verb.
+        // Reported as Grace answering to "Emilio timer" on a right click.
+        var resolver = new ActionResolver(new Gk3SheepApi(new GameState()))
+        {
+            Verbs = VerbLibrary.Parse(
+                """
+                [VERBS]
+                LOOK, up=i_look_std, type=Normal
+                """),
+        };
+
+        resolver.Add(NvcFile.Parse(
+            """
+            GRACE, LOOK,         ALL, script={}
+            GRACE, EMILIO_TIMER, ALL, script={}
+            GRACE, TIMER_EXP,    ALL, script={}
+            SCENE, ENTER,        ALL, script={}
+            """,
+            "TEST.NVC",
+            new DiagnosticBag()));
+
+        Assert.Equal(["LOOK"], resolver.Resolve("GRACE").Select(a => a.LocalizedVerb));
+        Assert.Empty(resolver.Resolve("SCENE"));
+
+        // Still reachable by name, which is how the timer gets to its script at all.
+        Assert.NotNull(resolver.Find("GRACE", "EMILIO_TIMER"));
+        Assert.NotNull(resolver.Find("SCENE", "ENTER"));
     }
 }

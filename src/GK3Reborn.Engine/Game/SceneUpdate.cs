@@ -4182,11 +4182,30 @@ public sealed class SceneUpdate
                 }
             }
 
+            // Where the clip's opening frame stands the character, once the turn is out of
+            // it, against where the model's own rest stands them: the hips across and the
+            // lower sole up. <b>It has to be the same measure Settle takes coming out</b> —
+            // GKActor::SetModelPositionToActorPosition shifts the model by its position less
+            // GetFloorPosition(), and GetFloorPosition is exactly this — because a placement
+            // is a pair of feet on the floor and the two have to cancel.
+            //
+            // Matching the mesh averages instead, as this did, is the same answer only while
+            // a clip opens in the pose the model was built in. `mescemkneelHold` opens
+            // kneeling, and a kneeling average sits a good deal below a standing one, so the
+            // correction lifted the difference: Mesmi bowed at the tomb and spent the rest of
+            // the graveyard scene a foot above the grass. Every clip after it inherited the
+            // height, because Settle wrote it into her placement.
+            if (character is not null &&
+                Actors.Footing.Of(target.Model, character) is { } feet &&
+                Actors.AnimationStart.Standing(clip, 0f, repeat: false, character, turn) is { } opened)
+            {
+                return turn * Matrix4x4.CreateTranslation(feet - opened);
+            }
+
+            // No triads to read, so the body cannot be measured and the mesh groups as a
+            // whole are what is left. Kept for the models CHARACTERS.TXT says nothing about.
             Vector3 rest = Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation));
 
-            // Where the clip's meshes open once the turn is taken out of them, so the
-            // translation that brings them to the model's own rest lands them there and not
-            // where they would have been before the turn.
             Vector3 opens = Average(Enumerable
                 .Range(0, clip.MeshCount)
                 .Select(m => clip.PoseOf(m, 0))
@@ -4357,7 +4376,7 @@ public sealed class SceneUpdate
                     // say about them. Falling through to the ordinary path would rely on the
                     // renderer noticing the size mismatch and dropping the write, which is a
                     // long way from here and silent when it happens.
-                    if (Turn(rig, at) is { } turn)
+                    if (_head.Of(Clip, rig, at, _repeat) is { } turn)
                     {
                             if (pose is { } placed)
                         {
@@ -4395,68 +4414,8 @@ public sealed class SceneUpdate
             }
         }
 
-        /// <summary>The rigid motion a clip is asking a refined head to make.</summary>
-        /// <param name="rig">The head's authored vertices, which is what the clip addresses.</param>
-        /// <param name="at">Which frame, with a fraction of the way to the next.</param>
-        /// <returns>The transform, or null when this clip does not move the head.</returns>
-        private Matrix4x4? Turn(HeadRig rig, float at)
-        {
-            if (_fitsHead is false)
-            {
-                return null;
-            }
-
-            _from.Clear();
-            _to.Clear();
-
-            foreach (int submesh in Clip.ShapedSubmeshes(rig.Mesh))
-            {
-                if (submesh < 0 || submesh >= rig.Rest.Length ||
-                    Clip.ShapeAt(rig.Mesh, submesh, at, _repeat) is not { } shape ||
-                    shape.Count != rig.Rest[submesh].Length)
-                {
-                    continue;
-                }
-
-                // By sample rather than wholesale: the three axis markers every mesh group
-                // carries sit sixty units out and do not move with the head, and a fit that
-                // includes them is decided by them.
-                foreach (int vertex in rig.Sample[submesh])
-                {
-                    _from.Add(rig.Rest[submesh][vertex]);
-                    _to.Add(shape[vertex]);
-                }
-            }
-
-            if (_from.Count < 3)
-            {
-                return null;
-            }
-
-            Matrix4x4? fit = RigidFit.Solve(
-                CollectionsMarshal.AsSpan(_from),
-                CollectionsMarshal.AsSpan(_to),
-                out float residual);
-
-            // Above every model's ninety-ninth percentile but two — ma2 at 8.3% and glb at
-            // 15.5% — and below the frames that are actually somebody's head coming off.
-            const float limit = 0.08f;
-
-            _fitsHead ??= fit is not null && rig.Span > 0f && residual <= limit * rig.Span;
-
-            return _fitsHead is true ? fit : null;
-        }
-
-        /// <summary>
-        /// Whether this clip's head vertices and this model's head are the same head.
-        /// </summary>
-        private bool? _fitsHead;
-
-        /// <summary>Scratch for the head fit, kept so a frame does not allocate.</summary>
-        private readonly List<Vector3> _from = [];
-
-        /// <summary>Scratch for the head fit, kept so a frame does not allocate.</summary>
-        private readonly List<Vector3> _to = [];
+        /// <summary>Reads the head's motion out of the clip, once per clip.</summary>
+        private readonly Actors.HeadMotion _head = new();
     }
 
     /// <summary>The middle of a set of points, or the origin when there are none.</summary>
@@ -4590,6 +4549,9 @@ public sealed class SceneUpdate
         /// <summary>How fast to play it, as a multiple of the authored speed.</summary>
         public float Rate { get; set; } = 1f;
 
+        /// <summary>Reads the head's motion out of the stride, once.</summary>
+        private readonly Actors.HeadMotion _head = new();
+
         /// <summary>Finds the stride a character walks with.</summary>
         /// <returns>The cycle, or null when this character has no walk animation here.</returns>
         public static WalkCycle? For(
@@ -4688,9 +4650,38 @@ public sealed class SceneUpdate
 
             for (int mesh = 0; mesh < _clip.MeshCount; mesh++)
             {
-                if (_clip.PoseAt(mesh, at, cycles: true) is { } pose)
+                Matrix4x4? pose = _clip.PoseAt(mesh, at, cycles: true);
+
+                // The head, exactly as Playing.Pose treats it: a refined head is drawn from
+                // geometry the clip has never heard of, so the clip's vertices are read as a
+                // motion and applied to the mesh rather than written into it. Without this a
+                // walk gave the head its transform track alone — which for a character clip
+                // is a rest pose, the turn of the head living in the vertices — and Emilio
+                // crossed the graveyard with his face pointing back the way he had come.
+                if (_target.Head is { } rig && rig.Mesh == mesh)
                 {
-                    geometry.PoseMesh(_target.Placement, mesh, pose * correction);
+                    if (_head.Of(_clip, rig, at, repeat: true) is { } turn)
+                    {
+                        if (pose is { } placed)
+                        {
+                            geometry.PoseMesh(_target.Placement, mesh, turn * placed * correction);
+                        }
+                        else
+                        {
+                            geometry.TurnMesh(_target.Placement, mesh, turn);
+                        }
+                    }
+                    else if (pose is { } carried)
+                    {
+                        geometry.PoseMesh(_target.Placement, mesh, carried * correction);
+                    }
+
+                    continue;
+                }
+
+                if (pose is { } value)
+                {
+                    geometry.PoseMesh(_target.Placement, mesh, value * correction);
                 }
 
                 foreach (int submesh in _clip.ShapedSubmeshes(mesh))

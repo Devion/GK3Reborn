@@ -139,7 +139,13 @@ public sealed class ActionCaseTests
                 MOSELY, T_THE_BODY, ALL, script={}
                 """);
 
-            resolver.Verbs = VerbLibrary.Parse("[VERBS]\nT_THE_BODY, up=i_body_std, type=Topic");
+            resolver.Verbs = VerbLibrary.Parse(
+                """
+                [VERBS]
+                TALK, up=i_talk_std, type=Normal
+                Z_CHAT, up=i_chat_std, type=Chat
+                T_THE_BODY, up=i_body_std, type=Topic
+                """);
 
             return resolver;
         }

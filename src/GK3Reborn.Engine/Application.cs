@@ -656,6 +656,11 @@ public static class Application
         // clears the bag first, so this is the start of a new game and nothing else.
         int pockets = Game.StartingItems.Fill(api.State.Inventory);
 
+        // Here rather than only in Opening, because a scene file's [ACTORS], [AMBIENT] and
+        // [MODELS] blocks are each guarded by a condition read at load: what --did says has
+        // happened has to be true before the room decides who is standing in it.
+        Already(args, api);
+
         Log.Info(
             $"Carrying: {pockets} items to begin with, " +
             $"{string.Join(", ", api.State.Inventory.ItemsOf(api.State.Ego))}");
@@ -3432,7 +3437,8 @@ public static class Application
     {
         // Before any of them, because it says what has already happened and an action's
         // case is a question about exactly that. --do BARTENDER:EGG finds no rule at all
-        // until --did EGG has set the flag the rule is written against.
+        // until --did EGG has set the flag the rule is written against. Run a second time
+        // here: the first is before the room is built, for the conditions its own file asks.
         Already(args, api);
 
         // Several, separated by semicolons, because one action is often the setup for the
@@ -3460,6 +3466,25 @@ public static class Application
 
         foreach (string done in already.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
+            // A scene's own [ACTORS] blocks are conditional, and the conditions ask about
+            // game variables and about where somebody is — not about flags. CEM at 306P
+            // puts Emilio and Mesmi in the graveyard only for
+            // IsActorAtLocation("Emilio","CEM") && GetGameVariableInt("EmilioPath") == 10,
+            // so without these two forms the whole of that scene is unreachable headlessly:
+            // --run sets them after the room has already decided who is in it.
+            if (done.Trim().Split('=') is [string variable, string number] &&
+                int.TryParse(number.Trim(), CultureInfo.InvariantCulture, out int value))
+            {
+                api.State.SetVariable(variable.Trim(), value);
+                continue;
+            }
+
+            if (done.Trim().Split('@') is [string who, string where])
+            {
+                api.State.SetActorLocation(who.Trim(), where.Trim());
+                continue;
+            }
+
             switch (done.Trim().Split(':'))
             {
                 case [string noun, string verb, string count]
