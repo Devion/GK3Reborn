@@ -335,6 +335,10 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <param name="width">Initial width in logical pixels.</param>
     /// <param name="height">Initial height in logical pixels.</param>
     /// <param name="graphics">Which API the window will present with.</param>
+    /// <param name="visible">
+    /// Whether to put it on screen at once. False for a window whose first frame is seconds
+    /// away — see <see cref="Show"/>, which is what puts it up.
+    /// </param>
     /// <returns>The window.</returns>
     /// <remarks>
     /// Both kinds of window are windows with no client API — the platform is never asked
@@ -348,13 +352,15 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         string title,
         int width = 1280,
         int height = 720,
-        WindowGraphics graphics = WindowGraphics.Vulkan)
+        WindowGraphics graphics = WindowGraphics.Vulkan,
+        bool visible = true)
     {
         WindowOptions options = WindowOptions.DefaultVulkan with
         {
             Title = title,
             Size = new Vector2D<int>(width, height),
             API = graphics == WindowGraphics.Vulkan ? GraphicsAPI.DefaultVulkan : GraphicsAPI.None,
+            IsVisible = visible,
         };
 
         IWindow window = Window.Create(options);
@@ -365,6 +371,23 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         return created;
     }
+
+    /// <summary>Puts a window opened hidden on screen.</summary>
+    /// <remarks>
+    /// <para>
+    /// For the one window that cannot be shown when it is made: the game's own. A window
+    /// exists before the renderer that draws into it does — the renderer needs a surface to
+    /// be created against — and between the two there is a device to bring up and a set of
+    /// shaders to compile, which on a cold start is seconds. A window shown through that is
+    /// a sheet of white with the game's name on it, because nothing has presented to it yet
+    /// and white is what the desktop paints an unpainted window.
+    /// </para>
+    /// <para>
+    /// So it is made hidden and shown by whoever draws the first frame into it. See
+    /// <c>UI.LoadingScreen</c>. Calling this on a window that is already up does nothing.
+    /// </para>
+    /// </remarks>
+    public void Show() => _window.IsVisible = true;
 
     /// <inheritdoc/>
     public unsafe nint CreateSurface(nint vulkanInstance)

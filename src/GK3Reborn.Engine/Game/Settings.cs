@@ -364,6 +364,32 @@ public sealed record Settings
     public bool Birds { get; init; } = true;
 
     /// <summary>
+    /// Whether the two towns the game modelled a corner of are drawn whole.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// TR1 is called Couiza and written as a town, and what shipped is eleven boxes on open
+    /// grass; RL1 is Rennes-les-Bains, and what shipped is eight buildings along one street
+    /// with nothing behind them. This adds the rest — facades, walls, roads, ground and
+    /// foliage — out of the masonry kit the game already carries, outside the walk bitmap
+    /// and outside the camera's shell, so nothing that shipped is moved or repainted. See
+    /// <c>Content.SceneDressing</c> and <c>Assets/Story/Dressing.txt</c>.
+    /// </para>
+    /// <para>
+    /// One row for both towns rather than one each. They are installed separately and the
+    /// engine checks for them separately — a workspace half way through a rebuild of one
+    /// still has the other — but somebody switching this off is asking for the 1999
+    /// skyline, and that is one decision rather than two.
+    /// </para>
+    /// <para>
+    /// Off, both rooms are exactly the rooms the game shipped, whatever is installed. On
+    /// with nothing installed it is already off in effect, and the log says which of the
+    /// two it is.
+    /// </para>
+    /// </remarks>
+    public bool RebuiltTowns { get; init; } = true;
+
+    /// <summary>
     /// Whether a room's own objects are drawn from improved geometry where any has been
     /// built for them.
     /// </summary>

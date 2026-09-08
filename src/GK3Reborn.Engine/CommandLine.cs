@@ -135,6 +135,8 @@ public static class CommandLine
           --no-card-shadows     Thick cards cast no shadow.
           --no-cull             Draw both sides of every room surface.
           --no-birds            No birds render in the sky.
+          --no-towns            Couiza and Rennes-les-Bains as the game shipped them.
+          --towns               Build both towns out, whatever the setting says.
           --no-shader-fire      Draw the game's painted flame cards instead of fire.
           --no-sun              No synthesized sun outdoors.
           --real-light          Light rooms from real sources only. Some get darker.

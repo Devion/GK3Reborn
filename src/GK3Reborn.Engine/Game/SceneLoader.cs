@@ -378,6 +378,97 @@ public sealed class SceneLoader
     /// </remarks>
     public Action? Progress { get; set; }
 
+    /// <summary>
+    /// How much of the room has been read, from nought to one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read by whatever <see cref="Progress"/> was given, so that a load which turns out to
+    /// be slow can be drawn as a bar rather than as a still picture. See
+    /// <c>UI.LoadingScreen</c>.
+    /// </para>
+    /// <para>
+    /// <b>The pieces are counted where they can be counted and estimated where they
+    /// cannot.</b> The two scene files, the .BSP and the bake are single calls that are
+    /// either done or not, and what they are worth is the share of a cold load they were
+    /// measured taking; the textures and the props are loops over a list whose length is
+    /// known before the loop starts, and those are a real count of real work. The textures
+    /// are most of a load, so most of the bar is a count rather than a guess.
+    /// </para>
+    /// <para>
+    /// Never goes backwards. An estimate that comes in under is ordinary — a room with no
+    /// sky skips two of these outright — and a bar that shrank is the one thing nobody
+    /// reads as progress.
+    /// </para>
+    /// </remarks>
+    public double Through { get; private set; }
+
+    /// <summary>
+    /// Where each piece of a load ends, as a share of the whole.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Measured off <c>--timings</c> on a cold arrival into a large outdoor room with the
+    /// enhanced packs in the way, which is the load worth drawing a bar for; a warm walk
+    /// through a door is over before the bar is up. They are proportions of that load
+    /// rather than of any particular one, so a room with no sky or no props reaches some of
+    /// them without spending anything, and the bar jumps. That is the honest picture — the
+    /// alternative is a bar paced by a clock, which is a bar that lies on every machine
+    /// except the one it was timed on.
+    /// </para>
+    /// <para>
+    /// The stretch between two of them is filled in by whatever is counting inside it: the
+    /// textures by texture, the props by prop. Everything else is a single call that cannot
+    /// be interrupted, so the bar holds still for its length and then steps.
+    /// </para>
+    /// </remarks>
+    private const double AtSceneFiles = 0.05;
+    private const double AtRoomGeometry = 0.14;
+    private const double AtRoomTextures = 0.55;
+    private const double AtRoomBuilt = 0.62;
+    private const double AtSky = 0.68;
+    private const double AtProps = 0.90;
+    private const double AtActors = 0.97;
+
+    /// <summary>Where the piece of work now running starts and ends on the bar.</summary>
+    private double _from;
+    private double _to;
+
+    /// <summary>Says that the load has reached a milestone, and offers a frame.</summary>
+    /// <param name="through">Which one, as a share of the whole.</param>
+    private void Reached(double through)
+    {
+        _from = _to = through;
+        Through = Math.Max(Through, through);
+        Progress?.Invoke();
+    }
+
+    /// <summary>Says that the work about to run fills a stretch of the bar.</summary>
+    /// <param name="from">Where it starts.</param>
+    /// <param name="to">Where it ends.</param>
+    /// <remarks>
+    /// Nested on purpose. A prop's own slice of the props stretch is set here, and the
+    /// textures that prop turns out to need then divide that slice again — so the bar keeps
+    /// moving through a model with forty textures on it without ever running past the point
+    /// the next prop starts from.
+    /// </remarks>
+    private void Doing(double from, double to)
+    {
+        _from = from;
+        _to = to;
+    }
+
+    /// <summary>Says how far through that stretch the work has got, and offers a frame.</summary>
+    /// <param name="done">How many pieces are finished.</param>
+    /// <param name="count">How many there are. Nought means the stretch is finished.</param>
+    private void Within(int done, int count)
+    {
+        double part = count > 0 ? Math.Clamp(done / (double)count, 0, 1) : 1;
+
+        Through = Math.Max(Through, _from + ((_to - _from) * part));
+        Progress?.Invoke();
+    }
+
     /// <summary>Where the time goes, when somebody is measuring.</summary>
     /// <remarks>
     /// Null unless the caller wants a breakdown, and the stamps cost a stopwatch read
@@ -627,7 +718,7 @@ public sealed class SceneLoader
         // bake — is a quarter of a second on a cold room, which is most of a fade: without
         // this the picture is still whole when the loader first speaks and the fade has
         // nothing left to do but cut.
-        Progress?.Invoke();
+        Reached(0);
 
         // Where this room's trees are, and nowhere else. A loader is meant to be built per
         // scene, but one that was not would carry the last room's trees into this one and
@@ -643,11 +734,11 @@ public sealed class SceneLoader
         SceneDefinition init = ReadDefinition(scene, request, diagnostics);
         Timeline?.Stamp("scene files (.SIF)");
         BecomeEgo(init, request, _log);
-        Progress?.Invoke();
+        Reached(AtSceneFiles / 2);
 
         SceneAssetFile? asset = ReadAsset(scene, timeblock, init, diagnostics);
         Timeline?.Stamp("scene asset (.SCN)");
-        Progress?.Invoke();
+        Reached(AtSceneFiles);
 
         string bspName = asset?.BspName ?? scene;
 
@@ -679,16 +770,16 @@ public sealed class SceneLoader
         // large outdoor room and neither can be interrupted, so this is the only place a
         // frame fits — and without it the fade takes a third of itself in one step.
         Timeline?.Stamp("read .BSP");
-        Progress?.Invoke();
+        Reached(AtSceneFiles + ((AtRoomGeometry - AtSceneFiles) / 3));
 
         BspFile bsp = supplied ?? BspFile.Parse(bspBytes!, bspName + ".BSP");
         Timeline?.Stamp("parse .BSP");
         _log?.Invoke($"geometry: {bspName}.BSP, {bsp.TriangleCount} triangles, {bsp.Surfaces.Count} surfaces");
-        Progress?.Invoke();
+        Reached(AtSceneFiles + (2 * (AtRoomGeometry - AtSceneFiles) / 3));
 
         MulFile? lightmaps = ReadLightmaps(asset?.Name, scene, timeblock, diagnostics);
         Timeline?.Stamp("lightmaps (.MUL)");
-        Progress?.Invoke();
+        Reached(AtRoomGeometry);
 
         if (lightmaps is not null && lightmaps.Lightmaps.Count != bsp.Surfaces.Count)
         {
@@ -755,6 +846,9 @@ public sealed class SceneLoader
             }
         }
 
+        // The longest single stretch of a cold load, and the one that can be counted: the
+        // list of names is in hand before a byte of it is read. See Through.
+        Doing(AtRoomGeometry, AtRoomTextures);
         LoadTextures(geometry, bsp.Surfaces.Select(s => s.TextureName), bspName, diagnostics);
         Timeline?.Stamp("room textures");
 
@@ -795,7 +889,7 @@ public sealed class SceneLoader
         // The four long stretches with nothing in them to offer a frame of their own: the
         // room's own batches above, and the sky, the horizon and the woods below. Each is
         // one call that can run for a hundred milliseconds or more. See Progress.
-        Progress?.Invoke();
+        Reached(AtRoomBuilt);
 
         // The sun, decided once and used by everything that has to agree with it: the room's
         // rig, and the reconstructed horizon standing behind the sky. It is aimed by the
@@ -821,17 +915,21 @@ public sealed class SceneLoader
         {
             LoadSkybox(geometry, sky, diagnostics);
             Timeline?.Stamp("skybox");
-            Progress?.Invoke();
+            Reached(AtRoomBuilt + ((AtSky - AtRoomBuilt) / 2));
 
             // The reconstructed horizon rides the same choice: the terrain set is named
             // after the sky's own faces, so day and night come free here too.
             LoadTerrain(geometry, sky, sun?.Direction, diagnostics);
             Timeline?.Stamp("terrain horizon");
-            Progress?.Invoke();
+            Reached(AtSky);
         }
 
         ReportDisputedVisibility(init, diagnostics);
 
+        // The other stretch worth counting: the scene file says how many models it
+        // declares before any of them is read. See Through.
+        Reached(AtSky);
+        Doing(AtSky, AtProps);
         List<PlacedModel> placed = PlaceModels(geometry, asset, init, diagnostics);
         Timeline?.Stamp("place models");
 
@@ -850,10 +948,21 @@ public sealed class SceneLoader
         // them are left out.
         PlantWoods(geometry, woods, diagnostics);
         Timeline?.Stamp("plant woods");
-        Progress?.Invoke();
+        Reached(AtProps);
+
+        // The people in the room, and what is left of the bar. They are read the same way
+        // the props were and the textures they want report through the same loop, so the
+        // stretch is handed over rather than sat on: a room with four characters in it
+        // spends real time here.
+        Doing(AtProps, AtActors);
         placed.AddRange(PlaceActors(
             geometry, init, diagnostics, request.State?.LastLocation, request.State?.Timeblock));
         Timeline?.Stamp("place actors");
+
+        // The last of it the loader can speak for. What is left is the sink's: cutting the
+        // floor and building the buffers the room is drawn from, which the caller runs and
+        // which offers frames through the same hook. See Progress.
+        Reached(AtActors);
         _log?.Invoke(
             $"models: {placed.Count} placed, textures: {geometry.TextureCount}" +
             (_enhancedUsed > 0 ? $", {_enhancedUsed} of them enhanced" : string.Empty));
@@ -1536,12 +1645,23 @@ public sealed class SceneLoader
         IReadOnlyList<SceneModel> declared = init.Models();
         List<PlacedModel> placed = [];
 
-        foreach (SceneModel model in declared)
+        // The stretch the whole loop fills, so each model can be given its own slice of it
+        // and the textures that model needs can divide the slice again. Read here because
+        // Doing is about to be called with something narrower. See Through.
+        (double from, double to) = (_from, _to);
+
+        for (int i = 0; i < declared.Count; i++)
         {
+            SceneModel model = declared[i];
+
             // A model whose textures are all resident already reads and uploads without
             // ever reaching the texture loop's own offer, and a room full of those is most
             // of a return trip. See Progress.
-            Progress?.Invoke();
+            Doing(
+                from + ((to - from) * i / declared.Count),
+                from + ((to - from) * (i + 1) / declared.Count));
+
+            Within(0, 1);
 
             if (IsBakedIn(model))
             {
@@ -3482,9 +3602,14 @@ public sealed class SceneLoader
         // costs a fraction of what the offer buys. See Progress.
         const int DecodeBatch = 64;
 
+        // Half the stretch to the decode and half to the upload. Which of the two
+        // dominates depends on the machine and on whether the enhanced set is in the way —
+        // decoding is spread over every core and uploading goes one at a time through the
+        // one queue — so there is no honest constant to prefer, and a bar that runs at two
+        // speeds is better than one that stops for the second half.
         for (int batch = 0; batch < wanted.Count; batch += DecodeBatch)
         {
-            Progress?.Invoke();
+            Within(batch, wanted.Count * 2);
 
             Parallel.For(
                 batch,
@@ -3618,7 +3743,7 @@ public sealed class SceneLoader
             // across every core the machine has, and everything below goes one at a time
             // through the one queue. So this is where a transition gets most of its
             // frames from. See Progress.
-            Progress?.Invoke();
+            Within(wanted.Count + i, wanted.Count * 2);
 
             foreach (Diagnostic diagnostic in bags[i].Items)
             {

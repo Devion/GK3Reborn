@@ -430,6 +430,20 @@ public static class Application
             settings = settings with { FloorReflections = false };
         }
 
+        // And the third: the towns the port builds out where the game left them empty. An
+        // override for this run, written back to nobody's settings file, for the same
+        // reason as the two above — the picture that shows it working is TR1 photographed
+        // with it and without it, one after the other.
+        if (args.Contains("--towns", StringComparer.OrdinalIgnoreCase))
+        {
+            settings = settings with { RebuiltTowns = true };
+        }
+
+        if (args.Contains("--no-towns", StringComparer.OrdinalIgnoreCase))
+        {
+            settings = settings with { RebuiltTowns = false };
+        }
+
         // Content the game shipped with and cannot reach. Off unless asked for, because it
         // is content the developers switched off — a player who did not ask for it should
         // get the game as it was released, and a bug report about a line nobody else hears
@@ -437,15 +451,24 @@ public static class Application
         //
         // Under the override layer on purpose: a file the player put in overrides/ is
         // theirs, and is the one thing this must not rewrite.
-        // Scenery added to a room that shipped without enough of it — the town of Couiza,
-        // so far. Gated on the geometry being installed rather than on a setting, because
-        // a table naming forty models nothing has would place nothing and warn forty
-        // times. See Content/SceneDressing.
-        Content.DressedTowns dressing = SceneDressing.Installed(
+        // Scenery added to a room that shipped without enough of it — Couiza and
+        // Rennes-les-Bains. Two gates, and they are different questions. Whether the
+        // geometry is installed is asked of the disc, once, because a table naming forty
+        // models nothing has would place nothing and warn forty times; whether the player
+        // wants it is asked of the settings at every door, because it is a row on the
+        // Picture page. See Content/SceneDressing.
+        Content.DressedTowns installedTowns = SceneDressing.Installed(
             packsOnly || enhancedDirectory is not { Length: > 0 }
                 ? string.Empty
                 : Beside(enhancedDirectory, "models"),
             packs);
+
+        // What the run starts with. The room loop asks the same question again against
+        // whatever the menu has since been told — see the CutContent.Open below it.
+        Content.DressedTowns Dressed() =>
+            settings.RebuiltTowns ? installedTowns : Content.DressedTowns.None;
+
+        Content.DressedTowns dressing = Dressed();
 
         var restoreDiagnostics = new DiagnosticBag();
         CutContent restored = CutContent.Open(RestorationTier(args, settings), dressing);
@@ -472,9 +495,16 @@ public static class Application
         }
 
         // Said either way, and said here rather than left to be inferred from a fuller
-        // room. The whole gate is "is the geometry installed", so a player wondering why
-        // Couiza is empty should be able to read the answer off the first screen of log.
-        Log.Info(dressing == Content.DressedTowns.None
+        // room. A player wondering why Couiza is empty should be able to read the answer
+        // off the first screen of log — and the two answers are not the same answer: a set
+        // that is not installed and a set that is switched off look identical in the room
+        // and are fixed in completely different places.
+        Log.Info(!settings.RebuiltTowns
+            ? "Scene dressing: switched off, so TR1 and RL1 are the towns the game shipped "
+              + "with" + (installedTowns == Content.DressedTowns.None
+                  ? string.Empty
+                  : " — the geometry for them is installed and unused")
+            : dressing == Content.DressedTowns.None
             ? $"Scene dressing: none — nothing has {SceneDressing.Sentinel}, so TR1 and RL1 "
               + "are the towns the game shipped with"
             : "Scene dressing: " + string.Join(
@@ -610,6 +640,31 @@ public static class Application
 
         window.Resized += (_, _) => renderer.Invalidate();
 
+        // What covers the gaps. Both of them here, at the first moment there is a device to
+        // draw with, and emphatically not further down where they are first used: a window
+        // that has never been presented to shows whatever the desktop last put there, and
+        // everything between this line and the first room is blocking reads. Off a
+        // mechanical disc with the enhanced packs to get through, that was a white
+        // rectangle for the better part of a minute.
+        //
+        // The fade spans two passes of the room loop — the picture is caught at the end of
+        // one and comes back once the next is standing — and the loading screen takes it
+        // over when a load outlasts it. See UI.LoadingScreen.
+        var fade = new Rendering.ScreenFade(window, renderer);
+        var loading = new UI.LoadingScreen(window, renderer, fade);
+
+        // Counted from the launch rather than from here, because the player has been
+        // waiting since they double-clicked: bringing the device up and compiling the
+        // shaders is seconds of a cold start, and it happens before there is anything that
+        // could draw a bar. Judging this load from here would decide it was quick when the
+        // whole of what made it slow had already happened.
+        loading.Begin(Since.Elapsed);
+
+        // And now there is a frame in it, the window goes up. Opened hidden on purpose —
+        // see SilkGameWindow.Show — so what appears is black with a bar on it rather than
+        // the white rectangle an unpainted window is.
+        window.Show();
+
         var diagnostics = new DiagnosticBag();
         SceneRequest request = Playable(archives, sceneName, timeblock);
         Gk3SheepApi api = request.Api ?? new Gk3SheepApi(new GameState());
@@ -688,6 +743,16 @@ public static class Application
                 $"Imported {broughtAcross} save(s) written by the original game");
         }
 
+        // What is left to do before the menu can be drawn, as fractions of the way there.
+        // Hand-placed and roughly even, because the pieces are not comparable to each other
+        // — a sound device that has to be opened, a folder of saves that has to be read,
+        // a typeface that has to be rasterised — and there is nothing to count. What they
+        // are is honest about their own footing: the bar says which of a known list of
+        // steps the game is on, and the list does not change between machines. Anything
+        // slower is the same step taking longer, which is what a bar that has stopped
+        // moving is supposed to mean.
+        loading.At(0.10);
+
         if (request.State is not null)
         {
             Log.Info($"Story: {request.State.Timeblock} in {request.State.Location}");
@@ -705,6 +770,26 @@ public static class Application
         // override, then restored audio in ReBarn, then the legally installed original.
         var sounds = new SoundLibrary(archives, packs);
 
+        // What plays under a load that turns out to be slow. Asked for rather than handed
+        // over, so a machine quick enough never to show the screen never reads it: see
+        // UI.LoadingScreen.Music. NOCTURNEFAST is the game's own — an ambient piece nothing
+        // in the story is attached to, which is what makes it usable somewhere the story is
+        // not running.
+        loading.Sound = audio;
+        loading.Music = () =>
+        {
+            Formats.Audio.WavFile? track = sounds.Read(LoadingMusic);
+
+            // Said once, and only on a run that was slow enough to ask. A loading screen
+            // that is silent because the archives have no such sound is indistinguishable
+            // on screen from one that is silent because the device would not open.
+            Log.Info(track is null
+                ? $"Loading screen: no {LoadingMusic} in the archives, so it is silent"
+                : $"Loading screen: {LoadingMusic} under the bar");
+
+            return track;
+        };
+
         SceneAudio? room = audio is null
             ? null
             : new SceneAudio(sounds, api.Animations, audio);
@@ -712,6 +797,8 @@ public static class Application
         Log.Info(audio is null
             ? "Audio: none, the game runs silent"
             : $"Audio: {audio.DeviceName}");
+
+        loading.At(0.20);
 
         // Movies. The packs hold them, and so does the workspace unless --rebarn says the
         // packs are the whole of the answer — the same rule as every other enhanced kind,
@@ -742,6 +829,8 @@ public static class Application
         // whole of what those two have. Read through the animation library, which reads
         // through the archives, which read through the language pack.
         movies.Subtitles = name => api.Animations?.Read(name);
+
+        loading.At(0.35);
 
         if (movies.Skipping)
         {
@@ -841,6 +930,12 @@ public static class Application
 
         Log.Info($"Interface: {words.Count} phrase(s) from {words.Source}");
 
+        // And in the player's own language from here on. Before this the screen has been
+        // drawing a bar and no word, which is also what it does when the sheet of letters
+        // is not cut yet — see UI.LoadingScreen.
+        loading.Text = words;
+        loading.At(0.55);
+
         if (strings.Count > 0)
         {
             Log.Info($"Names: {strings.Count} from {strings.File}");
@@ -912,6 +1007,8 @@ public static class Application
         // between the Armchair of the Devil and the tower at Blanchefort.
         Binoculars binoculars = Binoculars.Open(archives);
 
+        loading.At(0.70);
+
         // One console for the whole run, not one per room. Its history and its scrollback
         // are the player's working notes, and losing them at every door would make it
         // useless for the one thing it is best at: watching something across a transition.
@@ -928,6 +1025,8 @@ public static class Application
         Log.Info(face is { } chosen
             ? $"Typeface: {chosen.Family}, {chosen.CharacterCount} characters, drawn from outlines"
             : "Typeface: GK3's own bitmap sheets");
+
+        loading.At(0.80);
 
         int wantedGlyph = UI.TextSizing.Sheet(window.FramebufferHeight, settings.TextScale);
 
@@ -977,6 +1076,14 @@ public static class Application
                 : Magnification(atlas.Font, wantedGlyph);
 
             renderer.SetOverlayAtlas(atlas);
+
+            // And the loading screen stops drawing with the block of white it has been
+            // making do with. From here it can write the word as well as the bar; before
+            // here there was no sheet of letters in the game to cut one from, which is
+            // most of what the wait it covers is spent doing. See UI.LoadingScreen.
+            loading.Atlas = atlas;
+            loading.At(0.90);
+
             hud = new GameHud(new Overlay(atlas) { Magnify = magnify })
             {
                 Names = strings,
@@ -1492,6 +1599,13 @@ public static class Application
 
             front.Illustrated = title.Exists;
 
+            // Behind the loading screen from here on, and behind the menu after it. The
+            // wait between pressing New Game and the first room is the longest one in the
+            // game, and a bar over the title art reads as the game starting where a bar
+            // over black reads as the game having gone away.
+            title.Show(renderer);
+            loading.At(0.97);
+
             // Which of them it took, because they are indistinguishable on screen until
             // somebody has actually upscaled the picture — and a run that quietly used the
             // 640x480 original looks exactly like one that used the new one.
@@ -1506,6 +1620,12 @@ public static class Application
             Log.Info(theme.Exists
                 ? $"Theme: {ThemeMusic}, under the menu"
                 : $"Theme: no {ThemeMusic} to play, so the menu is silent");
+
+            // Everything the menu needs is now in hand, so the screen that covered getting
+            // it comes down — over its own third of a second, which is also how long its
+            // music takes to leave. What is under it is the title art the menu is about to
+            // draw its rows over.
+            loading.Done();
 
             void Films(IReadOnlyList<string> which)
             {
@@ -1579,10 +1699,12 @@ public static class Application
             }
             while (asked == FrontEndOutcome.Intro && !window.IsClosing);
 
-            // Neither belongs to the game about to start: the room brings its own sound and
-            // fills the window itself.
+            // The theme does not belong to the game about to start; the picture does, for
+            // a little longer. The room fills the window itself and the backdrop comes down
+            // when it is standing — until then it is what the loading screen's bar is drawn
+            // over, and the alternative is the longest wait in the game spent looking at
+            // black. See UI.LoadingScreen.
             audio?.Silence(theme);
-            renderer.SetBackdrop(null);
 
             // Restoring from the title screen. The save says where the player was, and that
             // is the first room rather than the one the command line asked for. This used to
@@ -1619,18 +1741,17 @@ public static class Application
         // itself knows how to do.
         var finishes = SurfaceFinishes.Empty;
 
-        // What covers the gap between one room and the next. Held outside the loop because
-        // it spans two passes of it: the picture is caught and starts darkening at the end
-        // of one room, and it comes back once the next is standing.
-        var fade = new Rendering.ScreenFade(window, renderer);
-
         while (true)
         {
             // The first frame of the transition, before anything is read. What follows —
             // the material library, the enhanced sets, the packs — is opened before the
             // loader exists to offer frames of its own, and on a cold start it is long
             // enough to eat most of the fade.
-            fade.Tick();
+            //
+            // Beginning here rather than at the loader, for that reason: the clock this
+            // starts is what decides whether the load was slow, and a load whose first half
+            // second went on opening the packs was slow whatever the loader then took.
+            loading.Begin();
 
             // On the way into every room rather than once, because the afternoon the
             // moustache belongs to is reached by walking through a door and can also be
@@ -1725,12 +1846,6 @@ public static class Application
             // enhanced textures, and neither belongs to the next one.
             var loader = new SceneLoader(archives, Log.Info)
             {
-                // What keeps the window drawing while the room is read, and what the
-                // transition's fade is driven by. Only when there is a fade to drive: the
-                // first room of a run is loaded behind the menu or behind nothing at all,
-                // and there is no picture of anywhere to darken. See ScreenFade.
-                Progress = fade.Leaving ? fade.Tick : null,
-
                 // The player's preference, with a command-line override so a screenshot can
                 // be taken of the same room both ways without editing a settings file.
                 SmoothHeads = HeadLevels(args, settings),
@@ -1744,6 +1859,12 @@ public static class Application
                 // a cost with nothing to show for it.
                 Characters = characters,
             };
+
+            // What keeps the window drawing while the room is read: the transition's fade
+            // while it has picture left to remove, and the loading screen after that. Set
+            // here rather than in the initializer because it reads the loader's own account
+            // of how far through it is — see SceneLoader.Through, and UI.LoadingScreen.
+            loader.Progress = () => loading.At(loader.Through);
 
             {
                 // The loose picture layer: the workspace's enhanced set with whatever the
@@ -1828,7 +1949,7 @@ public static class Application
             // turning it on or off in the menu takes effect the next time the player walks
             // into one. The table itself is one per tier for the life of the process, so
             // this costs a dictionary lookup rather than a re-read and a re-apply.
-            CutContent restoring = CutContent.Open(RestorationTier(args, settings), dressing);
+            CutContent restoring = CutContent.Open(RestorationTier(args, settings), Dressed());
             archives.Restoration = restoring.IsEmpty ? null : restoring;
             archives.RestorationDiagnostics = restoring.IsEmpty ? null : restoreDiagnostics;
 
@@ -1967,9 +2088,9 @@ public static class Application
                 Log.Info($"Compressed textures: {sets}");
             }
 
-            fade.Tick();
+            loading.Tick();
 
-            var loading = Stopwatch.StartNew();
+            var read = Stopwatch.StartNew();
 
             // Where the time goes, when somebody asked. Off unless --timings is given: the
             // stamps are cheap, but twenty lines of breakdown at every door is not what
@@ -1989,6 +2110,7 @@ public static class Application
                 }
 
                 audio?.Dispose();
+                loading.Done();
                 fade.Cancel();
                 return 3;
             }
@@ -1997,7 +2119,7 @@ public static class Application
             // idempotent and the renderer calls it again when the scene is set.
             geometry.Finish();
             timeline?.Stamp("upload to device (Finish)");
-            fade.Tick();
+            loading.At(1);
 
             // The room's open flames, and the lights that stand in them. Nine of the
             // corpus's rooms have a fire in them and the other seventy-two get an empty
@@ -2193,7 +2315,7 @@ public static class Application
 
             Log.Info(string.Create(
                 CultureInfo.InvariantCulture,
-                $"Loaded {scene.Name} in {loading.Elapsed.TotalMilliseconds:F0} ms, " +
+                $"Loaded {scene.Name} in {read.Elapsed.TotalMilliseconds:F0} ms, " +
                 $"{geometry.TextureCount} textures resident, {geometry.TexturesReused} reused, " +
                 $"{geometry.TextureDeviceBytes / (1024.0 * 1024):F0} MB of them on the device"));
 
@@ -2762,17 +2884,34 @@ public static class Application
                 Names = strings,
             };
 
-            // The room is standing and about to be drawn, so this is where the two halves
-            // of the transition meet: the picture finishes going out, and the way back is
-            // armed for the room's own loop to run — over a live room rather than over a
-            // still of one, so everything in it is moving while the fade lifts.
+            // The room is standing and about to be drawn, so this is where the three
+            // things that covered the wait finish: the loading screen goes, the picture
+            // finishes going out, and the way back is armed for the room's own loop to run
+            // — over a live room rather than over a still of one, so everything in it is
+            // moving while the fade lifts.
             //
-            // Only when there was something to go out from. The first room of a run is
-            // loaded behind the menu or behind nothing at all, and arming a fade there
-            // would make the first frame of a headless render black.
+            // The loading screen first, because it may be holding the fade's own length for
+            // it: a load that outlasted the fade finished it early and took the screen over,
+            // and Done is what hands the way back over. A load that never showed it costs
+            // nothing here at all.
+            loading.Done();
+
+            // And the fade only when there was something to go out from, and the loading
+            // screen has not already seen it out. The first room of a run is loaded behind
+            // the menu or behind nothing at all, and arming a fade there would make the
+            // first frame of a headless render black.
             if (fade.Leaving)
             {
                 fade.ArriveOver(fade.Black());
+            }
+
+            // And the title art comes down, now that there is a room to put in its place.
+            // Only ever standing on the way into the first room — after that what the
+            // backdrop holds is the photograph the fade took, which the fade takes down
+            // itself.
+            if (first)
+            {
+                renderer.SetBackdrop(null);
             }
 
             if (timeline is not null)
@@ -6016,6 +6155,25 @@ public static class Application
     /// </remarks>
     private const string ThemeMusic = "THEME.WAV";
 
+    /// <summary>What plays under a load slow enough to be worth covering.</summary>
+    /// <remarks>
+    /// The game's own, out of <c>ambient.brn</c>, and chosen because nothing in the story
+    /// is attached to it: the nocturne is room tone rather than a cue, so hearing it
+    /// somewhere the story is not running does not mean anything it should not. See
+    /// <c>UI.LoadingScreen</c>.
+    /// </remarks>
+    private const string LoadingMusic = "NOCTURNEFAST.WAV";
+
+    /// <summary>How long the process has been running.</summary>
+    /// <remarks>
+    /// Started when this class is first touched, which is the first thing the host does.
+    /// What it is for is the loading screen: the first seconds of a cold start are spent
+    /// bringing a graphics device up, and nothing can draw a frame until that is done — so
+    /// "has this been slow" has to be asked of the launch rather than of the first moment
+    /// there was somewhere to draw. See UI.LoadingScreen.
+    /// </remarks>
+    private static readonly Stopwatch Since = Stopwatch.StartNew();
+
     /// <summary>Finds the title art.</summary>
     /// <param name="archives">The game's own.</param>
     /// <param name="enhanced">A higher-resolution set, or null.</param>
@@ -8615,8 +8773,9 @@ public static class Application
     /// <para>
     /// A window is opened for one API and cannot be re-purposed for the other — Vulkan
     /// needs a surface the window has to be created with — so the fallback closes the
-    /// Direct3D window and opens a Vulkan one. Nothing has been drawn into the first, so
-    /// nothing is lost but a flicker.
+    /// Direct3D window and opens a Vulkan one. Nothing has been drawn into the first and
+    /// neither is on screen: both are opened hidden and shown by whoever presents the first
+    /// frame, so the fallback costs nothing visible at all. See SilkGameWindow.Show.
     /// </para>
     /// </remarks>
     private static OpenedRenderer OpenRenderer(
@@ -8631,7 +8790,7 @@ public static class Application
         if (backend == Rendering.RenderBackend.Direct3D12)
         {
             Platform.SilkGameWindow window = Platform.SilkGameWindow.Open(
-                title, width, height, Platform.WindowGraphics.None);
+                title, width, height, Platform.WindowGraphics.None, visible: false);
 
             try
             {
@@ -8665,7 +8824,7 @@ public static class Application
         }
 
         Platform.SilkGameWindow vulkanWindow = Platform.SilkGameWindow.Open(
-            title, width, height, Platform.WindowGraphics.Vulkan);
+            title, width, height, Platform.WindowGraphics.Vulkan, visible: false);
 
         Rendering.Upscaling.Streamline? streamline = null;
 

@@ -108,6 +108,19 @@ public sealed class ScreenFade
     public bool Arriving => _in is not null;
 
     /// <summary>
+    /// Whether the way out has run its whole length and is now presenting black.
+    /// </summary>
+    /// <remarks>
+    /// True only while <see cref="Leaving"/> is: the question is not "is the screen black"
+    /// but "has this fade anything left to do". A load that outlasts the fade leaves it
+    /// here, offering identical black frames for as long as the reading takes — which is
+    /// the point at which something else should be saying how much longer. See
+    /// <c>UI.LoadingScreen</c>.
+    /// </remarks>
+    public bool Faded =>
+        _out is { IsRunning: true } clock && clock.Elapsed.TotalSeconds >= OutSeconds;
+
+    /// <summary>
     /// Holds the last frame the player saw, and starts darkening it.
     /// </summary>
     /// <remarks>

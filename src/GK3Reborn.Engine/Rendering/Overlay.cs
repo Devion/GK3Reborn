@@ -153,6 +153,42 @@ public sealed class OverlayAtlas
     }
 
     /// <summary>
+    /// An atlas with no letters in it: a block of white, and nothing else.
+    /// </summary>
+    /// <returns>The atlas.</returns>
+    /// <remarks>
+    /// <para>
+    /// Every atlas is a font's sheet with a block of white added under it, and the white is
+    /// what makes a solid rectangle possible. This is the block on its own, for the one
+    /// caller that has rectangles to draw before there is a font to draw letters with: the
+    /// loading screen, which exists from the moment the window does and has to say something
+    /// while the archives — and the typeface inside them — are still being read.
+    /// </para>
+    /// <para>
+    /// <see cref="Glyph"/> answers null for every character, so text drawn through it is
+    /// silently nothing rather than a row of blanks. That is the right answer here: the
+    /// caller has a bar to draw and a word it would like to write, and the word is the part
+    /// that can wait.
+    /// </para>
+    /// </remarks>
+    public static OverlayAtlas Blank()
+    {
+        byte[] pixels = new byte[WhiteSize * WhiteSize * 4];
+        Array.Fill(pixels, (byte)255);
+
+        return new OverlayAtlas(
+            new DecodedImage(WhiteSize, WhiteSize, pixels, HasAlpha: true, "overlay-blank"),
+            null,
+
+            // The middle of it. There is nothing else on the sheet to sample by mistake,
+            // but a texel centre is what every other atlas hands out and a rule with one
+            // exception in it is a rule somebody has to remember.
+            new Vector4(0.5f, 0.5f, 0f, 0f),
+            "blank",
+            WhiteSize);
+    }
+
+    /// <summary>
     /// The characters an interface atlas carries whatever the language.
     /// </summary>
     /// <remarks>

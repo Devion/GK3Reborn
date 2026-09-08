@@ -409,6 +409,27 @@ since about 2014 — a GeForce GTX 960M is enough. Ray tracing needs shader mode
 lighting instead. When Direct3D cannot start at all the game says so in the log,
 opens Vulkan instead, and the settings page shows which one is running.
 
+### While it loads
+
+The window is black with a bar in it rather than white. A cold start has a graphics
+device to bring up, a set of shaders to compile, the archives and the enhanced packs to
+open and then a room whose textures are a couple of hundred megabytes — off a mechanical
+disc that is a long time to show nothing — so the window is held back until there is a
+frame to put in it, and a load that passes half a second gets a progress bar, the word,
+and the game's own nocturne fading in under it. A load that beats the half second shows
+none of that. The same screen covers a slow walk through a door, where it takes over from
+the fade between rooms once the fade has run out of picture to remove.
+
+### Rebuilt towns
+
+TR1 is called Couiza and written as a town, and what shipped is eleven boxes on open
+grass; RL1 is Rennes-les-Bains, and what shipped is eight buildings along one street with
+nothing behind them. With the enhanced content installed both are built out — facades,
+walls, roads, ground and foliage, out of the masonry the game already carries, all of it
+outside the walk bitmap and outside the camera's shell, with nothing that shipped moved or
+repainted. **Settings → Picture → Rebuilt towns** turns both back into the rooms the game
+shipped, or `--no-towns` for one run.
+
 ### Upscaling and HDR
 
 Settings → Upscaling offers four: off, the engine's own, FSR and DLSS. The first two need

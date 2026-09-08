@@ -192,6 +192,34 @@ public sealed class FrontEndTests
         Assert.True(front.Settings.TerrainBackdrop);
     }
 
+    /// <summary>
+    /// The two towns the port builds out can be put back the way the game shipped them.
+    /// </summary>
+    /// <remarks>
+    /// One row for both of them. Whether the geometry is <em>installed</em> is a separate
+    /// question asked of the disc — see <c>Content.SceneDressing</c> — and this is the one
+    /// asked of the player, which is why it is on and means nothing at all on an
+    /// installation with no enhanced content in it.
+    /// </remarks>
+    [Fact]
+    public void The_rebuilt_towns_can_be_put_back_the_way_they_shipped()
+    {
+        FrontEnd front = Front();
+
+        Assert.True(front.Settings.RebuiltTowns);
+
+        front.Choose(new MenuAction("towns"));
+        Assert.False(front.Settings.RebuiltTowns);
+
+        // And nothing else on the page moved with it.
+        Assert.True(front.Settings.ModelledTrees);
+        Assert.True(front.Settings.TerrainBackdrop);
+        Assert.True(front.Settings.EnhancedTextures);
+
+        front.Choose(new MenuAction("towns"));
+        Assert.True(front.Settings.RebuiltTowns);
+    }
+
     [Fact]
     public void A_slider_stops_at_both_ends()
     {

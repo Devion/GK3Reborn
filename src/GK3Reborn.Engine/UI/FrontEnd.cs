@@ -944,11 +944,19 @@ public sealed class FrontEnd
                 Text.Say("picture.birds", "Birds in the sky"),
                 Settings.Birds),
 
+            // One row for two towns. They are installed separately and the engine checks
+            // for them separately, but somebody switching this off is asking for the 1999
+            // skyline and that is one decision rather than two. See Settings.RebuiltTowns.
+            Toggle(
+                "towns",
+                Text.Say("picture.towns", "Rebuilt towns"),
+                Settings.RebuiltTowns),
+
             // The one thing in this group a player cannot see for themselves: the room
             // standing round them was built from whichever set was chosen when it loaded,
             // and rebuilding it here would mean reloading the scene underneath them.
             MenuItem.Label(
-                Text.Say("picture.detail.note", "These five take effect at the next door.")),
+                Text.Say("picture.detail.note", "These take effect at the next door.")),
         ]);
 
         rows.AddRange(Upscaling());
@@ -1865,6 +1873,7 @@ public sealed class FrontEnd
             "rooms" => Settings with { ImprovedSceneGeometry = !Settings.ImprovedSceneGeometry },
             "rails" => Settings with { ThickCutoutCards = !Settings.ThickCutoutCards },
             "birds" => Settings with { Birds = !Settings.Birds },
+            "towns" => Settings with { RebuiltTowns = !Settings.RebuiltTowns },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "freecamera" => Settings with { FreeCamera = !Settings.FreeCamera },
